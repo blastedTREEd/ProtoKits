@@ -290,7 +290,7 @@ export default function ProjectCard({
   const availableDesignServices = useMemo(() => {
     const dsRates = storeRates?.['design-services'] || {};
     return Object.entries(dsRates)
-      .filter(([key, val]) => val && typeof val === 'object' && val.status === true)
+      .filter(([, val]) => val && typeof val === 'object' && val.status === true)
       .map(([key, val]) => ({
         id: key,
         label: key.split('-').map(w => w.toUpperCase()).join(' '),
@@ -316,7 +316,7 @@ export default function ProjectCard({
       lowestPrice: (estimatedBase > 0 ? estimatedBase : fallbackBase) + serviceCost,
       downpayment: baseDp + serviceCost
     };
-  }, [handlingFee, installmentFee, project?.price, project?.sellPrice, project?.totals?.basePrice, project?.totals?.total, project?.totals?.dp, project?.minDownpayment, transferFee, serviceCost]);
+  }, [handlingFee, installmentFee, transferFee, serviceCost, project]);
   
   const methodLabel = isBlueprint ? (project.method?.name || 'Blueprint') : project.method?.name;
   const showDisclaimer = !project.isFinalized && isSTL;
@@ -404,7 +404,6 @@ export default function ProjectCard({
     setIsModalOpen(true);
   };
 
-  const totals = project.totals || {};
   const details = project.projectDetails || [];
 
   return (
@@ -995,63 +994,72 @@ export default function ProjectCard({
                   </div>
                 </div>
 
-                {/* Footer Actions */}
-                {!isReadOnly && (
-                  <div className={`sm:absolute md:fixed lg:absolute bottom-0 left-0 right-0 w-full p-2 border-t ${isDarkMode ? 'bg-black/80 border-white/10' : 'bg-white/80 border-black/5'} backdrop-blur-md z-[110]`}>
-                    <div className="flex flex-col sm:flex-row md:flex-col lg:flex-row sm:items-center lg:items-center justify-between sm:gap-4 lg:gap-4">
-                      {showManagementActions && (onDelete || onModify) && (
-                        <div className="flex gap-2 flex-1">
-                          {onDelete && (
-                            <button 
-                              onClick={(e) => { e.stopPropagation(); if(window.confirm('Remove this project?')) { onDelete(project.vaultId || project.id); setIsModalOpen(false); } }}
-                              className="w-14 h-14 rounded-full bg-red-600/10 text-red-600 flex items-center justify-center hover:bg-red-600 hover:text-white transition-all active:scale-90 shadow-sm"
-                            >
-                              <Trash2 size={20} strokeWidth={3} />
-                            </button>
-                          )}
-                          {onModify && (
-                            <button 
-                              onClick={(e) => { e.stopPropagation(); onModify(project); setIsModalOpen(false); }}
-                              className="flex-1 py-4 rounded-full bg-neutral-100 dark:bg-white/5 text-neutral-900 dark:text-white font-black italic uppercase text-[12px] tracking-widest flex items-center justify-center gap-2 active:scale-95 group transition-all"
-                            >
-                              <Edit3 size={18} strokeWidth={3} /> Modify
-                            </button>
-                          )}
-                        </div>
-                      )}
-                      
-                      {isAdmin && isAdminView ? (
-                        <button 
-                          onClick={handleToggleProduction}
-                          className={`flex-[1.5] py-4 rounded-full text-white font-black italic uppercase text-[12px] tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 group transition-all ${
-                            canAddToBasket 
-                              ? 'bg-red-600 shadow-red-600/40' 
-                              : 'bg-blue-600 shadow-blue-600/40'
-                          }`}
-                        >
-                          {canAddToBasket ? <Pause size={16} fill="white" /> : <Play size={16} fill="white" />}
-                          {canAddToBasket ? 'Stop Production' : 'Allow Production'}
-                        </button>
-                      ) : (
-                        <button 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (!canAddToBasket || !vaultReadyForBasket) return;
-                            onBasketAction(e, isVault ? { ...project, gdriveLink: fileLink, licenseAcknowledged, selectedDesignService, totals: { ...project.totals, total: String(displayPrice), dp: String(downpayment) } } : { ...project, selectedDesignService, totals: { ...project.totals, total: String(displayPrice), dp: String(downpayment) } });
-                          }}
-                          className={`flex-[1.5] py-4 rounded-full text-white font-black italic uppercase text-[12px] tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 group transition-all ${
-                            !canAddToBasket || !vaultReadyForBasket
-                              ? 'bg-neutral-400 shadow-none cursor-not-allowed opacity-60'
-                              : 'bg-gradient-to-br from-blue-500 to-blue-600 shadow-blue-500/40'
-                          }`}
-                        >
-                          <Plus size={16} strokeWidth={3} />
-                          {!canAddToBasket ? 'Not For Sale' : !vaultReadyForBasket ? 'Link & License Required' : 'Add to Basket'}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
+{/* Footer Actions */}
+{!isReadOnly && (
+  <div className={`absolute bottom-0 left-0 right-0 w-full p-2 border-t ${isDarkMode ? 'bg-black/80 border-white/10' : 'bg-white/80 border-black/5'} backdrop-blur-md z-[110]`}>
+    
+    {/* One-row layout na may 50/50 split */}
+    <div className="flex flex-row items-center gap-2">
+      
+      {/* Management Buttons Group (50% width) */}
+      {showManagementActions && (onDelete || onModify) && (
+        <div className="flex gap-2 w-1/2 shrink-0">
+          {onDelete && (
+            <button 
+              onClick={(e) => { e.stopPropagation(); if(window.confirm('Remove this project?')) { onDelete(project.vaultId || project.id); setIsModalOpen(false); } }}
+              className="w-12 h-12 rounded-full bg-red-600/10 text-red-600 flex items-center justify-center hover:bg-red-600 hover:text-white transition-all active:scale-90 shadow-sm shrink-0"
+            >
+              <Trash2 size={18} strokeWidth={3} />
+            </button>
+          )}
+          {onModify && (
+            <button 
+              onClick={(e) => { e.stopPropagation(); onModify(project); setIsModalOpen(false); }}
+              className="h-12 flex-1 px-2 rounded-full bg-neutral-100 dark:bg-white/5 text-neutral-900 dark:text-white font-black italic uppercase text-[11px] flex items-center justify-center gap-1.5 active:scale-95 transition-all"
+            >
+              <Edit3 size={14} strokeWidth={3} /> 
+              <span className="truncate">Modify</span> 
+            </button>
+          )}
+        </div>
+      )}
+      
+      {/* Primary Action Button (50% width) */}
+      <div className="w-1/2 min-w-0">
+        {isAdmin && isAdminView ? (
+          <button 
+            onClick={handleToggleProduction}
+            className={`w-full h-12 rounded-full text-white font-black italic uppercase text-[12px] tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all ${
+              canAddToBasket ? 'bg-red-600' : 'bg-blue-600'
+            }`}
+          >
+            {canAddToBasket ? <Pause size={16} fill="white" /> : <Play size={16} fill="white" />}
+            <span className="truncate">
+              <span className="hidden sm:inline">{canAddToBasket ? 'Stop ' : 'Allow '}</span>
+              Production
+            </span>
+          </button>
+        ) : (
+          <button 
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!canAddToBasket || !vaultReadyForBasket) return;
+              onBasketAction(e, isVault ? { ...project, gdriveLink: fileLink, licenseAcknowledged, selectedDesignService, totals: { ...project.totals, total: String(displayPrice), dp: String(downpayment) } } : { ...project, selectedDesignService, totals: { ...project.totals, total: String(displayPrice), dp: String(downpayment) } });
+            }}
+            className={`w-full h-12 rounded-full text-white font-black italic uppercase text-[12px] tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all ${
+              !canAddToBasket || !vaultReadyForBasket
+                ? 'bg-neutral-400 opacity-60'
+                : 'bg-gradient-to-br from-blue-500 to-blue-600'
+            }`}
+          >
+            <Plus size={16} strokeWidth={3} />
+            <span className="truncate">{!canAddToBasket ? 'Not For Sale' : !vaultReadyForBasket ? 'Setup Required' : 'Add to Basket'}</span>
+          </button>
+        )}
+      </div>
+    </div>
+  </div>
+)}
               </div>
             </div>
           </div>

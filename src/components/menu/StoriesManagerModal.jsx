@@ -845,7 +845,7 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
             </div>
 
             {/* MAIN CONTENT AREA */}
-            <div className={`${mode === 'list' ? 'p-6 overflow-y-auto scrollbar-thin scrollbar-thumb-neutral-700/50 scrollbar-track-transparent scrollbar-thumb-rounded-full' : 'p-0 md:p-6 overflow-hidden md:overflow-y-auto'} flex-1 min-h-0`}>
+            <div className={`${mode === 'list' ? 'p-6 overflow-hidden md:overflow-y-auto' : 'p-0 md:p-6 overflow-hidden md:overflow-y-auto'} flex-1 min-h-0`}>
               {mode === 'list' ? (
                 <div className="h-full min-h-0 flex flex-col gap-4">
                   {stories && stories.length > 0 ? (
