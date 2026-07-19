@@ -1,0 +1,142 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Add this to index.css */
+@keyframes pulse-blue {
+  0%, 100% { opacity: 1; background-color: var(--color-surface); }
+  50% { opacity: 0.7; background-color: #dbeafe; } /* light-blue-100 */
+}
+
+.animate-pulse-blue {
+  animation: pulse-blue 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+:root {
+  --color-bg: #edecec;       /* Main background light */
+  --color-surface: #eeeded;  /* Cards, Navbar, Stories light */
+  --color-border: #E4E6EB;   /* Divider/Lines light */
+  --color-text-main: #050505; /* Main text light */
+  --color-primary: #0866FF;  /* Snorlax Garage Blue */
+}
+
+.dark {
+  --color-bg: #0B0B0B;       /* Deep Black background */
+  --color-surface: #18191A;  /* Dark Gray Cards */
+  --color-border: #2F3031;   /* Dark Borders */
+  --color-text-main: #E4E6EB; /* Light Text */
+  --color-primary: #2D88FF;  /* Brighter Blue for Dark Mode */
+}
+
+@layer base {
+  body {
+    @apply bg-[var(--color-bg)] text-[var(--color-text-main)] transition-colors duration-500;
+  }
+  
+  /* Hides arrows/spinners in number inputs */
+  .no-spinner::-webkit-inner-spin-button,
+  .no-spinner::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  .no-spinner {
+    -moz-appearance: textfield;
+  }
+}
+
+/* Hide scrollbar but keep functionality */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/*stories animation */
+@keyframes scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-infinite-scroll {
+  display: flex;
+  width: max-content;
+  animation: scroll 180s linear infinite;
+}
+
+.animate-infinite-scroll:hover {
+  animation-play-state
+  : paused;
+}
+
+@layer base {
+  :root {
+    /* Light Mode Tints */
+    --garage-glass-light: rgba(255, 255, 255, 0.7);
+    --garage-border-light: rgba(0, 0, 0, 0.05);
+  }
+}
+
+@keyframes scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-infinite-scroll {
+  display: flex;
+  width: max-content;
+  animation: scroll var(--scroll-speed, 40s) linear infinite;
+}
+
+.animate-infinite-scroll:hover {
+  animation-play-state: paused;
+}
+
+/* Glass effect refinement para sa Light Mode */
+.glass-card {
+  @apply backdrop-blur-xl border transition-all duration-500;
+  background: var(--garage-glass-light);
+  border-color: var(--garage-border-light);
+  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+}
+
+.dark .glass-card {
+  background: rgba(0, 0, 0, 0.4);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+}
+
+:root {
+  /* CONTROL CENTER: Dito mo baguhin ang roundness */
+  --garage-radius: 1.5rem; /* Default: 24px. Gawing 9999px kung gusto mong pill-shaped */
+  --garage-radius-sm: 0.75rem;
+}
+
+/* Glass Refinement para sa Light Mode */
+.glass-nav-light {
+  background: rgba(255, 255, 255, 0.8) !important;
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.03);
+}
+
+.glass-nav-dark {
+  background: rgba(0, 0, 0, 0.6) !important;
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+}
+
+
+
+
+
+/* Para siksik at maganda ang bagsak ng 2-line brand */
+.brand-container {
+  line-height: 0.85;
+  letter-spacing: -0.05em;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (min-width: 640px) and (orientation: landscape) {
+  .responsive-landscape-modal {
+    flex-direction: row;
+  }
+}

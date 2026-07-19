@@ -1,0 +1,406 @@
+import React, { useCallback, useEffect } from 'react';
+import { 
+  User, Phone, Home, Building2, Map, Hash, Navigation, MapPin, Sparkles
+} from 'lucide-react';
+import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-leaflet';
+import { motion } from 'framer-motion';
+
+function ChangeView({ center }) {
+  const map = useMap();
+  useEffect(() => {
+    const currentCenter = map.getCenter();
+    const threshold = 0.0001;
+    if (Math.abs(currentCenter.lat - center[0]) > threshold || Math.abs(currentCenter.lng - center[1]) > threshold) {
+      map.panTo(center);
+    }
+  }, [center, map]);
+  return null;
+}
+
+function MapClickHandler({ onMovePin }) {
+  useMapEvents({
+    click(e) {
+      onMovePin(e.latlng.lat, e.latlng.lng);
+    }
+  });
+  return null;
+}
+
+export default function DynamicShippingForm({
+  requiredFields = [],
+  deliveryData,
+  updateDeliveryData,
+  checkoutData,
+  updateCheckoutData,
+  validationState,
+  setValidationState,
+  addressStatus,
+  setAddressStatus,
+  courierName = 'LBC',
+  isDarkMode = false
+}) {
+  const isRequired = (id) => requiredFields.includes(id);
+
+  const getBranchPrefix = useCallback((courier) => {
+    const cleanCourier = (courier || 'LBC').trim();
+    return `${cleanCourier} Express - `;
+  }, []);
+
+  const handlePhoneFocus = () => {
+    if (!deliveryData.phoneNumber) {
+      updateDeliveryData(prev => ({ ...prev, phoneNumber: '09' }));
+    }
+  };
+
+  const handlePhoneBlur = () => {
+    if (deliveryData.phoneNumber === '09') {
+      updateDeliveryData(prev => ({ ...prev, phoneNumber: '' }));
+    }
+  };
+
+  const handlePhoneChange = (val) => {
+    const cleaned = val.replace(/\D/g, '').slice(0, 11);
+    updateDeliveryData(prev => ({ ...prev, phoneNumber: cleaned }));
+  };
+
+  const capitalizeWords = useCallback((str) => {
+    if (!str) return "";
+    const romanRegex = /^(i|ii|iii|iv|v|vi|vii|viii|ix|x|xi|xii|xiii|xiv|xv|xvi|xvii|xviii|xix|xx)$/i;
+    return str.split(' ').map(word => {
+      if (romanRegex.test(word)) return word.toUpperCase();
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    }).join(' ');
+  }, []);
+
+  const performReverseGeocoding = useCallback(async (lat, lng) => {
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`);
+      const data = await res.json();
+      if (data?.address) {
+        const addr = data.address;
+        return {
+          barangay: addr.barangay || addr.suburb || addr.village || '',
+          city: addr.city || addr.town || addr.municipality || '',
+          province: addr.state || addr.region || '',
+          zipCode: addr.postcode || ''
+        };
+      }
+    } catch (err) {
+      console.error("Reverse geocoding failed", err);
+    }
+    return null;
+  }, []);
+
+  const handlePinMove = useCallback(async (lat, lng) => {
+    updateDeliveryData(prev => ({ ...prev, lat, lng }));
+    setAddressStatus(prev => ({ ...prev, isPinConfirmed: true }));
+
+    const res = await performReverseGeocoding(lat, lng);
+    if (res) {
+      updateDeliveryData(prev => ({
+        ...prev,
+        lat,
+        lng,
+        barangay: res.barangay || prev.barangay,
+        city: res.city || prev.city,
+        province: res.province || prev.province,
+        zipCode: res.zipCode || prev.zipCode
+      }));
+    }
+  }, [performReverseGeocoding, setAddressStatus, updateDeliveryData]);
+
+  const handleZipLookup = useCallback(async (zip) => {
+    if (zip.length === 4) {
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?postalcode=${zip}&country=Philippines&format=json&addressdetails=1`);
+        const data = await res.json();
+        if (data && data.length > 0) {
+          const addr = data[0].address;
+          updateDeliveryData(prev => ({
+            ...prev,
+            barangay: "", 
+            city: addr.city || addr.town || addr.municipality || addr.village || prev.city,
+            province: addr.state || addr.region || prev.province,
+            ...(addressStatus.isPinConfirmed ? {} : {
+              lat: parseFloat(data[0].lat),
+              lng: parseFloat(data[0].lon)
+            })
+          }));
+        }
+      } catch (err) { console.error("ZIP lookup failed", err); }
+    }
+  }, [updateDeliveryData, addressStatus.isPinConfirmed]);
+
+  const handleBranchFocus = () => {
+    const prefix = getBranchPrefix(courierName);
+    updateCheckoutData(prev => ({
+      ...prev,
+      lbcBranch: prev.lbcBranch && prev.lbcBranch.startsWith(prefix) ? prev.lbcBranch : prefix
+    }));
+  };
+
+  const handleBranchChange = (value) => {
+    const prefix = getBranchPrefix(courierName);
+    const branchSuffix = value.startsWith(prefix)
+      ? value.slice(prefix.length)
+      : value.replace(new RegExp(`^${courierName}\\s*(Express)?\\s*-\\s*`, 'i'), '');
+    const normalizedSuffix = capitalizeWords(branchSuffix.toLowerCase());
+    updateCheckoutData(prev => ({
+      ...prev,
+      lbcBranch: normalizedSuffix.trim() ? `${prefix}${normalizedSuffix}` : value.startsWith(prefix) ? prefix : ''
+    }));
+  };
+
+  const handleBranchBlur = () => {
+    updateCheckoutData(prev => {
+      const prefix = getBranchPrefix(courierName);
+      const value = prev.lbcBranch || '';
+      if (!value || value.trim() === prefix.trim()) {
+        return { ...prev, lbcBranch: '' };
+      }
+      const cleanValue = value.replace(new RegExp(`^${prefix}`, 'i'), '').trim();
+      return {
+        ...prev,
+        lbcBranch: cleanValue ? `${prefix}${cleanValue}` : ''
+      };
+    });
+  };
+
+  const inputClass = `w-full pl-10 pr-4 py-2.5 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-600/50 bg-black/5 dark:bg-white/5 text-neutral-900 dark:text-white`;
+
+  return (
+    <div className="space-y-3 animate-in fade-in duration-300 text-left">
+      {/* Row 1: Name */}
+      {isRequired(1) && (
+        <div className="relative">
+          <User className="absolute left-3.5 top-3 text-blue-600" size={16} />
+          <motion.input 
+            whileTap={{ scale: 0.99 }}
+            whileFocus={{ scale: 1.01 }}
+            transition={{ duration: 0.1 }}
+            placeholder="Receiver's Name" 
+            value={deliveryData.receiverName || ''} 
+            onChange={(e) => updateDeliveryData(prev => ({...prev, receiverName: e.target.value}))} 
+            className={inputClass} 
+          />
+        </div>
+      )}
+
+      {/* Row 2: Mobile No. & Zip Code */}
+      {(isRequired(2) || isRequired(5)) && (
+        <div className={`grid gap-2 ${isRequired(2) && isRequired(5) ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          {isRequired(2) && (
+            <div className="relative">
+              <Phone className="absolute left-3.5 top-3 text-blue-600" size={16} />
+              <motion.input 
+                whileTap={{ scale: 0.99 }}
+                whileFocus={{ scale: 1.01 }}
+                transition={{ duration: 0.1 }}
+                placeholder="Mobile No." 
+                value={deliveryData.phoneNumber || ''} 
+                onFocus={handlePhoneFocus} 
+                onBlur={handlePhoneBlur} 
+                onChange={(e) => handlePhoneChange(e.target.value)} 
+                className={`${inputClass} ${deliveryData.phoneNumber && deliveryData.phoneNumber.length > 0 && deliveryData.phoneNumber !== '09' && deliveryData.phoneNumber.length < 11 ? 'border-red-500 !border-2' : ''}`} 
+              />
+            </div>
+          )}
+          {isRequired(5) && (
+            <div className="relative">
+              <Hash className="absolute left-3.5 top-3 text-blue-600" size={16} />
+              <motion.input 
+                whileTap={{ scale: 0.99 }}
+                whileFocus={{ scale: 1.01 }}
+                transition={{ duration: 0.1 }}
+                placeholder="Zip Code" 
+                value={deliveryData.zipCode || ''} 
+                onChange={(e) => { 
+                  const val = e.target.value.replace(/\D/g, '').slice(0, 4); 
+                  updateDeliveryData(prev => ({...prev, zipCode: val})); 
+                  handleZipLookup(val); 
+                }} 
+                className={`${inputClass} ${!validationState.zipCode ? 'border-red-500 !border-2' : ''}`} 
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Row 3: Email */}
+      {isRequired(3) && (
+        <div className="relative">
+          <User className="absolute left-3.5 top-3 text-blue-600" size={16} />
+          <motion.input 
+            whileTap={{ scale: 0.99 }}
+            whileFocus={{ scale: 1.01 }}
+            transition={{ duration: 0.1 }}
+            placeholder="Email Address" 
+            type="email"
+            value={deliveryData.email || ''} 
+            onChange={(e) => updateDeliveryData(prev => ({...prev, email: e.target.value}))} 
+            className={inputClass} 
+          />
+        </div>
+      )}
+
+      {/* Row 3: Courier Branch */}
+      {isRequired(13) && (
+        <div className="relative text-left">
+          <Building2 className="absolute left-3.5 top-3 text-blue-600" size={16} />
+          <motion.input
+            whileTap={{ scale: 0.99 }}
+            whileFocus={{ scale: 1.01 }}
+            transition={{ duration: 0.1 }}
+            placeholder={`${courierName || 'Courier'} Branch`}
+            value={checkoutData.lbcBranch || ''}
+            onFocus={handleBranchFocus}
+            onChange={(e) => handleBranchChange(e.target.value)}
+            onBlur={handleBranchBlur}
+            className={inputClass}
+          />
+        </div>
+      )}
+
+      {/* Row 4: House No. & Street */}
+      {(isRequired(6) || isRequired(7)) && (
+        <div className={`grid gap-2 ${isRequired(6) && isRequired(7) ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          {isRequired(6) && (
+            <div className="relative">
+              <Home className="absolute left-3.5 top-3 text-blue-600" size={16} />
+              <motion.input 
+                whileTap={{ scale: 0.99 }}
+                whileFocus={{ scale: 1.01 }}
+                transition={{ duration: 0.1 }}
+                placeholder="House No." 
+                value={deliveryData.houseNo || ''} 
+                onChange={(e) => updateDeliveryData(prev => ({...prev, houseNo: e.target.value}))} 
+                className={inputClass} 
+              />
+            </div>
+          )}
+          {isRequired(7) && (
+            <div className="relative">
+              <Building2 className="absolute left-3.5 top-3 text-blue-600" size={16} />
+              <motion.input 
+                whileTap={{ scale: 0.99 }}
+                whileFocus={{ scale: 1.01 }}
+                transition={{ duration: 0.1 }}
+                placeholder="Street" 
+                value={deliveryData.houseDetails || ''} 
+                onChange={(e) => updateDeliveryData(prev => ({...prev, houseDetails: capitalizeWords(e.target.value)}))} 
+                className={inputClass} 
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Row 5: Subdivision & Landmark */}
+      {(isRequired(8) || isRequired(4)) && (
+        <div className={`grid gap-2 ${isRequired(8) && isRequired(4) ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          {isRequired(8) && (
+            <div className="relative text-left">
+              <Map className="absolute left-3.5 top-3 text-blue-600" size={16} />
+              <motion.input 
+                whileTap={{ scale: 0.99 }}
+                whileFocus={{ scale: 1.01 }}
+                transition={{ duration: 0.1 }}
+                placeholder="Subdivision / Village (Optional)" 
+                value={deliveryData.subdivision || ''} 
+                onChange={(e) => updateDeliveryData(prev => ({...prev, subdivision: capitalizeWords(e.target.value)}))} 
+                className={inputClass} 
+              />
+            </div>
+          )}
+          {isRequired(4) && (
+            <div className="relative text-left">
+              <Sparkles className="absolute left-3.5 top-3 text-blue-600" size={16} />
+              <motion.input 
+                whileTap={{ scale: 0.99 }}
+                whileFocus={{ scale: 1.01 }}
+                transition={{ duration: 0.1 }}
+                placeholder="Landmark (Optional)" 
+                value={deliveryData.landmark || ''} 
+                onChange={(e) => updateDeliveryData(prev => ({...prev, landmark: capitalizeWords(e.target.value)}))} 
+                className={inputClass} 
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Row 6: Barangay */}
+      {isRequired(9) && (
+        <div className="relative text-left">
+          <MapPin className="absolute left-3.5 top-3 text-blue-600" size={16} />
+          <motion.input 
+            whileTap={{ scale: 0.99 }}
+            whileFocus={{ scale: 1.01 }}
+            transition={{ duration: 0.1 }}
+            placeholder="Barangay" 
+            value={deliveryData.barangay || ''} 
+            onChange={(e) => updateDeliveryData(prev => ({...prev, barangay: capitalizeWords(e.target.value)}))} 
+            className={`${inputClass} ${!validationState.barangay ? 'border-red-500 !border-2' : ''}`} 
+          />
+        </div>
+      )}
+
+      {/* Row 7: City & Province */}
+      {(isRequired(10) || isRequired(11)) && (
+        <div className={`grid gap-2 ${isRequired(10) && isRequired(11) ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          {isRequired(10) && (
+            <div className="relative text-left">
+              <Navigation className="absolute left-3.5 top-3 text-blue-600" size={16} />
+              <motion.input 
+                whileTap={{ scale: 0.99 }}
+                whileFocus={{ scale: 1.01 }}
+                transition={{ duration: 0.1 }}
+                placeholder="City" 
+                value={deliveryData.city || ''} 
+                onChange={(e) => updateDeliveryData(prev => ({...prev, city: capitalizeWords(e.target.value)}))} 
+                className={`${inputClass} ${!validationState.city ? 'border-red-500 !border-2' : ''}`} 
+              />
+            </div>
+          )}
+          {isRequired(11) && (
+            <div className="relative text-left">
+              <MapPin className="absolute left-3.5 top-3 text-blue-600" size={16} />
+              <motion.input 
+                whileTap={{ scale: 0.99 }}
+                whileFocus={{ scale: 1.01 }}
+                transition={{ duration: 0.1 }}
+                placeholder="Province" 
+                value={deliveryData.province || ''} 
+                onChange={(e) => updateDeliveryData(prev => ({...prev, province: capitalizeWords(e.target.value)}))} 
+                className={`${inputClass} ${!validationState.province ? 'border-red-500 !border-2' : ''}`} 
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Map (Field 12) */}
+      {isRequired(12) && addressStatus.isEditingAddress && (
+        <div className="space-y-2 animate-in fade-in zoom-in-95 duration-300">
+          <div className="w-full h-40 rounded-[2rem] overflow-hidden border-2 border-blue-600/30 relative">
+            <MapContainer center={[deliveryData.lat, deliveryData.lng]} zoom={16} style={{ height: '100%', width: '100%' }}>
+              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+              <Marker
+                position={[deliveryData.lat, deliveryData.lng]}
+                draggable={true}
+                eventHandlers={{
+                  dragend: (e) => {
+                    const pos = e.target.getLatLng();
+                    handlePinMove(pos.lat, pos.lng);
+                  }
+                }}
+              />
+              <ChangeView center={[deliveryData.lat, deliveryData.lng]} />
+              <MapClickHandler onMovePin={handlePinMove} />
+            </MapContainer>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

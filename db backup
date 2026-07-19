@@ -1,0 +1,666 @@
+{
+  "stories": [
+    { "id": 1, "value": "#0866FF", "label": "New Arrival", "imageUrl": null },
+    { "id": 2, "value": "#FF4136", "label": "Sale 50%", "imageUrl": null },
+    { "id": 3, "value": "#2ECC40", "label": "Restocked", "imageUrl": null },
+    { "id": 4, "value": "#FFDC00", "label": "Pre-order", "imageUrl": null },
+    { "id": 5, "value": "#B10DC9", "label": "Custom Kit", "imageUrl": null },
+    { "id": 6, "value": "#0074D9", "label": "Blue Switch", "imageUrl": null },
+    { "id": 7, "value": "#FF851B", "label": "Orange Key", "imageUrl": null },
+    { "id": 8, "value": "#39CCCC", "label": "Teal Print", "imageUrl": null },
+    { "id": 9, "value": "#01FF70", "label": "Green Glow", "imageUrl": null },
+    { "id": 10, "value": "#85144b", "label": "Marooned", "imageUrl": null },
+    { "id": 11, "value": "#F012BE", "label": "Fuchsia", "imageUrl": null },
+    { "id": 12, "value": "#AAAAAA", "label": "Gray Scale", "imageUrl": null },
+    { "id": 13, "value": "#3D9970", "label": "Forest", "imageUrl": null },
+    { "id": 14, "value": "#111111", "label": "Black Out", "imageUrl": null },
+    { "id": 15, "value": "#7FDBFF", "label": "Sky Blue", "imageUrl": null },
+    { "id": 16, "value": "#FF4136", "label": "Hot Red", "imageUrl": null },
+    { "id": 17, "value": "#DDDDDD", "label": "Silver", "imageUrl": null },
+    { "id": 18, "value": "#001f3f", "label": "Navy", "imageUrl": null },
+    { "id": 19, "value": "#39CCCC", "label": "Cyan", "imageUrl": null },
+    { "id": 20, "value": "#0866FF", "label": "Last Item", "imageUrl": null }
+  ],
+    "printers": [
+      {
+        "id": "printer-01",
+        "brand": "Creality",
+        "model": "Ender 3 V3 KE",
+        "build_capacity": "220 × 220 × 240",
+        "nozzle_size": "0.4",
+        "wattage": "350",
+        "filament_slots" : 1,
+        "max_temp": "300°C",
+        "status": "Online",
+        "bootuptimeMins": 2,
+        "bedlevellingMins": 6,
+        "homingMins": 2
+      },
+        {
+      "id": "printer-02",
+      "brand": "Creality",
+      "model": "Ender 3 V3 SE",
+      "build_capacity": "220 × 220 × 240",
+      "nozzle_size": "0.4",
+      "wattage": "350",
+      "filament_slots" : 1,
+      "max_temp": "300°C",
+      "status": "Offline",
+      "bootuptimeMins": 2,
+      "bedlevellingMins": 6,
+      "homingMins": 2
+    }
+  ],
+  "filaments": [
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "ORANGE",
+      "colorCode": "#F57C00",
+      "price": 790,
+      "remaining": 0,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": true,
+      "id": "1772873000001"
+    },
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "GREY",
+      "colorCode": "#9E9E9E",
+      "price": 790,
+      "remaining": 0,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": false,
+      "id": "1772873000002"
+    },
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "PINK",
+      "colorCode": "#EC6CB5",
+      "price": 790,
+      "remaining": 0,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": true,
+      "id": "1772873000003"
+    },
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "GOLD",
+      "colorCode": "#D4AF37",
+      "price": 790,
+      "remaining": 0,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": true,
+      "id": "1772873000005"
+    },
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "SILVER",
+      "colorCode": "#C0C0C0",
+      "price": 790,
+      "remaining": 0,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": true,
+      "id": "1772873000006"
+    },
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "TRANSPARENT",
+      "colorCode": "#E8F6FF",
+      "price": 790,
+      "remaining": 0,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": false,
+      "id": "1772873000007"
+    },
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "TRANSPARENT YELLOW",
+      "colorCode": "#FFF176",
+      "price": 790,
+      "remaining": 0,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": false,
+      "id": "1772873000008"
+    },
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "TRANSPARENT BLUE",
+      "colorCode": "#64B5F6",
+      "price": 790,
+      "remaining": 0,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": false,
+      "id": "1772873000009"
+    },
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "TRANSPARENT GREEN",
+      "colorCode": "#66BB6A",
+      "price": 790,
+      "remaining": 0,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": false,
+      "id": "1772873000010"
+    },
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "TRANSPARENT PURPLE",
+      "colorCode": "#B39DDB",
+      "price": 790,
+      "remaining": 0,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": false,
+      "id": "1772873000011"
+    },
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "TRANSPARENT RED",
+      "colorCode": "#FF6B6B",
+      "price": 790,
+      "remaining": 0,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": false,
+      "id": "1772873000012"
+    },
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "TRANSPARENT ORANGE",
+      "colorCode": "#FFA94D",
+      "price": 790,
+      "remaining": 0,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": true,
+      "id": "1772873000013"
+    },
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "MINT GREEN",
+      "colorCode": "#98FFCC",
+      "price": 790,
+      "remaining": 0,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": true,
+      "id": "1772873000014"
+    },
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "LEMON YELLOW",
+      "colorCode": "#FFF44F",
+      "price": 790,
+      "remaining": "745",
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": false,
+      "id": "1772873000015"
+    },
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "SAKURA PINK",
+      "colorCode": "#FFB7C5",
+      "price": 790,
+      "remaining": 0,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": false,
+      "id": "1772873000016"
+    },
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "SKY BLUE",
+      "colorCode": "#87CEEB",
+      "price": 790,
+      "remaining": 0,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": true,
+      "id": "1772873000017"
+    },
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "CHOCOLATE",
+      "colorCode": "#5C3A21",
+      "price": 790,
+      "remaining": 0,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": true,
+      "id": "1772873000018"
+    },
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "VIVID YELLOW",
+      "colorCode": "#FFD600",
+      "price": 790,
+      "remaining": 0,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": false,
+      "id": "1772873000019"
+    },
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "KLEIN BLUE",
+      "colorCode": "#002FA7",
+      "price": 790,
+      "remaining": 0,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": false,
+      "id": "1772873000020"
+    },
+    {
+      "type": "PLA+",
+      "colorName": "PURPLE",
+      "colorCode": "#9148D5",
+      "price": 790,
+      "remaining": 100000,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": false,
+      "brand": "SUNLU",
+      "id": "1772873000021"
+    },
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "MAGENTA",
+      "colorCode": "#FF00A8",
+      "price": 790,
+      "remaining": 0,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": false,
+      "id": "1772873000022"
+    },
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "OAK",
+      "colorCode": "#A67C52",
+      "price": 790,
+      "remaining": 0,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": false,
+      "id": "1772873000023"
+    },
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "OLIVE GREEN",
+      "colorCode": "#708238",
+      "price": 790,
+      "remaining": 0,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": false,
+      "id": "1772873000024"
+    },
+    {
+      "type": "PLA+",
+      "colorName": "CERAMIC",
+      "colorCode": "#E5E5E5",
+      "price": 790,
+      "remaining": 0,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": false,
+      "brand": "SUNLU",
+      "id": "1772873000025"
+    },
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "MIDNIGHT",
+      "colorCode": "#191970",
+      "price": 790,
+      "remaining": 0,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": false,
+      "id": "1772873000026"
+    },
+    {
+      "type": "PLA+",
+      "colorName": "BONE WHITE",
+      "colorCode": "#F9F6EE",
+      "price": 790,
+      "remaining": 0,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": false,
+      "brand": "SUNLU",
+      "id": "1772873000027"
+    },
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "ROASTED CHESTNUT",
+      "colorCode": "#6B3E2E",
+      "price": 790,
+      "remaining": 0,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": true,
+      "id": "1772873000028"
+    },
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "LIGHT GOLD",
+      "colorCode": "#FFD700",
+      "price": 790,
+      "remaining": "35",
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": false,
+      "id": "1772873000029"
+    },
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "CHERRY RED",
+      "colorCode": "#F72B54",
+      "price": 790,
+      "remaining": 220,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": false,
+      "id": "1772873000030"
+    },
+    {
+      "type": "PLA+",
+      "colorName": "SUNNY ORANGE",
+      "colorCode": "#FFA500",
+      "price": 790,
+      "remaining": 1000,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": false,
+      "brand": "SUNLU",
+      "id": "1772873000031"
+    },
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "BLACK",
+      "colorCode": "#212121",
+      "price": 790,
+      "remaining": 580.5,
+      "loadTime": 2,
+      "cleanBuffer": 13,
+      "noSupplier": false,
+      "id": "1772889806449"
+    },
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "COFFEE",
+      "colorCode": "#6F4E37",
+      "price": 790,
+      "remaining": 0,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": false,
+      "id": "1772891485609"
+    },
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "LAVENDER PURPLE",
+      "colorCode": "#B497D6",
+      "price": 790,
+      "remaining": 0,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": false,
+      "id": "1772891534090"
+    },
+    {
+      "type": "PLA+",
+      "brand": "SUNLU",
+      "colorName": "CYAN",
+      "colorCode": "#00BCD4",
+      "price": 790,
+      "remaining": 0,
+      "loadTime": 2,
+      "cleanBuffer": 2,
+      "noSupplier": false,
+      "id": "1772891551190"
+    }
+  ],
+  "settings": [
+    {
+      "id": "1",
+      "elecRate": 14.16,
+      "laborRate": 180,
+      "markup": 20, 
+      "printBufferRate": 75, 
+      "bootMins": 2,
+      "levelMins": 6,
+      "homeMins": 2,
+      "prepRatePerModel": 5,
+      "cleanupRatePerModel": 2,
+      "maintenanceRate": 5,
+      "passiveTimeRate" : 45,
+      "magnetSetupRate" : 5
+    }
+  ],
+  "rates" : [
+    {
+    "id" : "print cost",
+    "markupRate" : 20,
+    "reprintRate" : 75,
+    "status": "enabled"
+    },
+    {
+    "id" : "material cost",
+    "spool" : 1000,
+    "clientShareRate" : 50
+    },
+    {
+    "id" : "extra cost",
+    "clientShareRate" : 50,
+    "magnetSetupRate" : 5,
+    "magnetPlacementRate" : 2,
+    "extruderDisplacement" : 1,
+    "heatsetSetupRate" : 5,
+    "heatsetPlacementRate" : 1,
+    "solderHeatTime" : 5
+    },
+    {
+    "id" : "labor cost",
+    "laborRate" : 180,
+    "preparationRatePerFile" : 5,
+    "supportRemovalRatePerModel": 2,
+    "monitoringRate" : 75,
+    "dailyPrintLimit" : 10
+    },
+    {
+    "id" : "electricity cost",
+    "electricityRate" : 14.16,
+    "rateAsOf": "March",
+    "expectedIncrease": 4
+    },
+    {
+    "id" : "maintenance cost",
+    "maintenanceRate": 5,
+    "estimationFixedCost" : 50
+    }
+  ],
+  "garageInfo": {
+    "fbPageId": "625105437360031",
+    "name": "SnorlaxGarage",
+    "tagline": "Gunpla Kits & Custom 3D Prints"
+    },  
+  "extras": [
+    {
+      "id": 1,
+      "name": "Maintenance Oil",
+      "qty": 0,
+      "price": 0,
+      "status": "disabled",
+      "hasVariants": false
+    },
+    {
+      "id": 2,
+      "name": "Adhesives",
+      "qty": 0,
+      "price": 0,
+      "status": "disabled",
+      "hasVariants": false
+    },
+    {
+      "id": 3,
+      "name": "Magnets",
+      "status": "enabled",
+      "pack": 30,
+      "hasVariants": true,
+      "variants": [
+        {
+          "id": "v1",
+          "size": "8 × 2 mm",
+          "price": 138,
+          "qty": 80
+        },
+        {
+          "id": "v2",
+          "size": "4 × 4 mm",
+          "price": 138,
+          "qty": 3
+        },
+        {
+          "id": "v3",
+          "size": "4 × 3 mm",
+          "price": 555,
+          "qty": 200
+        },
+        {
+          "id": "v4",
+          "size": "5 × 1 mm",
+          "price": 555,
+          "qty": 200
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "Heatsets",
+      "pack": 20,
+      "status": "enabled",
+      "hasVariants": true,
+      "variants": [
+        {
+          "id": "v1",
+          "size": "8 × 2 mm",
+          "price": 138,
+          "qty": 80
+        },
+        {
+          "id": "v2",
+          "size": "4 × 4 mm",
+          "price": 138,
+          "qty": 3
+        },
+        {
+          "id": "v3",
+          "size": "4 × 3 mm",
+          "price": 555,
+          "qty": 200
+        },
+        {
+          "id": "v4",
+          "size": "5 × 1 mm",
+          "price": 555,
+          "qty": 200
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "Paints",
+      "qty": 0,
+      "price": 0,
+      "status": "disabled",
+      "hasVariants": false
+    },
+    {
+      "id": 6,
+      "name": "Box",
+      "qty": 50,
+      "price": 0,
+      "status": "enabled",
+      "hasVariants": false
+    }
+  ],
+  "kits": [
+    {
+      "id": "kit_171000001",
+      "name": "MG Wing Gundam Zero EW Ver.Ka",
+      "brand": "Bandai",
+      "scale": "1/100",
+      "description": "Master Grade precision with transformable neo-bird mode and twin buster rifles.",
+      "image": "https://p-bandai.com/img/global-shop/product/N2530632001001_001.jpg",
+      "srp": 4200,
+      "costPrice": 3150,
+      "sellPrice": 3850,
+      "status": "enabled"
+    },
+    {
+      "id": "kit_171000002",
+      "name": "HG Gundam Aerial",
+      "brand": "Bandai",
+      "scale": "1/144",
+      "description": "Main suit from G-Witch. Shield can separate into bit-stave units.",
+      "image": "https://m.media-amazon.com/images/I/71R9mS8qGLL.jpg",
+      "srp": 1100,
+      "costPrice": 780,
+      "sellPrice": 950,
+      "status": "enabled"
+    },
+    {
+      "id": "kit_171000003",
+      "name": "HMM Liger Zero",
+      "brand": "Kotobukiya",
+      "scale": "1/72",
+      "description": "Higly articulated Zoids kit with iconic white changing armor system.",
+      "image": "https://m.media-amazon.com/images/I/81vR95X5Z-L.jpg",
+      "srp": 4500,
+      "costPrice": 3200,
+      "sellPrice": 4200,
+      "status": "enabled"
+    }
+  ]
+}
