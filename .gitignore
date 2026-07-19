@@ -23,4 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 
+firebase-adminsdk-*.json
+*.firebase-adminsdk.json
+
 .vercel
