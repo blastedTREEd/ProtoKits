@@ -3,6 +3,12 @@ import { X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { useStore } from '../../store/useStore';
 
+const SYNC_GLOW_COLORS = ['#0066ff', '#ff3b30', '#34c759', '#ffcc00', '#af52de', '#ff7a00', '#00c7be'];
+
+function getRandomSyncColor() {
+  return SYNC_GLOW_COLORS[Math.floor(Math.random() * SYNC_GLOW_COLORS.length)];
+}
+
 export default function Stories({ isCompact }) {
   // Kunin ang actual data mula sa Zustand store (DB)
   const { stories, garageInfo, isLoading, setStoriesHeight } = useStore();
@@ -69,11 +75,15 @@ export default function Stories({ isCompact }) {
   // 1. DYNAMIC DATA LOGIC:
   // Kung may laman na ang stories (from DB), yun ang gamitin.
   // Kung wala pa (loading/network delay), gamit muna placeholder para laging may render.
-  const activeData = activeStories.length > 0 ? activeStories : [
-    { id: 'db-loading-1', label: 'Syncing...', value: '#1a1a1a' },
-    { id: 'db-loading-2', label: 'Syncing...', value: '#2a2a2a' },
-    { id: 'db-loading-3', label: 'Syncing...', value: '#3a3a3a' }
-  ];
+  const syncingStories = React.useMemo(() => (
+    Array.from({ length: 3 }, (_, index) => ({
+      id: `db-loading-${index + 1}`,
+      label: 'Syncing...',
+      value: getRandomSyncColor()
+    }))
+  ), []);
+
+  const activeData = activeStories.length > 0 ? activeStories : syncingStories;
 
   const displayStories = [...activeData, ...activeData, ...activeData];
 

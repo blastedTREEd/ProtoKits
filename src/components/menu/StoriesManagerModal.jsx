@@ -1,8 +1,61 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Maximize2, X, Plus, Trash2, Edit, ChevronUp, ChevronDown, Upload, Image as ImageIcon, Loader2, Save, RotateCw, ZoomIn, BookImage, VenetianMask, Type as TypeOutline, Palette, ALargeSmall, BookOpen, Book, Notebook, NotebookPen, Hand, ChevronLeft } from 'lucide-react';
 import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
+
+const FIRESTORE_DOC_LIMIT = 1048576;
+const STORY_WARNING_PERCENT = 80;
+const STORY_BACKGROUND_MAX_SIZE = 1440;
+const STORY_STICKER_MAX_SIZE = 1600;
+const STORY_IMAGE_QUALITY = 0.72;
+const STORY_STICKER_QUALITY = 0.86;
+const STORY_GLOW_COLORS = ['#0066ff', '#ff3b30', '#34c759', '#ffcc00', '#af52de', '#ff7a00', '#00c7be'];
+
+function getRandomStoryColor() {
+  return STORY_GLOW_COLORS[Math.floor(Math.random() * STORY_GLOW_COLORS.length)];
+}
+
+async function compressImage(dataUrl, maxWidth = STORY_BACKGROUND_MAX_SIZE, quality = STORY_IMAGE_QUALITY) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.src = dataUrl;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let { width, height } = img;
+
+      if (width > height) {
+        if (width > maxWidth) {
+          height *= maxWidth / width;
+          width = maxWidth;
+        }
+      } else if (height > maxWidth) {
+        width *= maxWidth / height;
+        height = maxWidth;
+      }
+
+      canvas.width = Math.round(width);
+      canvas.height = Math.round(height);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve({
+        dataUrl: canvas.toDataURL('image/jpeg', quality),
+        width: canvas.width,
+        height: canvas.height
+      });
+    };
+    img.onerror = () => resolve({ dataUrl, width: null, height: null });
+  });
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 export default function StoriesManagerModal({ isOpen, onClose }) {
   useTheme(); 
@@ -14,7 +67,7 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
   // Form states
   const [label, setLabel] = useState('');
   const [description, setDescription] = useState('');
-  const [value, setValue] = useState('#0066ff'); // Glow color
+  const [value, setValue] = useState(() => getRandomStoryColor()); // Glow color used by story cards
   const [isSaving, setIsSaving] = useState(false);
 
   // --- LAYERED CANVAS WORKFLOW STATES ---
@@ -27,6 +80,8 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
 
   // Responsive state handler
   const [isDesktop, setIsDesktop] = useState(true);
+  const [isSplitLayout, setIsSplitLayout] = useState(true);
+  const [isFramedModal, setIsFramedModal] = useState(true);
   const [editorView, setEditorView] = useState('canvas');
   const [storyListView, setStoryListView] = useState('published');
 
@@ -140,7 +195,10 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
 
   useEffect(() => {
     const checkDevice = () => {
-      setIsDesktop(window.matchMedia('(min-width: 768px)').matches);
+      const split = window.matchMedia('(min-width: 1024px), (min-width: 768px) and (orientation: landscape)').matches;
+      setIsDesktop(split);
+      setIsSplitLayout(split);
+      setIsFramedModal(split);
     };
     checkDevice();
     window.addEventListener('resize', checkDevice);
@@ -538,7 +596,7 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
   const resetForm = () => {
     setLabel('');
     setDescription('');
-    setValue('#0066ff');
+    setValue(getRandomStoryColor());
     setBackgroundImage('');
     setStickers([]);
     setSelectedStickerIndex(null);
@@ -562,7 +620,7 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
     setEditingStory(story);
     setLabel(story.label || '');
     setDescription(story.description || '');
-    setValue(story.value || '#0066ff');
+    setValue(story.value || getRandomStoryColor());
     
     setBackgroundImage(story.backgroundImage || '');
     setBgZoom(story.bgZoom || 1);
@@ -577,59 +635,91 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
     setSelectedTextIndex(story.texts?.length > 0 ? 0 : null);
     setActiveDesktopTool(null);
     setShowColorPaletteIdx(null);
+    setEditorView('canvas');
     
     setMode('edit');
   };
 
-  const handleBgSelect = (e) => {
+  const storyPayload = useMemo(() => ({
+    label: label.trim(),
+    description: description.trim(),
+    value,
+    backgroundImage,
+    bgImageSize,
+    bgZoom,
+    bgRotation,
+    bgOffset,
+    stickers,
+    texts
+  }), [label, description, value, backgroundImage, bgImageSize, bgZoom, bgRotation, bgOffset, stickers, texts]);
+
+  const estimatedStorySize = useMemo(() => {
+    try {
+      return JSON.stringify(storyPayload).length;
+    } catch {
+      return 0;
+    }
+  }, [storyPayload]);
+
+  const storySizePercent = (estimatedStorySize / FIRESTORE_DOC_LIMIT) * 100;
+  const isStorySizeWarning = storySizePercent >= STORY_WARNING_PERCENT;
+  const isStorySizeOverLimit = storySizePercent > 100;
+  const canPersistStory = !isStorySizeOverLimit;
+
+  const handleBgSelect = async (e) => {
     const file = e.target.files[0];
-    if (file) {
-      if (file.size > 2 * 1024 * 1024) {
-        alert("Background image is too large. Keep it under 2MB.");
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const imageData = reader.result;
-        const img = new Image();
-        img.onload = () => {
-          setBgImageSize({ width: img.naturalWidth, height: img.naturalHeight });
-          setBgOffset({ x: 0, y: 0 });
-          setBgZoom(1);
-          setBgRotation(0);
-          setBackgroundImage(imageData);
-        };
-        img.src = imageData;
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert("Please upload an image file.");
+      e.target.value = '';
+      return;
+    }
+    try {
+      const imageData = await readFileAsDataUrl(file);
+      const compressed = await compressImage(imageData, STORY_BACKGROUND_MAX_SIZE, STORY_IMAGE_QUALITY);
+      setBgImageSize({ width: compressed.width, height: compressed.height });
+      setBgOffset({ x: 0, y: 0 });
+      setBgZoom(1);
+      setBgRotation(0);
+      setBackgroundImage(compressed.dataUrl);
+    } catch (err) {
+      console.error("SG LOG: Failed to process story background", err);
+      alert("Failed to process the background image.");
+    } finally {
+      e.target.value = '';
     }
   };
 
-  const handleStickerSelect = (e) => {
+  const handleStickerSelect = async (e) => {
     const file = e.target.files[0];
-    if (file) {
-      if (file.size > 2 * 1024 * 1024) {
-        alert("Sticker image is too large. Keep it under 2MB.");
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const newSticker = {
-          id: `sticker-${Date.now()}`,
-          src: reader.result,
-          scale: uploadType === 'mask' ? 0.5 : 1, 
-          rotation: uploadType === 'polaroid' ? -6 : 0,
-          position: { x: 0, y: 0 },
-          zoom: 1,
-          imageOffset: { x: 0, y: 0 },
-          type: uploadType
-        };
-        setStickers((prev) => [...prev, newSticker]);
-        setSelectedStickerIndex(stickers.length); 
-        setSelectedTextIndex(null); 
-        setActiveDesktopTool(null);
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert("Please upload an image file.");
+      e.target.value = '';
+      return;
+    }
+    try {
+      const imageData = await readFileAsDataUrl(file);
+      const compressed = await compressImage(imageData, STORY_STICKER_MAX_SIZE, STORY_STICKER_QUALITY);
+      const newSticker = {
+        id: `sticker-${Date.now()}`,
+        src: compressed.dataUrl,
+        scale: uploadType === 'mask' ? 0.5 : 1, 
+        rotation: uploadType === 'polaroid' ? -6 : 0,
+        position: { x: 0, y: 0 },
+        zoom: 1,
+        imageOffset: { x: 0, y: 0 },
+        type: uploadType
       };
-      reader.readAsDataURL(file);
+      setStickers((prev) => [...prev, newSticker]);
+      setSelectedStickerIndex(stickers.length);
+      setSelectedTextIndex(null); 
+      setActiveDesktopTool(null);
+    } catch (err) {
+      console.error("SG LOG: Failed to process story sticker", err);
+      alert("Failed to process the sticker image.");
+    } finally {
+      e.target.value = '';
     }
   };
 
@@ -661,18 +751,16 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
       alert("Please upload a background photo first!");
       return;
     }
+    if (!canPersistStory) {
+      alert("This story is over Firestore's 1MB document limit. Remove a sticker or replace an image with a smaller one before saving.");
+      return;
+    }
     setIsSaving(true);
     try {
       const storyData = {
-        label: label.trim(),
-        description: description.trim(),
-        value,
-        backgroundImage, 
-        bgImageSize, bgZoom, bgRotation, bgOffset,
-        stickers, texts,           
+        ...storyPayload,
         isDraft: !shouldPublish
       };
-
       if (mode === 'add') {
         await addStory(storyData);
       } else if (mode === 'edit' && editingStory) {
@@ -717,6 +805,26 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
 
   const publishedStories = stories?.filter(story => !story.isDraft) || [];
   const draftStories = stories?.filter(story => story.isDraft) || [];
+  const StorySizeMeter = () => {
+    const percent = Math.min(Math.round(storySizePercent), 999);
+    const ringColor = isStorySizeOverLimit ? '#dc2626' : isStorySizeWarning ? '#f59e0b' : '#2563eb';
+    const fill = Math.min(storySizePercent, 100);
+
+    return (
+      <div className="w-10 h-10 rounded-full bg-white/95 dark:bg-neutral-900/90 border border-black/10 dark:border-white/10 shadow-lg grid place-items-center" title={`${percent}% of Firebase document limit used`}>
+        <div
+          className="grid h-8 w-8 place-items-center rounded-full"
+          style={{ background: `conic-gradient(${ringColor} ${fill}%, rgba(115,115,115,0.22) 0)` }}
+        >
+          <div className="grid h-6 w-6 place-items-center rounded-full bg-white dark:bg-neutral-900">
+            <span className={`text-[7px] font-black leading-none tracking-tighter ${isStorySizeOverLimit ? 'text-red-600' : isStorySizeWarning ? 'text-amber-500' : 'text-garage-blue'}`}>
+              {percent}%
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const renderStoryCard = (story, globalIndex) => (
     <div 
@@ -764,16 +872,16 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
       <button 
         type="button" 
         onClick={(e) => handleSave(e, false)} 
-        disabled={isSaving} 
-        className="flex-1 h-12 bg-neutral-100 dark:bg-white/5 text-neutral-800 dark:text-white border dark:border-white/10 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-neutral-200 dark:hover:bg-white/10 transition-colors px-2"
+        disabled={isSaving || !canPersistStory} 
+        className="flex-1 h-12 bg-neutral-100 dark:bg-white/5 text-neutral-800 dark:text-white border dark:border-white/10 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-neutral-200 dark:hover:bg-white/10 transition-colors px-2 disabled:opacity-40 disabled:cursor-not-allowed"
       >
         Save Draft
       </button>
       <button 
         type="button"
         onClick={(e) => handleSave(e, true)}
-        disabled={isSaving} 
-        className="flex-1 h-12 bg-garage-blue text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg flex items-center justify-center gap-2 hover:opacity-90 transition-all px-2"
+        disabled={isSaving || !canPersistStory} 
+        className="flex-1 h-12 bg-garage-blue text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg flex items-center justify-center gap-2 hover:opacity-90 transition-all px-2 disabled:opacity-40 disabled:cursor-not-allowed"
       >
         {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Publish Story
       </button>
@@ -783,21 +891,31 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[300] flex items-center justify-center p-0 md:p-6 overflow-hidden">
-          <Motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/60 backdrop-blur-xl" onClick={mode === 'list' ? onClose : resetForm} />
+<div className="fixed inset-0 z-[300] flex md:items-center md:justify-center md:p-6">
+  
+  <Motion.div 
+    initial={{ opacity: 0 }} 
+    animate={{ opacity: 1 }} 
+    exit={{ opacity: 0 }} 
+    className="absolute inset-0 bg-black/60 backdrop-blur-xl" 
+    onClick={mode === 'list' ? onClose : resetForm} 
+  />
 
-          <Motion.div 
-            initial={{ y: "100%", opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: "100%", opacity: 0 }}
-            transition={{ type: "spring", damping: 25, stiffness: 400 }}
-            className={`relative w-full h-full md:h-auto md:max-h-[95vh] bg-white dark:bg-neutral-900 rounded-none md:rounded-[2.5rem] shadow-2xl overflow-hidden overscroll-contain border-0 md:border border-black/5 dark:border-white/10 flex flex-col transition-all duration-300 ${mode === 'list' ? 'md:max-w-4xl' : 'md:max-w-5xl'}`}
-            onClick={() => {
-              if (activeHandle) { setActiveHandle(null); } 
-              else { resetLayerControls(); resetBgControls(); }
-            }}
-          >
+  {/* 2. Main Modal: Force full-screen dimensions on mobile */}
+  <Motion.div 
+    initial={{ y: "100%", opacity: 0 }} 
+    animate={{ y: 0, opacity: 1 }} 
+    exit={{ y: "100%", opacity: 0 }}
+    transition={{ type: "spring", damping: 25, stiffness: 400 }}
+    // Mobile: w-full h-full, no rounding, no borders. 
+    // Desktop: apply standard constraints.
+    className={`relative w-full h-full md:h-auto md:w-full md:max-w-3xl bg-white dark:bg-neutral-900 shadow-2xl overflow-hidden flex flex-col transition-all duration-300 md:max-h-[95vh] md:rounded-[2.5rem] md:border ${
+      isSplitLayout ? 'md:max-w-5xl' : 'md:max-w-3xl'
+    }`}
+  >
 
             {/* MOBILE STICKY/ABSOLUTE HEADER */}
-            <div className="sticky top-0 z-[220] w-full h-0 overflow-visible md:hidden">
+            <div className={`${isSplitLayout ? 'hidden' : 'sticky'} top-0 z-[220] w-full h-0 overflow-visible`}>
               {mode !== 'list' && (
                 <div className="absolute top-4 left-4 flex justify-start items-center">
                   <button 
@@ -821,7 +939,7 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
             </div>
 
             {/* DESKTOP ABSOLUTE CLOSE BUTTON */}
-            <div className="hidden md:block absolute top-4 right-4 z-[220]">
+            <div className={`${isSplitLayout ? 'block' : 'hidden'} absolute top-4 right-4 z-[220]`}>
               <button 
                 type="button"
                 onClick={(e) => { e.stopPropagation(); mode === 'list' ? onClose() : resetForm(); }} 
@@ -831,7 +949,7 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
               </button>
             </div>
 
-            <div className={`p-6 pb-4 border-b border-neutral-100 dark:border-white/5 items-center justify-between z-10 ${mode === 'list' ? 'flex' : 'hidden md:flex'}`}>
+            <div className={`p-6 pb-4 border-b border-neutral-100 dark:border-white/5 items-center justify-between z-10 ${mode === 'list' || isSplitLayout ? 'flex' : 'hidden'}`}>
               <div className="flex flex-col text-left">
                 <h2 className="text-2xl font-black italic uppercase tracking-tighter text-neutral-900 dark:text-white leading-none">
                   {mode === 'list' && 'MANAGE STORIES'} {mode === 'add' && 'BUILD STORY'} {mode === 'edit' && 'EDIT STORY'}
@@ -845,7 +963,7 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
             </div>
 
             {/* MAIN CONTENT AREA */}
-            <div className={`${mode === 'list' ? 'p-6 overflow-hidden md:overflow-y-auto' : 'p-0 md:p-6 overflow-hidden md:overflow-y-auto'} flex-1 min-h-0`}>
+            <div className={`${mode === 'list' ? `p-6 overflow-hidden ${isSplitLayout ? 'overflow-y-auto' : ''}` : `${isSplitLayout ? 'p-6 overflow-y-auto' : 'p-0 overflow-hidden'}`} flex-1 min-h-0`}>
               {mode === 'list' ? (
                 <div className="h-full min-h-0 flex flex-col gap-4">
                   {stories && stories.length > 0 ? (
@@ -881,12 +999,12 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
                   )}
                 </div>
               ) : (
-                <div className="w-full flex flex-col md:flex-row gap-0 md:gap-6 text-left items-stretch h-full">
-                  <div className={`${editorView === 'canvas' ? 'flex' : 'hidden'} md:flex w-full h-full md:h-auto md:w-[45%] flex-col justify-center md:justify-start items-center relative bg-black md:bg-transparent`}>
+                <div className={`w-full flex ${isSplitLayout ? 'flex-row gap-6' : 'flex-col gap-0'} text-left items-stretch h-full`}>
+                  <div className={`${editorView === 'canvas' || isSplitLayout ? 'flex' : 'hidden'} w-full ${isSplitLayout ? 'h-auto w-[45%] justify-start bg-transparent' : 'h-full justify-center bg-black'} flex-col items-center relative`}>
                     <div 
                       ref={canvasRef} onClick={(e) => e.stopPropagation()} onWheel={handleImageWheel}
                       onPointerDown={handleBgPointerDown} onPointerMove={handleBgPointerMove} onPointerUp={handleBgPointerUp} onPointerCancel={handleBgPointerUp} onPointerLeave={handleBgPointerUp}
-                      className={`border-2 rounded-none md:rounded-3xl aspect-[9/16] h-full w-auto max-w-full md:h-auto md:w-full md:max-w-md mx-auto overflow-hidden relative cursor-pointer transition-all duration-200 ${isBgSelected ? 'border-garage-blue ring-2 ring-garage-blue shadow-2xl z-50' : 'border-dashed border-neutral-200 dark:border-white/10'}`}
+                      className={`border-2 ${isSplitLayout ? 'rounded-3xl h-auto w-full max-w-md' : 'rounded-none h-full w-auto max-w-full'} aspect-[9/16] mx-auto overflow-hidden relative cursor-pointer transition-all duration-200 ${isBgSelected ? 'border-garage-blue ring-2 ring-garage-blue shadow-2xl z-50' : 'border-dashed border-neutral-200 dark:border-white/10'}`}
                       style={{ touchAction: 'none' }}
                     >
                       <div className="absolute top-16 md:top-4 right-4 z-[140] flex flex-col gap-2" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
@@ -896,6 +1014,7 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
                             <button type="button" onClick={() => { setUploadType('polaroid'); setTimeout(() => stickerFileInputRef.current?.click(), 50); }} className="w-10 h-10 rounded-full bg-white/95 dark:bg-neutral-900/90 border shadow-lg flex items-center justify-center text-emerald-500"><ImageIcon size={18} /></button>
                             <button type="button" onClick={() => { setUploadType('mask'); setTimeout(() => stickerFileInputRef.current?.click(), 50); }} className="w-10 h-10 rounded-full bg-white/95 dark:bg-neutral-900/90 border shadow-lg flex items-center justify-center text-purple-500"><VenetianMask size={18} /></button>
                             <button type="button" onClick={handleAddText} className="w-10 h-10 rounded-full bg-white/95 dark:bg-neutral-900/90 border shadow-lg flex items-center justify-center text-garage-blue"><TypeOutline size={18} /></button>
+                            <StorySizeMeter />
                           </>
                         )}
                       </div>
@@ -1146,7 +1265,7 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
                   </div>
 
                   {/* RIGHT COLUMN (DETAILS PANE) */}
-                  <div className={`${editorView === 'details' ? 'flex' : 'hidden'} md:flex w-full h-full md:h-auto md:w-[55%] flex-col justify-between pt-16 md:pt-0 px-6 md:px-0`} onClick={(e) => e.stopPropagation()}>
+                  <div className={`${editorView === 'details' || isSplitLayout ? 'flex' : 'hidden'} w-full ${isSplitLayout ? 'h-auto w-[55%] pt-0 px-0' : 'h-full pt-16 px-6'} flex-col justify-between`} onClick={(e) => e.stopPropagation()}>
                     <div className="space-y-4 overflow-y-auto flex-1 pr-1">
                       <div className="space-y-1">
                         <label className="text-[10px] font-black uppercase tracking-wider text-neutral-400">Story Title</label>
@@ -1158,17 +1277,10 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
                         <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="ENTER STORY DESCRIPTION" rows={3} className="w-full p-4 rounded-2xl bg-neutral-50 dark:bg-white/5 border text-xs focus:outline-none focus:border-garage-blue resize-none" maxLength={300} />
                       </div>
 
-                      <div className="bg-neutral-50 dark:bg-white/5 p-4 rounded-2xl border flex items-center justify-between">
-                        <span className="text-[10px] font-black uppercase tracking-wider text-neutral-400">Visual Glow Color</span>
-                        <div className="flex items-center gap-3">
-                          <input type="color" value={value} onChange={(e) => setValue(e.target.value)} className="w-8 h-8 rounded-full border-0 overflow-hidden cursor-pointer p-0" />
-                          <span className="text-xs font-mono font-bold tracking-wider uppercase">{value}</span>
-                        </div>
-                      </div>
                     </div>
 
                     {/* DESKTOP ONLY: Action Buttons single row stack inside right pane */}
-                    <div className="hidden md:block">
+                    <div className={isSplitLayout ? 'block' : 'hidden'}>
                       {renderEditorFormButtons()}
                     </div>
 

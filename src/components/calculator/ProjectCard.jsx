@@ -998,64 +998,54 @@ export default function ProjectCard({
 {!isReadOnly && (
   <div className={`absolute bottom-0 left-0 right-0 w-full p-2 border-t ${isDarkMode ? 'bg-black/80 border-white/10' : 'bg-white/80 border-black/5'} backdrop-blur-md z-[110]`}>
     
-    {/* One-row layout na may 50/50 split */}
     <div className="flex flex-row items-center gap-2">
       
-      {/* Management Buttons Group (50% width) */}
-      {showManagementActions && (onDelete || onModify) && (
-        <div className="flex gap-2 w-1/2 shrink-0">
-          {onDelete && (
-            <button 
-              onClick={(e) => { e.stopPropagation(); if(window.confirm('Remove this project?')) { onDelete(project.vaultId || project.id); setIsModalOpen(false); } }}
-              className="w-12 h-12 rounded-full bg-red-600/10 text-red-600 flex items-center justify-center hover:bg-red-600 hover:text-white transition-all active:scale-90 shadow-sm shrink-0"
-            >
-              <Trash2 size={18} strokeWidth={3} />
-            </button>
-          )}
-          {onModify && (
-            <button 
-              onClick={(e) => { e.stopPropagation(); onModify(project); setIsModalOpen(false); }}
-              className="h-12 flex-1 px-2 rounded-full bg-neutral-100 dark:bg-white/5 text-neutral-900 dark:text-white font-black italic uppercase text-[11px] flex items-center justify-center gap-1.5 active:scale-95 transition-all"
-            >
-              <Edit3 size={14} strokeWidth={3} /> 
-              <span className="truncate">Modify</span> 
-            </button>
-          )}
-        </div>
-      )}
-      
-      {/* Primary Action Button (50% width) */}
-      <div className="w-1/2 min-w-0">
-        {isAdmin && isAdminView ? (
-          <button 
-            onClick={handleToggleProduction}
-            className={`w-full h-12 rounded-full text-white font-black italic uppercase text-[12px] tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all ${
-              canAddToBasket ? 'bg-red-600' : 'bg-blue-600'
-            }`}
-          >
-            {canAddToBasket ? <Pause size={16} fill="white" /> : <Play size={16} fill="white" />}
-            <span className="truncate">
-              <span className="hidden sm:inline">{canAddToBasket ? 'Stop ' : 'Allow '}</span>
-              Production
-            </span>
-          </button>
-        ) : (
-          <button 
-            onClick={(e) => {
-              e.stopPropagation();
-              if (!canAddToBasket || !vaultReadyForBasket) return;
-              onBasketAction(e, isVault ? { ...project, gdriveLink: fileLink, licenseAcknowledged, selectedDesignService, totals: { ...project.totals, total: String(displayPrice), dp: String(downpayment) } } : { ...project, selectedDesignService, totals: { ...project.totals, total: String(displayPrice), dp: String(downpayment) } });
-            }}
-            className={`w-full h-12 rounded-full text-white font-black italic uppercase text-[12px] tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all ${
-              !canAddToBasket || !vaultReadyForBasket
-                ? 'bg-neutral-400 opacity-60'
-                : 'bg-gradient-to-br from-blue-500 to-blue-600'
-            }`}
-          >
-            <Plus size={16} strokeWidth={3} />
-            <span className="truncate">{!canAddToBasket ? 'Not For Sale' : !vaultReadyForBasket ? 'Setup Required' : 'Add to Basket'}</span>
-          </button>
-        )}
+      {/* ADD TO BASKET (50% Width) */}
+      <div className="w-1/2">
+        <button 
+          onClick={(e) => {
+            e.stopPropagation();
+            if (!canAddToBasket || !vaultReadyForBasket) return;
+            
+            // Execute action
+            onBasketAction(e, isVault ? { ...project, gdriveLink: fileLink, licenseAcknowledged, selectedDesignService, totals: { ...project.totals, total: String(displayPrice), dp: String(downpayment) } } : { ...project, selectedDesignService, totals: { ...project.totals, total: String(displayPrice), dp: String(downpayment) } });
+            
+            // Trigger Close Modal
+            setIsModalOpen(false);
+          }}
+          disabled={!canAddToBasket || !vaultReadyForBasket}
+          className={`w-full h-12 rounded-full text-white font-black italic uppercase text-[11px] tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all ${
+            !canAddToBasket || !vaultReadyForBasket
+              ? 'bg-neutral-400 cursor-not-allowed opacity-50'
+              : 'bg-neutral-900 dark:bg-white/10'
+          }`}
+        >
+          <ShoppingBasket size={14} strokeWidth={3} />
+          <span className="truncate">Basket</span>
+        </button>
+      </div>
+
+      {/* ORDER NOW (50% Width) */}
+      <div className="w-1/2">
+        <button 
+          onClick={(e) => {
+            e.stopPropagation();
+            // Call your checkout modal trigger here
+            // onOrderNow(project); 
+            console.log("Triggering Checkout Modal for:", displayPrice);
+            setIsModalOpen(false);
+          }}
+          // Only enabled if production is allowed (canAddToBasket)
+          disabled={!canAddToBasket}
+          className={`w-full h-12 rounded-full text-white font-black italic uppercase text-[11px] tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all ${
+            !canAddToBasket
+              ? 'bg-neutral-400 cursor-not-allowed opacity-50'
+              : 'bg-gradient-to-br from-blue-500 to-blue-600'
+          }`}
+        >
+          <Zap size={14} strokeWidth={3} />
+          <span className="truncate">Order Now</span>
+        </button>
       </div>
     </div>
   </div>

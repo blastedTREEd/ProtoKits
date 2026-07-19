@@ -1196,6 +1196,7 @@ export const useStore = create(
         const snap = await getDocs(storiesCollection);
         const nextOrder = snap.size + 1;
         const storyRef = doc(storiesCollection);
+        const createdAt = new Date().toISOString();
         const cleanStory = {
           ...storyData,
           id: storyRef.id,
@@ -1203,12 +1204,24 @@ export const useStore = create(
           createdAt: serverTimestamp()
         };
         await setDoc(storyRef, cleanStory);
+        set((state) => ({
+          stories: [
+            ...(state.stories || []),
+            { ...storyData, id: storyRef.id, order: nextOrder, createdAt }
+          ].sort((a, b) => (a.order || 0) - (b.order || 0))
+        }));
         return storyRef.id;
       },
 
       updateStory: async (storyId, patch) => {
         const storyRef = doc(db, "stories", storyId);
         await updateDoc(storyRef, { ...patch, lastUpdated: serverTimestamp() });
+        const lastUpdated = new Date().toISOString();
+        set((state) => ({
+          stories: (state.stories || []).map((story) =>
+            story.id === storyId ? { ...story, ...patch, id: storyId, lastUpdated } : story
+          )
+        }));
       },
 
       deleteStory: async (storyId) => {
