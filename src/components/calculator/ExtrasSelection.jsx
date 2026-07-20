@@ -161,64 +161,70 @@ export default function ExtrasSelection({
             : currentTotalQty;
 
           return (
-            <div key={item.id} 
-              onClick={() => handleCardClick(item, currentTotalQty)} 
-              className={`rounded-[2.2rem] border-2 transition-all p-5 bg-transparent cursor-pointer 
-                ${isCurrentlySelected ? 'border-blue-600 shadow-lg' : 'border-black/5 dark:border-white/5 opacity-60 hover:border-black/10 dark:hover:border-white/10'}`}
-            >
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-4 min-w-0">
-                  <div className={`p-3 rounded-[1rem] ${isCurrentlySelected ? 'bg-blue-600/10 text-blue-600' : 'bg-black/5 dark:bg-white/5 text-gray-500'}`}>
-                    {isMagnet ? <Magnet size={20} /> : <Spool size={20} />}
-                  </div>
-                  <div className="text-left truncate">
-                    <p className={`text-[8px] font-black uppercase italic tracking-wider ${isCurrentlySelected ? 'text-blue-600' : 'text-gray-500'}`}>
-                      {currentTotalQty > 0 ? (canBeEqual && currentMode === 'Equal' ? 'SMART EQUAL' : 'CUSTOM QTY') : 'ADD-ON'}
-                    </p>
-                    <h4 className={`font-black uppercase text-[12px] tracking-tight ${isCurrentlySelected ? 'text-[var(--color-text-main)]' : 'text-gray-500'}`}>{item.name}</h4>
-                    {selectedVariant && (
-                      <p className={`text-[9px] font-black uppercase mt-1 ${needsUpfront ? 'text-amber-600' : 'text-gray-500'}`}>
-                        {selectedVariant.size || selectedVariant.name}
-                        {` • ${selectedVariantStock} in stock`}
-                      </p>
-                    )}
-                  </div>
-                </div>
+<div key={item.id} 
+  onClick={() => handleCardClick(item, currentTotalQty)} 
+  className={`rounded-[2.2rem] border-2 transition-all p-5 bg-transparent cursor-pointer 
+    ${isCurrentlySelected 
+      ? 'border-blue-600 shadow-lg' 
+      : 'border-black/5 dark:border-white/5 hover:border-black/10 dark:hover:border-white/10' // Removed opacity-60
+    }`}
+>
+  <div className="flex items-center justify-between gap-4">
+    <div className="flex items-center gap-4 min-w-0">
+      <div className={`p-3 rounded-[1rem] ${isCurrentlySelected ? 'bg-blue-600/10 text-blue-600' : 'bg-black/5 dark:bg-white/5 text-gray-400'}`}>
+        {isMagnet ? <Magnet size={20} /> : <Spool size={20} />}
+      </div>
+      <div className="text-left truncate">
+        <p className={`text-[8px] font-black uppercase italic tracking-wider ${isCurrentlySelected ? 'text-blue-600' : 'text-gray-400'}`}>
+          {currentTotalQty > 0 ? (canBeEqual && currentMode === 'Equal' ? 'SMART EQUAL' : 'CUSTOM QTY') : 'ADD-ON'}
+        </p>
+        <h4 className={`font-black uppercase text-[12px] tracking-tight ${isCurrentlySelected ? 'text-[var(--color-text-main)]' : 'text-[var(--color-text-main)]'}`}>
+          {item.name}
+        </h4>
+        {selectedVariant && (
+          <p className={`text-[9px] font-black uppercase mt-1 ${needsUpfront ? 'text-amber-600' : 'text-gray-400'}`}>
+            {selectedVariant.size || selectedVariant.name}
+            {` • ${selectedVariantStock} in stock`}
+          </p>
+        )}
+      </div>
+    </div>
 
-                <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                  <div className={`flex items-center rounded-full p-1 border-2 transition-colors ${isCurrentlySelected ? 'bg-black/5 dark:bg-white/5 border-blue-600/50' : 'border-transparent'}`}>
-                    <input 
-                      type="number" 
-                      onKeyDown={blockInvalidChar} 
-                      value={displayQty === 0 || displayQty === '' ? '' : displayQty} 
-                      placeholder="0"
-                      onFocus={() => { 
-                        setFocusedInput(item.id); 
-                        handleToggleLogic(item); 
-                        onUpdateQty(item.id, '', activeItemIdx); 
-                      }}
-                      onBlur={() => setFocusedInput(null)}
-                      onChange={e => {
-                        const val = e.target.value === '' ? '' : Math.max(0, parseInt(e.target.value) || 0);
-                        const finalVal = (canBeEqual && currentMode === 'Equal' && val !== '') ? (val * unitPerPlane) : val;
-                        onUpdateQty(item.id, finalVal, activeItemIdx);
-                      }}
-                      className={`w-10 text-center font-black italic text-[14px] bg-transparent outline-none ${isCurrentlySelected ? 'text-blue-600' : 'text-gray-400'}`}
-                    />
-                    <button 
-                      type="button"
-                      onClick={() => {
-                        handleToggleLogic(item);
-                        const nextVal = (parseInt(displayQty) || 0) + 1;
-                        onUpdateQty(item.id, (canBeEqual && currentMode === 'Equal') ? (nextVal * unitPerPlane) : nextVal, activeItemIdx);
-                      }} 
-                      className="w-8 h-8 rounded-full flex items-center justify-center text-white bg-blue-600 active:scale-90"
-                    >
-                      <Plus size={14} strokeWidth={4} />
-                    </button>
-                  </div>
-                </div>
-              </div>
+    {/* Input and Plus Button Container */}
+    <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+      <div className={`flex items-center rounded-full p-1 border-2 transition-colors ${isCurrentlySelected ? 'bg-black/5 dark:bg-white/5 border-blue-600/50' : 'border-black/5 dark:border-white/5'}`}>
+        <input 
+          type="number" 
+          onKeyDown={blockInvalidChar} 
+          value={displayQty === 0 || displayQty === '' ? '' : displayQty} 
+          placeholder="0"
+          onFocus={() => { 
+            setFocusedInput(item.id); 
+            handleToggleLogic(item); 
+            onUpdateQty(item.id, '', activeItemIdx); 
+          }}
+          onBlur={() => setFocusedInput(null)}
+          onChange={e => {
+            const val = e.target.value === '' ? '' : Math.max(0, parseInt(e.target.value) || 0);
+            const finalVal = (canBeEqual && currentMode === 'Equal' && val !== '') ? (val * unitPerPlane) : val;
+            onUpdateQty(item.id, finalVal, activeItemIdx);
+          }}
+          className={`w-10 text-center font-black italic text-[14px] bg-transparent outline-none ${isCurrentlySelected ? 'text-blue-600' : 'text-[var(--color-text-main)]'}`}
+        />
+        <button 
+          type="button"
+          onClick={() => {
+            handleToggleLogic(item);
+            const nextVal = (parseInt(displayQty) || 0) + 1;
+            onUpdateQty(item.id, (canBeEqual && currentMode === 'Equal') ? (nextVal * unitPerPlane) : nextVal, activeItemIdx);
+          }} 
+          className="w-8 h-8 rounded-full flex items-center justify-center text-white bg-blue-600 active:scale-90"
+        >
+          <Plus size={14} strokeWidth={4} />
+        </button>
+      </div>
+    </div>
+  </div>
 
               {isCurrentlySelected && (
                 <div className="mt-4 pt-4 border-t border-black/5 dark:border-white/5 flex flex-col gap-4 animate-in slide-in-from-top-2" onClick={e => e.stopPropagation()}>
