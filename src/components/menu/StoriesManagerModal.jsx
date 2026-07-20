@@ -68,7 +68,9 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
   const [label, setLabel] = useState('');
   const [description, setDescription] = useState('');
   const [value, setValue] = useState(() => getRandomStoryColor()); // Glow color used by story cards
-  const [isSaving, setIsSaving] = useState(false);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
+  // const [isSaving, setIsSaving] = useState(false);
 
   // --- LAYERED CANVAS WORKFLOW STATES ---
   const [backgroundImage, setBackgroundImage] = useState(''); 
@@ -81,7 +83,7 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
   // Responsive state handler
   const [isDesktop, setIsDesktop] = useState(true);
   const [isSplitLayout, setIsSplitLayout] = useState(true);
-  const [isFramedModal, setIsFramedModal] = useState(true);
+  // const [isFramedModal, setIsFramedModal] = useState(true);
   const [editorView, setEditorView] = useState('canvas');
   const [storyListView, setStoryListView] = useState('published');
 
@@ -110,7 +112,7 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
   const stickerFileInputRef = useRef(null);
   const canvasRef = useRef(null);
 
-  const [activeHandle, setActiveHandle] = useState(null); 
+  // const [activeHandle, setActiveHandle] = useState(null); 
 
   // Colors array including specified brown, gray, black, white + highlights
   const availableColors = [
@@ -198,19 +200,19 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
       const split = window.matchMedia('(min-width: 1024px), (min-width: 768px) and (orientation: landscape)').matches;
       setIsDesktop(split);
       setIsSplitLayout(split);
-      setIsFramedModal(split);
+      // setIsFramedModal(split);
     };
     checkDevice();
     window.addEventListener('resize', checkDevice);
     return () => window.removeEventListener('resize', checkDevice);
   }, []);
 
-  const resetLayerControls = () => {
-    setSelectedStickerIndex(null);
-    setSelectedTextIndex(null);
-    setActiveDesktopTool(null);
-    setShowColorPaletteIdx(null);
-  };
+  // const resetLayerControls = () => {
+  //   setSelectedStickerIndex(null);
+  //   setSelectedTextIndex(null);
+  //   setActiveDesktopTool(null);
+  //   setShowColorPaletteIdx(null);
+  // };
 
   const resetBgControls = () => {
     setIsBgSelected(false);
@@ -301,52 +303,60 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
     }
   };
 
-  const handleBgPointerDown = (e) => {
-    if (!backgroundImage) return;
-    e.stopPropagation();
+const handleBgPointerDown = (e) => {
+  if (!backgroundImage) return;
+  e.stopPropagation();
 
-    if (e.target.closest('[data-handle="true"]')) return;
+  // 1. Huwag mag-trigger kung handle ng UI ang na-tap
+  if (e.target.closest('[data-handle="true"]')) return;
 
-    const hasActiveLayer = selectedStickerIndex !== null || selectedTextIndex !== null;
-    const hasActiveTool = activeDesktopTool !== null;
-    
-    bgTapRef.current = {
-      pointerId: e.pointerId,
-      startX: e.clientX,
-      startY: e.clientY,
-      moved: false,
-      wasSelected: isBgSelected
-    };
+  // 2. I-check kung sticker o text ang na-tap (bago natin i-reset)
+  const clickedLayer = e.target.closest('.sticker-container') || e.target.closest('.text-container');
+  
+  // 3. FORCE DESELECT: Kung background ang na-tap, i-reset ang layers
+  if (!clickedLayer) {
+    setSelectedStickerIndex(null);
+    setSelectedTextIndex(null);
+    setActiveDesktopTool(null);
+    setIsBgSelected(true);
+  }
 
-    if (hasActiveLayer && !hasActiveTool) {
-      // Keep layers selected if no action tool was clicked yet
-    } else if (!hasActiveLayer) {
-      setIsBgSelected(true);
-    }
+  bgTapRef.current = {
+    pointerId: e.pointerId,
+    startX: e.clientX,
+    startY: e.clientY,
+    moved: false,
+    wasSelected: isBgSelected
+  };
 
-    const targetEl = canvasRef.current;
-    if (targetEl && e.target.setPointerCapture) {
-      e.target.setPointerCapture(e.pointerId);
-    }
+  // 4. Pointer capture at caching
+  const targetEl = canvasRef.current;
+  if (targetEl && e.target.setPointerCapture) {
+    e.target.setPointerCapture(e.pointerId);
+  }
+  pointerCacheRef.current.set(e.pointerId, getPointerPoint(e));
 
-    pointerCacheRef.current.set(e.pointerId, getPointerPoint(e));
-    const activePointers = Array.from(pointerCacheRef.current.values());
+  // 5. Gesture Logic (Gamit ang updated selection states)
+  const activePointers = Array.from(pointerCacheRef.current.values());
+  const hasActiveLayer = selectedStickerIndex !== null || selectedTextIndex !== null;
+  const hasActiveTool = activeDesktopTool !== null;
 
-    if (activePointers.length === 1) {
+  // Siguraduhin na kung may active layer, ang pan/gesture ay para sa layer
+  if (activePointers.length === 1) {
+    if (hasActiveLayer && hasActiveTool) {
+      initialGestureRef.current = {
+        mode: 'layer-swipe',
+        startX: activePointers[0].x,
+        startY: activePointers[0].y,
+        startStickerState: selectedStickerIndex !== null ? { ...stickers[selectedStickerIndex] } : null,
+        startTextState: selectedTextIndex !== null ? { ...texts[selectedTextIndex] } : null
+      };
+    } else {
+      // Kung walang active layer, pan mode para sa background
       const rect = canvasRef.current?.getBoundingClientRect();
-      const canvasCenter = rect 
-        ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
-        : getPointerPoint(e);
-
-      if (hasActiveLayer && hasActiveTool) {
-        initialGestureRef.current = {
-          mode: 'layer-swipe',
-          startX: activePointers[0].x,
-          startY: activePointers[0].y,
-          startStickerState: selectedStickerIndex !== null ? { ...stickers[selectedStickerIndex] } : null,
-          startTextState: selectedTextIndex !== null ? { ...texts[selectedTextIndex] } : null
-        };
-      } else if (isDesktop && e.shiftKey) {
+      const canvasCenter = rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : getPointerPoint(e);
+      
+      if (isDesktop && e.shiftKey) {
         initialGestureRef.current = {
           mode: 'rotate-desktop',
           center: canvasCenter,
@@ -361,18 +371,19 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
           startOffset: { ...bgOffset }
         };
       }
-    } else if (activePointers.length === 2) {
-      const p1 = activePointers[0];
-      const p2 = activePointers[1];
-      initialGestureRef.current = {
-        mode: 'pinch',
-        startDistance: Math.max(1, getDistance(p1, p2)),
-        startAngle: getAngle(p1, p2),
-        startZoom: bgZoom || 1,
-        startRotation: bgRotation || 0
-      };
     }
-  };
+  } else if (activePointers.length === 2) {
+    const p1 = activePointers[0];
+    const p2 = activePointers[1];
+    initialGestureRef.current = {
+      mode: 'pinch',
+      startDistance: Math.max(1, getDistance(p1, p2)),
+      startAngle: getAngle(p1, p2),
+      startZoom: bgZoom || 1,
+      startRotation: bgRotation || 0
+    };
+  }
+};
 
   const handleBgPointerMove = (e) => {
     if (!backgroundImage || !initialGestureRef.current) return;
@@ -603,7 +614,7 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
     setTexts([]);
     setSelectedTextIndex(null);
     setMode('list');
-    setActiveHandle(null);
+    // setActiveHandle(null);
     setActiveDesktopTool(null);
     setShowColorPaletteIdx(null);
     setBgZoom(1);
@@ -741,39 +752,51 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
     setActiveDesktopTool(null);
   };
 
-  const handleSave = async (e, shouldPublish = true) => {
-    if (e) e.preventDefault();
-    if (!label.trim()) {
-      alert("Please enter a story title.");
-      return;
+const handleSave = async (e, isPublish) => { // Gawin nating explicit boolean ang isPublish
+  if (e) e.preventDefault();
+  
+  // Validation checks...
+  if (!label.trim()) {
+    alert("Please enter a story title.");
+    return;
+  }
+  if (!backgroundImage) {
+    alert("Please upload a background photo first!");
+    return;
+  }
+  if (!canPersistStory) {
+    alert("This story is over Firestore's 1MB document limit. Remove a sticker or replace an image with a smaller one before saving.");
+    return;
+  }
+
+  // I-set ang specific loading state
+  if (isPublish) {
+    setIsPublishing(true);
+  } else {
+    setIsSavingDraft(true);
+  }
+
+  try {
+    const storyData = {
+      ...storyPayload,
+      isDraft: !isPublish // true kung draft, false kung publish
+    };
+    
+    if (mode === 'add') {
+      await addStory(storyData);
+    } else if (mode === 'edit' && editingStory) {
+      await updateStory(editingStory.id, storyData);
     }
-    if (!backgroundImage) {
-      alert("Please upload a background photo first!");
-      return;
-    }
-    if (!canPersistStory) {
-      alert("This story is over Firestore's 1MB document limit. Remove a sticker or replace an image with a smaller one before saving.");
-      return;
-    }
-    setIsSaving(true);
-    try {
-      const storyData = {
-        ...storyPayload,
-        isDraft: !shouldPublish
-      };
-      if (mode === 'add') {
-        await addStory(storyData);
-      } else if (mode === 'edit' && editingStory) {
-        await updateStory(editingStory.id, storyData);
-      }
-      resetForm();
-    } catch (err) {
-      console.error("SG LOG: Failed to save story", err);
-      alert("Failed to save story. Please try again.");
-    } finally {
-      setIsSaving(false);
-    }
-  };
+    resetForm();
+  } catch (err) {
+    console.error("SG LOG: Failed to save story", err);
+    alert("Failed to save story. Please try again.");
+  } finally {
+    // I-reset ang parehong state pagkatapos
+    setIsPublishing(false);
+    setIsSavingDraft(false);
+  }
+};
 
   const handleDelete = async (storyId) => {
     if (!window.confirm("Are you sure you want to delete this story?")) return;
@@ -825,6 +848,7 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
       </div>
     );
   };
+  
 
   const renderStoryCard = (story, globalIndex) => (
     <div 
@@ -858,35 +882,50 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
 
   const bgRenderedScale = getBgTotalScale(canvasRef.current?.getBoundingClientRect());
 
-  const renderEditorFormButtons = () => (
-    <div className="w-full flex items-center gap-2 pt-4 bg-white dark:bg-neutral-900 md:sticky md:bottom-0">
-      <button 
-        type="button" 
-        onClick={resetForm} 
-        disabled={isSaving} 
-        className="h-12 w-12 rounded-full border border-neutral-200 dark:border-white/10 bg-neutral-50 dark:bg-white/5 text-neutral-500 hover:text-neutral-800 dark:hover:text-white flex items-center justify-center transition-colors flex-shrink-0"
-        title="Cancel"
-      >
-        <ChevronLeft size={20} />
-      </button>
-      <button 
-        type="button" 
-        onClick={(e) => handleSave(e, false)} 
-        disabled={isSaving || !canPersistStory} 
-        className="flex-1 h-12 bg-neutral-100 dark:bg-white/5 text-neutral-800 dark:text-white border dark:border-white/10 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-neutral-200 dark:hover:bg-white/10 transition-colors px-2 disabled:opacity-40 disabled:cursor-not-allowed"
-      >
-        Save Draft
-      </button>
+const renderEditorFormButtons = () => (
+  <div className="w-full flex items-center gap-2 pt-4 bg-white dark:bg-neutral-900 md:sticky md:bottom-0">
+    <button 
+      type="button" 
+      onClick={resetForm} 
+      disabled={isSavingDraft || isPublishing} 
+      className="h-12 w-12 rounded-full border border-neutral-200 dark:border-white/10 bg-neutral-50 dark:bg-white/5 text-neutral-500 hover:text-neutral-800 dark:hover:text-white flex items-center justify-center transition-colors flex-shrink-0"
+      title="Cancel"
+    >
+      <ChevronLeft size={20} />
+    </button>
+
+    {/* Merged Button Logic */}
+    {isStorySizeOverLimit ? (
       <button 
         type="button"
-        onClick={(e) => handleSave(e, true)}
-        disabled={isSaving || !canPersistStory} 
-        className="flex-1 h-12 bg-garage-blue text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg flex items-center justify-center gap-2 hover:opacity-90 transition-all px-2 disabled:opacity-40 disabled:cursor-not-allowed"
+        disabled
+        className="flex-1 h-12 bg-neutral-100 dark:bg-white/5 text-neutral-500 border border-neutral-200 dark:border-white/10 rounded-2xl font-black uppercase text-[10px] tracking-widest cursor-not-allowed"
       >
-        {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Publish Story
+        FILE EXCEEDS LIMIT
       </button>
-    </div>
-  );
+    ) : (
+      <>
+        <button 
+          type="button" 
+          onClick={(e) => handleSave(e, false)} 
+          disabled={isSavingDraft || isPublishing} 
+          className="flex-1 h-12 bg-neutral-100 dark:bg-white/5 text-neutral-800 dark:text-white border dark:border-white/10 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-neutral-200 dark:hover:bg-white/10 transition-colors px-2 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {isSavingDraft ? <Loader2 size={14} className="animate-spin" /> : "Save Draft"}
+        </button>
+
+        <button 
+          type="button"
+          onClick={(e) => handleSave(e, true)}
+          disabled={isSavingDraft || isPublishing} 
+          className="flex-1 h-12 bg-garage-blue text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg flex items-center justify-center gap-2 hover:opacity-90 transition-all px-2 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {isPublishing ? <Loader2 size={14} className="animate-spin" /> : <><Save size={14} /> Publish Story</>}
+        </button>
+      </>
+    )}
+  </div>
+);
 
   return (
     <AnimatePresence>
@@ -1168,16 +1207,24 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
                             );
                           })}
 
-                          {(selectedStickerIndex !== null || selectedTextIndex !== null) && (
-                            <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/75 backdrop-blur-md text-white text-[8px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full z-[120] whitespace-nowrap pointer-events-none shadow-xl border border-white/5 flex items-center gap-1.5">
-                              <span className="w-1.5 h-1.5 rounded-full bg-garage-blue animate-pulse" />
-                              {activeDesktopTool === 'pan' ? 'Drag on background to crop & reposition inner photo structure' : 'Click & drag up/down on canvas background to morph properties | Hold buttons to reset'}
-                            </div>
-                          )}
+{(selectedStickerIndex !== null || selectedTextIndex !== null) && (
+  <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/75 backdrop-blur-md text-white text-[8px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full z-[120] whitespace-nowrap pointer-events-none shadow-xl border border-white/5 flex items-center gap-1.5">
+    <span className="w-1.5 h-1.5 rounded-full bg-garage-blue animate-pulse" />
+    {activeDesktopTool === 'pan' 
+      ? 'Drag outside to pan' 
+      : activeDesktopTool === 'rotate' 
+        ? 'Drag outside to rotate' 
+        : activeDesktopTool === 'resize'
+          ? 'Drag outside to resize'
+          : activeDesktopTool === 'zoom'
+            ? 'Drag outside to zoom'
+            : 'Drag Sticker to Move'}
+  </div>
+)}
 
                           {isBgSelected && (
                             <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/60 backdrop-blur-md text-white text-[8px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full z-[120] whitespace-nowrap pointer-events-none">
-                              {isDesktop ? 'Drag to Move | Hold Shift + Drag to Rotate | Wheel to Zoom' : '1 Finger: Move/Crop | 2 Fingers: Zoom & Rotate'}
+                              {isDesktop ? 'Drag to Move | Scroll to Rotate/Zoom' : '1 Finger: Move/Crop | 2 Fingers: Zoom & Rotate'}
                             </div>
                           )}
 
