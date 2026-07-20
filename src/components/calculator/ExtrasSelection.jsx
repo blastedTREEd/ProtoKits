@@ -261,21 +261,21 @@ export default function ExtrasSelection({
       </div>
 
  {/* --- COLUMN-SPECIFIC FOOTER --- */}
- <div className="sm:absolute md:fixed lg:absolute bottom-0 left-0 right-0 w-full p-2 z-[110]">
+ <div className="sticky bottom-0 left-0 w-full sm:absolute md:fixed lg:absolute bottom-0 left-0 right-0 w-full p-2 z-[110]">
   <div className="px-4 py-2">
     <div className="flex gap-3 bg-[var(--color-bg)]/80 backdrop-blur-md p-2 rounded-[2.5rem] border border-black/10 dark:border-white/10 shadow-2xl">
       
-      {/* BACK BUTTON */}
-      <button
-        type="button"
-        onClick={onBack}
-        className="flex-none h-14 w-14 rounded-full bg-neutral-900 text-white flex items-center justify-center hover:scale-105 active:scale-95 transition-all"
-        aria-label="Back"
-      >
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-        </svg>
-      </button>
+    {/* BACK BUTTON */}
+    <button
+      type="button"
+      onClick={onBack}
+      className="flex-none h-14 w-14 rounded-full bg-black dark:bg-white text-white dark:text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-lg"
+      aria-label="Back"
+    >
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+      </svg>
+    </button>
       <button 
               type="button"
               onClick={onProceed} 

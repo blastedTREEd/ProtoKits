@@ -625,7 +625,7 @@ export default function ProjectPreview({
     {/* BACK BUTTON */}
     <button
       type="button"
-      onClick={onBack} // Replace with your navigation handler
+      onClick={onBack}
       className="flex-none h-14 w-14 rounded-full bg-black dark:bg-white text-white dark:text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-lg"
       aria-label="Back"
     >

@@ -932,79 +932,60 @@ export default function ProjectPrepare({
             </button>
           </div>
         </div>
-        <div className="relative w-full h-[90px] flex items-center">
-          <div className="flex items-center gap-3 overflow-x-auto no-scrollbar py-2 w-full h-full px-4">
-            {models.map((model) => {
-              const isActive = activeModelId === model.id;
-              const modelQty = Math.max(1, parseInt(model.quantity, 10) || 1);
-              const plateUsage = getModelBuildPlateUsage(model);
-              const isSplitModel = getLogicalDims(model).parts > 1;
-              const plateLabel = isSplitModel
-                ? `BP x${plateUsage.count}`
-                : `BP${plateUsage.no}${plateUsage.count > 1 ? ` x${plateUsage.count}` : ''}`;
-              const isPlateFull = buildPlateWarningModelIds.has(model.id);
-              const borderColor = isPlateFull ? 'border-amber-500' : (isActive ? 'border-[var(--color-primary)]' : 'border-gray-400/30');
-              const textColor = isPlateFull ? 'text-amber-500' : (isActive ? 'text-[var(--color-primary)]' : 'text-black dark:text-white');
+<div className="relative w-full h-[90px] flex items-center">
+  <div className="flex items-center gap-3 overflow-x-auto no-scrollbar py-2 w-full h-full px-4">
+    {models.map((model) => {
+      const isActive = activeModelId === model.id;
+      const modelQty = Math.max(1, parseInt(model.quantity, 10) || 1);
+      const plateUsage = getModelBuildPlateUsage(model);
+      const isSplitModel = getLogicalDims(model).parts > 1;
+      const plateLabel = isSplitModel
+        ? `BP x${plateUsage.count}`
+        : `BP${plateUsage.no}${plateUsage.count > 1 ? ` x${plateUsage.count}` : ''}`;
+      
+      const isPlateFull = buildPlateWarningModelIds.has(model.id);
+      
+      // Determine dynamic classes based on state
+      const baseClasses = "relative flex-shrink-0 rounded-[12rem] border-2 transition-all duration-300 flex flex-col items-center justify-center snap-center";
+      const activeClasses = "w-[58px] h-[58px] bg-[var(--color-surface)] border-[var(--color-primary)] text-[var(--color-primary)] scale-110 z-10";
+      const inactiveClasses = `w-[50px] h-[50px] bg-black/5 dark:bg-white/5 border-gray-400/30 opacity-40 hover:opacity-70 ${isPlateFull ? 'text-amber-500 border-amber-500' : 'text-black dark:text-white'}`;
 
-              if (isActive) {
-                return (
-                  <button
-                    key={model.id}
-                    type="button"
-                    onClick={() => { changeModel(model.id); setIsSelectingMaterial(false); }}
-                    className={`relative flex-shrink-0 w-[50px] h-[50px] rounded-full border-2 ${borderColor} bg-[var(--color-surface)] flex flex-col items-center justify-center transition-all duration-300 ${textColor}`}
-                  >
-                    <div className="flex flex-col items-center leading-none gap-0.5">
-                      <div className="w-4 flex items-center justify-center">
-                        {isModelValid(model) ? <Check size={14} strokeWidth={4} className="animate-in zoom-in" /> : <Box size={13} strokeWidth={3} />}
-                      </div>
-                      <span className="text-[11px] font-black uppercase italic">M{model.no}{modelQty > 1 ? ` x${modelQty}` : ''}</span>
-                      <span className="text-[10px] font-bold opacity-70">{plateLabel}</span>
-                    </div>
-                  </button>
-                );
-              }
-
-              return (
-                <button key={model.id} onClick={() => { changeModel(model.id); setIsSelectingMaterial(false); }} 
-                  className={`relative flex-shrink-0 w-[50px] h-[50px] rounded-full border-2 ${borderColor} bg-[var(--text-main)]/5 opacity-40 transition-all duration-300 flex flex-col items-center justify-center hover:opacity-70 ${textColor}`}
-                >
-                  <div className="flex flex-col items-center leading-none gap-0.5">
-                      <div className="w-4 flex items-center justify-center">
-                        {isModelValid(model) ? <Check size={14} strokeWidth={4} className="mb-0.5 animate-in zoom-in" /> : <Box size={13} strokeWidth={3} className="mb-0.5" />}
-                      </div>
-                      <span className="text-[11px] font-black uppercase italic">M{model.no}{modelQty > 1 ? ` x${modelQty}` : ''}</span>
-                      <span className="text-[10px] font-bold opacity-50">{plateLabel}</span>
-                  </div>
-                </button>
-              );
-            })}
-            
-            {/* Standalone ADD BLANK MODEL button */}
-            {models.length < MAX_MODELS && !isSplitDetected && !activeIsMulticolor && (
-              <button 
-                type="button" 
-                onClick={addBlankModel}
-                className="relative flex-shrink-0 w-[50px] h-[50px] rounded-full border-2 border-dashed border-[var(--color-primary)] text-[var(--color-primary)] flex items-center justify-center active:scale-90 transition-all opacity-80 hover:bg-[var(--color-primary)]/5" 
-                title="Add model"
-              >
-                <Plus size={21} strokeWidth={3} />
-              </button>
-            )}
-
-            {/* Standalone RESET MODEL button */}
-            <button 
-              type="button" 
-              disabled={models.length <= 1}
-              onClick={() => resetActiveModel(true)}
-              className={`relative flex-shrink-0 w-[50px] h-[50px] rounded-full border-2 transition-all active:scale-90 flex items-center justify-center ${models.length <= 1 ? 'border-gray-400/20 text-gray-400 bg-gray-100/10 opacity-30 cursor-not-allowed' : 'border-amber-500/30 text-amber-600 bg-amber-500/5 hover:bg-amber-500/10'}`} 
-              title="Reset model"
-            >
-              <RefreshCw size={16} strokeWidth={3} />
-            </button>
-
+      return (
+        <button
+          key={model.id}
+          type="button"
+          onClick={() => { changeModel(model.id); setIsSelectingMaterial(false); }}
+          className={`${baseClasses} ${isActive ? activeClasses : inactiveClasses}`}
+        >
+          <div className="flex flex-col items-center leading-none gap-0.5">
+            <div className="w-4 flex items-center justify-center">
+              {isModelValid(model) 
+                ? <Check size={14} strokeWidth={4} className="animate-in zoom-in" /> 
+                : <Box size={13} strokeWidth={3} />}
+            </div>
+            <span className="text-[10px] font-black uppercase italic">
+              M{model.no}{modelQty > 1 ? ` x${modelQty}` : ''}
+            </span>
+            <span className="text-[8px] font-bold opacity-70 scale-90 truncate max-w-[45px]">
+              {plateLabel}
+            </span>
           </div>
-        </div>
+        </button>
+      );
+    })}
+
+    {/* Standalone Action Buttons (Maintained for UI consistency) */}
+    {models.length < MAX_MODELS && !isSplitDetected && !activeIsMulticolor && (
+      <button type="button" onClick={addBlankModel} className="flex-shrink-0 w-[50px] h-[50px] rounded-[12rem] border-2 border-dashed border-[var(--color-primary)] text-[var(--color-primary)] flex items-center justify-center active:scale-90 transition-all opacity-80 hover:bg-[var(--color-primary)]/5">
+        <Plus size={21} strokeWidth={3} />
+      </button>
+    )}
+
+    <button type="button" disabled={models.length <= 1} onClick={() => resetActiveModel(true)} className={`flex-shrink-0 w-[50px] h-[50px] rounded-[12rem] border-2 transition-all active:scale-90 flex items-center justify-center ${models.length <= 1 ? 'border-gray-400/20 text-gray-400 bg-gray-100/10 opacity-30 cursor-not-allowed' : 'border-amber-500/30 text-amber-600 bg-amber-500/5 hover:bg-amber-500/10'}`}>
+      <RefreshCw size={16} strokeWidth={3} />
+    </button>
+  </div>
+</div>
       </div>
 
       <div className="flex flex-col items-center text-center w-full px-4 mt-6">
