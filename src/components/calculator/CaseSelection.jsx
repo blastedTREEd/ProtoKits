@@ -50,7 +50,7 @@ export default function CaseSelection({ onSelect, selectedCase = null }) {
                 </div>
 
                 <div className="flex items-center gap-5">
-                  <span className={`text-[12px] font-black italic tracking-tight transition-all duration-500 uppercase animate-status-pulse text-[var(--color-primary)]`}>
+                  <span className={`text-[10px] font-black italic tracking-tight transition-all duration-500 uppercase animate-status-pulse text-[var(--color-primary)]`}>
                     {isSelected ? `PROJECT ${item.accuracy}` : item.tagline}
                   </span>
                   
@@ -72,7 +72,7 @@ export default function CaseSelection({ onSelect, selectedCase = null }) {
                     isSelected ? 'bg-[var(--color-primary)]/20' : 'bg-[var(--color-border)] opacity-30'
                   }`} />
                   
-                  <p className={`text-[14px] font-medium leading-relaxed italic transition-colors ${
+                  <p className={`text-[10px] font-medium leading-relaxed italic transition-colors ${
                     isSelected ? 'text-[var(--color-text-main)]' : 'text-[var(--color-text-main)]/60'
                   }`}>
                     {item.description}

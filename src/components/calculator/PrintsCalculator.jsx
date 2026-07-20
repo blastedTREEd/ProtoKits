@@ -299,7 +299,7 @@ export default function PrintsCalculator({
     <div className="w-full min-h-full prints-calculator-container animate-in fade-in zoom-in-95 duration-500 px-3 sm:px-5 pb-10 text-[var(--color-text-main)]">
       <style>{`
         .prints-calculator-body :where(p, span, label, button, input, textarea, select, h2, h3, h4, h5, h6) {
-          font-size: 16px;
+          font-size: 12px;
         }
         .prints-calculator-body :where(input, .print-dimension-type) {
           font-weight: 900;
