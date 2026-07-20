@@ -4,11 +4,13 @@ import PrintsCalculator from '../components/calculator/PrintsCalculator';
 import ProjectCard from '../components/calculator/ProjectCard';
 import { useStore } from '../store/useStore';
 import CheckoutModal from '../components/kitcards/CheckoutModal';
+import LoginPromptModal from '../components/menu/LoginPromptModal';
 import { Droplet, Calculator, Search, Box, Plus, X, HandCoins, Lock, Zap } from 'lucide-react';
 import FilamentManagerModal from '../components/calculator/FilamentManagerModal';
 import RatesManagerModal from '../components/calculator/RatesManagerModal';
 import LoadingState from '../components/common/LoadingState';
 import AddPrintModal from '../components/calculator/AddPrintModal';
+import { getCheckoutPaymentFees } from '../utils/paymentSettings';
 
 const BrandLogo = ({ size = "w-11 h-11" }) => {
   const fbLogoUrl = "https://graph.facebook.com/SnorlaxGarage/picture?type=large";
@@ -70,11 +72,18 @@ export default function Prints({ isDarkMode }) {
   const isLoading = useStore((state) => state.isLoading);
   const loadBlueprints = useStore((state) => state.loadBlueprints);
   const loadPrintResources = useStore((state) => state.loadPrintResources);
+  const user = useStore((state) => state.user);
+  const setLoginModalOpen = useStore((state) => state.setLoginModalOpen);
+  const setToastMessage = useStore((state) => state.setToastMessage);
+  const shippingSettings = useStore((state) => state.shippingSettings);
   
   const [showFilamentModal, setShowFilamentModal] = useState(false);
   const [showRatesModal, setShowRatesModal] = useState(false);
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [editingPrintProject, setEditingPrintProject] = useState(null);
+  const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
+  const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
+  const [itemsForCheckout, setItemsForCheckout] = useState([]);
 
   const shadow = isDarkMode 
     ? 'shadow-[0_8px_30px_rgba(0,0,0,0.5)]' 
@@ -194,13 +203,63 @@ export default function Prints({ isDarkMode }) {
     setEditingPrintProject(null);
   };
 
-  const handleBasketAction = (e, project) => {
+  const handleBasketAction = async (e, project) => {
     e.stopPropagation();
     if (project?.canAddToBasket === false) return;
-    addProjectToBasket(project).catch((error) => {
-        console.error("SG DEBUG: Error adding to basket:", error);
-        alert(error?.message || 'Unable to add project to basket.');
-    });
+    try {
+      await addProjectToBasket(project);
+      setToastMessage(isAdmin && isAdminView ? 'Added to shelf!' : 'Added to basket!');
+    } catch (error) {
+      console.error("SG DEBUG: Error adding to basket:", error);
+      alert(error?.message || 'Unable to add project to basket.');
+      throw error;
+    }
+  };
+
+  const buildCheckoutProjectItem = (project) => {
+    const { handlingFee, installmentFee, transferFee } = getCheckoutPaymentFees({ shippingSettings });
+    const grandTotal = parseFloat(String(project?.totals?.total || project?.sellPrice || project?.price || 0).replace(/,/g, '')) || 0;
+    const basePrice = parseFloat(String(project?.totals?.basePrice || 0).replace(/,/g, '')) || Math.max(0, grandTotal - handlingFee - installmentFee - transferFee);
+    const downpayment = parseFloat(String(project?.totals?.dp || project?.minDownpayment || 0).replace(/,/g, '')) || 0;
+    const basketId = `checkout_project_${project?.vaultId || project?.id || Date.now()}`;
+
+    let name = `Custom Print: ${project?.projectName || project?.method?.name || 'Project'}`;
+    if (project?.selectedDesignService) {
+      name += ' (w/ Design Service)';
+    }
+
+    return {
+      id: `project_${basketId}`,
+      basketId,
+      type: 'project',
+      quantity: 1,
+      isFinalized: project?.method?.name === '3MF',
+      gdriveLink: project?.gdriveLink || '',
+      projectData: {
+        ...project,
+        sellPrice: basePrice,
+        displayPrice: grandTotal,
+        minDownpayment: downpayment
+      },
+      name,
+      price: grandTotal,
+      appliedHandlingFee: handlingFee,
+      appliedInstallmentFee: installmentFee,
+      appliedTransferFee: transferFee,
+      minDownpayment: downpayment,
+      createdAt: new Date().toISOString()
+    };
+  };
+
+  const handleOrderNow = (project) => {
+    setItemsForCheckout([buildCheckoutProjectItem(project)]);
+    if (!user) {
+      setIsLoginPromptOpen(true);
+      return;
+    }
+    if (!(isAdmin && isAdminView)) {
+      setIsCheckoutModalOpen(true);
+    }
   };
 
   return (
@@ -323,6 +382,7 @@ export default function Prints({ isDarkMode }) {
                     project={project}
                     type="blueprint"
                     onBasketAction={handleBasketAction}
+                    onOrderNow={handleOrderNow}
                     showManagementActions={isAdmin && isAdminView}
                     onModify={isAdmin && isAdminView ? handleModify : undefined}
                     onDelete={isAdmin && isAdminView ? handleDeletePrintProject : undefined}
@@ -337,6 +397,7 @@ export default function Prints({ isDarkMode }) {
                     project={project}
                     type="vault"
                     onBasketAction={handleBasketAction}
+                    onOrderNow={handleOrderNow}
                     showManagementActions={true}
                     onModify={handleModify}
                     onDelete={handleDeleteVaultProject}
@@ -375,6 +436,8 @@ export default function Prints({ isDarkMode }) {
       {showFilamentModal && <FilamentManagerModal onClose={() => setShowFilamentModal(false)} />}
       {showRatesModal && <RatesManagerModal onClose={() => setShowRatesModal(false)} />}
       {showPrintModal && <AddPrintModal onClose={closePrintModal} initialProject={editingPrintProject} />}
+      <CheckoutModal isOpen={isCheckoutModalOpen} onClose={() => setIsCheckoutModalOpen(false)} items={itemsForCheckout} isGuestPreview={!user} />
+      <LoginPromptModal isOpen={isLoginPromptOpen} onClose={() => setIsLoginPromptOpen(false)} onLogin={() => { setLoginModalOpen(true); setIsLoginPromptOpen(false); }} onContinue={() => { setIsLoginPromptOpen(false); setIsCheckoutModalOpen(true); }} continueLabel="Check Price & Shipping" />
     </PageTemplate>
   );
 }

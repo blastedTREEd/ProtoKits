@@ -116,6 +116,7 @@ export default function ProjectCard({
   project, 
   onClick, 
   onBasketAction, 
+  onOrderNow,
   type = 'blueprint',
   showManagementActions = false,
   onModify,
@@ -203,6 +204,7 @@ export default function ProjectCard({
 
   // Gate basket for vault: if valid GDrive link exists, always require license acknowledgment; if no valid link, allow if design service is selected (and not 3MF)
   const vaultReadyForBasket = !isVault || (fileLinkIsValid ? licenseAcknowledged : (!!selectedDesignService && !is3MF));
+  const vaultReadyForOrder = !isVault || (fileLinkIsValid && licenseAcknowledged);
 
   const { handlingFee, installmentFee, transferFee } = useMemo(() => ({
     handlingFee: Number(shippingSettings?.paymentSettings?.handlingFee || 0),
@@ -406,6 +408,35 @@ export default function ProjectCard({
 
   const details = project.projectDetails || [];
 
+  const getActionProjectData = () => ({
+    ...project,
+    ...(isVault ? { gdriveLink: fileLink, licenseAcknowledged } : {}),
+    selectedDesignService,
+    totals: {
+      ...project.totals,
+      total: String(displayPrice),
+      dp: String(downpayment)
+    }
+  });
+
+  const handleAddProjectToBasket = async (e, { closeModal = false } = {}) => {
+    e.stopPropagation();
+    if (!canAddToBasket || !vaultReadyForBasket || !onBasketAction) return;
+    try {
+      await onBasketAction(e, getActionProjectData());
+    } catch {
+      return;
+    }
+    if (closeModal) setIsModalOpen(false);
+  };
+
+  const handleOrderProjectNow = (e) => {
+    e.stopPropagation();
+    if (!canAddToBasket || !vaultReadyForOrder || !onOrderNow) return;
+    onOrderNow(getActionProjectData());
+    setIsModalOpen(false);
+  };
+
   return (
     <>
       <div 
@@ -570,7 +601,7 @@ export default function ProjectCard({
                       </button>
                   ) : (
                     <button
-                        onClick={(e) => {
+                        onClick={async (e) => {
                         e.stopPropagation();
                         if (!canAddToBasket) return;
                         // Vault projects: open modal first para mag-fill ng link + license
@@ -579,7 +610,7 @@ export default function ProjectCard({
                           setIsModalOpen(true);
                           return;
                         }
-                        onBasketAction(e, isVault ? { ...project, gdriveLink: fileLink, licenseAcknowledged, selectedDesignService, totals: { ...project.totals, total: String(displayPrice), dp: String(downpayment) } } : { ...project, selectedDesignService, totals: { ...project.totals, total: String(displayPrice), dp: String(downpayment) } });
+                        await handleAddProjectToBasket(e);
                         }}
                         className={`w-8 h-8 rounded-full transition-all flex items-center justify-center active:scale-95 shadow-lg ${
                         !canAddToBasket
@@ -1003,16 +1034,7 @@ export default function ProjectCard({
       {/* ADD TO BASKET (50% Width) */}
       <div className="w-1/2">
         <button 
-          onClick={(e) => {
-            e.stopPropagation();
-            if (!canAddToBasket || !vaultReadyForBasket) return;
-            
-            // Execute action
-            onBasketAction(e, isVault ? { ...project, gdriveLink: fileLink, licenseAcknowledged, selectedDesignService, totals: { ...project.totals, total: String(displayPrice), dp: String(downpayment) } } : { ...project, selectedDesignService, totals: { ...project.totals, total: String(displayPrice), dp: String(downpayment) } });
-            
-            // Trigger Close Modal
-            setIsModalOpen(false);
-          }}
+          onClick={(e) => handleAddProjectToBasket(e, { closeModal: true })}
           disabled={!canAddToBasket || !vaultReadyForBasket}
           className={`w-full h-12 rounded-full text-white font-black italic uppercase text-[11px] tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all ${
             !canAddToBasket || !vaultReadyForBasket
@@ -1028,17 +1050,10 @@ export default function ProjectCard({
       {/* ORDER NOW (50% Width) */}
       <div className="w-1/2">
         <button 
-          onClick={(e) => {
-            e.stopPropagation();
-            // Call your checkout modal trigger here
-            // onOrderNow(project); 
-            console.log("Triggering Checkout Modal for:", displayPrice);
-            setIsModalOpen(false);
-          }}
-          // Only enabled if production is allowed (canAddToBasket)
-          disabled={!canAddToBasket}
+          onClick={handleOrderProjectNow}
+          disabled={!canAddToBasket || !vaultReadyForOrder || !onOrderNow}
           className={`w-full h-12 rounded-full text-white font-black italic uppercase text-[11px] tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all ${
-            !canAddToBasket
+            !canAddToBasket || !vaultReadyForOrder || !onOrderNow
               ? 'bg-neutral-400 cursor-not-allowed opacity-50'
               : 'bg-gradient-to-br from-blue-500 to-blue-600'
           }`}

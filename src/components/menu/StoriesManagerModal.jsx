@@ -97,7 +97,6 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
   const pointerCacheRef = useRef(new Map());
   const initialGestureRef = useRef(null);
   const bgTapRef = useRef(null);
-  const bgRotateLongPressRef = useRef(null);
   const buttonLongPressTimerRef = useRef(null);
   
   const [stickers, setStickers] = useState([]); 
@@ -185,13 +184,33 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
   };
 
   useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
+    if (!isOpen) return undefined;
+
+    const scrollY = window.scrollY;
+    const previousBodyStyles = {
+      overflow: document.body.style.overflow,
+      position: document.body.style.position,
+      top: document.body.style.top,
+      width: document.body.style.width,
+      overscrollBehavior: document.body.style.overscrollBehavior
+    };
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+
+    document.body.style.overflow = 'hidden';
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.width = '100%';
+    document.body.style.overscrollBehavior = 'none';
+    document.documentElement.style.overflow = 'hidden';
+
     return () => {
-      document.body.style.overflow = '';
+      document.body.style.overflow = previousBodyStyles.overflow;
+      document.body.style.position = previousBodyStyles.position;
+      document.body.style.top = previousBodyStyles.top;
+      document.body.style.width = previousBodyStyles.width;
+      document.body.style.overscrollBehavior = previousBodyStyles.overscrollBehavior;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+      window.scrollTo(0, scrollY);
     };
   }, [isOpen]);
 
@@ -288,6 +307,13 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
             if (actionKey === 'rotate') return { ...t, rotation: 0 };
             return t;
           }));
+        } else if (type === 'background') {
+          if (actionKey === 'rotate') setBgRotation(0);
+          if (actionKey === 'zoom') {
+            setBgZoom(1);
+            setBgOffset({ x: 0, y: 0 });
+          }
+          if (actionKey === 'pan') setBgOffset({ x: 0, y: 0 });
         }
       }, 500)
     };
@@ -303,6 +329,175 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
     }
   };
 
+  const resetControlLongPress = () => {
+    if (buttonLongPressTimerRef.current) {
+      clearTimeout(buttonLongPressTimerRef.current.timer);
+      buttonLongPressTimerRef.current = null;
+    }
+  };
+
+  const getControlButtonClass = (tool, activeClass) =>
+    `p-2 rounded-xl transition-all ${activeDesktopTool === tool ? activeClass : 'text-neutral-400 hover:text-white'} disabled:opacity-20 disabled:hover:bg-transparent`;
+
+  const renderLongPressToolButton = ({ type, tool, icon, activeClass, disabled = false, title }) => (
+    <button
+      type="button"
+      title={title}
+      disabled={disabled}
+      onPointerDown={() => startControlLongPress(type, tool)}
+      onPointerUp={() => endControlLongPress(() => setActiveDesktopTool(activeDesktopTool === tool ? null : tool))}
+      onPointerLeave={resetControlLongPress}
+      className={getControlButtonClass(tool, activeClass)}
+    >
+      {icon}
+    </button>
+  );
+
+  const renderLayerControls = () => {
+    const selectedSticker = selectedStickerIndex !== null ? stickers[selectedStickerIndex] : null;
+
+    if (isBgSelected) {
+      const hasStickerLayers = stickers.length > 0;
+
+      return (
+        <Motion.div
+          initial={{ opacity: 0, y: 15, x: '-50%' }}
+          animate={{ opacity: 1, y: 0, x: '-50%' }}
+          exit={{ opacity: 0, y: 15, x: '-50%' }}
+          className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-neutral-900/95 backdrop-blur-md px-4 py-2.5 rounded-2xl flex flex-col items-center gap-1.5 border border-white/10 shadow-2xl z-[130] text-white min-w-[210px]"
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center gap-2" data-handle="true">
+            {renderLongPressToolButton({
+              type: 'background',
+              tool: 'rotate',
+              icon: <RotateCw size={15} />,
+              activeClass: 'bg-green-500 text-white',
+              title: 'Rotate story image'
+            })}
+            {renderLongPressToolButton({
+              type: 'background',
+              tool: 'zoom',
+              icon: <ZoomIn size={15} />,
+              activeClass: 'bg-orange-500 text-white',
+              title: 'Zoom story image'
+            })}
+            {renderLongPressToolButton({
+              type: 'background',
+              tool: 'pan',
+              icon: <Hand size={15} />,
+              activeClass: 'bg-orange-600 text-white',
+              title: hasStickerLayers ? 'Pan story image' : 'Pan is always available without stickers'
+            })}
+            <div className="w-[1px] h-4 bg-white/20 mx-1" />
+            <button
+              type="button"
+              title="Back to stickers"
+              onClick={() => {
+                setIsBgSelected(false);
+                setActiveDesktopTool(null);
+              }}
+              className="p-2 rounded-xl text-neutral-300 hover:bg-white/10 hover:text-white transition-colors"
+            >
+              <ChevronLeft size={15} />
+            </button>
+          </div>
+        </Motion.div>
+      );
+    }
+
+    if (selectedTextIndex !== null) {
+      return (
+        <Motion.div
+          initial={{ opacity: 0, y: 15, x: '-50%' }}
+          animate={{ opacity: 1, y: 0, x: '-50%' }}
+          exit={{ opacity: 0, y: 15, x: '-50%' }}
+          className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-neutral-900/95 backdrop-blur-md px-4 py-2.5 rounded-2xl flex flex-col items-center gap-1.5 border border-white/10 shadow-2xl z-[130] text-white min-w-[180px]"
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          {showColorPaletteIdx === selectedTextIndex && (
+            <div className="flex items-center gap-1 bg-black/40 p-1 rounded-xl mb-1 border border-white/5 overflow-x-auto max-w-[210px] scrollbar-none">
+              {availableColors.map((hex) => (
+                <button
+                  key={hex}
+                  type="button"
+                  onClick={() => { updateSelectedText('color', hex); setShowColorPaletteIdx(null); setActiveDesktopTool(null); }}
+                  className={`w-4 h-4 rounded-full flex-shrink-0 border transition-transform hover:scale-110 ${texts[selectedTextIndex]?.color === hex ? 'border-white scale-105 ring-1 ring-garage-blue' : 'border-black/20'}`}
+                  style={{ backgroundColor: hex }}
+                />
+              ))}
+            </div>
+          )}
+          <div className="flex items-center gap-2" data-handle="true">
+            {renderLongPressToolButton({
+              type: 'text',
+              tool: 'rotate',
+              icon: <RotateCw size={15} />,
+              activeClass: 'bg-green-500 text-white',
+              title: 'Rotate text'
+            })}
+            <button type="button" onClick={() => cycleFont(selectedTextIndex)} className="p-2 rounded-xl text-neutral-300 hover:bg-white/10 hover:text-white transition-colors"><TypeOutline size={15} /></button>
+            <button type="button" onClick={() => cycleFontSize(selectedTextIndex)} className="p-2 rounded-xl text-blue-400 hover:bg-white/10 transition-colors"><ALargeSmall size={15} /></button>
+            <button type="button" onClick={() => { setShowColorPaletteIdx(showColorPaletteIdx === selectedTextIndex ? null : selectedTextIndex); setActiveDesktopTool(null); }} className={`p-2 rounded-xl transition-all ${showColorPaletteIdx === selectedTextIndex ? 'bg-amber-500 text-white' : 'text-amber-400 hover:bg-white/10'}`}><Palette size={15} /></button>
+            <div className="w-[1px] h-4 bg-white/20 mx-0.5" />
+            <button type="button" onClick={deleteSelectedText} className="p-2 text-red-500 hover:bg-red-500/10 rounded-xl transition-colors"><X size={15} /></button>
+          </div>
+        </Motion.div>
+      );
+    }
+
+    if (selectedStickerIndex !== null && selectedSticker) {
+      return (
+        <Motion.div
+          initial={{ opacity: 0, y: 15, x: '-50%' }}
+          animate={{ opacity: 1, y: 0, x: '-50%' }}
+          exit={{ opacity: 0, y: 15, x: '-50%' }}
+          className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-neutral-900/95 backdrop-blur-md px-4 py-2.5 rounded-2xl flex flex-col items-center gap-1.5 border border-white/10 shadow-2xl z-[130] text-white min-w-[210px]"
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center gap-2" data-handle="true">
+            {renderLongPressToolButton({
+              type: 'sticker',
+              tool: 'rotate',
+              icon: <RotateCw size={15} />,
+              activeClass: 'bg-green-500 text-white',
+              title: 'Rotate sticker'
+            })}
+            {renderLongPressToolButton({
+              type: 'sticker',
+              tool: 'resize',
+              icon: <Maximize2 size={15} />,
+              activeClass: 'bg-blue-500 text-white',
+              title: 'Resize sticker'
+            })}
+            {renderLongPressToolButton({
+              type: 'sticker',
+              tool: 'zoom',
+              icon: <ZoomIn size={15} />,
+              activeClass: 'bg-orange-500 text-white',
+              title: 'Zoom sticker image'
+            })}
+            {renderLongPressToolButton({
+              type: 'sticker',
+              tool: 'pan',
+              icon: <Hand size={15} />,
+              activeClass: 'bg-orange-600 text-white',
+              disabled: (selectedSticker.zoom || 1) <= 1,
+              title: 'Pan sticker image'
+            })}
+            <div className="w-[1px] h-4 bg-white/20 mx-1" />
+            <button type="button" onClick={() => deleteSelectedSticker()} className="p-2 text-red-500 hover:bg-red-500/10 rounded-xl transition-colors"><X size={15} /></button>
+          </div>
+        </Motion.div>
+      );
+    }
+
+    return null;
+  };
+
 const handleBgPointerDown = (e) => {
   if (!backgroundImage) return;
   e.stopPropagation();
@@ -312,12 +507,13 @@ const handleBgPointerDown = (e) => {
 
   // 2. I-check kung sticker o text ang na-tap (bago natin i-reset)
   const clickedLayer = e.target.closest('.sticker-container') || e.target.closest('.text-container');
+  const wasBgSelected = isBgSelected;
   
   // 3. FORCE DESELECT: Kung background ang na-tap, i-reset ang layers
   if (!clickedLayer) {
     setSelectedStickerIndex(null);
     setSelectedTextIndex(null);
-    setActiveDesktopTool(null);
+    if (!wasBgSelected) setActiveDesktopTool(null);
     setIsBgSelected(true);
   }
 
@@ -338,7 +534,7 @@ const handleBgPointerDown = (e) => {
 
   // 5. Gesture Logic (Gamit ang updated selection states)
   const activePointers = Array.from(pointerCacheRef.current.values());
-  const hasActiveLayer = selectedStickerIndex !== null || selectedTextIndex !== null;
+  const hasActiveLayer = Boolean(clickedLayer) && (selectedStickerIndex !== null || selectedTextIndex !== null);
   const hasActiveTool = activeDesktopTool !== null;
 
   // Siguraduhin na kung may active layer, ang pan/gesture ay para sa layer
@@ -355,21 +551,34 @@ const handleBgPointerDown = (e) => {
       // Kung walang active layer, pan mode para sa background
       const rect = canvasRef.current?.getBoundingClientRect();
       const canvasCenter = rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : getPointerPoint(e);
+      const hasStickerLayers = stickers.length > 0;
+      const canPanBackground = !hasStickerLayers || activeDesktopTool === 'pan';
       
-      if (isDesktop && e.shiftKey) {
+      if (wasBgSelected && (activeDesktopTool === 'rotate' || activeDesktopTool === 'zoom')) {
+        initialGestureRef.current = {
+          mode: 'background-tool',
+          startX: activePointers[0].x,
+          startY: activePointers[0].y,
+          startZoom: bgZoom || 1,
+          startRotation: bgRotation || 0,
+          startOffset: { ...bgOffset }
+        };
+      } else if (isDesktop && e.shiftKey) {
         initialGestureRef.current = {
           mode: 'rotate-desktop',
           center: canvasCenter,
           startAngle: getAngle(canvasCenter, activePointers[0]),
           startRotation: bgRotation || 0
         };
-      } else {
+      } else if (canPanBackground) {
         initialGestureRef.current = {
           mode: 'pan',
           startX: activePointers[0].x,
           startY: activePointers[0].y,
           startOffset: { ...bgOffset }
         };
+      } else {
+        initialGestureRef.current = null;
       }
     }
   } else if (activePointers.length === 2) {
@@ -478,7 +687,42 @@ const handleBgPointerDown = (e) => {
       return;
     }
 
+    if (gesture.mode === 'background-tool' && activePointers.length === 1) {
+      const deltaY = activePointers[0].y - gesture.startY;
+
+      if (activeDesktopTool === 'rotate') {
+        const nextRotation = (gesture.startRotation || 0) + deltaY * 0.5;
+        setBgRotation(nextRotation);
+
+        if (canvasRect) {
+          const limits = getBgPanLimits(canvasRect, bgZoom || 1, nextRotation);
+          setBgOffset((prev) => ({
+            x: clamp(prev.x, -limits.x, limits.x),
+            y: clamp(prev.y, -limits.y, limits.y)
+          }));
+        }
+      }
+
+      if (activeDesktopTool === 'zoom') {
+        const zoomChange = -deltaY * 0.01;
+        const nextZoom = clamp((gesture.startZoom || 1) + zoomChange, 1, 5);
+        setBgZoom(nextZoom);
+
+        if (canvasRect) {
+          const limits = getBgPanLimits(canvasRect, nextZoom, bgRotation || 0);
+          setBgOffset((prev) => ({
+            x: clamp(prev.x, -limits.x, limits.x),
+            y: clamp(prev.y, -limits.y, limits.y)
+          }));
+        }
+      }
+
+      return;
+    }
+
     if (gesture.mode === 'pan' && activePointers.length === 1) {
+      if (stickers.length > 0 && activeDesktopTool !== 'pan') return;
+
       if (isDesktop && e.shiftKey) {
         const rect = canvasRef.current?.getBoundingClientRect();
         const canvasCenter = rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : activePointers[0];
@@ -930,7 +1174,7 @@ const renderEditorFormButtons = () => (
   return (
     <AnimatePresence>
       {isOpen && (
-<div className="fixed inset-0 z-[300] flex md:items-center md:justify-center md:p-6">
+<div className="fixed inset-0 z-[300] flex overflow-hidden overscroll-none md:items-center md:justify-center md:p-6">
   
   <Motion.div 
     initial={{ opacity: 0 }} 
@@ -948,7 +1192,7 @@ const renderEditorFormButtons = () => (
     transition={{ type: "spring", damping: 25, stiffness: 400 }}
     // Mobile: w-full h-full, no rounding, no borders. 
     // Desktop: apply standard constraints.
-    className={`relative w-full h-full md:h-auto md:w-full md:max-w-3xl bg-white dark:bg-neutral-900 shadow-2xl overflow-hidden flex flex-col transition-all duration-300 md:max-h-[95vh] md:rounded-[2.5rem] md:border ${
+    className={`relative w-full h-full ${mode === 'list' ? 'md:h-[85vh]' : 'md:h-auto'} md:w-full md:max-w-3xl bg-white dark:bg-neutral-900 shadow-2xl overflow-hidden overscroll-none flex flex-col transition-all duration-300 md:max-h-[95vh] md:rounded-[2.5rem] md:border ${
       isSplitLayout ? 'md:max-w-5xl' : 'md:max-w-3xl'
     }`}
   >
@@ -988,7 +1232,7 @@ const renderEditorFormButtons = () => (
               </button>
             </div>
 
-            <div className={`p-6 pb-4 border-b border-neutral-100 dark:border-white/5 items-center justify-between z-10 ${mode === 'list' || isSplitLayout ? 'flex' : 'hidden'}`}>
+            <div className={`p-6 pb-4 border-b border-neutral-100 dark:border-white/5 items-center justify-between z-10 shrink-0 ${mode === 'list' || isSplitLayout ? 'flex' : 'hidden'}`}>
               <div className="flex flex-col text-left">
                 <h2 className="text-2xl font-black italic uppercase tracking-tighter text-neutral-900 dark:text-white leading-none">
                   {mode === 'list' && 'MANAGE STORIES'} {mode === 'add' && 'BUILD STORY'} {mode === 'edit' && 'EDIT STORY'}
@@ -1002,30 +1246,30 @@ const renderEditorFormButtons = () => (
             </div>
 
             {/* MAIN CONTENT AREA */}
-            <div className={`${mode === 'list' ? `p-6 overflow-hidden ${isSplitLayout ? 'overflow-y-auto' : ''}` : `${isSplitLayout ? 'p-6 overflow-y-auto' : 'p-0 overflow-hidden'}`} flex-1 min-h-0`}>
+            <div className={`${mode === 'list' ? 'p-6 overflow-hidden overscroll-none' : `${isSplitLayout ? 'p-6 overflow-y-auto overscroll-contain [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden' : 'p-0 overflow-hidden'}`} flex-1 min-h-0`}>
               {mode === 'list' ? (
-                <div className="h-full min-h-0 flex flex-col gap-4">
+                <div className="h-full min-h-0 flex flex-col gap-4 overflow-hidden overscroll-none">
                   {stories && stories.length > 0 ? (
                     <>
                       <div className="md:hidden grid grid-cols-2 gap-2 p-1 rounded-2xl bg-neutral-100 dark:bg-white/5 border border-neutral-200 dark:border-white/10">
                         <button type="button" onClick={() => setStoryListView('published')} className={`py-3 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center gap-2 transition-all ${storyListView === 'published' ? 'bg-white dark:bg-neutral-900 text-garage-blue shadow-sm' : 'text-neutral-400'}`}><Notebook size={14} /> Published</button>
                         <button type="button" onClick={() => setStoryListView('drafts')} className={`py-3 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center gap-2 transition-all ${storyListView === 'drafts' ? 'bg-white dark:bg-neutral-900 text-amber-500 shadow-sm' : 'text-neutral-400'}`}><NotebookPen size={14} /> Drafts</button>
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-0 md:mt-4 flex-1 min-h-0">
-                        <div className={`${storyListView === 'published' ? 'flex' : 'hidden'} md:flex flex-col min-h-0 space-y-2`}>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-0 md:mt-4 flex-1 min-h-0 overflow-hidden">
+                        <div className={`${storyListView === 'published' ? 'flex' : 'hidden'} md:flex flex-col min-h-0 overflow-hidden space-y-2`}>
                           <div className="flex items-center gap-2 pb-1 border-b border-neutral-100 dark:border-white/5">
                             <span className="w-2 h-2 rounded-full bg-emerald-500" /><h3 className="text-xs font-black uppercase tracking-wider text-neutral-500">Published ({publishedStories.length})</h3>
                           </div>
-                          <div className="space-y-2 flex-1 overflow-y-auto min-h-0 pb-4 pr-1 text-left">
+                          <div className="space-y-2 flex-1 overflow-y-auto overscroll-contain min-h-0 pb-4 pr-1 text-left [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                             {publishedStories.length > 0 ? publishedStories.map((story) => renderStoryCard(story, stories.findIndex(s => s.id === story.id))) : <p className="text-[10px] font-bold text-neutral-400 py-6 text-center italic">No published stories</p>}
                           </div>
                         </div>
 
-                        <div className={`${storyListView === 'drafts' ? 'flex' : 'hidden'} md:flex flex-col min-h-0 space-y-2`}>
+                        <div className={`${storyListView === 'drafts' ? 'flex' : 'hidden'} md:flex flex-col min-h-0 overflow-hidden space-y-2`}>
                           <div className="flex items-center gap-2 pb-1 border-b border-neutral-100 dark:border-white/5">
                             <span className="w-2 h-2 rounded-full bg-amber-500" /><h3 className="text-xs font-black uppercase tracking-wider text-neutral-500">Drafts ({draftStories.length})</h3>
                           </div>
-                          <div className="space-y-2 flex-1 min-h-0 overflow-y-auto md:max-h-[50vh] pr-1 text-left">
+                          <div className="space-y-2 flex-1 min-h-0 overflow-y-auto overscroll-contain pb-4 pr-1 text-left [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                             {draftStories.length > 0 ? draftStories.map((story) => renderStoryCard(story, stories.findIndex(s => s.id === story.id))) : <p className="text-[10px] font-bold text-neutral-400 py-6 text-center italic">No draft stories</p>}
                           </div>
                         </div>
@@ -1071,26 +1315,6 @@ const renderEditorFormButtons = () => (
                               transformOrigin: 'center center'
                             }}
                           />
-
-                          {isBgSelected && (
-                            <button
-                              type="button" data-handle="true" className="absolute bottom-4 left-1/2 -translate-x-1/2 w-9 h-9 bg-white border-2 border-green-500 rounded-full flex items-center justify-center cursor-grab shadow-lg z-[130]"
-                              onPointerDown={(e) => {
-                                e.stopPropagation();
-                                let didResetRotation = false;
-                                if (bgRotateLongPressRef.current) clearTimeout(bgRotateLongPressRef.current);
-                                bgRotateLongPressRef.current = setTimeout(() => { didResetRotation = true; setBgRotation(0); }, 520);
-                                const startRotation = bgRotation || 0; const startX = e.clientX;
-                                const onMove = (me) => {
-                                  if (Math.abs(me.clientX - startX) > 4 && bgRotateLongPressRef.current) { clearTimeout(bgRotateLongPressRef.current); bgRotateLongPressRef.current = null; }
-                                  if (didResetRotation) return;
-                                  const nextRotation = startRotation + (me.clientX - startX) * 0.5; setBgRotation(nextRotation);
-                                };
-                                const onUp = () => { if (bgRotateLongPressRef.current) clearTimeout(bgRotateLongPressRef.current); window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
-                                window.addEventListener('pointermove', onMove); window.addEventListener('pointerup', onUp);
-                              }}
-                            ><RotateCw size={16} className="text-green-600" /></button>
-                          )}
 
                           {stickers.map((st, index) => {
                             const isPolaroid = st.type !== 'mask';
@@ -1138,7 +1362,7 @@ const renderEditorFormButtons = () => (
                                 }}
                                 animate={{ scale: st.scale, rotate: st.rotation, x: st.position.x, y: st.position.y }}
                                 transition={{ type: 'spring', stiffness: 700, damping: 45, mass: 0.35 }}
-                                className={`absolute top-1/4 left-1/4 z-20 transition-opacity duration-200 ${isSelected ? 'z-[120]' : ''} ${isBgSelected ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
+                                className={`sticker-container absolute top-1/4 left-1/4 z-20 transition-opacity duration-200 ${isSelected ? 'z-[120]' : ''} ${isBgSelected ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
                                 style={{ touchAction: 'none', willChange: 'transform', width: '50%' }}
                                 onPointerDown={(e) => { 
                                   if (e.target.closest('[data-handle="true"]')) return;
@@ -1183,7 +1407,7 @@ const renderEditorFormButtons = () => (
                                 onDragStart={() => resetBgControls()}
                                 onDragEnd={(e, info) => { setTexts(prev => prev.map((txt, idx) => idx === index ? { ...txt, position: { x: txt.position.x + info.offset.x, y: txt.position.y + info.offset.y } } : txt)); }}
                                 animate={{ scale: t.scale, rotate: t.rotation, x: t.position.x, y: t.position.y }}
-                                className={`absolute p-1.5 select-none transition-opacity duration-200 ${isSelected ? 'ring-2 ring-garage-blue rounded-lg bg-black/10 backdrop-blur-xs z-[110]' : 'z-30'} ${isBgSelected ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
+                                className={`text-container absolute p-1.5 select-none transition-opacity duration-200 ${isSelected ? 'ring-2 ring-garage-blue rounded-lg bg-black/10 backdrop-blur-xs z-[110]' : 'z-30'} ${isBgSelected ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
                                 style={{ touchAction: 'none', left: 'calc(50% - 100px)', top: 'calc(50% - 20px)', width: '200px' }}
                                 onClick={(e) => e.stopPropagation()}
                                 onPointerDown={(e) => { 
@@ -1224,83 +1448,22 @@ const renderEditorFormButtons = () => (
 
                           {isBgSelected && (
                             <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/60 backdrop-blur-md text-white text-[8px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full z-[120] whitespace-nowrap pointer-events-none">
-                              {isDesktop ? 'Drag to Move | Scroll to Rotate/Zoom' : '1 Finger: Move/Crop | 2 Fingers: Zoom & Rotate'}
+                              {activeDesktopTool === 'rotate'
+                                ? 'Drag outside to rotate'
+                                : activeDesktopTool === 'zoom'
+                                  ? 'Drag outside to zoom'
+                                  : activeDesktopTool === 'pan'
+                                    ? 'Drag outside to pan'
+                                    : stickers.length > 0
+                                      ? 'Choose pan to move image'
+                                      : isDesktop
+                                        ? 'Drag to Move | Scroll to Zoom'
+                                        : '1 Finger: Move/Crop | 2 Fingers: Zoom & Rotate'}
                             </div>
                           )}
 
                           <AnimatePresence>
-                            {selectedTextIndex !== null && !isBgSelected && (
-                              <Motion.div
-                                initial={{ opacity: 0, y: 15, x: '-50%' }} animate={{ opacity: 1, y: 0, x: '-50%' }} exit={{ opacity: 0, y: 15, x: '-50%' }}
-                                className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-neutral-900/95 backdrop-blur-md px-4 py-2.5 rounded-2xl flex flex-col items-center gap-1.5 border border-white/10 shadow-2xl z-[130] text-white min-w-[180px]"
-                                onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}
-                              >
-                                {showColorPaletteIdx === selectedTextIndex && (
-                                  <div className="flex items-center gap-1 bg-black/40 p-1 rounded-xl mb-1 border border-white/5 overflow-x-auto max-w-[210px] scrollbar-none">
-                                    {availableColors.map((hex) => (
-                                      <button
-                                        key={hex} type="button" onClick={() => { updateSelectedText('color', hex); setShowColorPaletteIdx(null); setActiveDesktopTool(null); }}
-                                        className={`w-4 h-4 rounded-full flex-shrink-0 border transition-transform hover:scale-110 ${texts[selectedTextIndex]?.color === hex ? 'border-white scale-105 ring-1 ring-garage-blue' : 'border-black/20'}`}
-                                        style={{ backgroundColor: hex }}
-                                      />
-                                    ))}
-                                  </div>
-                                )}
-                                <div className="flex items-center gap-2" data-handle="true">
-                                  <button 
-                                    type="button" onPointerDown={() => startControlLongPress('text', 'rotate')}
-                                    onPointerUp={() => endControlLongPress(() => setActiveDesktopTool(activeDesktopTool === 'rotate' ? null : 'rotate'))}
-                                    onPointerLeave={() => { if (buttonLongPressTimerRef.current) { clearTimeout(buttonLongPressTimerRef.current.timer); buttonLongPressTimerRef.current = null; } }}
-                                    className={`p-2 rounded-xl transition-all ${activeDesktopTool === 'rotate' ? 'bg-green-500 text-white' : 'text-neutral-400 hover:text-white'}`}
-                                  ><RotateCw size={15} /></button>
-                                  <button type="button" onClick={() => cycleFont(selectedTextIndex)} className="p-2 rounded-xl text-neutral-300 hover:bg-white/10 hover:text-white transition-colors"><TypeOutline size={15} /></button>
-                                  <button type="button" onClick={() => cycleFontSize(selectedTextIndex)} className="p-2 rounded-xl text-blue-400 hover:bg-white/10 transition-colors"><ALargeSmall size={15} /></button>
-                                  <button type="button" onClick={() => { setShowColorPaletteIdx(showColorPaletteIdx === selectedTextIndex ? null : selectedTextIndex); setActiveDesktopTool(null); }} className={`p-2 rounded-xl transition-all ${showColorPaletteIdx === selectedTextIndex ? 'bg-amber-500 text-white' : 'text-amber-400 hover:bg-white/10'}`}><Palette size={15} /></button>
-                                  <div className="w-[1px] h-4 bg-white/20 mx-0.5" />
-                                  <button type="button" onClick={deleteSelectedText} className="p-2 text-red-500 hover:bg-red-500/10 rounded-xl transition-colors"><X size={15} /></button>
-                                </div>
-                              </Motion.div>
-                            )}
-                          </AnimatePresence>
-
-                          <AnimatePresence>
-                            {selectedStickerIndex !== null && !isBgSelected && (
-                              <Motion.div
-                                initial={{ opacity: 0, y: 15, x: '-50%' }} animate={{ opacity: 1, y: 0, x: '-50%' }} exit={{ opacity: 0, y: 15, x: '-50%' }}
-                                className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-neutral-900/95 backdrop-blur-md px-4 py-2.5 rounded-2xl flex flex-col items-center gap-1.5 border border-white/10 shadow-2xl z-[130] text-white min-w-[210px]"
-                                onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}
-                              >
-                                <div className="flex items-center gap-2" data-handle="true">
-                                  <button 
-                                    type="button" onPointerDown={() => startControlLongPress('sticker', 'rotate')}
-                                    onPointerUp={() => endControlLongPress(() => setActiveDesktopTool(activeDesktopTool === 'rotate' ? null : 'rotate'))}
-                                    onPointerLeave={() => { if (buttonLongPressTimerRef.current) { clearTimeout(buttonLongPressTimerRef.current.timer); buttonLongPressTimerRef.current = null; } }}
-                                    className={`p-2 rounded-xl transition-all ${activeDesktopTool === 'rotate' ? 'bg-green-500 text-white' : 'text-neutral-400 hover:text-white'}`}
-                                  ><RotateCw size={15} /></button>
-                                  <button 
-                                    type="button" onPointerDown={() => startControlLongPress('sticker', 'resize')}
-                                    onPointerUp={() => endControlLongPress(() => setActiveDesktopTool(activeDesktopTool === 'resize' ? null : 'resize'))}
-                                    onPointerLeave={() => { if (buttonLongPressTimerRef.current) { clearTimeout(buttonLongPressTimerRef.current.timer); buttonLongPressTimerRef.current = null; } }}
-                                    className={`p-2 rounded-xl transition-all ${activeDesktopTool === 'resize' ? 'bg-blue-500 text-white' : 'text-neutral-400 hover:text-white'}`}
-                                  ><Maximize2 size={15} /></button>
-                                  <button 
-                                    type="button" onPointerDown={() => startControlLongPress('sticker', 'zoom')}
-                                    onPointerUp={() => endControlLongPress(() => setActiveDesktopTool(activeDesktopTool === 'zoom' ? null : 'zoom'))}
-                                    onPointerLeave={() => { if (buttonLongPressTimerRef.current) { clearTimeout(buttonLongPressTimerRef.current.timer); buttonLongPressTimerRef.current = null; } }}
-                                    className={`p-2 rounded-xl transition-all ${activeDesktopTool === 'zoom' ? 'bg-orange-500 text-white' : 'text-neutral-400 hover:text-white'}`}
-                                  ><ZoomIn size={15} /></button>
-                                  <button 
-                                    type="button" disabled={(stickers[selectedStickerIndex]?.zoom || 1) <= 1}
-                                    onPointerDown={() => startControlLongPress('sticker', 'pan')}
-                                    onPointerUp={() => endControlLongPress(() => setActiveDesktopTool(activeDesktopTool === 'pan' ? null : 'pan'))}
-                                    onPointerLeave={() => { if (buttonLongPressTimerRef.current) { clearTimeout(buttonLongPressTimerRef.current.timer); buttonLongPressTimerRef.current = null; } }}
-                                    className={`p-2 rounded-xl transition-all ${activeDesktopTool === 'pan' ? 'bg-orange-600 text-white' : 'text-neutral-400 hover:text-white'} disabled:opacity-20 disabled:hover:bg-transparent`}
-                                  ><Hand size={15} /></button>
-                                  <div className="w-[1px] h-4 bg-white/20 mx-1" />
-                                  <button type="button" onClick={() => deleteSelectedSticker()} className="p-2 text-red-500 hover:bg-red-500/10 rounded-xl transition-colors"><X size={15} /></button>
-                                </div>
-                              </Motion.div>
-                            )}
+                            {renderLayerControls()}
                           </AnimatePresence>
                         </>
                       ) : (
@@ -1340,7 +1503,7 @@ const renderEditorFormButtons = () => (
 
 {/* MOBILE/DESKTOP FIXED FOOTER (Visible on list view or details editor view only) */}
 {(mode === 'list' || (mode !== 'list' && editorView === 'details')) && (
-  <div className="w-full bg-white dark:bg-neutral-900 border-t border-neutral-100 dark:border-white/5 p-4 sticky bottom-0 z-[210]">
+  <div className="w-full bg-white dark:bg-neutral-900 border-t border-neutral-100 dark:border-white/5 p-4 sticky bottom-0 z-[210] shrink-0">
     {mode === 'list' ? (
       <button 
         type="button"
