@@ -311,7 +311,7 @@ export default function ProjectCost({
         <span className="text-[10px] font-black uppercase tracking-[0.3em] opacity-60">Lowest Price</span>
         <div className="flex items-baseline gap-1 mt-1">
           <span className="text-[20px] font-black opacity-40">₱</span>
-          <span className="text-[48px] font-black italic tracking-tighter leading-none">{basePriceAmount.toLocaleString()}</span>
+          <span className="preserve-print-size text-[48px] font-black italic tracking-tighter leading-none" style={{ '--preserve-size': '48px' }}>{basePriceAmount.toLocaleString()}</span>
         </div>
         
         {data.projectDetails?.length === 1 && data.projectDetails[0].quantity > 1 && (
@@ -333,7 +333,7 @@ export default function ProjectCost({
         <span className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-500">Downpayment</span>
         <div className="flex items-baseline gap-1 mt-1">
           <span className="text-[20px] font-black opacity-20">₱</span>
-          <span className="text-[48px] font-black italic tracking-tighter leading-none">{totals.dp || '0'}</span>
+          <span className="preserve-print-size text-[48px] font-black italic tracking-tighter leading-none" style={{ '--preserve-size': '48px' }}>{totals.dp || '0'}</span>
         </div>
       </div>
 
@@ -347,8 +347,8 @@ export default function ProjectCost({
             </div>
           </div>
           <div className="text-right">
-            <span className="text-[32px] font-black italic text-blue-600 leading-none">{totals.timeline?.days || 0}</span>
-            <span className="text-[10px] font-black uppercase opacity-40 block tracking-widest">Days</span>
+            <span className="preserve-print-size text-[32px] font-black italic text-blue-600 leading-none" style={{ '--preserve-size': '32px' }}>{totals.timeline?.days || 0}</span>
+            <span className="preserve-print-size text-[10px] font-black uppercase opacity-40 block tracking-widest" style={{ '--preserve-size': '10px' }}>Days</span>
           </div>
         </div>
 
@@ -507,40 +507,36 @@ export default function ProjectCost({
       )}
 
       {/* COLUMN-SPECIFIC FOOTER */}
-      <div className={`sm:absolute md:fixed lg:absolute bottom-0 left-0 right-0 w-full p-2 border-t ${isDarkMode ? 'bg-black/80 border-white/10' : 'bg-white/80 border-black/5'} backdrop-blur-md z-[110]`}>
-        <div className="flex flex-col sm:flex-row md:flex-col lg:flex-row sm:items-center lg:items-center justify-between sm:gap-4 lg:gap-4 px-2">
+      <div className={`sticky bottom-0 left-0 right-0 w-full p-2 border-t ${isDarkMode ? 'bg-black/80 border-white/10' : 'bg-white/80 border-black/5'} backdrop-blur-md z-[110]`}>
+        <div className="flex items-center gap-2 px-2">
           <button 
             onClick={onBack} 
             disabled={isSaving}
-            className="flex-1 py-4 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-main)] font-black uppercase text-[11px] tracking-widest flex items-center justify-center gap-3 active:scale-95 transition-all disabled:opacity-50"
+            className="h-14 w-14 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-main)] flex items-center justify-center active:scale-95 transition-all disabled:opacity-50 shadow-lg"
+            aria-label="Back"
           >
-            <ArrowLeft size={18} strokeWidth={3} /> BACK
+            <ArrowLeft size={18} strokeWidth={3} />
           </button>
           
-          <div className="flex-[2] flex gap-2">
-             <button 
-                onClick={onReset} 
-                disabled={isSaving}
-                className="w-14 py-4 rounded-2xl bg-red-600/10 border border-red-600/20 text-red-600 flex items-center justify-center active:scale-95 transition-all disabled:opacity-50"
-             >
-                <RotateCcw size={18} strokeWidth={3} />
-             </button>
-             <button 
-                onClick={handleMainAction} 
-                disabled={isSaving}
-                className={`flex-1 py-4 rounded-2xl font-black uppercase text-[11px] tracking-widest flex items-center justify-center gap-3 shadow-lg active:scale-95 transition-all disabled:opacity-50 bg-blue-600 text-white shadow-blue-500/20`}
-             >
-                {isSaving ? (
-                  <RefreshCw size={18} className="animate-spin" />
-                ) : isEditMode && isInventoryMode ? (
-                  <><Check size={18} strokeWidth={3} /> CONFIRM</>
-                ) : isEditMode ? (
-                  <><Save size={18} strokeWidth={3} /> SAVE ESTIMATE</>
-                ) : (
-                  <><Save size={18} strokeWidth={3} /> SAVE ESTIMATE</>
-                )}
-             </button>
-          </div>
+          <button 
+            onClick={handleMainAction} 
+            disabled={isSaving}
+            className="flex-1 h-14 rounded-[2.2rem] font-black italic uppercase tracking-[0.2em] text-xs bg-[var(--color-primary)] text-white shadow-xl flex items-center justify-center gap-4 group active:scale-95 transition-all disabled:opacity-50"
+          >
+            {isSaving ? (
+              <RefreshCw size={18} className="animate-spin" />
+            ) : isEditMode && isInventoryMode ? (
+              <><Check size={18} strokeWidth={3} /> CONFIRM</>
+            ) : (
+              <>
+                <Save size={18} strokeWidth={3} />
+                SAVE ESTIMATE
+                <div className="p-1 rounded-full bg-white/20 group-hover:translate-x-1 transition-transform">
+                  <Check size={12} strokeWidth={4} />
+                </div>
+              </>
+            )}
+          </button>
         </div>
       </div>
       

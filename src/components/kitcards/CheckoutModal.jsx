@@ -2254,10 +2254,10 @@ const handleFinalizeOrder = async () => {
                                 </div>
                               </>
                             )}
-                            {/* Map pin — shown for local-place type methods unconditionally */}
+                            {/* Map — shown for local-place type methods unconditionally */}
                             {isLocalPlaceMethod && (
                               <div className="space-y-2">
-                                <p className="text-[8px] font-black uppercase opacity-30 tracking-[0.2em]">{usesMeetupLocation ? 'Meetup Map Pin' : 'Pickup Map Pin'}</p>
+                                <p className="text-[8px] font-black uppercase opacity-30 tracking-[0.2em]">{usesMeetupLocation ? 'Meetup Map Pin' : 'Pickup Map'}</p>
                                 <div className="w-full h-40 rounded-[2rem] overflow-hidden border-2 border-blue-600/10 relative">
                                     <MapContainer
                                         ref={mapRef}
@@ -2271,7 +2271,7 @@ const handleFinalizeOrder = async () => {
                                         zoomControl={true}
                                     >
                                       <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                                      <Marker position={selectedLocalPlaceCoord} />
+                                      {usesMeetupLocation && <Marker position={selectedLocalPlaceCoord} />}
                                       <ChangeView center={selectedLocalPlaceCoord} />
                                     </MapContainer>
                                 </div>
@@ -2378,12 +2378,12 @@ const handleFinalizeOrder = async () => {
                                 {isLocalPlaceMethod && (
                                   <div className="space-y-2">
                                     <p className="text-[8px] font-black uppercase opacity-30 tracking-[0.2em]">
-                                      {checkoutData.shippingMethod === 'Seller Meetup' ? 'Meetup Map Pin' : 'Pickup Map Pin'}
+                                      {checkoutData.shippingMethod === 'Seller Meetup' ? 'Meetup Map Pin' : 'Pickup Map'}
                                     </p>
                                     <div className="w-full h-40 rounded-[2rem] overflow-hidden border-2 border-blue-600/20 relative">
-                                      <MapContainer center={selectedLocalPlaceCoord} zoom={16} style={{ height: '100%', width: '100%' }} dragging={false} scrollWheelZoom={false} doubleClickZoom={false} touchZoom={false} zoomControl={false}>
+                                      <MapContainer center={selectedLocalPlaceCoord} zoom={16} style={{ height: '100%', width: '100%' }} dragging={true} scrollWheelZoom={true} doubleClickZoom={true} touchZoom={true} zoomControl={true}>
                                         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                                        <Marker position={selectedLocalPlaceCoord} />
+                                        {usesMeetupLocation && <Marker position={selectedLocalPlaceCoord} />}
                                         <ChangeView center={selectedLocalPlaceCoord} />
                                       </MapContainer>
                                     </div>
@@ -2512,7 +2512,7 @@ const handleFinalizeOrder = async () => {
                         <span>₱{(baseTotal - orderFees.handling - orderFees.transfer - projectInstallmentFee).toLocaleString()}</span>
                       </div>
                       <div className="flex justify-between uppercase opacity-100">
-                        <span>Transaction Fee</span>
+                        <span>Service Charge</span>
                         <span>₱{(orderFees.handling + orderFees.transfer + projectInstallmentFee).toLocaleString()}</span>
                       </div>
                       <div className="flex justify-between uppercase opacity-100 font-bold border-t border-white/10 pt-2">

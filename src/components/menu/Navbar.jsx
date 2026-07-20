@@ -13,9 +13,6 @@ import { useStore } from '../../store/useStore';
 import { signOut, signInWithPopup } from 'firebase/auth'; 
 import { collection, getDocs } from 'firebase/firestore';
 import { auth, fbProvider, googleProvider, db } from '../../firebase/firebase';
-import { scrollMemory } from '../../store/scrollStore'; 
-
-
 import AccountSettingsModal from './AccountSettingsModal';
 import FulfillmentModal from './FulfillmentModal';
 import PaymentSettingsModal from './PaymentSettingsModal';
@@ -76,13 +73,16 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   const [showBottomNav, setShowBottomNav] = useState(true);
   const [forceHide, setForceHide] = useState(false); 
   const [lastScrollY, setLastScrollY] = useState(0);
-  const [tick, setTick] = useState(0); 
-
   const [imgError, setImgError] = useState(false);
   const [profileImgError, setProfileImgError] = useState(false);
 
   const profileModalRef = useRef(null);
   const profileBtnRef = useRef(null);
+
+  const isMobile = windowWidth < 640;
+  const isDesktop = windowWidth >= 1024;
+  const isLandscape = typeof window !== 'undefined' ? window.innerWidth > window.innerHeight : false;
+  const isProfileFullscreen = isMobile || (windowWidth >= 640 && windowWidth < 1024 && isLandscape);
 
   useEffect(() => {
     if (!isProfileOpen) {
@@ -102,24 +102,62 @@ export default function Navbar({ isCompact: scrolledCompact }) {
       }
     };
 
-    // Close on scroll
     const handleScroll = () => {
+      if (isProfileFullscreen) return;
+      setIsProfileOpen(false);
+    };
+    const handleCloseProfile = () => {
+      if (isProfileFullscreen) return;
       setIsProfileOpen(false);
     };
 
     document.addEventListener('mousedown', handleOutsideClick);
     document.addEventListener('touchstart', handleOutsideClick);
     window.addEventListener('scroll', handleScroll, true);
+    window.addEventListener('closeProfileDropdown', handleCloseProfile);
 
     return () => {
       document.removeEventListener('mousedown', handleOutsideClick);
       document.removeEventListener('touchstart', handleOutsideClick);
       window.removeEventListener('scroll', handleScroll, true);
+      window.removeEventListener('closeProfileDropdown', handleCloseProfile);
     };
-  }, [isProfileOpen]);
+  }, [isProfileOpen, isProfileFullscreen]);
+
+  useEffect(() => {
+    if (!isProfileOpen || !isProfileFullscreen) {
+      window.dispatchEvent(new Event('profileFullscreenClose'));
+      return undefined;
+    }
+
+    const scrollY = window.scrollY;
+    const previousBodyStyle = {
+      position: document.body.style.position,
+      top: document.body.style.top,
+      width: document.body.style.width,
+      overflow: document.body.style.overflow,
+      overscrollBehavior: document.body.style.overscrollBehavior
+    };
+
+    window.dispatchEvent(new Event('profileFullscreenOpen'));
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.width = '100%';
+    document.body.style.overflow = 'hidden';
+    document.body.style.overscrollBehavior = 'none';
+
+    return () => {
+      document.body.style.position = previousBodyStyle.position;
+      document.body.style.top = previousBodyStyle.top;
+      document.body.style.width = previousBodyStyle.width;
+      document.body.style.overflow = previousBodyStyle.overflow;
+      document.body.style.overscrollBehavior = previousBodyStyle.overscrollBehavior;
+      window.scrollTo(0, scrollY);
+      window.dispatchEvent(new Event('profileFullscreenClose'));
+    };
+  }, [isProfileOpen, isProfileFullscreen]);
 
 useEffect(() => {
-    const timer = setInterval(() => setTick(t => t + 1), 1000);
     const handleResize = () => setWindowWidth(window.innerWidth);
     const handleForceHide = () => { setForceHide(true); setShowBottomNav(false); };
     const handleForceShow = () => { setForceHide(false); setShowBottomNav(true); };
@@ -137,7 +175,6 @@ useEffect(() => {
       window.removeEventListener('hideNavbar', handleForceHide);
       window.removeEventListener('showNavbar', handleForceShow);
       window.removeEventListener('openLoginPrompt', handleOpenLoginPrompt);
-      clearInterval(timer);
     };
   }, [garageInfo, fetchInitialData]);
 useEffect(() => {
@@ -168,15 +205,7 @@ useEffect(() => {
   return () => window.removeEventListener('scroll', handleScroll);
 }, [lastScrollY, forceHide, location.pathname]);
 
-  const isMobile = windowWidth < 640;
-  const isDesktop = windowWidth >= 1024;
   const isCompactMode = location.pathname !== "/" || scrolledCompact || lastScrollY > 40 || isMobile;
-
-  const getNavLinkClass = (path) => {
-    const isActive = location.pathname === path;
-    if (isActive) return 'text-transparent bg-clip-text bg-gradient-to-br from-[#0866FF] to-[#00CFFF]'; 
-    return 'text-neutral-400 hover:text-garage-blue transition-colors duration-300';
-  };
 
   const handleNavClick = (path) => {
     if (location.pathname === path) {
@@ -334,6 +363,20 @@ const getPageTitle = () => {
 };
 
 const pageTitle = getPageTitle();
+const profilePanelStyle = isProfileFullscreen
+  ? {
+      top: specs.h,
+      right: 0,
+      bottom: 0,
+      left: 0,
+      height: `calc(100dvh - ${specs.h})`,
+      zIndex: 1000
+    }
+  : {
+      top: `calc(${specs.h} + 8px)`,
+      right: '2.5rem',
+      zIndex: 1000
+    };
 
 return (
   <>
@@ -469,8 +512,8 @@ return (
               </button>
 
               {isProfileOpen && (
-                <div ref={profileModalRef} style={{ top: `calc(${specs.h} + 8px` }} className="fixed right-4 lg:right-10 z-[1000] w-72 animate-in fade-in slide-in-from-top-2 duration-200">
-                  <div className={`rounded-[2rem] shadow-2xl border overflow-hidden ${isDarkMode ? 'bg-neutral-900/95 border-white/10' : 'bg-white/95 border-black/5'} backdrop-blur-xl`}>
+                <div ref={profileModalRef} style={profilePanelStyle} className={`fixed animate-in fade-in slide-in-from-top-2 duration-200 ${isProfileFullscreen ? 'w-screen' : 'w-72'}`}>
+                  <div className={`${isProfileFullscreen ? 'h-full max-h-full rounded-none overscroll-contain ml-auto max-w-sm' : 'max-h-[calc(100dvh-5rem)] rounded-[2rem]'} overflow-y-auto shadow-2xl border ${isDarkMode ? 'bg-neutral-900/95 border-white/10' : 'bg-white/95 border-black/5'} backdrop-blur-xl`}>
                     
                     {authError && (
                       <div className="bg-red-500/10 border-b border-red-500/20 p-4 flex items-start gap-3">

@@ -2,7 +2,8 @@ import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { 
   Box, Clock, Sparkles, Zap, Plus, Lock, Edit3, Trash2, PackagePlus, PackageMinus,
   X, Weight, Droplet, Layers, AlertTriangle, Link2, ExternalLink, ChevronRight, ChevronLeft, Calendar,
-  ShoppingBasket, Play, Pause, FileText, ShieldCheck, CheckCircle2, XCircle, Spool, PenLine, Save, Paintbrush
+  ShoppingBasket, Play, Pause, FileText, ShieldCheck, CheckCircle2, XCircle, Spool, PenLine, Save, Paintbrush,
+  Settings
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
@@ -437,6 +438,23 @@ export default function ProjectCard({
     setIsModalOpen(false);
   };
 
+  const handleModifyProject = (e) => {
+    e.stopPropagation();
+    if (!onModify) return;
+    onModify(getActionProjectData());
+    setIsModalOpen(false);
+  };
+
+  const handleDeleteProject = (e) => {
+    e.stopPropagation();
+    if (!onDelete) return;
+    onDelete(project);
+    setIsModalOpen(false);
+  };
+
+  const isAdminBlueprintView = isBlueprint && isAdmin && isAdminView && showManagementActions;
+  const isPublicVaultView = isVault && !(isAdmin && isAdminView);
+
   return (
     <>
       <div 
@@ -524,7 +542,7 @@ export default function ProjectCard({
                 <Box size={40} className="opacity-10 text-[var(--color-text-main)]" strokeWidth={1} />
               )}
               
-              {showManagementActions && isAdmin && isAdminView && (
+              {showManagementActions && isAdmin && isAdminView && !isBlueprint && (
                 <div className="absolute bottom-2 left-2 right-2 flex gap-2 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity z-10">
                   {onDelete && (
                     <button
@@ -1028,40 +1046,114 @@ export default function ProjectCard({
 {/* Footer Actions */}
 {!isReadOnly && (
   <div className={`absolute bottom-0 left-0 right-0 w-full p-2 border-t ${isDarkMode ? 'bg-black/80 border-white/10' : 'bg-white/80 border-black/5'} backdrop-blur-md z-[110]`}>
-    
-    <div className="flex flex-row items-center gap-2">
-      
-      {/* ADD TO BASKET (50% Width) */}
-      <div className="w-1/2">
-        <button 
-          onClick={(e) => handleAddProjectToBasket(e, { closeModal: true })}
-          disabled={!canAddToBasket || !vaultReadyForBasket}
-          className={`w-full h-12 rounded-full text-white font-black italic uppercase text-[11px] tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all ${
-            !canAddToBasket || !vaultReadyForBasket
-              ? 'bg-neutral-400 cursor-not-allowed opacity-50'
-              : 'bg-neutral-900 dark:bg-white/10'
-          }`}
-        >
-          <ShoppingBasket size={14} strokeWidth={3} />
-          <span className="truncate">Basket</span>
-        </button>
-      </div>
+    <div className={`flex flex-row items-center gap-2 ${isAdminBlueprintView || isPublicVaultView ? 'justify-end' : ''}`}>
+      {isAdminBlueprintView ? (
+        <>
+          {onDelete && (
+            <button
+              type="button"
+              onClick={handleDeleteProject}
+              className="h-12 w-12 rounded-full bg-red-600 text-white shadow-lg shadow-red-600/20 flex items-center justify-center active:scale-95 transition-all"
+              title="Delete project"
+            >
+              <Trash2 size={16} strokeWidth={3} />
+            </button>
+          )}
+          {onModify && (
+            <button
+              type="button"
+              onClick={handleModifyProject}
+              className="h-12 flex-1 min-w-0 px-5 rounded-full bg-neutral-900 dark:bg-white/10 text-white font-black italic uppercase text-[11px] tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"
+              title="Modify project"
+            >
+              <Settings size={15} strokeWidth={3} />
+              <span className="truncate">Modify</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleToggleProduction}
+            className={`h-12 flex-1 min-w-0 px-5 rounded-full text-white font-black italic uppercase text-[11px] tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all ${
+              canAddToBasket
+                ? 'bg-gradient-to-br from-red-500 to-red-600 shadow-red-500/30'
+                : 'bg-gradient-to-br from-blue-500 to-blue-600 shadow-blue-500/30'
+            }`}
+            title={canAddToBasket ? 'Stop Production' : 'Allow Production'}
+          >
+            {canAddToBasket ? <Pause size={15} fill="white" /> : <Play size={15} fill="white" />}
+            <span className="truncate">Production</span>
+          </button>
+        </>
+      ) : isPublicVaultView ? (
+        <>
+          {onDelete && (
+            <button
+              type="button"
+              onClick={handleDeleteProject}
+              className="h-12 w-12 rounded-full bg-red-600 text-white shadow-lg shadow-red-600/20 flex items-center justify-center active:scale-95 transition-all"
+              title="Delete project"
+            >
+              <Trash2 size={16} strokeWidth={3} />
+            </button>
+          )}
+          {onModify && (
+            <button
+              type="button"
+              onClick={handleModifyProject}
+              className="h-12 flex-1 min-w-0 px-4 rounded-full bg-neutral-900 dark:bg-white/10 text-white font-black italic uppercase text-[11px] tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"
+              title="Modify estimate"
+            >
+              <Settings size={15} strokeWidth={3} />
+              <span className="truncate">Modify</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={(e) => handleAddProjectToBasket(e, { closeModal: true })}
+            disabled={!canAddToBasket || !vaultReadyForBasket}
+            className={`h-12 flex-1 min-w-0 px-4 rounded-full text-white font-black italic uppercase text-[11px] tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all ${
+              !canAddToBasket || !vaultReadyForBasket
+                ? 'bg-neutral-400 cursor-not-allowed opacity-50'
+                : 'bg-gradient-to-br from-blue-500 to-blue-600'
+            }`}
+          >
+            <ShoppingBasket size={15} strokeWidth={3} />
+            <span className="truncate">Add to Basket</span>
+          </button>
+        </>
+      ) : (
+        <>
+          <div className="w-1/2">
+            <button 
+              onClick={(e) => handleAddProjectToBasket(e, { closeModal: true })}
+              disabled={!canAddToBasket || !vaultReadyForBasket}
+              className={`w-full h-12 rounded-full text-white font-black italic uppercase text-[11px] tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all ${
+                !canAddToBasket || !vaultReadyForBasket
+                  ? 'bg-neutral-400 cursor-not-allowed opacity-50'
+                  : 'bg-neutral-900 dark:bg-white/10'
+              }`}
+            >
+              <ShoppingBasket size={14} strokeWidth={3} />
+              <span className="truncate">Add to Basket</span>
+            </button>
+          </div>
 
-      {/* ORDER NOW (50% Width) */}
-      <div className="w-1/2">
-        <button 
-          onClick={handleOrderProjectNow}
-          disabled={!canAddToBasket || !vaultReadyForOrder || !onOrderNow}
-          className={`w-full h-12 rounded-full text-white font-black italic uppercase text-[11px] tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all ${
-            !canAddToBasket || !vaultReadyForOrder || !onOrderNow
-              ? 'bg-neutral-400 cursor-not-allowed opacity-50'
-              : 'bg-gradient-to-br from-blue-500 to-blue-600'
-          }`}
-        >
-          <Zap size={14} strokeWidth={3} />
-          <span className="truncate">Order Now</span>
-        </button>
-      </div>
+          <div className="w-1/2">
+            <button 
+              onClick={handleOrderProjectNow}
+              disabled={!canAddToBasket || !vaultReadyForOrder || !onOrderNow}
+              className={`w-full h-12 rounded-full text-white font-black italic uppercase text-[11px] tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all ${
+                !canAddToBasket || !vaultReadyForOrder || !onOrderNow
+                  ? 'bg-neutral-400 cursor-not-allowed opacity-50'
+                  : 'bg-gradient-to-br from-blue-500 to-blue-600'
+              }`}
+            >
+              <Zap size={14} strokeWidth={3} />
+              <span className="truncate">Order Now</span>
+            </button>
+          </div>
+        </>
+      )}
     </div>
   </div>
 )}

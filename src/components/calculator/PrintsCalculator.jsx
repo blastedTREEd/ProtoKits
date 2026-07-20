@@ -285,14 +285,36 @@ export default function PrintsCalculator({
   };
   const visibleSteps = [0, 3, 4, 5];
   const activeProgressIndex = Math.max(0, visibleSteps.indexOf(activeStep));
+  const HeaderBrandLogo = BrandLogo;
+  const handleStepBack = () => {
+    if (activeStep <= 0) return;
+    if (isEditMode) {
+      setActiveStep(prev => Math.max(0, prev - 1));
+    } else {
+      window.history.back();
+    }
+  };
 
   return (
     <div className="w-full min-h-full prints-calculator-container animate-in fade-in zoom-in-95 duration-500 px-3 sm:px-5 pb-10 text-[var(--color-text-main)]">
+      <style>{`
+        .prints-calculator-body :where(p, span, label, button, input, textarea, select, h2, h3, h4, h5, h6) {
+          font-size: 16px;
+        }
+        .prints-calculator-body :where(input, .print-dimension-type) {
+          font-weight: 900;
+          font-style: italic;
+        }
+        .prints-calculator-body .preserve-print-size,
+        .prints-calculator-body .preserve-print-size * {
+          font-size: var(--preserve-size) !important;
+        }
+      `}</style>
       <div className="sticky top-0 z-50 -mx-3 sm:-mx-5 px-3 sm:px-5 pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-3 mb-4 bg-[var(--color-surface)]/95 backdrop-blur-xl border-b border-[var(--color-border)]">
         <div className="flex justify-between items-center mb-4">
           <div className="flex items-center gap-3 min-w-0">
             <button onClick={() => activeStep > 0 ? (isEditMode ? setActiveStep(prev => prev - 1) : window.history.back()) : onExit()} className="active:scale-90 transition-all shrink-0">
-              {BrandLogo ? <BrandLogo size="w-11 h-11" /> : <div className="w-11 h-11 bg-[var(--color-primary)] rounded-full" />}
+              {HeaderBrandLogo ? <HeaderBrandLogo size="w-11 h-11" /> : <div className="w-11 h-11 bg-[var(--color-primary)] rounded-full" />}
             </button>
             <h1 className="text-[18px] font-black italic tracking-tighter uppercase">
               {STEP_CONFIG[activeStep]?.title} <span className="text-[var(--color-primary)]">{STEP_CONFIG[activeStep]?.accent}</span>
@@ -316,17 +338,18 @@ export default function PrintsCalculator({
         </div>
       </div>
 
-      <div className="flex items-center gap-1 mb-6 min-h-[24px] overflow-x-auto no-scrollbar flex-nowrap px-1">
-        <HistoryItem value={calculatorData.method?.name} showSeparator={activeStep > 0} />
-        <HistoryItem value={getPrinterHistoryValue()} showSeparator={activeStep > 1} delay={75} />
-        <HistoryItem value={calculatorData.filaments?.length > 0 ? `${calculatorData.filaments.length} MATS` : null} showSeparator={activeStep > 2} delay={150} />
-        <HistoryItem value={calculatorData.extras?.length > 0 ? `+${calculatorData.extras.length} EXT` : null} showSeparator={activeStep > 3} delay={225} />
-      </div>
+      <div className="prints-calculator-body">
+        <div className="flex items-center gap-1 mb-6 min-h-[24px] overflow-x-auto no-scrollbar flex-nowrap px-1">
+          <HistoryItem value={calculatorData.method?.name} showSeparator={activeStep > 0} />
+          <HistoryItem value={getPrinterHistoryValue()} showSeparator={activeStep > 1} delay={75} />
+          <HistoryItem value={calculatorData.filaments?.length > 0 ? `${calculatorData.filaments.length} MATS` : null} showSeparator={activeStep > 2} delay={150} />
+          <HistoryItem value={calculatorData.extras?.length > 0 ? `+${calculatorData.extras.length} EXT` : null} showSeparator={activeStep > 3} delay={225} />
+        </div>
 
-      <div className="min-h-[400px]">
-        {activeStep === 0 && <CaseSelection onSelect={(method) => updateData({ method })} selectedCase={calculatorData.method} />}
-        {is3MF && activeStep === 1 && <PrinterSelection onSelect={(printer) => updateData({ printer })} selectedPrinter={calculatorData.printer} />}
-        {is3MF && activeStep === 2 && <FilamentSelection onSelect={(filaments) => updateData({ filaments })} selectedFilaments={calculatorData.filaments} />}
+        <div className="min-h-[400px]">
+          {activeStep === 0 && <CaseSelection onSelect={(method) => updateData({ method })} selectedCase={calculatorData.method} />}
+          {is3MF && activeStep === 1 && <PrinterSelection onSelect={(printer) => updateData({ printer })} selectedPrinter={calculatorData.printer} />}
+          {is3MF && activeStep === 2 && <FilamentSelection onSelect={(filaments) => updateData({ filaments })} selectedFilaments={calculatorData.filaments} />}
 
         {activeStep === 3 && (
           is3MF ? (
@@ -402,7 +425,21 @@ export default function PrintsCalculator({
             isInventoryMode={isInventoryMode}
           />
         )}
+        </div>
       </div>
+
+      {activeStep > 0 && activeStep < 5 && (
+        <button
+          type="button"
+          onClick={handleStepBack}
+          className="fixed left-4 bottom-[calc(env(safe-area-inset-bottom)+1rem)] z-[120] h-12 w-12 rounded-full bg-neutral-900 text-white shadow-2xl border border-white/10 flex items-center justify-center active:scale-95 transition-all"
+          aria-label="Back"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="4" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+      )}
 
       {/* {!isEditMode && (
         <div className="bg-black text-green-400 text-[10px] p-3 rounded-xl mt-4 overflow-auto">
