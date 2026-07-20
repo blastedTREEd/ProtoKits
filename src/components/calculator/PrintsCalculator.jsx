@@ -204,8 +204,8 @@ export default function PrintsCalculator({
     const updated = { ...calculatorData, ...newData };
     setCalculatorData(updated);
     
-    const nextStep = targetStep !== null ? targetStep : (activeStep === 0 ? 3 : activeStep + 1);
-    navigateToStep(nextStep);
+    const nextStep = targetStep !== null ? targetStep : activeStep + 1;
+  navigateToStep(nextStep);
   };
 
   const handleFinalConfirm = (finalPayload) => {
@@ -277,23 +277,54 @@ export default function PrintsCalculator({
 
   const STEP_CONFIG = {
     0: { title: "Select", accent: "Case" },
-    1: { title: "Select", accent: "Printer" },
-    2: { title: "Select", accent: "Filament" },
-    3: { title: "Enter", accent: "Details" },
-    4: { title: "Add", accent: "Extras" },
-    5: { title: "Project", accent: "Cost" }
+    // 1: { title: "Select", accent: "Printer" },
+    // 1: { title: "Select", accent: "Filament" },
+    1: { title: "Enter", accent: "Details" },
+    2: { title: "Add", accent: "Extras" },
+    3: { title: "Project", accent: "Cost" }
   };
-  const visibleSteps = [0, 3, 4, 5];
+  const visibleSteps = [0, 1, 2, 3];
   const activeProgressIndex = Math.max(0, visibleSteps.indexOf(activeStep));
   const HeaderBrandLogo = BrandLogo;
-  const handleStepBack = () => {
-    if (activeStep <= 0) return;
-    if (isEditMode) {
-      setActiveStep(prev => Math.max(0, prev - 1));
-    } else {
+  // const handleStepBack = () => {
+  //   if (activeStep <= 0) return;
+  //   if (isEditMode) {
+  //     setActiveStep(prev => Math.max(0, prev - 1));
+  //   } else {
+  //     window.history.back();
+  //   }
+  // };
+
+//   const handleStepBack = () => {
+//   if (isEditMode) {
+//     // If in EditMode, we have a fixed path we want to follow
+//     // You can define a logic map or just a switch
+//     setActiveStep(prev => Math.max(0, prev - 1));
+//   } else {
+//     // Standard back behavior
+//     if (activeStep === 0) {
+//       window.history.back();
+//     } else {
+//       // If your steps aren't just simple prev - 1 (e.g., Cost -> 4, Preview -> 3)
+//       // This handles the transition logic automatically
+//       setActiveStep(prev => Math.max(0, prev - 1));
+//     }
+//   }
+// };
+
+const handleStepBack = () => {
+  if (isEditMode) {
+    // Simply go back one step regardless of the index
+    setActiveStep(prev => Math.max(0, prev - 1));
+  } else {
+    // If you are at step 0, use browser back, otherwise go to prev index
+    if (activeStep === 0) {
       window.history.back();
+    } else {
+      setActiveStep(prev => Math.max(0, prev - 1));
     }
-  };
+  }
+};
 
   return (
     <div className="w-full min-h-full prints-calculator-container animate-in fade-in zoom-in-95 duration-500 px-3 sm:px-5 pb-10 text-[var(--color-text-main)]">
@@ -348,10 +379,10 @@ export default function PrintsCalculator({
 
         <div className="min-h-[400px]">
           {activeStep === 0 && <CaseSelection onSelect={(method) => updateData({ method })} selectedCase={calculatorData.method} />}
-          {is3MF && activeStep === 1 && <PrinterSelection onSelect={(printer) => updateData({ printer })} selectedPrinter={calculatorData.printer} />}
-          {is3MF && activeStep === 2 && <FilamentSelection onSelect={(filaments) => updateData({ filaments })} selectedFilaments={calculatorData.filaments} />}
+          {/* {is3MF && activeStep === 1 && <PrinterSelection onSelect={(printer) => updateData({ printer })} selectedPrinter={calculatorData.printer} />} */}
+          {/* {is3MF && activeStep === 2 && <FilamentSelection onSelect={(filaments) => updateData({ filaments })} selectedFilaments={calculatorData.filaments} />} */}
 
-        {activeStep === 3 && (
+        {activeStep === 1 && (
           is3MF ? (
             <ProjectPreview 
               allFilaments={combinedFilaments}
@@ -366,8 +397,9 @@ export default function PrintsCalculator({
               })()}
               previewData={previewData}
               setPreviewData={setPreviewData}
-              onConfirm={(details) => updateData({ projectDetails: details }, 4)}
-              onBack={() => isEditMode ? setActiveStep(0) : window.history.back()}
+              onConfirm={(details) => updateData({ projectDetails: details }, 2)}
+              // onBack={() => isEditMode ? setActiveStep(0) : window.history.back()}
+              onBack={handleStepBack}
               projectName={calculatorData.projectName}
               gdriveLink={calculatorData.gdriveLink}
               updateMetadata={(patch) => setCalculatorData(prev => ({ ...prev, ...patch }))}
@@ -389,8 +421,9 @@ export default function PrintsCalculator({
               setPrepareData={setPrepareData}
               activePrinter={calculatorData.printer}
               onUnitChange={setDisplayUnit}
-              onConfirm={(details) => updateData({ projectDetails: details }, 4)}
-              onBack={() => isEditMode ? setActiveStep(0) : window.history.back()}
+              onConfirm={(details) => updateData({ projectDetails: details }, 2)}
+              // onBack={() => isEditMode ? setActiveStep(0) : window.history.back()}
+              onBack={handleStepBack}
               projectName={calculatorData.projectName}
               gdriveLink={calculatorData.gdriveLink}
               updateMetadata={(patch) => setCalculatorData(prev => ({ ...prev, ...patch }))}
@@ -399,7 +432,7 @@ export default function PrintsCalculator({
           )
         )}
 
-        {activeStep === 4 && (
+        {activeStep === 2 && (
           <ExtrasSelection 
             extras={extras} 
             selectedExtras={calculatorData.extras}
@@ -407,18 +440,20 @@ export default function PrintsCalculator({
             onUpdateQty={handleUpdateExtraQty}
             projectDetails={calculatorData.projectDetails || []} 
             projectCase={calculatorData.method?.name} 
-            onProceed={() => navigateToStep(5)} 
-            onBack={() => isEditMode ? setActiveStep(3) : window.history.back()}
+            onProceed={() => navigateToStep(3)} 
+            // onBack={() => isEditMode ? setActiveStep(3) : window.history.back()}
+            onBack={handleStepBack}
           />
         )}
 
-        {activeStep === 5 && (
+        {activeStep === 3 && (
           <ProjectCost 
             data={calculatorData} 
             activePrinter={calculatorData.printer}
             dbSettings={dbSettingsObject}
             onUpdateSettings={(rateId, patch) => updateSettings(rateId, patch)}
-            onBack={() => isEditMode ? setActiveStep(4) : navigateToStep(4)}
+            // onBack={() => isEditMode ? setActiveStep(4) : navigateToStep(4)}
+            onBack={handleStepBack}
             onReset={onExit}
             isEditMode={isEditMode}
             onFinalConfirm={handleFinalConfirm}
@@ -428,7 +463,7 @@ export default function PrintsCalculator({
         </div>
       </div>
 
-      {activeStep > 0 && activeStep < 5 && (
+      {/* {activeStep > 0 && activeStep < 5 && (
         <button
           type="button"
           onClick={handleStepBack}
@@ -439,7 +474,7 @@ export default function PrintsCalculator({
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
           </svg>
         </button>
-      )}
+      )} */}
 
       {/* {!isEditMode && (
         <div className="bg-black text-green-400 text-[10px] p-3 rounded-xl mt-4 overflow-auto">

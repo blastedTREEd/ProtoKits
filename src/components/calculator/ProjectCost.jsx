@@ -5,7 +5,7 @@ import {
   Save, ShoppingBag, TrendingUp, TrendingDown, Undo2, X, Tag, RefreshCw, Check, Layers
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
-import { useTheme } from '../../context/ThemeContext';
+// import { useTheme } from '../../context/ThemeContext';
 import CostBreakdown from './CostBreakdown';
 import ProductionPlan from './ProductionPlan';
 
@@ -108,7 +108,7 @@ export default function ProjectCost({
   onFinalConfirm = null,
   isInventoryMode = false
 }) {
-  const { isDarkMode } = useTheme();
+  // const { isDarkMode } = useTheme();
   const isAdmin = useStore((state) => state.isAdmin);
   const isAdminView = useStore((state) => state.isAdminView);
   const publishBlueprint = useStore((state) => state.publishBlueprint);
@@ -507,7 +507,7 @@ export default function ProjectCost({
       )}
 
       {/* COLUMN-SPECIFIC FOOTER */}
-      <div className={`sticky bottom-0 left-0 right-0 w-full p-2 border-t ${isDarkMode ? 'bg-black/80 border-white/10' : 'bg-white/80 border-black/5'} backdrop-blur-md z-[110]`}>
+      {/* <div className={`sticky bottom-0 left-0 right-0 w-full p-2 border-t ${isDarkMode ? 'bg-black/80 border-white/10' : 'bg-white/80 border-black/5'} backdrop-blur-md z-[110]`}>
         <div className="flex items-center gap-2 px-2">
           <button 
             onClick={onBack} 
@@ -538,7 +538,46 @@ export default function ProjectCost({
             )}
           </button>
         </div>
-      </div>
+      </div> */}
+
+      {/* --- COLUMN-SPECIFIC FOOTER --- */}
+<div className="sticky bottom-0 left-0 right-0 w-full p-2 z-[110]">
+  <div className="bg-[var(--color-bg)]/80 backdrop-blur-md p-2 rounded-[2.5rem] border border-black/10 dark:border-white/10 shadow-2xl">
+    <div className="flex items-center gap-3">
+      
+      {/* BACK BUTTON */}
+      <button 
+        onClick={onBack} 
+        disabled={isSaving}
+        className="flex-none h-14 w-14 rounded-full bg-neutral-900 text-white flex items-center justify-center active:scale-95 transition-all disabled:opacity-50 shadow-lg"
+        aria-label="Back"
+      >
+        <ArrowLeft size={18} strokeWidth={3} />
+      </button>
+      
+      {/* MAIN ACTION BUTTON */}
+      <button 
+        onClick={handleMainAction} 
+        disabled={isSaving}
+        className="flex-1 h-14 rounded-[2.2rem] font-black italic uppercase tracking-[0.2em] text-xs bg-[var(--color-primary)] text-white shadow-xl flex items-center justify-center gap-4 group active:scale-95 transition-all disabled:opacity-50"
+      >
+        {isSaving ? (
+          <RefreshCw size={18} className="animate-spin" />
+        ) : isEditMode && isInventoryMode ? (
+          <><Check size={18} strokeWidth={3} /> CONFIRM</>
+        ) : (
+          <>
+            SAVE ESTIMATE
+            <div className="p-1 rounded-full bg-white/20 group-hover:translate-x-1 transition-transform">
+              <Check size={12} strokeWidth={4} />
+            </div>
+          </>
+        )}
+      </button>
+      
+    </div>
+  </div>
+</div>
       
       {(!data.projectName) && (
         <p className="text-[9px] font-black uppercase tracking-widest text-amber-600 animate-pulse mt-2 text-center pb-32">

@@ -13,6 +13,7 @@ export default function ProjectPreview({
   selectedFilaments = [],
   previewData = [], 
   setPreviewData,
+  onBack
 }) {
   const { printers, feeders } = useStore();
   const containerBorderStyle = "border-[1.5px] border-gray-400/40 shadow-sm";
@@ -616,9 +617,23 @@ export default function ProjectPreview({
             </div>
           )}
 
-          <div className={`px-5 sticky bottom-4 left-0 w-full pt-4 transition-all duration-500 z-50 ${isPlateValid(activePlate) && !isSelectingMaterial ? 'translate-y-0 opacity-100 scale-100' : 'translate-y-10 opacity-0 pointer-events-none scale-95'}`}>
-            <div className="bg-[var(--color-bg)]/80 backdrop-blur-md p-1 rounded-[2.5rem] border border-black/10 dark:border-white/10 shadow-2xl">
-              <button 
+{/* --- STICKY PLATE FOOTER --- */}
+<div className={`px-5 pb-6 pt-4 sticky bottom-0 left-0 w-full z-50 bg-gradient-to-t from-[var(--color-bg)] to-transparent transition-all duration-500 ${isPlateValid(activePlate) && !isSelectingMaterial ? 'translate-y-0 opacity-100 scale-100' : 'translate-y-10 opacity-0 pointer-events-none scale-95'}`}>
+  
+  <div className="flex items-center gap-3 bg-[var(--color-bg)]/90 backdrop-blur-xl p-2 rounded-[2.5rem] border border-black/5 dark:border-white/5 shadow-2xl">
+    
+    {/* BACK BUTTON */}
+    <button
+      type="button"
+      onClick={onBack} // Replace with your navigation handler
+      className="flex-none h-14 w-14 rounded-full bg-black dark:bg-white text-white dark:text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-lg"
+      aria-label="Back"
+    >
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+      </svg>
+    </button>
+    <button 
                 onClick={handleNext}
                 className="w-full py-5 rounded-[2.2rem] font-black italic uppercase tracking-[0.2em] text-xs flex items-center justify-center gap-4 bg-[var(--color-primary)] text-white shadow-xl shadow-[var(--color-primary)]/20 active:scale-95 group"
               >

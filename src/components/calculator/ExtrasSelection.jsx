@@ -11,7 +11,8 @@ export default function ExtrasSelection({
   projectDetails = [], 
   projectCase = 'STL',
   onProceed,
-  activePrinter 
+  activePrinter,
+  onBack 
 }) {
   const is3MF = projectCase === '3MF';
   const itemLabel = is3MF ? 'Plate' : 'Model';
@@ -259,14 +260,26 @@ export default function ExtrasSelection({
         })}
       </div>
 
-      {/* --- COLUMN-SPECIFIC FOOTER --- */}
-      <div className="sm:absolute md:fixed lg:absolute bottom-0 left-0 right-0 w-full p-2 z-[110]">
-        <div className="px-4 py-2">
-          <div className="bg-[var(--color-bg)]/80 backdrop-blur-md p-1 rounded-[2.5rem] border border-black/10 dark:border-white/10 shadow-2xl">
-            <button 
+ {/* --- COLUMN-SPECIFIC FOOTER --- */}
+ <div className="sm:absolute md:fixed lg:absolute bottom-0 left-0 right-0 w-full p-2 z-[110]">
+  <div className="px-4 py-2">
+    <div className="flex gap-3 bg-[var(--color-bg)]/80 backdrop-blur-md p-2 rounded-[2.5rem] border border-black/10 dark:border-white/10 shadow-2xl">
+      
+      {/* BACK BUTTON */}
+      <button
+        type="button"
+        onClick={onBack}
+        className="flex-none h-14 w-14 rounded-full bg-neutral-900 text-white flex items-center justify-center hover:scale-105 active:scale-95 transition-all"
+        aria-label="Back"
+      >
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+        </svg>
+      </button>
+      <button 
               type="button"
               onClick={onProceed} 
-              className="w-full py-5 rounded-[2.2rem] bg-blue-600 text-white font-black italic uppercase text-xs tracking-[0.2em] flex items-center justify-center gap-4 shadow-xl active:scale-95 group transition-all shadow-blue-600/20"
+              className="flex-1 h-14 rounded-[2.2rem] bg-blue-600 text-white font-black italic uppercase text-xs tracking-[0.2em] flex items-center justify-center gap-4 shadow-xl active:scale-95 group transition-all shadow-blue-600/20"
             >
               ESTIMATE COST 
               <div className="p-1 rounded-full bg-white/20 group-hover:translate-x-1 transition-transform">
