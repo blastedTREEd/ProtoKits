@@ -306,7 +306,7 @@ export default function ProjectCost({
         </div>
       )}
 
-      <div className="bg-blue-600 rounded-[2.5rem] p-8 text-white relative overflow-hidden shadow-2xl mt-4">
+      <div className="max-w-2xl mx-auto bg-blue-600 rounded-[2.5rem] p-8 text-white relative overflow-hidden shadow-2xl mt-4">
         <Receipt size={120} className="absolute -right-6 -bottom-6 opacity-20 rotate-12" />
         <span className="text-[10px] font-black uppercase tracking-[0.3em] opacity-60">Lowest Price</span>
         <div className="flex items-baseline gap-1 mt-1">
@@ -328,7 +328,7 @@ export default function ProjectCost({
         </div>
       </div>
 
-      <div className="bg-neutral-900 dark:bg-[var(--color-surface)] rounded-[2.5rem] p-8 text-white relative overflow-hidden shadow-xl">
+      <div className="max-w-2xl mx-auto bg-neutral-900 dark:bg-[var(--color-surface)] rounded-[2.5rem] p-8 text-white relative overflow-hidden shadow-xl">
         <Wallet size={120} className="absolute -right-6 -bottom-6 opacity-10 -rotate-12" />
         <span className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-500">Downpayment</span>
         <div className="flex items-baseline gap-1 mt-1">
@@ -337,7 +337,7 @@ export default function ProjectCost({
         </div>
       </div>
 
-      <div className="bg-[var(--color-bg)] rounded-[2.5rem] p-7 border border-[var(--color-border)] space-y-5 text-left">
+      <div className="max-w-2xl mx-auto bg-[var(--color-bg)] rounded-[2.5rem] p-7 border border-[var(--color-border)] space-y-5 text-left">
         <div className="flex justify-between items-center text-left">
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-blue-500 rounded-xl bg-opacity-10 text-blue-600"><ListChecks size={20} /></div>
@@ -384,7 +384,7 @@ export default function ProjectCost({
       </div>
 
       {isAdmin && (
-        <div className="flex gap-1 p-1 bg-[var(--color-bg)] rounded-2xl mb-6 mx-2 border border-[var(--color-border)]">
+        <div className="max-w-2xl mx-auto flex gap-1 p-1 bg-[var(--color-bg)] rounded-2xl mb-6 mx-2 border border-[var(--color-border)]">
           {[
             { id: 'plan', label: 'Plan', icon: Clock },
             { id: 'cost', label: 'Cost', icon: Coins },
@@ -421,7 +421,7 @@ export default function ProjectCost({
         {activeTab === 'rates' && (
           <div className="space-y-4 px-2">
             {hasPendingRateChanges && (
-              <div className="sticky top-2 z-20 flex justify-end gap-2">
+              <div className=" max-w-2xl mx-auto sticky top-2 z-20 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={handleCancelRateChanges}
@@ -449,7 +449,7 @@ export default function ProjectCost({
                 (sectionRates[field.key] ?? '') !== ((storeRates?.[section.id] || {})[field.key] ?? '')
               ));
               return (
-                <div key={section.id} className="bg-[var(--color-bg)] rounded-[2rem] p-4 border border-[var(--color-border)] space-y-3">
+                <div key={section.id} className="max-w-2xl mx-auto bg-[var(--color-bg)] rounded-[2rem] p-4 border border-[var(--color-border)] space-y-3">
                   <div className="px-2 flex items-center justify-between gap-3">
                     <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-40">{section.title}</span>
                     {sectionHasChanges && (

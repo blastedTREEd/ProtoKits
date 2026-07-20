@@ -16,7 +16,7 @@ export default function ProductionPlan({ schedule = [], projectCase = 'STL' }) {
 
   if (!schedule.length) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 opacity-30 italic">
+      <div className="max-w-2xl mx-auto flex flex-col items-center justify-center py-20 opacity-30 italic">
         <AlertCircle size={40} className="mb-2" />
         <p className="text-[10px] font-black uppercase tracking-widest">
           No production plan generated
@@ -35,7 +35,7 @@ export default function ProductionPlan({ schedule = [], projectCase = 'STL' }) {
         );
         const dayLabel = latestContinuationDay > day.day ? `Day ${day.day}-${latestContinuationDay}` : `Day ${day.day}`;
         return (
-          <div key={`${day.day}-${day.printerKey || day.printerName || 'printer'}`} className="p-6 rounded-[2rem] border border-black/5 bg-white dark:bg-zinc-900/40 space-y-4 shadow-sm">
+          <div key={`${day.day}-${day.printerKey || day.printerName || 'printer'}`} className=" max-w-2xl mx-auto p-6 rounded-[2rem] border border-black/5 bg-white dark:bg-zinc-900/40 space-y-4 shadow-sm">
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-2">
                 <div className="flex items-center gap-2 text-[var(--color-primary)]">

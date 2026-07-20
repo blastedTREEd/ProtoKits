@@ -452,7 +452,6 @@ const handleStepBack = () => {
             activePrinter={calculatorData.printer}
             dbSettings={dbSettingsObject}
             onUpdateSettings={(rateId, patch) => updateSettings(rateId, patch)}
-            // onBack={() => isEditMode ? setActiveStep(4) : navigateToStep(4)}
             onBack={handleStepBack}
             onReset={onExit}
             isEditMode={isEditMode}

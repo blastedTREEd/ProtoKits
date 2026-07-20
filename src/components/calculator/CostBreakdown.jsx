@@ -838,7 +838,7 @@ export default function CostBreakdown({
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 space-y-4">
-      <div className="divide-y divide-[var(--color-border)] bg-[var(--color-surface)] rounded-[2.5rem] px-4 shadow-sm border border-[var(--color-border)]">
+      <div className="max-w-2xl mx-auto divide-y divide-[var(--color-border)] bg-[var(--color-surface)] rounded-[2.5rem] px-4 shadow-sm border border-[var(--color-border)]">
         <CostItem icon={Coins} label="Filament" value={calculations.filament} colorClass="bg-amber-500 text-amber-600" details={calculations.details.filament} />
         <CostItem icon={User} label="Labor" value={calculations.labor} colorClass="bg-green-500 text-green-600" details={calculations.details.labor} />
         {parseFloat(calculations.extras) > 0 && <CostItem icon={Box} label="Extras" value={calculations.extras} colorClass="bg-purple-500 text-purple-600" details={calculations.details.extras} />}
@@ -848,7 +848,7 @@ export default function CostBreakdown({
       </div>
 
       <div className="space-y-2">
-        <div className="mx-2 p-6 rounded-[2rem] bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-between">
+        <div className="max-w-2xl mx-auto mx-2 p-6 rounded-[2rem] bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-emerald-500 rounded-xl text-white">
               <TrendingUp size={20} />
@@ -863,7 +863,7 @@ export default function CostBreakdown({
           </div>
         </div>
 
-        <div className="mx-2 p-6 rounded-[2rem] bg-blue-600 text-white flex items-center justify-between shadow-xl shadow-blue-600/20 relative overflow-hidden">
+        <div className="max-w-2xl mx-auto mx-2 p-6 rounded-[2rem] bg-blue-600 text-white flex items-center justify-between shadow-xl shadow-blue-600/20 relative overflow-hidden">
           <Wallet size={80} className="absolute -right-4 -bottom-4 opacity-10 -rotate-12" />
           <div className="flex items-center gap-3 relative z-10">
             <div className="p-2.5 bg-white/20 rounded-xl backdrop-blur-md">
