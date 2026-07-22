@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ShoppingBag, ShoppingBasket, X, Clock, Package, PackageOpen, PackageMinus, PackagePlus, PackageX, Calendar, UserCheck, Info,
-  ChevronRight, ChevronLeft, Truck, Pencil, Trash2, Bell, Plane, Plus, ArrowBigUpDash, Bike 
+  ChevronRight, ChevronLeft, Truck, Pencil, Trash2, Bell, Plane, Plus, ArrowBigUpDash, Bike, Gift
   } from 'lucide-react';
 import { FaQuestion } from 'react-icons/fa';
 import { useStore } from '../../store/useStore';
@@ -142,6 +142,36 @@ function getConditionDetails(stock) {
   return [];
 }
 
+function stockMatchesDealSource(stock, source = 'onhand') {
+  const status = String(stock?.status || '').toLowerCase();
+  const isPreOrder = status.includes('pre') || status.includes('batch');
+  return source === 'preorder' ? isPreOrder : !isPreOrder;
+}
+
+function isBundlePurchasableStock(stock, source = 'onhand') {
+  if (!stock || stock.order?.orderId || !stockMatchesDealSource(stock, source)) return false;
+  return !stock.isReserved || stock.reservationType === 'admin';
+}
+
+function parseDealDate(value) {
+  if (!value) return null;
+  const [datePart, timePart = '00:00'] = value.split('T');
+  const [year, month, day] = datePart.split('-').map(Number);
+  const [hours, minutes] = timePart.split(':').map(Number);
+  if (![year, month, day, hours, minutes].every(Number.isFinite)) return null;
+  return new Date(year, month - 1, day, hours, minutes, 0, 0);
+}
+
+function getDealCountdownLabel(validUntil) {
+  const endDate = parseDealDate(validUntil);
+  if (!endDate) return 'NO END DATE';
+  const diffMs = endDate.getTime() - Date.now();
+  if (diffMs <= 0) return 'EXPIRED';
+  if (diffMs <= 86400000) return 'LAST DAY';
+  const diffDays = Math.ceil(diffMs / 86400000);
+  return `${diffDays} ${diffDays === 1 ? 'DAY' : 'DAYS'} LEFT`;
+}
+
 const GRADIENT_COLORS = {
   'from-rose-500 to-orange-500': 'rgba(244, 63, 94, 0.2)',
   'from-orange-500 to-amber-500': 'rgba(249, 115, 22, 0.2)',
@@ -171,7 +201,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
   
   const { 
     addToBasket, removeFromBasket, isAdmin, 
-    isAdminView, shelf, 
+    isAdminView, shelf, deals, kits: allKits,
     setPendingBasketItem, setLoginModalOpen, user,
     huntKit,
     shippingSettings,
@@ -332,6 +362,24 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
     // Find if the current kit is reserved by any admin on the shared shelf
     return (shelf || []).find(item => item.id === kitId);
   }, [shelf, kitId]);
+
+  const bundleOnlyDeals = useMemo(() => {
+    if (!kitId || !Array.isArray(deals)) return [];
+    return deals.filter(deal => {
+      const isBundleDeal = deal?.type === 'bundle_only' || deal?.type === 'bundle_discount';
+      if (!isBundleDeal || deal.isActive === false || !(deal.kitIds || []).includes(kitId)) return false;
+      const validUntil = parseDealDate(deal.validUntil);
+      if (validUntil && validUntil.getTime() <= Date.now()) return false;
+      return (deal.kitIds || []).every(dealKitId => {
+        const dealKit = dealKitId === kitId ? kit : (allKits || []).find(k => k.id === dealKitId);
+        const stockSource = deal.stockSource || 'onhand';
+        const stocks = Object.values(dealKit?.stocks || {});
+        return stocks.some(stock => isBundlePurchasableStock(stock, stockSource));
+      });
+    });
+  }, [allKits, deals, kitId, kit, now]);
+
+  const hasBundleExclusiveDeal = bundleOnlyDeals.length > 0;
 
   const isEarlyAccess = useMemo(() => {
     return stockList.some(s => s.publicReleaseDate && new Date(s.publicReleaseDate).getTime() > now);
@@ -521,6 +569,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
 
   const getBuyLabel = useCallback(() => {
     if (isAdmin && isAdminView) return shelfItem ? "RELEASE STOCK" : "KEEP NOW";
+    if (availableCount <= 0 && hasBundleExclusiveDeal) return "VIEW DEALS";
     if (availableCount <= 0) return "NOTIFY ME";
     if (selectedStock) {
       const isReserved = selectedStock.isReserved || selectedStock.order?.orderId;
@@ -532,7 +581,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
     if (hasOnhand) return "BUY NOW";
     const hasPreorder = visibleStocks.some(s => (s.status?.toLowerCase().includes('pre') || s.status?.toLowerCase().includes('batch')) && !s.isReserved && !s.order?.orderId);
     return hasPreorder ? "PRE-ORDER" : "BUY NOW";
-  }, [isAdmin, isAdminView, shelfItem, selectedStock, visibleStocks, availableCount]);
+  }, [isAdmin, isAdminView, shelfItem, selectedStock, visibleStocks, availableCount, hasBundleExclusiveDeal]);
 
   const getAddtoCartLabel = useCallback(() => "ADD TO BASKET", []);
   const addToCartLabel = getAddtoCartLabel();
@@ -589,6 +638,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
 
   const handleAction = () => {
     const buyLabel = getBuyLabel(); // This was the problematic re-declaration
+    if (buyLabel === "VIEW DEALS") return;
     if (buyLabel === "NOTIFY ME") {
        const finalTargetPrice = parseFloat(targetPrice) || displayPrice;
        if (!user) {
@@ -608,6 +658,10 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
   const handleBuyNow = (e, targetStock = selectedStock) => {
     if (e) e.stopPropagation();
     const buyLabelFromFunction = getBuyLabel();
+    if (buyLabelFromFunction === "VIEW DEALS") {
+      handleOpenModal();
+      return;
+    }
     
     if (buyLabelFromFunction === "NOTIFY ME") {
       const available = stockList.filter(s => {
@@ -739,6 +793,10 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                     <div className="px-1.5 py-0.5 font-bold uppercase tracking-tigther text-[10px] md:text-[11px] bg-emerald-500 text-white border-emerald-400 shadow-lg">
                        {availableCount} Available
                     </div>
+                  ) : hasBundleExclusiveDeal ? (
+                    <div className="px-1.5 py-0.5 font-black uppercase tracking-tigther text-[10px] md:text-[11px] bg-emerald-500 text-white border-emerald-400 shadow-lg">
+                      Bundle Exclusive
+                    </div>
                   ) : stockList.some(s => s.isReserved) ? (
                     <div className={`px-1.5 py-0.5 font-black uppercase tracking-tigther text-[10px] md:text-[11px] ${isAdminView ? 'bg-blue-500 text-white border-blue-400' : 'bg-red-500 text-white border-red-400'} shadow-lg`}>
                       {isAdminView ? `${stockList.filter(s => s.isReserved).length} Reserved` : 'NOT FOR SALE'}
@@ -783,8 +841,8 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                               </span>
                             </>
                           ) : (
-                            <span className={`text-[15px] lg:text-[12px] font-black tracking-tighter leading-none ${hasReserved ? 'text-blue-500' : 'text-red-500'}`}>
-                                {hasReserved ? "LET'S DEAL!" : "NOTIFY ME!"}
+                            <span className={`text-[15px] lg:text-[12px] font-black tracking-tighter leading-none ${hasBundleExclusiveDeal ? 'text-emerald-500' : hasReserved ? 'text-blue-500' : 'text-red-500'}`}>
+                                {hasBundleExclusiveDeal ? "BUNDLE EXCLUSIVE" : hasReserved ? "LET'S DEAL!" : "NOTIFY ME!"}
                             </span>
                           )}
                         </>
@@ -835,7 +893,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                       onClick={(e) => { e.stopPropagation(); availableCount <= 0 ? handleOpenModal() : handleAddToCart(); }} 
                       className="flex items-center justify-center w-8 h-8 rounded-full transition-all shadow-lg active:scale-95 bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-blue-500/40 lg:hover:scale-110 shrink-0"
                     >
-                      {availableCount <= 0 ? <Bell size={14} className="text-white fill-white" /> : <Plus size={16} strokeWidth={3} />}
+                      {availableCount <= 0 ? (hasBundleExclusiveDeal ? <Gift size={14} className="text-white" /> : <Bell size={14} className="text-white fill-white" />) : <Plus size={16} strokeWidth={3} />}
                     </button>
                   )}
                 </div>
@@ -1058,6 +1116,30 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                           );
                         }) : <span className="text-[11px] font-black uppercase px-2.5 py-1 rounded-lg bg-neutral-500/10 text-neutral-500 border border-neutral-500/20">No Info</span>}
                       </div>
+
+                      {bundleOnlyDeals.length > 0 && (
+                        <div className="pt-4 space-y-2">
+                          <h4 className="text-[12px] font-black uppercase tracking-[0.1em] opacity-30 flex items-center gap-2 text-left">
+                            <Gift size={18} /> DEALS
+                          </h4>
+                          <div className="space-y-2">
+                            {bundleOnlyDeals.map(deal => (
+                              <div key={deal.id} className="flex items-center justify-between gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3">
+                                <div className="min-w-0 text-left">
+                                  <p className="truncate text-[12px] font-black uppercase italic leading-tight text-emerald-500">{deal.name}</p>
+                                  <p className="mt-1 text-[9px] font-black uppercase tracking-widest opacity-50">
+                                    Bundle Only / {getDealCountdownLabel(deal.validUntil)}
+                                  </p>
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <p className="text-[13px] font-black italic text-amber-500">â‚±{(deal.bundlePrice || 0).toLocaleString()}</p>
+                                  <p className="text-[8px] font-black uppercase opacity-40">{(deal.kitIds || []).length} Kits</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -1104,6 +1186,10 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                                   <Bell size={14} className="fill-white" /> {hasReserved ? "SEND DEAL" : "NOTIFY ME!"}
                                 </button>
                               )}
+                            </div>
+                          ) : hasBundleExclusiveDeal && availableCount === 0 && !isAdminView ? (
+                            <div className="w-full px-8 py-4 rounded-3xl bg-emerald-600 text-white text-center font-black italic uppercase tracking-widest shadow-lg shadow-emerald-600/20">
+                              Bundle Exclusive
                             </div>
                           ) : (
                                isAdmin && isAdminView ? (

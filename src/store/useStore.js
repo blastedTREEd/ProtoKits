@@ -1910,18 +1910,20 @@ export const useStore = create(
         }
       },
 
-      reserveStockForCheckout: async (kitId, stockKey, uid) => {
+      reserveStockForCheckout: async (kitId, stockKey, uid, options = {}) => {
         const snap = await getDoc(doc(db, "kits", kitId));
         if (!snap.exists()) return { success: false };
         const data = snap.data();
         const stock = data.stocks?.[stockKey];
         if (!stock) return { success: false };
-        if (stock.isReserved && stock.reservedBy !== uid) return { success: false };
+        const canUseAdminShelfStock = options.allowAdminShelf && stock.isReserved && stock.reservationType === 'admin' && !stock.order?.orderId;
+        if (stock.isReserved && stock.reservedBy !== uid && !canUseAdminShelfStock) return { success: false };
 
         const stocks = { ...data.stocks };
         if (stocks[stockKey]) {
           stocks[stockKey].isReserved = true;
           stocks[stockKey].reservedBy = uid;
+          if (canUseAdminShelfStock) delete stocks[stockKey].reservationType;
         }
         const hasAvailable = Object.values(stocks).some(s => !s.order?.orderId && !s.isReserved);
 
@@ -1929,6 +1931,7 @@ export const useStore = create(
           [`stocks.${stockKey}.isReserved`]: true,
           [`stocks.${stockKey}.reservedBy`]: uid,
           [`stocks.${stockKey}.reservedAt`]: serverTimestamp(),
+          ...(canUseAdminShelfStock ? { [`stocks.${stockKey}.reservationType`]: deleteField() } : {}),
           lastUpdated: serverTimestamp(),
           hasAvailableStock: hasAvailable
         });

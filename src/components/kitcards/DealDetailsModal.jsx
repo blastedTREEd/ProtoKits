@@ -9,12 +9,27 @@ function resolveImage(idOrUrl, imagesArray) {
   return match?.url || '';
 }
 
+function getOrderedKits(kits, kitIds) {
+  const kitMap = new Map((kits || []).map(kit => [kit.id, kit]));
+  return (kitIds || []).map(id => kitMap.get(id)).filter(Boolean);
+}
+
+function stockMatchesDealSource(stock, source = 'onhand') {
+  const status = String(stock?.status || '').toLowerCase();
+  const isPreOrder = status.includes('pre') || status.includes('batch');
+  return source === 'preorder' ? isPreOrder : !isPreOrder;
+}
+
 export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow }) {
   const { kits } = useStore();
 
   const includedKits = useMemo(() => {
     if (!deal || !deal.kitIds) return [];
-    return kits.filter(k => deal.kitIds.includes(k.id));
+    const orderedKitIds = [
+      ...(deal.previewKitIds || []),
+      ...(deal.kitIds || []).filter(id => !(deal.previewKitIds || []).includes(id))
+    ];
+    return getOrderedKits(kits, orderedKitIds);
   }, [deal, kits]);
 
   useEffect(() => {
@@ -49,7 +64,8 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow }) {
 
   const normalTotal = includedKits.reduce((sum, k) => {
     const stocks = Object.values(k.stocks || {});
-    const refPrice = stocks[0]?.sellPrice || k.sellPrice || 0;
+    const sourceStock = stocks.find(stock => stockMatchesDealSource(stock, deal.stockSource || 'onhand'));
+    const refPrice = sourceStock?.sellPrice || stocks[0]?.sellPrice || k.sellPrice || 0;
     return sum + refPrice;
   }, 0);
 
@@ -79,8 +95,7 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow }) {
               <div>
                  <h2 className="text-xl font-black uppercase italic leading-none">{deal.name}</h2>
                  <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500 mt-2 block">
-                    {deal.type === 'bundle_discount' ? 'Bundle Discount Package' : 
-                     deal.type === 'bundle_only' ? 'Bundle Only Package' : 'Special Deal Package'}
+                    {(deal.type === 'bundle_discount' || deal.type === 'bundle_only') ? 'Bundle Only Package' : 'Special Deal Package'}
                   </span>
               </div>
            </div>
@@ -110,7 +125,8 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow }) {
               
               {includedKits.map(kit => {
                 const stocks = Object.values(kit.stocks || {});
-                const refPrice = stocks[0]?.sellPrice || kit.sellPrice || 0;
+                const sourceStock = stocks.find(stock => stockMatchesDealSource(stock, deal.stockSource || 'onhand'));
+                const refPrice = sourceStock?.sellPrice || stocks[0]?.sellPrice || kit.sellPrice || 0;
                 const distributedPrice = refPrice * discountFactor;
                 
                 return (

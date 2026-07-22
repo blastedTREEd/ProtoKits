@@ -12,7 +12,7 @@ import { useStore } from '../../store/useStore';
 import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
 import { useTheme } from '../../context/ThemeContext';
 import { auth, db, googleProvider } from '../../firebase/firebase';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { signInWithPopup } from 'firebase/auth';
 import * as FcIcons from 'react-icons/fc';
 import L from 'leaflet';
@@ -417,7 +417,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   const { isDarkMode } = useTheme();
   const { 
     user, reserveStockForCheckout, createOrder, isAdmin, isAdminView,
-    removeFromBasket, kits, uploadReceipt, rates, updateUserProfile,
+    removeFromBasket, kits, shelf, uploadReceipt, rates, updateUserProfile,
     adminsList, fetchAdmins, assignStockToOrder, adminData, garageInfo, setLoginModalOpen
   } = useStore();
 
@@ -1494,11 +1494,20 @@ const handleFinalizeOrder = async () => {
         const stock = kitSnap.data().stocks[item.stockKey];
         if (!stock) throw new Error(`Stock variant for ${item.id} no longer exists.`);
         
-        if (stock.isReserved && stock.reservedBy !== checkoutUid) {
+        const canUseAdminShelfStock = item.allowShelfBundle && stock.isReserved && stock.reservationType === 'admin' && !stock.order?.orderId;
+        if (stock.isReserved && stock.reservedBy !== checkoutUid && !canUseAdminShelfStock) {
           throw new Error(`Item "${item.name}" was just taken by someone else.`);
         }
         
-        return reserveStockForCheckout(item.id, item.stockKey, checkoutUid);
+        const result = await reserveStockForCheckout(item.id, item.stockKey, checkoutUid, { allowAdminShelf: item.allowShelfBundle });
+        if (!result?.success) {
+          throw new Error(`Item "${item.name}" was just taken by someone else.`);
+        }
+        if (canUseAdminShelfStock) {
+          const shelfItem = (shelf || []).find(entry => entry.id === item.id && entry.stockKey === item.stockKey);
+          if (shelfItem?.basketId) await deleteDoc(doc(db, 'shelf', shelfItem.basketId));
+        }
+        return result;
       }));
       
       const orderId = `#SG-${Math.floor(Math.random() * 9000) + 1000}`;

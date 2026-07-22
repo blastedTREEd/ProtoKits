@@ -51,6 +51,48 @@ const getSpectralGradient = (id) => {
 
 const getShadowColor = (gradientClass) => GRADIENT_COLORS[gradientClass] || 'rgba(8,102,255,0.2)';
 
+function parseDealDate(value) {
+  if (!value) return null;
+  const [datePart, timePart = '00:00'] = value.split('T');
+  const [year, month, day] = datePart.split('-').map(Number);
+  const [hours, minutes] = timePart.split(':').map(Number);
+  if (![year, month, day, hours, minutes].every(Number.isFinite)) return null;
+  return new Date(year, month - 1, day, hours, minutes, 0, 0);
+}
+
+function getDealCountdownLabel(validUntil) {
+  const endDate = parseDealDate(validUntil);
+  if (!endDate) return 'NO END DATE';
+  const diffMs = endDate.getTime() - Date.now();
+  if (diffMs <= 0) return 'EXPIRED';
+  if (diffMs <= 86400000) return 'LAST DAY';
+  const diffDays = Math.ceil(diffMs / 86400000);
+  return `${diffDays} ${diffDays === 1 ? 'DAY' : 'DAYS'} LEFT`;
+}
+
+function getPreviewTileClass(total, index) {
+  if (total === 1) return 'col-span-2 row-span-2';
+  if (total === 2) return 'col-span-2';
+  if (total === 3 && index === 0) return 'col-span-2';
+  return '';
+}
+
+function getOrderedKits(kits, kitIds) {
+  const kitMap = new Map((kits || []).map(kit => [kit.id, kit]));
+  return (kitIds || []).map(id => kitMap.get(id)).filter(Boolean);
+}
+
+function stockMatchesDealSource(stock, source = 'onhand') {
+  const status = String(stock?.status || '').toLowerCase();
+  const isPreOrder = status.includes('pre') || status.includes('batch');
+  return source === 'preorder' ? isPreOrder : !isPreOrder;
+}
+
+function isBundlePurchasableStock(stock, source = 'onhand') {
+  if (!stock || stock.order?.orderId || !stockMatchesDealSource(stock, source)) return false;
+  return !stock.isReserved || stock.reservationType === 'admin';
+}
+
 export default function Kits() {
   const { 
     isAdmin, isAdminView, kits: storeKits, deals, 
@@ -353,7 +395,7 @@ const allFilteredKits = useMemo(() => {
         const kit = (storeKits || []).find(k => k.id === kitId);
         if (!kit) return false;
         const stocks = Object.values(kit.stocks || {});
-        return stocks.some(s => !s.isReserved && !s.order?.orderId);
+        return stocks.some(s => isBundlePurchasableStock(s, d.stockSource || 'onhand'));
       });
     });
     if (!searchTerm) return fulfillable;
@@ -380,16 +422,18 @@ const allFilteredKits = useMemo(() => {
     const bundleKits = (storeKits || []).filter(k => deal.kitIds.includes(k.id));
     const normalTotal = bundleKits.reduce((sum, k) => {
       const stocks = Object.values(k.stocks || {});
-      return sum + (stocks[0]?.sellPrice || k.sellPrice || 0);
+      const sourceStock = stocks.find(s => stockMatchesDealSource(s, deal.stockSource || 'onhand'));
+      return sum + (sourceStock?.sellPrice || stocks[0]?.sellPrice || k.sellPrice || 0);
     }, 0);
     // Discount factor is purely the ratio of bundle price to normal total.
     // Fees (handling, installment, transfer) are passed separately per item — NOT baked into the factor.
     const discountFactor = normalTotal > 0 ? (deal.bundlePrice || 0) / normalTotal : 1;
     const items = bundleKits.map((kit) => {
       const stocks = Object.values(kit?.stocks || {});
-      const availableStock = stocks.find(s => !s?.isReserved && !s?.order?.orderId);
-      const refPrice = stocks[0]?.sellPrice || kit?.sellPrice || 0;
-      return { ...kit, name: `${kit?.name} (Bundle Item)`, isBundleItem: true, stockKey: availableStock?.key || 'default', price: Math.round(refPrice * discountFactor), appliedHandlingFee: handlingFee, appliedInstallmentFee: installmentFee, appliedTransferFee: transferFee };
+      const availableStock = stocks.find(s => isBundlePurchasableStock(s, deal.stockSource || 'onhand'));
+      const sourceStock = stocks.find(s => stockMatchesDealSource(s, deal.stockSource || 'onhand'));
+      const refPrice = sourceStock?.sellPrice || stocks[0]?.sellPrice || kit?.sellPrice || 0;
+      return { ...kit, name: `${kit?.name} (Bundle Item)`, isBundleItem: true, allowShelfBundle: true, stockKey: availableStock?.key || 'default', price: Math.round(refPrice * discountFactor), appliedHandlingFee: handlingFee, appliedInstallmentFee: installmentFee, appliedTransferFee: transferFee };
     });
     setItemsForCheckout(items);
     setSelectedDeal(null);
@@ -555,9 +599,14 @@ const allFilteredKits = useMemo(() => {
 
               {filteredDeals.map(deal => {
                 if (!deal) return null;
-                const includedKits = (storeKits || []).filter(k => deal.kitIds?.includes(k?.id));
+                const orderedKitIds = [
+                  ...(deal.previewKitIds || []),
+                  ...(deal.kitIds || []).filter(id => !(deal.previewKitIds || []).includes(id))
+                ];
+                const includedKits = getOrderedKits(storeKits, orderedKitIds);
                 const previewKits = includedKits.slice(0, 4);
                 const remainingCount = Math.max(0, includedKits.length - 4);
+                const countdownLabel = getDealCountdownLabel(deal.validUntil);
                 const dealGradient = getSpectralGradient(deal.id);
                 const dealShadow = getShadowColor(dealGradient);
                 return (
@@ -573,15 +622,19 @@ const allFilteredKits = useMemo(() => {
                     <div className="relative rounded-[2.1rem] flex flex-col h-full p-3 bg-white dark:bg-[var(--color-surface)]">
                       <div className="absolute top-4 left-0 z-50 flex flex-col items-start">
                         <div className="px-1.5 py-0.5 font-bold uppercase tracking-tigther text-[10px] md:text-[11px] bg-emerald-500 text-white border-emerald-400 shadow-lg">
-                           SET OF {deal.kitIds?.length || 0}
+                           {countdownLabel}
                         </div>
                       </div>
                       <div className="relative aspect-square rounded-2xl overflow-hidden mb-3 bg-white dark:bg-[var(--color-surface)] shrink-0">
-                          <div className="grid gap-2 h-full w-full grid-cols-2">
+                          <div className="grid gap-2 h-full w-full grid-cols-2 grid-rows-2">
                             {previewKits.length > 0 ? previewKits.map((kit, idx) => (
-                              <div key={kit?.id || idx} className="relative w-full h-full rounded-xl overflow-hidden">
+                              <div key={kit?.id || idx} className={`relative w-full h-full rounded-xl overflow-hidden ${getPreviewTileClass(previewKits.length, idx)}`}>
                                 <img src={(() => { const id = kit?.image; if (!id) return ''; if (id.startsWith('data:') || id.startsWith('http')) return id; const match = (kit?.images || []).find(img => img.id === id); return match?.url || id; })()} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt="" />
-                                {idx === 3 && remainingCount > 0 && <div className="absolute inset-0 bg-black/75 backdrop-blur-[1px] flex items-center justify-center text-white text-[13px] font-black italic">+{remainingCount}</div>}
+                                {idx === 3 && remainingCount > 0 && (
+                                  <div className="absolute inset-0 flex items-center justify-center text-white text-[13px] font-black italic drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]">
+                                    +{remainingCount}
+                                  </div>
+                                )}
                               </div>
                             )) : <div className="col-span-2 flex items-center justify-center text-emerald-600 opacity-20"><Gift size={40} strokeWidth={1} /></div>}
                           </div>
