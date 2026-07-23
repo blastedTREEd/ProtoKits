@@ -90,6 +90,11 @@ const normalizePrepareDetails = (details = []) => (
     const materialIds = materialSlots.map((slot) => slot.materialId);
     const primaryMaterialId = materialIds[0] || getMaterialIdFromDetail(detail);
 
+    const rawWalls = config.walls ?? detail?.walls ?? '';
+    const rawInfill = config.infill ?? detail?.infill ?? '';
+    const normalizedWalls = (rawWalls === 2 || rawWalls === '2') ? '' : rawWalls;
+    const normalizedInfill = (rawInfill === 15 || rawInfill === '15') ? '' : rawInfill;
+
     return {
       ...detail,
       id: detail?.id || Date.now() + index,
@@ -98,8 +103,8 @@ const normalizePrepareDetails = (details = []) => (
       width: config.width ?? detail?.width ?? '',
       height: config.height ?? detail?.height ?? '',
       unit: config.unit || detail?.unit || 'mm',
-      walls: config.walls ?? detail?.walls ?? '',
-      infill: config.infill ?? detail?.infill ?? '',
+      walls: normalizedWalls,
+      infill: normalizedInfill,
       materialId: primaryMaterialId ? String(primaryMaterialId) : '',
       materialIds: materialIds.length ? materialIds : (primaryMaterialId ? [String(primaryMaterialId)] : []),
       materialSlots,

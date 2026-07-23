@@ -857,8 +857,8 @@ export default function ProjectPrepare({
     const dimsValid = getLogicalDims(m).l > 0 && !!m.materialId;
     const wallsVal = parseInt(m.walls);
     const infillVal = parseInt(m.infill);
-    const wallsValid = m.walls === '' || (wallsVal >= 3 && wallsVal <= 10);
-    const infillValid = m.infill === '' || (infillVal > 15 && infillVal <= 99);
+    const wallsValid = m.walls === '' || wallsVal === 2 || (wallsVal >= 3 && wallsVal <= 10);
+    const infillValid = m.infill === '' || infillVal === 15 || (infillVal > 15 && infillVal <= 99);
     return dimsValid && wallsValid && infillValid;
   };
 
