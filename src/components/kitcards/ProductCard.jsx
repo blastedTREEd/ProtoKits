@@ -381,6 +381,17 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
 
   const hasBundleExclusiveDeal = bundleOnlyDeals.length > 0;
 
+  const isExclusiveToBundle = useMemo(() => {
+    if (!kitId || !Array.isArray(deals)) return false;
+    return deals.some(deal => {
+      const isBundleDeal = deal?.type === 'bundle_only' || deal?.type === 'bundle_discount';
+      if (!isBundleDeal || deal.isActive === false || !(deal.kitIds || []).includes(kitId)) return false;
+      const validUntil = parseDealDate(deal.validUntil);
+      if (validUntil && validUntil.getTime() <= Date.now()) return false;
+      return (deal.exclusiveKitIds || []).includes(kitId);
+    });
+  }, [deals, kitId, now]);
+
   const isEarlyAccess = useMemo(() => {
     return stockList.some(s => s.publicReleaseDate && new Date(s.publicReleaseDate).getTime() > now);
   }, [stockList, now]);
@@ -569,6 +580,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
 
   const getBuyLabel = useCallback(() => {
     if (isAdmin && isAdminView) return shelfItem ? "RELEASE STOCK" : "KEEP NOW";
+    if (isExclusiveToBundle) return "VIEW DEALS";
     if (availableCount <= 0 && hasBundleExclusiveDeal) return "VIEW DEALS";
     if (availableCount <= 0) return "NOTIFY ME";
     if (selectedStock) {
@@ -581,7 +593,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
     if (hasOnhand) return "BUY NOW";
     const hasPreorder = visibleStocks.some(s => (s.status?.toLowerCase().includes('pre') || s.status?.toLowerCase().includes('batch')) && !s.isReserved && !s.order?.orderId);
     return hasPreorder ? "PRE-ORDER" : "BUY NOW";
-  }, [isAdmin, isAdminView, shelfItem, selectedStock, visibleStocks, availableCount, hasBundleExclusiveDeal]);
+  }, [isAdmin, isAdminView, shelfItem, selectedStock, visibleStocks, availableCount, hasBundleExclusiveDeal, isExclusiveToBundle]);
 
   const getAddtoCartLabel = useCallback(() => "ADD TO BASKET", []);
   const addToCartLabel = getAddtoCartLabel();
@@ -789,7 +801,11 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
           <div className="absolute top-4 left-0 z-50 flex flex-col items-start">
                   {isEarlyAccess && <div className="px-1.5 py-0.5 font-black uppercase tracking-tigther text-[10px] md:text-[11px] bg-blue-500 text-white border-blue-400 shadow-lg animate-pulse mb-1">Early Access</div>}
                   {isFSEligible && <div className="px-1.5 py-0.5 font-black uppercase tracking-tigther text-[10px] md:text-[11px] bg-emerald-500 text-white border-emerald-400 shadow-lg mb-1 flex items-center gap-1">Free Shipping</div>}
-                  {availableCount > 0 ? (
+                  {isExclusiveToBundle ? (
+                    <div className="px-1.5 py-0.5 font-black uppercase tracking-tigther text-[10px] md:text-[11px] bg-emerald-500 text-white border-emerald-400 shadow-lg">
+                      Bundle Exclusive
+                    </div>
+                  ) : availableCount > 0 ? (
                     <div className="px-1.5 py-0.5 font-bold uppercase tracking-tigther text-[10px] md:text-[11px] bg-emerald-500 text-white border-emerald-400 shadow-lg">
                        {availableCount} Available
                     </div>
@@ -831,7 +847,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                     <div className="flex items-baseline gap-1 w-full min-w-0">
                       {!isAdminView && (
                         <>
-                          {(availableCount > 0) ? (
+                          {(availableCount > 0 && !isExclusiveToBundle) ? (
                             <>
                               <span className="text-[13px] lg:text-[13px] font-black italic tracking-tighter leading-none text-amber-500 dark:text-amber-500 shrink-0">
                                 ₱{lowestPrice.toLocaleString()}
@@ -841,8 +857,8 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                               </span>
                             </>
                           ) : (
-                            <span className={`text-[15px] lg:text-[12px] font-black tracking-tighter leading-none ${hasBundleExclusiveDeal ? 'text-emerald-500' : hasReserved ? 'text-blue-500' : 'text-red-500'}`}>
-                                {hasBundleExclusiveDeal ? "BUNDLE EXCLUSIVE" : hasReserved ? "LET'S DEAL!" : "NOTIFY ME!"}
+                            <span className={`text-[15px] lg:text-[12px] font-black tracking-tighter leading-none ${isExclusiveToBundle || hasBundleExclusiveDeal ? 'text-emerald-500' : hasReserved ? 'text-blue-500' : 'text-red-500'}`}>
+                                {(isExclusiveToBundle || hasBundleExclusiveDeal) ? "BUNDLE EXCLUSIVE" : hasReserved ? "LET'S DEAL!" : "NOTIFY ME!"}
                             </span>
                           )}
                         </>
@@ -890,10 +906,10 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                       </button>
                   ) : (
                     <button 
-                      onClick={(e) => { e.stopPropagation(); availableCount <= 0 ? handleOpenModal() : handleAddToCart(); }} 
+                      onClick={(e) => { e.stopPropagation(); (availableCount <= 0 || isExclusiveToBundle) ? handleOpenModal() : handleAddToCart(); }} 
                       className="flex items-center justify-center w-8 h-8 rounded-full transition-all shadow-lg active:scale-95 bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-blue-500/40 lg:hover:scale-110 shrink-0"
                     >
-                      {availableCount <= 0 ? (hasBundleExclusiveDeal ? <Gift size={14} className="text-white" /> : <Bell size={14} className="text-white fill-white" />) : <Plus size={16} strokeWidth={3} />}
+                      {(availableCount <= 0 || isExclusiveToBundle) ? ((isExclusiveToBundle || hasBundleExclusiveDeal) ? <Gift size={14} className="text-white" /> : <Bell size={14} className="text-white fill-white" />) : <Plus size={16} strokeWidth={3} />}
                     </button>
                   )}
                 </div>
@@ -1187,7 +1203,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                                 </button>
                               )}
                             </div>
-                          ) : hasBundleExclusiveDeal && availableCount === 0 && !isAdminView ? (
+                          ) : (isExclusiveToBundle || (hasBundleExclusiveDeal && availableCount === 0)) && !isAdminView ? (
                             <div className="w-full px-8 py-4 rounded-3xl bg-emerald-600 text-white text-center font-black italic uppercase tracking-widest shadow-lg shadow-emerald-600/20">
                               Bundle Exclusive
                             </div>

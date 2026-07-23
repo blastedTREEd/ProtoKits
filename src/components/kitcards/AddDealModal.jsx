@@ -233,6 +233,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
   const [validUntil, setValidUntil] = useState('');
   const [previewKitIds, setPreviewKitIds] = useState([]);
   const [draggedPreviewKitId, setDraggedPreviewKitId] = useState(null);
+  const [exclusiveKitIds, setExclusiveKitIds] = useState([]);
 
   // Bulk selection state for right column
   const [selectedDealIds, setSelectedDealIds] = useState([]);
@@ -269,6 +270,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       }
       setSelectedKitIds(kids);
       setPreviewKitIds((dealToEdit.previewKitIds || kids).filter(id => kids.includes(id)));
+      setExclusiveKitIds(dealToEdit.exclusiveKitIds || []);
       setMobileTab('creator');
     } else if (isOpen) {
       setDealType('bundle_only'); 
@@ -281,6 +283,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       setValidUntil('');
       setPreviewKitIds([]);
       setDraggedPreviewKitId(null);
+      setExclusiveKitIds([]);
       setSelectedDealIds([]);
       setMobileTab('creator');
     }
@@ -358,7 +361,10 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     if (dealType === 'mutually_exclusive') {
       // Mutually exclusive can only have 2 kits
       setSelectedKitIds(prev => {
-        if (prev.includes(id)) return prev.filter(i => i !== id);
+        if (prev.includes(id)) {
+          setExclusiveKitIds(ex => ex.filter(i => i !== id));
+          return prev.filter(i => i !== id);
+        }
         if (prev.length >= 2) {
           alert("Mutually exclusive strategy only supports up to 2 kits.");
           return prev;
@@ -366,7 +372,13 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
         return [...prev, id];
       });
     } else {
-      setSelectedKitIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+      setSelectedKitIds(prev => {
+        if (prev.includes(id)) {
+          setExclusiveKitIds(ex => ex.filter(i => i !== id));
+          return prev.filter(i => i !== id);
+        }
+        return [...prev, id];
+      });
     }
   };
 
@@ -397,6 +409,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     }
     setSelectedKitIds(kids);
     setPreviewKitIds((deal.previewKitIds || kids).filter(id => kids.includes(id)));
+    setExclusiveKitIds(deal.exclusiveKitIds || []);
     setSearchTerm('');
     setMobileTab('creator');
   };
@@ -430,6 +443,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       isActive: true,
       kitIds: selectedKitIds,
       previewKitIds,
+      exclusiveKitIds: dealType === 'bundle_only' ? exclusiveKitIds : [],
     };
 
     if (dealType === 'bundle_only') {
@@ -458,6 +472,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       setValidUntil('');
       setPreviewKitIds([]);
       setDraggedPreviewKitId(null);
+      setExclusiveKitIds([]);
       setMobileTab('list');
     } catch (e) { 
       console.error(e); 
@@ -482,6 +497,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
         setValidUntil('');
         setPreviewKitIds([]);
         setDraggedPreviewKitId(null);
+        setExclusiveKitIds([]);
       }
     } catch (e) {
       alert("Error deleting deal: " + e.message);
@@ -512,7 +528,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
         if (activeEditId === id) {
           setDealName(''); setDiscountAmount(''); setSelectedKitIds([]);
           setSearchTerm(''); setActiveEditId(null); setValidFrom(''); setValidUntil('');
-      setPreviewKitIds([]); setDraggedPreviewKitId(null);
+          setPreviewKitIds([]); setDraggedPreviewKitId(null); setExclusiveKitIds([]);
         }
       }
       setSelectedDealIds([]);
@@ -595,10 +611,10 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
              <div className="space-y-2 text-left">
                 <label className="text-[10px] font-black uppercase tracking-widest opacity-40 ml-2">Select Strategy</label>
                 <div className="grid grid-cols-2 gap-2">
-                   <button onClick={() => { setDealType('bundle_only'); setSelectedKitIds([]); }} className={`py-3 rounded-2xl border flex flex-col items-center gap-1 transition-all ${dealType === 'bundle_only' ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg' : 'bg-black/5 border-[var(--color-border)] opacity-60'}`}>
+                   <button onClick={() => { setDealType('bundle_only'); setSelectedKitIds([]); setExclusiveKitIds([]); }} className={`py-3 rounded-2xl border flex flex-col items-center gap-1 transition-all ${dealType === 'bundle_only' ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg' : 'bg-black/5 border-[var(--color-border)] opacity-60'}`}>
                       <Lock size={16} /> <span className="text-[8px] font-black uppercase">Bundle Only</span>
                    </button>
-                   <button onClick={() => { setDealType('mutually_exclusive'); setSelectedKitIds([]); }} className={`py-3 rounded-2xl border flex flex-col items-center gap-1 transition-all ${dealType === 'mutually_exclusive' ? 'bg-red-600 border-red-600 text-white shadow-lg' : 'bg-black/5 border-[var(--color-border)] opacity-60'}`}>
+                   <button onClick={() => { setDealType('mutually_exclusive'); setSelectedKitIds([]); setExclusiveKitIds([]); }} className={`py-3 rounded-2xl border flex flex-col items-center gap-1 transition-all ${dealType === 'mutually_exclusive' ? 'bg-red-600 border-red-600 text-white shadow-lg' : 'bg-black/5 border-[var(--color-border)] opacity-60'}`}>
                       <Ban size={16} /> <span className="text-[8px] font-black uppercase">Mut. Excl</span>
                    </button>
                 </div>
@@ -638,72 +654,99 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                 {dealType === 'bundle_only' && (
                   <div className="flex flex-col gap-4 animate-in zoom-in duration-300">
                     {selectedKitsData.length > 0 && (
-                      <div className="order-1 space-y-3 text-left">
-                        <div className="flex items-center justify-between gap-3 px-2">
-                          <label className="text-[10px] font-black uppercase tracking-widest opacity-40 flex items-center gap-1.5">
-                            <ImageIcon size={10} /> Card Preview
-                          </label>
-                          <span className="text-[8px] font-black uppercase tracking-widest opacity-30">Highest onhand prices</span>
-                        </div>
-                        <div className="flex flex-col gap-3">
-                          <div className="order-1 aspect-square w-full max-w-[150px] rounded-2xl bg-white dark:bg-black/20 border border-[var(--color-border)] p-2">
-                            <div className="grid h-full w-full grid-cols-2 grid-rows-2 gap-2">
-                              {previewKitsData.map((kit, idx) => (
-                                <div key={kit.id} className={`relative overflow-hidden rounded-xl bg-black/5 ${getPreviewTileClass(previewKitsData.length, idx)}`}>
-                                  <img src={resolveImage(kit.image, kit.images)} className="h-full w-full object-cover" alt="" />
-                                </div>
-                              ))}
-                              {previewKitsData.length === 0 && (
-                                <div className="col-span-2 row-span-2 flex items-center justify-center text-emerald-600 opacity-20">
-                                  <Gift size={32} strokeWidth={1.5} />
-                                </div>
-                              )}
+                      <div className="space-y-4 text-left">
+                        <div className="grid grid-cols-2 gap-4">
+                          {/* Card Preview Column */}
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between gap-3 px-1">
+                              <label className="text-[10px] font-black uppercase tracking-widest opacity-40 flex items-center gap-1.5">
+                                <ImageIcon size={10} /> Card Preview
+                              </label>
+                              <span className="text-[8px] font-black uppercase tracking-widest opacity-35">Highest onhand</span>
+                            </div>
+                            <div className="aspect-square w-full max-w-[150px] rounded-2xl bg-white dark:bg-black/20 border border-[var(--color-border)] p-2">
+                              <div className="grid h-full w-full grid-cols-2 grid-rows-2 gap-2">
+                                {previewKitsData.map((kit, idx) => (
+                                  <div key={kit.id} className={`relative overflow-hidden rounded-xl bg-black/5 ${getPreviewTileClass(previewKitsData.length, idx)}`}>
+                                    <img src={resolveImage(kit.image, kit.images)} className="h-full w-full object-cover" alt="" />
+                                  </div>
+                                ))}
+                                {previewKitsData.length === 0 && (
+                                  <div className="col-span-2 row-span-2 flex items-center justify-center text-emerald-600 opacity-20">
+                                    <Gift size={32} strokeWidth={1.5} />
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </div>
-                          <div className="order-2 space-y-1 text-left">
-                            <label className="text-[10px] font-black uppercase tracking-widest opacity-40 ml-2">Discount Amount (â‚±)</label>
+
+                          {/* Discount Input Column */}
+                          <div className="space-y-1 flex flex-col justify-end pb-1">
+                            <label className="text-[10px] font-black uppercase tracking-widest opacity-40 ml-2">Discount Amount (₱)</label>
                             <input type="number" value={discountAmount} onChange={e => setDiscountAmount(e.target.value)} placeholder="0.00" className="w-full bg-blue-600/10 border border-blue-600/30 rounded-2xl px-4 py-4 text-sm font-black text-blue-500 outline-none focus:border-blue-500" />
                           </div>
-                          <div className="order-3 min-w-0 space-y-2">
-                            <div className="flex items-center justify-between gap-3 px-2">
-                              <label className="text-[10px] font-black uppercase tracking-widest opacity-40">Inclusions ({selectedKitsData.length})</label>
-                              <span className="text-[8px] font-black uppercase tracking-widest opacity-30">Drag to reorder / X to remove</span>
-                            </div>
-                            {getOrderedKits(kits, previewKitIds).map((kit, index) => {
-                              const stock = getHighestOnhandStock(kit);
-                              return (
-                              <div
-                                key={kit.id}
-                                draggable
-                                onDragStart={() => setDraggedPreviewKitId(kit.id)}
-                                onDragOver={(event) => event.preventDefault()}
-                                onDrop={() => movePreviewKit(draggedPreviewKitId, kit.id)}
-                                onDragEnd={() => setDraggedPreviewKitId(null)}
-                                className={`flex cursor-grab items-center gap-2 rounded-xl border px-3 py-2 transition-all active:cursor-grabbing ${index < 4 ? 'border-blue-500/30 bg-blue-500/10' : 'border-[var(--color-border)] bg-black/5'}`}
-                              >
-                                <GripVertical size={14} className="shrink-0 opacity-40" />
-                                <img src={resolveImage(kit.image, kit.images)} className="h-7 w-7 rounded-lg object-cover bg-white" alt="" />
-                                <span className="min-w-0 flex-1 truncate text-[9px] font-black uppercase">{kit.name}</span>
-                                <div className="shrink-0 text-right leading-tight">
-                                  <span className="block text-[8px] font-black uppercase text-emerald-500">SELL ₱{Number(stock.sellPrice || kit.sellPrice || 0).toLocaleString()}</span>
-                                  <span className="block text-[8px] font-black uppercase opacity-35">COST ₱{Number(stock.costPrice || 0).toLocaleString()}</span>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    toggleKitSelection(kit.id);
-                                  }}
-                                  onDragStart={(event) => event.preventDefault()}
-                                  className="shrink-0 rounded-full p-1 opacity-50 transition-all hover:bg-red-500/10 hover:text-red-500 hover:opacity-100"
-                                  title="Remove inclusion"
-                                >
-                                  <X size={12} />
-                                </button>
-                              </div>
-                              );
-                            })}
+                        </div>
+
+                        {/* Inclusions */}
+                        <div className="min-w-0 space-y-2">
+                          <div className="flex items-center justify-between gap-3 px-2">
+                            <label className="text-[10px] font-black uppercase tracking-widest opacity-40">Inclusions ({selectedKitsData.length})</label>
+                            <span className="text-[8px] font-black uppercase tracking-widest opacity-30">Drag to reorder / X to remove</span>
                           </div>
+                          {getOrderedKits(kits, previewKitIds).map((kit, index) => {
+                            const stock = getHighestOnhandStock(kit);
+                            const isExclusive = exclusiveKitIds.includes(kit.id);
+                            return (
+                            <div
+                              key={kit.id}
+                              draggable
+                              onDragStart={() => setDraggedPreviewKitId(kit.id)}
+                              onDragOver={(event) => event.preventDefault()}
+                              onDrop={() => movePreviewKit(draggedPreviewKitId, kit.id)}
+                              onDragEnd={() => setDraggedPreviewKitId(null)}
+                              className={`flex cursor-grab items-center gap-2 rounded-xl border px-3 py-2 transition-all active:cursor-grabbing ${index < 4 ? 'border-blue-500/30 bg-blue-500/10' : 'border-[var(--color-border)] bg-black/5'}`}
+                            >
+                              <GripVertical size={14} className="shrink-0 opacity-40" />
+                              <img src={resolveImage(kit.image, kit.images)} className="h-7 w-7 rounded-lg object-cover bg-white" alt="" />
+                              <span className="min-w-0 flex-1 truncate text-[9px] font-black uppercase">{kit.name}</span>
+                              <div className="shrink-0 text-right leading-tight mr-1">
+                                <span className="block text-[8px] font-black uppercase text-emerald-500">SELL ₱{Number(stock.sellPrice || kit.sellPrice || 0).toLocaleString()}</span>
+                                <span className="block text-[8px] font-black uppercase opacity-35">COST ₱{Number(stock.costPrice || 0).toLocaleString()}</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setExclusiveKitIds(prev => 
+                                    prev.includes(kit.id)
+                                      ? prev.filter(id => id !== kit.id)
+                                      : [...prev, kit.id]
+                                  );
+                                }}
+                                onDragStart={(event) => event.preventDefault()}
+                                className={`shrink-0 h-7 px-2 rounded-lg text-[8px] font-black uppercase tracking-wider italic transition-all ${
+                                  isExclusive
+                                    ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20 active:scale-95'
+                                    : 'bg-black/5 dark:bg-white/5 text-[var(--color-text-main)] opacity-50 hover:opacity-100 hover:bg-black/10'
+                                }`}
+                              >
+                                {isExclusive ? 'EXCLUSIVE ✔' : 'EXCLUSIVE'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  toggleKitSelection(kit.id);
+                                }}
+                                onDragStart={(event) => event.preventDefault()}
+                                className="shrink-0 rounded-full p-1 opacity-50 transition-all hover:bg-red-500/10 hover:text-red-500 hover:opacity-100"
+                                title="Remove inclusion"
+                              >
+                                <X size={12} />
+                              </button>
+                            </div>
+                            );
+                          })}
                         </div>
                       </div>
                     )}
@@ -774,7 +817,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
 
              <div className="flex gap-3">
                {activeEditId && (
-                 <button onClick={() => { setActiveEditId(null); setDealName(''); setDiscountAmount(''); setSelectedKitIds([]); setValidFrom(''); setValidUntil(''); setPreviewKitIds([]); setDraggedPreviewKitId(null); setMobileTab('list'); }} className="px-5 py-4 rounded-2xl bg-black/5 hover:bg-black/10 border border-[var(--color-border)] font-black uppercase text-[10px] tracking-widest transition-all">Cancel</button>
+                 <button onClick={() => { setActiveEditId(null); setDealName(''); setDiscountAmount(''); setSelectedKitIds([]); setValidFrom(''); setValidUntil(''); setPreviewKitIds([]); setDraggedPreviewKitId(null); setExclusiveKitIds([]); setMobileTab('list'); }} className="px-5 py-4 rounded-2xl bg-black/5 hover:bg-black/10 border border-[var(--color-border)] font-black uppercase text-[10px] tracking-widest transition-all">Cancel</button>
                )}
                <button 
                   disabled={isSaving}
