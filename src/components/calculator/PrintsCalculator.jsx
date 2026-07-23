@@ -124,8 +124,8 @@ export default function PrintsCalculator({
   onConfirmEdit = null,
   isInventoryMode = false
 }) {
-  // If initialData is provided, we start at the Details step (Step 3)
-  const [activeStep, setActiveStep] = useState(initialData ? 3 : 0);
+  // If initialData is provided, we start at the Details step (Step 1)
+  const [activeStep, setActiveStep] = useState(initialData ? 1 : 0);
   const { filamentInventory, extras, settings, updateSettings, orders, projectVault, isAdmin, isAdminView } = useStore();
   
   const estimationLimitReached = useMemo(() => {
