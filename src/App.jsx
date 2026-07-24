@@ -25,7 +25,6 @@ import LoadingState from './components/common/LoadingState';
 import Toast from './components/common/Toast';
 import { useStore } from './store/useStore';
 import { motion as Motion, AnimatePresence } from 'framer-motion';
-import { Loader2 } from 'lucide-react';
 
 // Scroll restoration
 if (typeof window !== 'undefined' && 'scrollRestoration' in window.history) {
@@ -220,7 +219,7 @@ const RouterContent = () => {
 
 
 export default function App() {
-  const { fetchInitialData, setToastMessage, isSyncing } = useStore();
+  const { fetchInitialData, setToastMessage, isSyncing, syncStatus } = useStore();
 
   useEffect(() => {
     let cleanup = null;
@@ -262,19 +261,13 @@ export default function App() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/60 backdrop-blur-md pointer-events-auto"
+                className="fixed inset-0 z-[99999] flex items-center justify-center bg-white/70 dark:bg-black/70 backdrop-blur-sm pointer-events-auto"
               >
-                <div className="flex flex-col items-center gap-6">
-                  <div className="relative">
-                    <Loader2 className="w-16 h-16 text-blue-500 animate-spin" strokeWidth={3} />
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="w-6 h-6 bg-blue-500 rounded-full animate-pulse" />
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-center gap-2">
-                    <p className="text-xl font-black italic uppercase tracking-widest text-white animate-pulse">Syncing Account</p>
-                    <p className="text-[10px] font-bold uppercase tracking-[0.4em] text-white/40">The Garage is Loading...</p>
-                  </div>
+                <div className="flex flex-col items-center gap-3">
+                  <LoadingState message="Synchronizing account" className="py-0" />
+                  <p className="text-[10px] font-black uppercase tracking-[0.28em] text-red-600 dark:text-red-400">
+                    {syncStatus || 'Loading account'}
+                  </p>
                 </div>
               </Motion.div>
             )}

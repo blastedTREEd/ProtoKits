@@ -151,9 +151,46 @@ function stockMatchesDealSource(stock, source = 'onhand') {
   return source === 'preorder' ? isPreOrder : !isPreOrder;
 }
 
+function isOnHandStock(stock) {
+  const status = String(stock?.status || '').toLowerCase().trim();
+  return status === 'onhand' || status === 'on hand';
+}
+
 function isBundlePurchasableStock(stock, source = 'onhand') {
   if (!stock || stock.order?.orderId || !stockMatchesDealSource(stock, source)) return false;
   return !stock.isReserved || stock.reservationType === 'admin';
+}
+
+function getBundleKitPrice(deal, dealKit, allKits = [], fallbackExclusivePercent = 100) {
+  if (!deal || !dealKit) return null;
+  const includedKits = (deal.kitIds || []).map(id => id === dealKit.id ? dealKit : allKits.find(k => k.id === id)).filter(Boolean);
+  const exclusiveKitIds = deal.exclusiveKitIds || [];
+  const exclusivePercent = Number(deal.exclusiveDiscountPercent ?? fallbackExclusivePercent ?? 100) / 100;
+
+  const rows = includedKits.map(k => {
+    const stocks = Object.values(k?.stocks || {});
+    const sourceStock = stocks.find(s => stockMatchesDealSource(s, deal.stockSource || 'onhand'));
+    const refPrice = Number(sourceStock?.sellPrice || stocks[0]?.sellPrice || k?.sellPrice || 0);
+    return { kit: k, refPrice, isExclusive: exclusiveKitIds.includes(k.id) };
+  });
+
+  const normalTotal = rows.reduce((sum, row) => sum + row.refPrice, 0);
+  const totalDiscount = Number(deal.discountAmount ?? Math.max(0, normalTotal - Number(deal.bundlePrice || 0))) || 0;
+  const exclusiveTotal = rows.filter(row => row.isExclusive).reduce((sum, row) => sum + row.refPrice, 0);
+  const standardTotal = rows.filter(row => !row.isExclusive).reduce((sum, row) => sum + row.refPrice, 0);
+  const exclusivePool = exclusiveTotal > 0 ? totalDiscount * exclusivePercent : 0;
+  const standardPool = totalDiscount - exclusivePool;
+  const target = rows.find(row => row.kit.id === dealKit.id);
+  if (!target) return null;
+
+  let kitDiscount = 0;
+  if (target.isExclusive && exclusiveTotal > 0) {
+    kitDiscount = exclusivePool * (target.refPrice / exclusiveTotal);
+  } else if (!target.isExclusive && standardTotal > 0) {
+    kitDiscount = standardPool * (target.refPrice / standardTotal);
+  }
+
+  return Math.max(0, Math.round(target.refPrice - kitDiscount));
 }
 
 function parseDealDate(value) {
@@ -216,7 +253,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
 
     const { exclusiveDiscountPercent: exPct } = getCheckoutPaymentFees({ shippingSettings });
     const exclusiveKitIds = deal.exclusiveKitIds || [];
-    const pct = exPct / 100;
+    const pct = Number(deal.exclusiveDiscountPercent ?? exPct) / 100;
 
     let exclusiveRefTotal = 0;
     let standardRefTotal = 0;
@@ -371,12 +408,11 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
     }
 
     publicReleasableStocks.forEach(s => {
-      const status = (s.status || '').toLowerCase().trim();
-      const isOnHand = status === 'onhand' || status === 'on hand';
-      const label = isOnHand ? 'ONHAND' : `${s.eta || 'TBA'}`;
+      const isOnHand = isOnHandStock(s);
+      const label = isOnHand ? 'ONHAND' : (isAdminView ? 'PRE-ORDER' : `${s.eta || 'TBA'}`);
       
       if (!groups[label]) {
-        groups[label] = { label, items: [], isOnHand, eta: s.eta };
+        groups[label] = { key: `availability-${label}`, label, items: [], isOnHand, eta: s.eta, tag: 'availability' };
       }
       groups[label].items.push(s);
     });
@@ -387,7 +423,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
       // If both are onhand, or both have ETAs, sort by ETA
       return parseEta(a.eta) - parseEta(b.eta);
     });
-  }, [publicReleasableStocks]);
+  }, [publicReleasableStocks, isAdminView]);
 
   const availableCount = useMemo(() => {
     return visibleStocks.length;
@@ -426,34 +462,37 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
     return (shelf || []).find(item => item.id === kitId);
   }, [shelf, kitId]);
 
+  const shelfCount = useMemo(() => {
+    return (shelf || []).filter(item => item.id === kitId).length;
+  }, [shelf, kitId]);
+
   // True when all remaining unsold stocks are on the admin shelf (collection)
   const isCollectionOnly = useMemo(() => {
     if (availableCount > 0) return false;
     const unsoldStocks = stockList.filter(s => !s.order?.orderId);
     if (unsoldStocks.length === 0) return false;
-    const onShelfCount = (shelf || []).filter(item => item.id === kitId).length;
-    return onShelfCount > 0 && onShelfCount >= unsoldStocks.length;
-  }, [availableCount, stockList, shelf, kitId]);
+    return shelfCount > 0 && shelfCount >= unsoldStocks.length;
+  }, [availableCount, stockList, shelfCount]);
 
   // Shelf stocks for display in collection mode (read-only, no buy action)
   const collectionStocks = useMemo(() => {
-    if (!isCollectionOnly) return [];
+    if (!isCollectionOnly && !(isAdmin && isAdminView)) return [];
     const shelfKeys = new Set((shelf || []).filter(item => item.id === kitId).map(item => item.stockKey));
     return stockList.filter(s => shelfKeys.has(s.key) && !s.order?.orderId);
-  }, [isCollectionOnly, shelf, kitId, stockList]);
+  }, [isCollectionOnly, isAdmin, isAdminView, shelf, kitId, stockList]);
 
   const collectionGroupedVariants = useMemo(() => {
-    if (!isCollectionOnly || collectionStocks.length === 0) return [];
+    if ((!isCollectionOnly && !(isAdmin && isAdminView)) || collectionStocks.length === 0) return [];
     const groups = {};
     collectionStocks.forEach(s => {
-      const status = (s.status || '').toLowerCase().trim();
-      const isOnHand = status === 'onhand' || status === 'on hand';
-      const label = isOnHand ? 'COLLECTION' : `${s.eta || 'TBA'}`;
-      if (!groups[label]) groups[label] = { label, items: [], isOnHand, eta: s.eta };
-      groups[label].items.push(s);
+      const isOnHand = isOnHandStock(s);
+      const label = isOnHand ? 'ONHAND' : 'PRE-ORDER';
+      const key = `collection-${isOnHand ? 'onhand' : 'preorder'}`;
+      if (!groups[key]) groups[key] = { key, label, items: [], isOnHand, eta: s.eta, tag: 'collection' };
+      groups[key].items.push(s);
     });
     return Object.values(groups);
-  }, [isCollectionOnly, collectionStocks]);
+  }, [isCollectionOnly, isAdmin, isAdminView, collectionStocks]);
 
   const bundleOnlyDeals = useMemo(() => {
     if (!kitId || !Array.isArray(deals)) return [];
@@ -472,6 +511,50 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
   }, [allKits, deals, kitId, kit, now]);
 
   const hasBundleExclusiveDeal = bundleOnlyDeals.length > 0;
+
+  const bundleDealDetails = useMemo(() => {
+    return bundleOnlyDeals.map(deal => {
+      const orderedKitIds = [
+        ...(deal.previewKitIds || []),
+        ...(deal.kitIds || []).filter(id => !(deal.previewKitIds || []).includes(id))
+      ];
+      const includedKits = orderedKitIds.map(id => id === kitId ? kit : (allKits || []).find(k => k.id === id)).filter(Boolean);
+      const currentItemPrice = deal.kitDiscounts?.[kitId]?.finalPrice ?? getBundleKitPrice(deal, kit, allKits, exclusiveDiscountPercent);
+      const bundlePrice = Number(deal.bundlePrice ?? Math.max(0, Number(deal.totalSell || 0) - Number(deal.discountAmount || 0)));
+      return { deal, includedKits, currentItemPrice, bundlePrice };
+    }).filter(detail => Number.isFinite(Number(detail.currentItemPrice)) && Number(detail.currentItemPrice) > 0);
+  }, [bundleOnlyDeals, allKits, kitId, kit, exclusiveDiscountPercent]);
+
+  const bundleDealGroups = useMemo(() => {
+    if (bundleDealDetails.length === 0) return [];
+    return bundleDealDetails.map(detail => ({
+      key: `bundle-deal-${detail.deal.id}`,
+      label: 'BUNDLE DEAL',
+      items: [{ ...detail.deal, status: 'bundle_deal', sellPrice: detail.currentItemPrice }],
+      isOnHand: true,
+      tag: 'bundleDeal',
+      deal: detail.deal,
+      dealDetails: detail
+    }));
+  }, [bundleDealDetails]);
+
+  const availabilityGroups = useMemo(() => {
+    const stockGroups = (isAdmin && isAdminView)
+      ? [...groupedVariants, ...collectionGroupedVariants]
+      : (isCollectionOnly ? collectionGroupedVariants : groupedVariants);
+    return [...stockGroups, ...bundleDealGroups];
+  }, [isAdmin, isAdminView, groupedVariants, collectionGroupedVariants, isCollectionOnly, bundleDealGroups]);
+
+  const selectedAvailabilityGroup = useMemo(() => {
+    return availabilityGroups.find(group => group.key === selectedGroupLabel) || null;
+  }, [availabilityGroups, selectedGroupLabel]);
+
+  const isSelectedCollectionGroup = selectedAvailabilityGroup?.tag === 'collection';
+  const selectedBundleDealDetails = selectedAvailabilityGroup?.dealDetails || null;
+  const selectedShelfItem = useMemo(() => {
+    if (!isSelectedCollectionGroup || !selectedStock) return null;
+    return (shelf || []).find(item => item.id === kitId && item.stockKey === selectedStock.key) || null;
+  }, [isSelectedCollectionGroup, selectedStock, shelf, kitId]);
 
   const isExclusiveToBundle = useMemo(() => {
     if (!kitId || !Array.isArray(deals)) return false;
@@ -498,7 +581,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
       if (validUntil && validUntil.getTime() <= now) continue;
       // Compute proportional price for this kit in this deal
       const exclusiveKitIds = deal.exclusiveKitIds || [];
-      const pct = exclusiveDiscountPercent / 100;
+      const pct = Number(deal.exclusiveDiscountPercent ?? exclusiveDiscountPercent) / 100;
       let normalTotal = 0, exclusiveRefTotal = 0;
       const refPrices = [];
       for (const dkId of (deal.kitIds || [])) {
@@ -563,7 +646,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
   }, [stockList, isAdminView, selectedStock, kit]);
 
   const handleSelectGroup = (group) => {
-    setSelectedGroupLabel(group.label);
+    setSelectedGroupLabel(group.key || group.label);
     setSelectedStock(group.items[0]);
     setTargetPrice("");
   };
@@ -701,16 +784,16 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
     setToastMessage(null);
     setGalleryIndex(0);
     lastManualActionTime.current = Date.now();
-    if (groupedVariants.length > 0) {
-        handleSelectGroup(groupedVariants[0]);
-    } else if (collectionGroupedVariants.length > 0) {
-        handleSelectGroup(collectionGroupedVariants[0]);
+    if (availabilityGroups.length > 0) {
+        handleSelectGroup(availabilityGroups[0]);
     }
     setIsProfileOpen(true);
   };
 
   const getBuyLabel = useCallback(() => {
     if (isAdmin && isAdminView) return shelfItem ? "RELEASE STOCK" : "KEEP NOW";
+    if (selectedAvailabilityGroup?.tag === 'collection') return "NOTIFY ME";
+    if (selectedAvailabilityGroup?.tag === 'bundleDeal') return "VIEW DEALS";
     if (isExclusiveToBundle) return "VIEW DEALS";
     if (availableCount <= 0 && hasBundleExclusiveDeal) return "VIEW DEALS";
     if (availableCount <= 0) return "NOTIFY ME";
@@ -724,7 +807,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
     if (hasOnhand) return "BUY NOW";
     const hasPreorder = visibleStocks.some(s => (s.status?.toLowerCase().includes('pre') || s.status?.toLowerCase().includes('batch')) && !s.isReserved && !s.order?.orderId);
     return hasPreorder ? "PRE-ORDER" : "BUY NOW";
-  }, [isAdmin, isAdminView, shelfItem, selectedStock, visibleStocks, availableCount, hasBundleExclusiveDeal, isExclusiveToBundle]);
+  }, [isAdmin, isAdminView, shelfItem, selectedAvailabilityGroup, selectedStock, visibleStocks, availableCount, hasBundleExclusiveDeal, isExclusiveToBundle]);
 
   const getAddtoCartLabel = useCallback(() => "ADD TO BASKET", []);
   const addToCartLabel = getAddtoCartLabel();
@@ -890,26 +973,29 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
   
   // Grid Button Config
   const gridButtonConfig = useMemo(() => {
-    const onShelfCount = (shelf || []).filter(item => item.id === kitId).length;
     const totalStocks = stockList.length;
 
-    if (onShelfCount === 0) {
+    if (shelfCount === 0) {
         if (publicReleasableStocks.length === 0) {
             return { color: 'bg-neutral-300 dark:bg-neutral-700', icon: <PackageX size={14} />, action: 'none', disabled: true };
         }
         return { color: 'bg-gradient-to-br from-emerald-500 to-emerald-600', icon: <PackagePlus size={14} />, action: 'keep', disabled: false };
-    } else if (onShelfCount > 0 && onShelfCount < totalStocks) { // Partial Shelf
+    } else if (shelfCount > 0 && shelfCount < totalStocks) { // Partial Shelf
         return { color: 'bg-gradient-to-br from-blue-500 to-blue-600', icon: <PackagePlus size={14} />, action: 'keep', disabled: publicReleasableStocks.length === 0 };
-    } else if (onShelfCount === totalStocks) { // Full Shelf
+    } else if (shelfCount === totalStocks) { // Full Shelf
         return { color: 'bg-gradient-to-br from-red-500 to-red-600', icon: <PackageMinus size={14} />, action: 'release', disabled: false };
     }
     // Default fallback if no stock or unexpected state
     return { color: 'bg-neutral-300 dark:bg-neutral-700', icon: <PackageX size={14} />, action: 'none', disabled: true };
-  }, [kitId, stockList, shelf, publicReleasableStocks]);
+  }, [stockList, shelfCount, publicReleasableStocks]);
 
   if (!kit) return null;
   const buyLabel = getBuyLabel();
   const isNotifyState = buyLabel === 'NOTIFY ME' && !isAdminView && !isPendingRelease && availableCount === 0;
+  const modalLowestPrice = Number(selectedBundleDealDetails?.currentItemPrice || sellPrice || 0);
+  const modalReferencePrice = selectedBundleDealDetails ? Number(lowestPrice || 0) : displayPrice;
+  const activeBundleDeal = selectedBundleDealDetails?.deal || exclusiveBundleDeal;
+  const activeBundleItemPrice = Number(selectedBundleDealDetails?.currentItemPrice || exclusiveBundlePrice || 0);
   
   // Triggering re-parse to clear phantom syntax errors.
   return (
@@ -944,9 +1030,13 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                     <div className="px-1.5 py-0.5 font-black uppercase tracking-tigther text-[10px] md:text-[11px] bg-emerald-500 text-white border-emerald-400 shadow-lg">
                       Bundle Exclusive
                     </div>
+                  ) : isAdminView && shelfCount > 0 ? (
+                    <div className="px-1.5 py-0.5 font-black uppercase tracking-tigther text-[10px] md:text-[11px] bg-red-500 text-white border-red-400 shadow-lg">
+                      {shelfCount} Reserved
+                    </div>
                   ) : isCollectionOnly ? (
                     <div className="px-1.5 py-0.5 font-black uppercase tracking-tigther text-[10px] md:text-[11px] bg-red-500 text-white border-red-400 shadow-lg">
-                      Collection
+                      {collectionStocks.some(isOnHandStock) ? 'Onhand' : 'Pre-Order'}
                     </div>
                   ) : stockList.some(s => s.isReserved) ? (
                     <div className={`px-1.5 py-0.5 font-black uppercase tracking-tigther text-[10px] md:text-[11px] ${isAdminView ? 'bg-blue-500 text-white border-blue-400' : 'bg-red-500 text-white border-red-400'} shadow-lg`}>
@@ -1109,7 +1199,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                               {!isAdminView && (
                                <div className="flex items-center gap-2">
                                   <p className="text-[28px] sm:text-5xl font-black italic tracking-tighter leading-none text-blue-600 flex ">
-                                    ₱{sellPrice.toLocaleString()}
+                                    ₱{modalLowestPrice.toLocaleString()}
                                   </p>
 
                                   <div className="flex flex-col gap-0 pt-1 sm:pt-1.5">
@@ -1118,7 +1208,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                                     </p>
 
                                     <p className="text-[13px] md:text-[22px] font-black italic tracking-tighter opacity-80 leading-tight line-through">
-                                      ₱{displayPrice.toLocaleString()}
+                                      ₱{modalReferencePrice.toLocaleString()}
                                     </p>
                                   </div>
                                 </div>
@@ -1158,7 +1248,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                               {!isAdminView && (
                                 <div className="flex gap-3">
                                   <p className="text-[28px] lg:text-[40px] font-black italic tracking-tighter leading-none text-blue-600 flex ">
-                                    ₱{sellPrice.toLocaleString()}
+                                    ₱{modalLowestPrice.toLocaleString()}
                                   </p>
 
                                   <div className="flex flex-col gap-0 pt-1.5">
@@ -1167,7 +1257,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                                     </p>
 
                                     <p className="text-[18px] font-black italic tracking-tighter opacity-80 leading-none line-through">
-                                      ₱{displayPrice.toLocaleString()}
+                                      ₱{modalReferencePrice.toLocaleString()}
                                     </p>
                                   </div>
                                 </div>
@@ -1225,27 +1315,35 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                     <div className="space-y-4 px-8 pb-12">
                       <h4 className="text-[12px] font-black uppercase tracking-[0.1em] opacity-30 flex items-center gap-2 text-left"><Bike size={20} /> AVAILABILITY</h4>
                       <div className="flex flex-wrap gap-2">
-                        {(isCollectionOnly ? collectionGroupedVariants : groupedVariants).length > 0 ? (isCollectionOnly ? collectionGroupedVariants : groupedVariants).map((group) => {
-                          const isSelected = selectedGroupLabel === group.label;
+                        {availabilityGroups.length > 0 ? availabilityGroups.map((group) => {
+                          const isSelected = selectedGroupLabel === (group.key || group.label);
                           const availableCountInGroup = group.items.filter(s => !s.isReserved && !s.order?.orderId).length;
-                          const isFullyReserved = availableCountInGroup === 0;
+                          const isCollectionGroup = group.tag === 'collection';
+                          const isBundleDealGroup = group.tag === 'bundleDeal';
+                          const isFullyReserved = !isCollectionGroup && availableCountInGroup === 0;
 
                           return (
                             <button 
-                              key={group.label} 
+                              key={group.key || group.label} 
                               onClick={() => handleSelectGroup(group)} 
                               className={`relative px-4 py-2.5 rounded-xl border text-[13px] font-black uppercase tracking-[0.05em] transition-all flex items-center gap-2
                                 ${isSelected 
-                                  ? isCollectionOnly
+                                  ? isCollectionGroup
                                     ? 'bg-red-500 border-red-500 text-white shadow-lg shadow-red-500/20'
+                                    : isBundleDealGroup
+                                      ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-600/20'
                                     : 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-600/20' 
-                                  : 'bg-black/5 dark:bg-white/5 border-black/5 dark:border-white/10 hover:border-blue-600/50'
+                                  : isCollectionGroup
+                                    ? 'bg-red-500/10 border-red-500/30 text-red-500 hover:border-red-500/60'
+                                    : isBundleDealGroup
+                                      ? 'bg-emerald-600/10 border-emerald-600/30 text-emerald-600 hover:border-emerald-600/60'
+                                      : 'bg-black/5 dark:bg-white/5 border-black/5 dark:border-white/10 hover:border-blue-600/50'
                                 } 
                                 ${isFullyReserved && !isSelected ? 'opacity-50' : ''}
                               `}
                             >
                               {/* FREE badge */}
-                              {!isCollectionOnly && group.items.some(item => {
+                              {!isCollectionGroup && !isBundleDealGroup && group.items.some(item => {
                                   const isEligible = item.isFreeShippingEligible;
                                   const until = item.freeShippingUntil;
                                   if (!isEligible) return false;
@@ -1257,51 +1355,55 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                                 </span>
                               )}
 
-                              {isCollectionOnly
-                                ? <Package size={18}/>
-                                : group.status?.toLowerCase() === 'onhand' 
-                                  ? <Bike size={18}/> 
-                                  : (isFullyReserved 
-                                      ? <UserCheck size={18} /> 
-                                      : <Plane size={18}/>
-                                    )
-                              }
+                              {isBundleDealGroup ? <Gift size={18}/> : group.isOnHand ? <Package size={18}/> : <Plane size={18}/>}
 
                               {group.label}
 
                               <span className={`ml-1 px-1.5 py-0.5 rounded-md text-[8px] ${
-                                isSelected ? 'bg-white/20' : isCollectionOnly ? 'bg-red-500/10 text-red-500' : 'bg-blue-600/10 text-blue-600'
+                                isSelected ? 'bg-white/20' : isCollectionGroup ? 'bg-red-500/10 text-red-500' : isBundleDealGroup ? 'bg-emerald-600/10 text-emerald-600' : 'bg-blue-600/10 text-blue-600'
                               }`}>
-                                {group.items.length}
+                                {isBundleDealGroup ? (group.deal?.kitIds || []).length : group.items.length}
                               </span>
                             </button>
                           );
                         }) : <span className="text-[11px] font-black uppercase px-2.5 py-1 rounded-lg bg-neutral-500/10 text-neutral-500 border border-neutral-500/20">No Info</span>}
                       </div>
 
-                      {bundleOnlyDeals.length > 0 && (
-                        <div className="pt-4 space-y-2">
-                          <h4 className="text-[12px] font-black uppercase tracking-[0.1em] opacity-30 flex items-center gap-2 text-left">
-                            <Gift size={18} /> DEALS
-                          </h4>
-                          <div className="space-y-2">
-                            {bundleOnlyDeals.map(deal => (
-                              <div key={deal.id} className="flex items-center justify-between gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3">
-                                <div className="min-w-0 text-left">
-                                  <p className="truncate text-[12px] font-black uppercase italic leading-tight text-emerald-500">{deal.name}</p>
-                                  <p className="mt-1 text-[9px] font-black uppercase tracking-widest opacity-50">
-                                    Bundle Only / {getDealCountdownLabel(deal.validUntil)}
-                                  </p>
-                                </div>
-                                <div className="text-right shrink-0">
-                                  <p className="text-[13px] font-black italic text-amber-500">â‚±{(deal.bundlePrice || 0).toLocaleString()}</p>
-                                  <p className="text-[8px] font-black uppercase opacity-40">{(deal.kitIds || []).length} Kits</p>
+                      <div className="pt-4 space-y-2">
+                        <h4 className="text-[12px] font-black uppercase tracking-[0.1em] opacity-30 flex items-center gap-2 text-left">
+                          <Gift size={18} /> DEALS
+                        </h4>
+                        <div className="space-y-2">
+                          {bundleDealDetails.length > 0 ? bundleDealDetails.map(({ deal, includedKits, bundlePrice }) => (
+                            <div key={deal.id} className="flex items-center justify-between gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3">
+                              <div className="min-w-0 flex-1 text-left">
+                                <p className="truncate text-[12px] font-black uppercase italic leading-tight text-emerald-500">{deal.name}</p>
+                                <p className="mt-1 text-[9px] font-black uppercase tracking-widest opacity-50">
+                                  Bundle Deal / {getDealCountdownLabel(deal.validUntil)}
+                                </p>
+                                <div className="mt-2 flex -space-x-2 overflow-hidden">
+                                  {includedKits.slice(0, 6).map(includedKit => (
+                                    <img
+                                      key={includedKit.id}
+                                      src={resolveImage(includedKit.image, includedKit.images)}
+                                      className="h-8 w-8 rounded-full border-2 border-white bg-white object-cover dark:border-neutral-900"
+                                      alt=""
+                                    />
+                                  ))}
                                 </div>
                               </div>
-                            ))}
-                          </div>
+                              <div className="text-right shrink-0">
+                                <p className="text-[13px] font-black italic text-amber-500">&#8369;{bundlePrice.toLocaleString()}</p>
+                                <p className="text-[8px] font-black uppercase opacity-40">{(deal.kitIds || []).length} Kits</p>
+                              </div>
+                            </div>
+                          )) : (
+                            <span className="inline-flex w-fit text-[11px] font-black uppercase px-2.5 py-1 rounded-lg bg-neutral-500/10 text-neutral-500 border border-neutral-500/20">
+                              Not Available
+                            </span>
+                          )}
                         </div>
-                      )}
+                      </div>
                     </div>
                   </div>
 
@@ -1326,27 +1428,27 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                                 placeholder="ENTER PREFERRED PRICE" 
                                 value={targetPrice} 
                                 onChange={(e) => setTargetPrice(e.target.value)} 
-                                className={`w-[59%] sm:w-1/2  lg:w-1/2 px-6 py-4 rounded-full text-[13px] font-black focus:outline-none focus:ring-2 no-spinner ${isDarkMode ? 'bg-white/10 text-white' : 'bg-black/5 text-neutral-900 border-t border-black/5 lg:border-none sm:border-none'} focus:ring-blue-600/50`} 
+                                className={`w-[59%] sm:w-1/2  lg:w-1/2 px-6 py-4 rounded-full text-[13px] font-black focus:outline-none focus:ring-2 no-spinner border ${isDarkMode ? 'bg-red-500/10 text-white border-red-500/20 placeholder:text-red-200/50' : 'bg-red-50 text-red-950 border-red-200 placeholder:text-red-400/70'} focus:ring-red-500/50 focus:border-red-500/40`} 
                               />
                               <button 
                                   onClick={handleAction} 
                                   disabled={targetPrice === "" || isNaN(parseFloat(targetPrice)) || parseFloat(targetPrice) <= 0} 
                                   className={`flex-1 flex items-center justify-center gap-2 px-2 py-4 rounded-full text-white font-black italic uppercase text-[12px] tracking-widest shadow-2xl transition-all active:scale-95 whitespace-nowrap ${
                                     (targetPrice === "" || isNaN(parseFloat(targetPrice))) 
-                                      ? 'bg-gradient-to-br from-neutral-500 to-neutral-600 shadow-neutral-500/20' 
-                                      : 'bg-gradient-to-br from-amber-500 to-orange-600 shadow-orange-500/40'
+                                      ? 'bg-gradient-to-br from-red-300 to-red-500 shadow-red-500/20 opacity-70' 
+                                      : 'bg-gradient-to-br from-red-500 to-red-700 shadow-red-500/40'
                                   }`}
                                 >
                                   <Bell size={14} className="fill-white" /> {isCollectionOnly ? "SEND OFFER" : hasReserved ? "SEND DEAL" : "NOTIFY ME!"}
                                 </button>
                             </div>
-                          ) : isExclusiveToBundle && !isAdminView ? (
+                          ) : activeBundleDeal && activeBundleItemPrice > 0 && !isAdminView ? (
                             <div className="flex flex-col w-full gap-3">
                               {/* Price Difference Display */}
                               <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 rounded-2xl bg-black/5 dark:bg-white/5 border border-white/5 text-[10px] font-bold">
                                 <span className="opacity-50">ORIGINAL PRICE: ₱{lowestPrice.toLocaleString()}</span>
-                                <span className="text-emerald-500 font-black">BUNDLE DISCOUNT: -₱{(lowestPrice - exclusiveBundlePrice).toLocaleString()}</span>
-                                <span className="text-emerald-500 font-black text-xs">PROMO: ₱{exclusiveBundlePrice.toLocaleString()}</span>
+                                <span className="text-emerald-500 font-black">BUNDLE DISCOUNT: -₱{Math.max(0, lowestPrice - activeBundleItemPrice).toLocaleString()}</span>
+                                <span className="text-emerald-500 font-black text-xs">PROMO: ₱{activeBundleItemPrice.toLocaleString()}</span>
                               </div>
                               <div className="flex w-full items-stretch gap-2">
                                 <button 
@@ -1379,11 +1481,11 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                               </button>
                               <button 
                                 onClick={() => {
-                                  if (shelfItem && window.confirm("Are you sure you want to release this stock back to the public?")) {
-                                    removeFromBasket(shelfItem.basketId);
+                                  if (selectedShelfItem && window.confirm("Are you sure you want to release this stock back to the public?")) {
+                                    removeFromBasket(selectedShelfItem.basketId);
                                   }
                                 }} 
-                                disabled={!shelfItem}
+                                disabled={!selectedShelfItem}
                                 className="flex-1 flex items-center justify-center gap-2 px-2 py-4 rounded-full text-white font-black italic uppercase text-[12px] tracking-widest shadow-lg transition-all active:scale-95 whitespace-nowrap disabled:opacity-30 bg-gradient-to-br from-amber-500 to-orange-600 shadow-orange-500/20"
                               >
                                 <PackageMinus size={14} /> RELEASE
@@ -1405,11 +1507,11 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
           </div>
         </div>
       )}
-      {isDealDetailsOpen && exclusiveBundleDeal && (
+      {isDealDetailsOpen && activeBundleDeal && (
         <DealDetailsModal 
           isOpen={isDealDetailsOpen} 
           onClose={() => setIsDealDetailsOpen(false)} 
-          deal={exclusiveBundleDeal} 
+          deal={activeBundleDeal} 
           onBuyNow={handleDealCheckout} 
         />
       )}
@@ -1425,3 +1527,4 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
     </>
   );
 }
+

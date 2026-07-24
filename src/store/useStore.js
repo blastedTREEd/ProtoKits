@@ -117,6 +117,7 @@ export const useStore = create(
       toastMessage: null,
       isSpectralMode: true,
       isSyncing: false,
+      syncStatus: 'Synchronizing account',
       storiesHeight: 0,
       unsubPrintResources: null,
       setStoriesHeight: (height) => set({ storiesHeight: height }),
@@ -301,6 +302,7 @@ export const useStore = create(
         if (!ds.orders) {
           const u = auth.currentUser;
           if (u) {
+            set({ syncStatus: 'Loading orders' });
             const isAdminMode = get().isAdmin && get().isAdminView;
             const ordersQuery = isAdminMode
               ? query(collection(db, "orders"), orderBy("createdAt", "desc"), limit(20))
@@ -315,6 +317,7 @@ export const useStore = create(
             });
             unsubs.push(unsub);
           } else {
+            set({ syncStatus: 'Loading orders' });
             get().markLoaded('orders');
           }
         }
@@ -436,6 +439,7 @@ export const useStore = create(
             // 5. Orders priority -> Orders limit 20
             if (currentReq.orders) {
               if (u) {
+                set({ syncStatus: 'Loading orders' });
                 const isAdminMode = get().isAdmin && get().isAdminView;
                 const ordersQuery = isAdminMode
                   ? query(collection(db, "orders"), orderBy("createdAt", "desc"), limit(20))
@@ -450,6 +454,7 @@ export const useStore = create(
                 });
                 set((state) => ({ _prioUnsubs: [...state._prioUnsubs, unsub] }));
               } else {
+                set({ syncStatus: 'Loading orders' });
                 get().markLoaded('orders');
               }
             }
@@ -1291,6 +1296,7 @@ export const useStore = create(
 
       syncUserAccount: async (fbUser, onSyncComplete) => {
         console.log("DEBUG: syncUserAccount called with:", fbUser ? fbUser.uid : "null");
+        set({ syncStatus: 'Synchronizing account' });
         if (get().unsubUser) get().unsubUser();
         if (get().unsubShelf) get().unsubShelf();
         if (get().unsubAdmin) get().unsubAdmin();
@@ -1299,7 +1305,7 @@ export const useStore = create(
         if (!fbUser) {
           console.log("DEBUG: No fbUser found, switching to guest mode.");
           const guestProjectVault = JSON.parse(localStorage.getItem('sg_guest_project_vault') || '[]');
-          set({ user: null, isAdmin: false, isAdminView: false, usersList: [], projectVault: guestProjectVault, shelf: [], unsubUser: null, unsubShelf: null, unsubAdmin: null, unsubBasket: null });
+          set({ user: null, isAdmin: false, isAdminView: false, usersList: [], projectVault: guestProjectVault, shelf: [], unsubUser: null, unsubShelf: null, unsubAdmin: null, unsubBasket: null, syncStatus: 'Loading basket' });
           
           get().markLoaded('userProfile');
           get().markLoaded('basket');
@@ -1322,6 +1328,8 @@ export const useStore = create(
         const initialDocSnap = await getDoc(userRef);
         let userData = initialDocSnap.exists() ? initialDocSnap.data() : null;
         
+        set({ syncStatus: 'Loading basket' });
+
         // Basket Migration Logic
         const rawGuestBasket = localStorage.getItem('sg_guest_basket');
         const guestBasket = JSON.parse(rawGuestBasket || '[]');
@@ -1351,6 +1359,8 @@ export const useStore = create(
             await batch.commit();
             console.log("DEBUG: Basket map migration completed successfully");
         }
+
+        set({ syncStatus: 'Loading vault projects' });
 
         // Mag-subscribe sa projectVaults subcollection para iwas sa 1MB user doc limit
         const vaultRef = doc(db, 'projectVaults', fbUser.uid);
@@ -1399,6 +1409,8 @@ export const useStore = create(
               if (onSyncComplete) onSyncComplete();
             }
         });
+
+        set({ syncStatus: 'Loading basket' });
 
         const unsubBasket = onSnapshot(collection(db, 'users', fbUser.uid, 'basket'), (basketSnap) => {
             const basketItems = basketSnap.docs.map(doc => ({ basketId: doc.id, ...doc.data() }));

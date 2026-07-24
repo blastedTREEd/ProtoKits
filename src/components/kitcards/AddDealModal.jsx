@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { X, Plus, Trash2, Gift, Lock, Ban, Search, ChevronRight, ChevronLeft, Loader2, Edit3, Calendar, Clock3, RefreshCw, CheckSquare, Square, GripVertical, Image as ImageIcon } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
+import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
 
 /* ─── Image resolver ─── */
 function resolveImage(idOrUrl, imagesArray) {
@@ -40,6 +41,49 @@ function getHighestOnhandStock(kit) {
 function isBundlePurchasableStock(stock, source = 'onhand') {
   if (!stock || stock.order?.orderId || !stockMatchesSource(stock, source)) return false;
   return !stock.isReserved || stock.reservationType === 'admin';
+}
+
+function getBundleDiscountBreakdown(kits = [], selectedIds = [], exclusiveIds = [], discountAmount = 0, exclusivePercent = 100) {
+  const selected = getOrderedKits(kits, selectedIds);
+  const exclusiveSet = new Set(exclusiveIds);
+  const rows = selected.map(kit => {
+    const stock = getHighestOnhandStock(kit);
+    const sell = Number(stock.sellPrice || kit.sellPrice || 0);
+    const cost = Number(stock.costPrice || 0);
+    const isExclusive = exclusiveSet.has(kit.id);
+    return { kit, stock, sell, cost, isExclusive, discount: 0, finalPrice: sell };
+  });
+
+  const totalSell = rows.reduce((sum, row) => sum + row.sell, 0);
+  const totalCost = rows.reduce((sum, row) => sum + row.cost, 0);
+  const cappedDiscount = Math.min(Math.max(Number(discountAmount) || 0, 0), totalSell);
+  const exclusiveTotal = rows.filter(row => row.isExclusive).reduce((sum, row) => sum + row.sell, 0);
+  const standardTotal = rows.filter(row => !row.isExclusive).reduce((sum, row) => sum + row.sell, 0);
+  const exclusivePool = exclusiveTotal > 0 ? cappedDiscount * (Math.min(100, Math.max(0, Number(exclusivePercent) || 0)) / 100) : 0;
+  const standardPool = cappedDiscount - exclusivePool;
+
+  const withDiscounts = rows.map(row => {
+    let discount = 0;
+    if (row.isExclusive && exclusiveTotal > 0) {
+      discount = exclusivePool * (row.sell / exclusiveTotal);
+    } else if (!row.isExclusive && standardTotal > 0) {
+      discount = standardPool * (row.sell / standardTotal);
+    }
+    return {
+      ...row,
+      discount,
+      finalPrice: Math.max(0, Math.round(row.sell - discount))
+    };
+  });
+
+  return {
+    rows: withDiscounts,
+    totalSell,
+    totalCost,
+    discountAmount: cappedDiscount,
+    bundlePrice: Math.max(0, totalSell - cappedDiscount),
+    projectedProfit: totalSell - totalCost - cappedDiscount
+  };
 }
 
 function getDealCountdownLabel(validUntil) {
@@ -219,7 +263,7 @@ function DealDatePicker({
 
 /* ─── Main Modal ─── */
 export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
-  const { kits, deals, addDeal, updateDeal, deleteDeal } = useStore();
+  const { kits, deals, addDeal, updateDeal, deleteDeal, shippingSettings } = useStore();
   const { isDarkMode } = useTheme();
   
   const [dealType, setDealType] = useState('bundle_only'); 
@@ -305,18 +349,13 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     });
   }, [selectedKitIds]);
 
+  const exclusiveDiscountPercent = useMemo(() => {
+    return getCheckoutPaymentFees({ shippingSettings }).exclusiveDiscountPercent;
+  }, [shippingSettings]);
+
   const financialSummary = useMemo(() => {
-    let totalCost = 0;
-    let totalSell = 0;
-    selectedKitsData.forEach(kit => {
-      const firstStock = getHighestOnhandStock(kit);
-      totalCost += parseFloat(firstStock.costPrice || 0);
-      totalSell += parseFloat(firstStock.sellPrice || kit.sellPrice || 0);
-    });
-    const currentDiscount = parseFloat(discountAmount) || 0;
-    const projectedProfit = totalSell - totalCost - currentDiscount;
-    return { totalCost, totalSell, projectedProfit };
-  }, [selectedKitsData, discountAmount]);
+    return getBundleDiscountBreakdown(kits, selectedKitIds, exclusiveKitIds, parseFloat(discountAmount) || 0, exclusiveDiscountPercent);
+  }, [kits, selectedKitIds, exclusiveKitIds, discountAmount, exclusiveDiscountPercent]);
 
   const kitSearchResults = useMemo(() => {
     if (!searchTerm) return [];
@@ -451,9 +490,19 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       const defaultValidUntil = new Date(publishDate);
       defaultValidUntil.setDate(defaultValidUntil.getDate() + 7);
       dealData.discountAmount = parseFloat(discountAmount) || 0;
-      dealData.bundlePrice = Math.max(0, financialSummary.totalSell - (parseFloat(discountAmount) || 0));
+      dealData.bundlePrice = financialSummary.bundlePrice;
       dealData.totalCost = financialSummary.totalCost;
       dealData.totalSell = financialSummary.totalSell;
+      dealData.exclusiveDiscountPercent = exclusiveDiscountPercent;
+      dealData.kitDiscounts = Object.fromEntries(financialSummary.rows.map(row => [
+        row.kit.id,
+        {
+          discount: Math.round(row.discount),
+          finalPrice: row.finalPrice,
+          isExclusive: row.isExclusive,
+          sellPrice: row.sell
+        }
+      ]));
       dealData.validFrom = validFrom || formatLocalDateTimeValue(publishDate);
       dealData.validUntil = validUntil || formatLocalDateTimeValue(defaultValidUntil);
       dealData.stockSource = 'onhand';
@@ -627,7 +676,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                 <label className="text-[10px] font-black uppercase tracking-widest opacity-40 ml-2">Select Strategy</label>
                 <div className="grid grid-cols-2 gap-2">
                    <button onClick={() => { setDealType('bundle_only'); setSelectedKitIds([]); setExclusiveKitIds([]); }} className={`py-3 rounded-2xl border flex flex-col items-center gap-1 transition-all ${dealType === 'bundle_only' ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg' : 'bg-black/5 border-[var(--color-border)] opacity-60'}`}>
-                      <Lock size={16} /> <span className="text-[8px] font-black uppercase">Bundle Only</span>
+                      <Lock size={16} /> <span className="text-[8px] font-black uppercase">Bundle Deal</span>
                    </button>
                    <button onClick={() => { setDealType('mutually_exclusive'); setSelectedKitIds([]); setExclusiveKitIds([]); }} className={`py-3 rounded-2xl border flex flex-col items-center gap-1 transition-all ${dealType === 'mutually_exclusive' ? 'bg-red-600 border-red-600 text-white shadow-lg' : 'bg-black/5 border-[var(--color-border)] opacity-60'}`}>
                       <Ban size={16} /> <span className="text-[8px] font-black uppercase">Mut. Excl</span>
@@ -721,6 +770,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                           {getOrderedKits(kits, previewKitIds).map((kit, index) => {
                             const stock = getHighestOnhandStock(kit);
                             const isExclusive = exclusiveKitIds.includes(kit.id);
+                            const discountRow = financialSummary.rows.find(row => row.kit.id === kit.id);
                             return (
                             <div
                               key={kit.id}
@@ -737,6 +787,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                               <div className="shrink-0 text-right leading-tight mr-1">
                                 <span className="block text-[8px] font-black uppercase text-emerald-500">SELL ₱{Number(stock.sellPrice || kit.sellPrice || 0).toLocaleString()}</span>
                                 <span className="block text-[8px] font-black uppercase opacity-35">COST ₱{Number(stock.costPrice || 0).toLocaleString()}</span>
+                                <span className="block text-[8px] font-black uppercase text-blue-500">DEAL ₱{Number(discountRow?.finalPrice || stock.sellPrice || kit.sellPrice || 0).toLocaleString()}</span>
                               </div>
                               <button
                                 type="button"
@@ -809,6 +860,10 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                     </div>
 
                     <div className="order-4 bg-black/5 rounded-2xl p-4 flex flex-col gap-2 text-left border border-white/5">
+                       <div className="flex justify-between items-center text-emerald-500">
+                          <span className="text-[8px] font-black uppercase tracking-wider">Exclusive Discount Share</span>
+                          <span className="text-[10px] font-black italic">{exclusiveDiscountPercent}%</span>
+                       </div>
                        <div className="flex justify-between items-center opacity-40">
                           <span className="text-[8px] font-black uppercase">Standard Combined Sell</span>
                           <span className="text-[10px] font-bold">₱{financialSummary.totalSell.toLocaleString()}</span>
@@ -835,7 +890,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
 
              <div className="bg-blue-600/5 border border-blue-600/10 p-4 rounded-2xl text-left">
                 <p className="text-[10px] font-bold leading-relaxed opacity-70 italic">
-                   {dealType === 'bundle_only' ? "Only bundled items can be sold in this deal. Admin shelf stocks are allowed only through the bundle checkout." : 
+                   {dealType === 'bundle_only' ? "Bundle deal discounts are split between exclusive and standard items using the configured exclusive discount percentage." : 
                     "Item A and Item B cannot be sold together. Automatic reserving & shelf synchronization will run reactively."}
                 </p>
              </div>
@@ -901,7 +956,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                   </div>
                 ) : (
                   deals.map(deal => {
-                    const strategyLabel = (deal.type === 'bundle_discount' || deal.type === 'bundle_only') ? 'Bundle Only' : 
+                    const strategyLabel = (deal.type === 'bundle_discount' || deal.type === 'bundle_only') ? 'Bundle Deal' : 
                                           deal.type === 'mutually_exclusive' ? 'Mutually Exclusive' : 'Legacy Bundle';
                     
                     const badgeClass = (deal.type === 'bundle_discount' || deal.type === 'bundle_only') ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 

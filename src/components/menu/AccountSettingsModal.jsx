@@ -241,7 +241,7 @@ export default function AccountSettingsModal({ isOpen, onClose }) {
   const handleLogin = async () => {
     try { 
       setAuthError(null); 
-      useStore.setState({ isSyncing: true });
+      useStore.setState({ isSyncing: true, syncStatus: 'Synchronizing account' });
       await signInWithPopup(auth, fbProvider); 
     } catch (err) { 
       setAuthError(err.message); 
@@ -252,7 +252,7 @@ export default function AccountSettingsModal({ isOpen, onClose }) {
   const handleGoogleLogin = async () => {
     try { 
       setAuthError(null); 
-      useStore.setState({ isSyncing: true });
+      useStore.setState({ isSyncing: true, syncStatus: 'Synchronizing account' });
       await signInWithPopup(auth, googleProvider); 
     } catch (err) { 
       setAuthError(err.message); 

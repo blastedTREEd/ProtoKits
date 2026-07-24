@@ -10,7 +10,7 @@ export default function WelcomeModal({ isOpen, onClose, onSetup }) {
   const handleSkip = async () => {
     if (!user) return;
     setIsSkipping(true);
-    useStore.setState({ isSyncing: true });
+    useStore.setState({ isSyncing: true, syncStatus: 'Synchronizing account' });
     try {
       await updateUserProfile(user.uid, {
         userDetails: {

@@ -218,7 +218,7 @@ useEffect(() => {
   const handleLogin = async () => {
     try {
       setAuthError(null);
-      useStore.setState({ isSyncing: true });
+      useStore.setState({ isSyncing: true, syncStatus: 'Synchronizing account' });
       await signInWithPopup(auth, fbProvider);
       setIsProfileOpen(false);
     } catch (err) {
@@ -231,7 +231,7 @@ useEffect(() => {
   const handleGoogleLogin = async () => {
     try {
       setAuthError(null);
-      useStore.setState({ isSyncing: true });
+      useStore.setState({ isSyncing: true, syncStatus: 'Synchronizing account' });
       const result = await signInWithPopup(auth, googleProvider);
       
       // Store user details in Firestore
