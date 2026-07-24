@@ -1036,7 +1036,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                     </div>
                   ) : isCollectionOnly ? (
                     <div className="px-1.5 py-0.5 font-black uppercase tracking-tigther text-[10px] md:text-[11px] bg-red-500 text-white border-red-400 shadow-lg">
-                      {collectionStocks.some(isOnHandStock) ? 'Onhand' : 'Pre-Order'}
+                      Collection
                     </div>
                   ) : stockList.some(s => s.isReserved) ? (
                     <div className={`px-1.5 py-0.5 font-black uppercase tracking-tigther text-[10px] md:text-[11px] ${isAdminView ? 'bg-blue-500 text-white border-blue-400' : 'bg-red-500 text-white border-red-400'} shadow-lg`}>
