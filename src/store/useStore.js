@@ -117,7 +117,7 @@ export const useStore = create(
       toastMessage: null,
       isSpectralMode: true,
       isSyncing: false,
-      syncStatus: 'Synchronizing account',
+      syncStatus: 'Loading Profile',
       storiesHeight: 0,
       unsubPrintResources: null,
       setStoriesHeight: (height) => set({ storiesHeight: height }),
@@ -302,7 +302,7 @@ export const useStore = create(
         if (!ds.orders) {
           const u = auth.currentUser;
           if (u) {
-            set({ syncStatus: 'Loading orders' });
+            set({ syncStatus: 'Loading Orders' });
             const isAdminMode = get().isAdmin && get().isAdminView;
             const ordersQuery = isAdminMode
               ? query(collection(db, "orders"), orderBy("createdAt", "desc"), limit(20))
@@ -1296,7 +1296,7 @@ export const useStore = create(
 
       syncUserAccount: async (fbUser, onSyncComplete) => {
         console.log("DEBUG: syncUserAccount called with:", fbUser ? fbUser.uid : "null");
-        set({ syncStatus: 'Synchronizing account' });
+        set({ syncStatus: 'Loading Profile' });
         if (get().unsubUser) get().unsubUser();
         if (get().unsubShelf) get().unsubShelf();
         if (get().unsubAdmin) get().unsubAdmin();
@@ -1360,7 +1360,7 @@ export const useStore = create(
             console.log("DEBUG: Basket map migration completed successfully");
         }
 
-        set({ syncStatus: 'Loading vault projects' });
+        set({ syncStatus: 'Loading Projects' });
 
         // Mag-subscribe sa projectVaults subcollection para iwas sa 1MB user doc limit
         const vaultRef = doc(db, 'projectVaults', fbUser.uid);
@@ -1410,7 +1410,7 @@ export const useStore = create(
             }
         });
 
-        set({ syncStatus: 'Loading basket' });
+        set({ syncStatus: 'Loading Basket' });
 
         const unsubBasket = onSnapshot(collection(db, 'users', fbUser.uid, 'basket'), (basketSnap) => {
             const basketItems = basketSnap.docs.map(doc => ({ basketId: doc.id, ...doc.data() }));

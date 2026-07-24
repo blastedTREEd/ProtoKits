@@ -264,7 +264,7 @@ export default function App() {
                 className="fixed inset-0 z-[99999] flex items-center justify-center bg-white/70 dark:bg-black/70 backdrop-blur-sm pointer-events-auto"
               >
                 <div className="flex flex-col items-center gap-3">
-                  <LoadingState message="Synchronizing account" className="py-0" />
+                  <LoadingState message="Syncing..." className="py-0" />
                   <p className="text-[10px] font-black uppercase tracking-[0.28em] text-red-600 dark:text-red-400">
                     {syncStatus || 'Loading account'}
                   </p>
