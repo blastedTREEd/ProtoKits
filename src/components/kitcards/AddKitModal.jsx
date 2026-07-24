@@ -1387,7 +1387,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       return;
     }
 
-    if (stockForm.isFreeShippingEligible && !stockForm.freeShippingUntil) {
+    if (includesStock && stockForm.isFreeShippingEligible && !stockForm.freeShippingUntil) {
       alert('Add a free shipping expiry date or turn the free shipping flag off.');
       return;
     }
@@ -1399,7 +1399,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       images: (masterForm.images || []).map((image) => ({
         id: image.id,
         url: image.url,
-        type: image.type,
+        type: image.type || 'PROMO IMAGE',
         isGridImage: image.id === trimmedImage || Boolean(image.isGridImage)
       })),
       brand: masterForm.brand.trim().toUpperCase(),
@@ -1439,14 +1439,14 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
         stockImages: (stockForm.stockImages || []).map((image) => ({
           id: image.id,
           url: image.url,
-          type: image.type
+          type: image.type || 'BOX CONDITION'
         })),
         boxImage: stockForm.boxImage || '',
         kitImage: stockForm.kitImage || '',
         isFreeShippingEligible: stockForm.isFreeShippingEligible,
         freeShippingUntil: stockForm.isFreeShippingEligible ? stockForm.freeShippingUntil : '',
-        freeShippingMethod: stockForm.isFreeShippingEligible ? stockForm.freeShippingMethod : '',     
-        freeShippingSuboption: stockForm.isFreeShippingEligible ? stockForm.freeShippingSuboption : '', 
+        freeShippingMethod: stockForm.isFreeShippingEligible ? (stockForm.freeShippingMethod || 'All') : '',     
+        freeShippingSuboption: stockForm.isFreeShippingEligible ? (stockForm.freeShippingSuboption || 'All') : '', 
         timestamp: existingStock.timestamp || Date.now()
       };
     }

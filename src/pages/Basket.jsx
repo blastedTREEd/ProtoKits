@@ -507,7 +507,7 @@ export default function Basket({ isDarkMode }) {
 
                         const flaggedKeys = Object.keys(validation.itemRules);
                         const hasSelectedIssues = selectedItems.some(i => flaggedKeys.includes(`${i.id}-${i.batchKey}`));
-                        const uniqueBatches = Array.from(new Set(selectedItems.map(i => i.batchKey)));
+                        const uniqueBatches = Array.from(new Set(selectedItems.filter(i => i.type !== 'project').map(i => i.batchKey)));
                         const hasBatchConflict = uniqueBatches.length > 1;
 
                         // 3. UPDATE BASKET STATE (Issues/Conflicts)
@@ -594,7 +594,7 @@ export default function Basket({ isDarkMode }) {
                           <>
                             <div className="flex flex-col items-start md:items-end justify-center">
                               <span className="text-[10px] font-black uppercase opacity-40 leading-none mb-1">Total</span>
-                              <span className="text-xl font-black italic leading-none">₱{validation.totalPrice.toLocaleString()}</span>
+                              <span className="text-lg md:text-xl font-black italic leading-none">₱{validation.totalPrice.toLocaleString()}</span>
                             </div>
                             <button
                               onClick={() => {

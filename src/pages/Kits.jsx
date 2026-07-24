@@ -425,16 +425,58 @@ const allFilteredKits = useMemo(() => {
       const sourceStock = stocks.find(s => stockMatchesDealSource(s, deal.stockSource || 'onhand'));
       return sum + (sourceStock?.sellPrice || stocks[0]?.sellPrice || k.sellPrice || 0);
     }, 0);
-    // Discount factor is purely the ratio of bundle price to normal total.
-    // Fees (handling, installment, transfer) are passed separately per item — NOT baked into the factor.
-    const discountFactor = normalTotal > 0 ? (deal.bundlePrice || 0) / normalTotal : 1;
-    const items = bundleKits.map((kit) => {
+
+    const { exclusiveDiscountPercent } = getCheckoutPaymentFees({ shippingSettings });
+    const exclusiveKitIds = deal.exclusiveKitIds || [];
+    const pct = exclusiveDiscountPercent / 100;
+
+    let exclusiveRefTotal = 0;
+    let standardRefTotal = 0;
+
+    const kitPrices = bundleKits.map((kit) => {
       const stocks = Object.values(kit?.stocks || {});
       const availableStock = stocks.find(s => isBundlePurchasableStock(s, deal.stockSource || 'onhand'));
       const sourceStock = stocks.find(s => stockMatchesDealSource(s, deal.stockSource || 'onhand'));
-      const refPrice = sourceStock?.sellPrice || stocks[0]?.sellPrice || kit?.sellPrice || 0;
-      return { ...kit, name: `${kit?.name} (Bundle Item)`, isBundleItem: true, allowShelfBundle: true, stockKey: availableStock?.key || 'default', price: Math.round(refPrice * discountFactor), appliedHandlingFee: handlingFee, appliedInstallmentFee: installmentFee, appliedTransferFee: transferFee };
+      const refPrice = Number(sourceStock?.sellPrice || stocks[0]?.sellPrice || kit?.sellPrice || 0);
+
+      const isExclusive = exclusiveKitIds.includes(kit.id);
+      if (isExclusive) {
+        exclusiveRefTotal += refPrice;
+      } else {
+        standardRefTotal += refPrice;
+      }
+
+      return { kit, refPrice, isExclusive, availableStock };
     });
+
+    const bPrice = deal.bundlePrice || 0;
+    const totalDiscount = normalTotal > bPrice ? normalTotal - bPrice : 0;
+
+    const exclusivePool = exclusiveKitIds.length > 0 ? totalDiscount * pct : 0;
+    const standardPool = totalDiscount - exclusivePool;
+
+    const items = kitPrices.map(({ kit, refPrice, isExclusive, availableStock }) => {
+      let kitDiscount = 0;
+      if (isExclusive && exclusiveRefTotal > 0) {
+        kitDiscount = exclusivePool * (refPrice / exclusiveRefTotal);
+      } else if (!isExclusive && standardRefTotal > 0) {
+        kitDiscount = standardPool * (refPrice / standardRefTotal);
+      }
+      const finalPrice = Math.round(refPrice - kitDiscount);
+
+      return {
+        ...kit,
+        name: `${kit?.name} (Bundle Item)`,
+        isBundleItem: true,
+        allowShelfBundle: true,
+        stockKey: availableStock?.key || 'default',
+        price: finalPrice,
+        appliedHandlingFee: handlingFee,
+        appliedInstallmentFee: installmentFee,
+        appliedTransferFee: transferFee
+      };
+    });
+
     setItemsForCheckout(items);
     setSelectedDeal(null);
     if (!user) { setIsLoginPromptOpen(true); return; }

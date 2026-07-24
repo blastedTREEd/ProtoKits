@@ -34,7 +34,9 @@ export default function PaymentSettingsModal({ isOpen, onClose }) {
       methods: { cash: true, ...cleanPaymentMethods(savedSettings.methods || {}) },
       handlingFee: Number(savedSettings.handlingFee ?? 0),
       installmentFee: Number(savedSettings.installmentFee ?? 0),
+      cashInFee: Number(savedSettings.cashInFee ?? 0),
       transferFee: Number(savedSettings.transferFee ?? 0),
+      exclusiveDiscountPercent: Number(savedSettings.exclusiveDiscountPercent ?? 100),
       maintenanceMode: savedSettings.maintenanceMode ?? (savedSettings.showPayNow === false)
     };
   };
@@ -130,7 +132,9 @@ export default function PaymentSettingsModal({ isOpen, onClose }) {
         },
         handlingFee: Math.max(0, Number(paymentSettings.handlingFee) || 0),
         installmentFee: Math.max(0, Number(paymentSettings.installmentFee) || 0),
-        transferFee: Math.max(0, Number(paymentSettings.transferFee) || 0)
+        cashInFee: Math.max(0, Number(paymentSettings.cashInFee) || 0),
+        transferFee: Math.max(0, Number(paymentSettings.transferFee) || 0),
+        exclusiveDiscountPercent: Math.min(100, Math.max(0, Number(paymentSettings.exclusiveDiscountPercent) || 0))
       };
 
       // I-purge ang deleted methods mula sa normalizedPaymentSettings bago i-save

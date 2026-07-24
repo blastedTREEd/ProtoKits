@@ -261,7 +261,7 @@ export const useStore = create(
               lastVisibleKit: snap.docs[snap.docs.length - 1]
             });
             get().markLoaded('kits');
-            get().syncMutuallyExclusiveDeals();
+            get().syncAllDeals();
           }, (err) => {
             console.error("SG LOG: Kits subscription error:", err);
             get().markLoaded('kits');
@@ -324,7 +324,7 @@ export const useStore = create(
           const unsubDeals = onSnapshot(collection(db, "deals"), (snap) => {
             set({ deals: docsToArray(snap) });
             get().markLoaded('deals');
-            get().syncMutuallyExclusiveDeals();
+            get().syncAllDeals();
           }, (err) => {
             console.error("SG LOG: Background Deals subscription error:", err);
             get().markLoaded('deals');
@@ -384,7 +384,7 @@ export const useStore = create(
                   lastVisibleKit: snap.docs[snap.docs.length - 1]
                 });
                 get().markLoaded('kits');
-                get().syncMutuallyExclusiveDeals();
+                get().syncAllDeals();
               }, (err) => {
                 console.error("SG LOG: Kits subscription error:", err);
                 get().markLoaded('kits');
@@ -397,7 +397,7 @@ export const useStore = create(
               const unsub = onSnapshot(collection(db, "deals"), (snap) => {
                 set({ deals: docsToArray(snap) });
                 get().markLoaded('deals');
-                get().syncMutuallyExclusiveDeals();
+                get().syncAllDeals();
               }, (err) => {
                 console.error("SG LOG: Deals priority subscription error:", err);
                 get().markLoaded('deals');
@@ -832,77 +832,89 @@ export const useStore = create(
       },
 
       addKit: async (kitData) => {
-        const { stockUpdateKey, newStock, updateMasterOnly, id: oldKitId, ...masterInfo } = kitData;
-        const parts = [];
-        const b = (masterInfo.brand || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-        if (b) parts.push(b);
-        const g = (masterInfo.specs?.line || '').toLowerCase().replace(/\//g, '-').replace(/\s+/g, '-');
-        if (g) parts.push(g);
-        const r = (masterInfo.specs?.scale || '').toLowerCase().replace(/\//g, '-').replace(/\s+/g, '-');
-        if (r) parts.push(r);
-        const n = (masterInfo.name || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-        if (n) parts.push(n);
-        const targetKitId = parts.join('_');
+        console.log("SG DEBUG: addKit store action triggered with data:", kitData);
+        try {
+          const { stockUpdateKey, newStock, updateMasterOnly, id: oldKitId, ...masterInfo } = kitData;
+          const parts = [];
+          const b = (masterInfo.brand || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+          if (b) parts.push(b);
+          const g = (masterInfo.specs?.line || '').toLowerCase().replace(/\//g, '-').replace(/\s+/g, '-');
+          if (g) parts.push(g);
+          const r = (masterInfo.specs?.scale || '').toLowerCase().replace(/\//g, '-').replace(/\s+/g, '-');
+          if (r) parts.push(r);
+          const n = (masterInfo.name || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+          if (n) parts.push(n);
+          const targetKitId = parts.join('_');
+          console.log("SG DEBUG: Generated targetKitId:", targetKitId);
 
-        const timing = new Date().toISOString();
-        let stocks = {};
-        let isExistingKit = false;
-        let existingCreatedAt = null;
-        let existingRestockedAt = null;
+          const timing = new Date().toISOString();
+          let stocks = {};
+          let isExistingKit = false;
+          let existingCreatedAt = null;
+          let existingRestockedAt = null;
 
-        if (oldKitId && oldKitId !== targetKitId) {
-            const oldKitRef = doc(db, 'kits', oldKitId);
-            const oldKitSnap = await getDoc(oldKitRef);
-            if (oldKitSnap.exists()) {
-                const oldData = oldKitSnap.data();
-                stocks = oldData.stocks || {};
-                existingCreatedAt = oldData.createdAt || null;
-                existingRestockedAt = oldData.lastRestockedAt || null;
-                await deleteDoc(oldKitRef);
-                set((state) => ({ kits: state.kits.filter(k => k.id !== oldKitId) }));
-            }
-        } else {
-            const kitRef = doc(db, 'kits', targetKitId);
-            const kitSnap = await getDoc(kitRef);
-            if (kitSnap.exists()) {
-                isExistingKit = true;
-                const existingData = kitSnap.data();
-                stocks = existingData.stocks || {};
-                existingCreatedAt = existingData.createdAt || null;
-                existingRestockedAt = existingData.lastRestockedAt || null;
-            }
+          if (oldKitId && oldKitId !== targetKitId) {
+              console.log("SG DEBUG: ID change detected. Old:", oldKitId, "New:", targetKitId);
+              const oldKitRef = doc(db, 'kits', oldKitId);
+              const oldKitSnap = await getDoc(oldKitRef);
+              if (oldKitSnap.exists()) {
+                  const oldData = oldKitSnap.data();
+                  stocks = oldData.stocks || {};
+                  existingCreatedAt = oldData.createdAt || null;
+                  existingRestockedAt = oldData.lastRestockedAt || null;
+                  console.log("SG DEBUG: Deleting old document:", oldKitId);
+                  await deleteDoc(oldKitRef);
+                  set((state) => ({ kits: state.kits.filter(k => k.id !== oldKitId) }));
+              }
+          } else {
+              const kitRef = doc(db, 'kits', targetKitId);
+              const kitSnap = await getDoc(kitRef);
+              if (kitSnap.exists()) {
+                  isExistingKit = true;
+                  const existingData = kitSnap.data();
+                  stocks = existingData.stocks || {};
+                  existingCreatedAt = existingData.createdAt || null;
+                  existingRestockedAt = existingData.lastRestockedAt || null;
+                  console.log("SG DEBUG: Found existing kit with targetKitId. stocks count:", Object.keys(stocks).length);
+              }
+          }
+
+          const isRestock = !!newStock;
+          // Compute stockKey ONCE so both blocks use the same key
+          const resolvedStockKey = (!updateMasterOnly && newStock) ? (stockUpdateKey || `stock_${Date.now()}`) : null;
+
+          if (resolvedStockKey) {
+            stocks[resolvedStockKey] = { ...newStock, key: resolvedStockKey, lastUpdated: timing };
+            console.log("SG DEBUG: Variant added/updated. Key:", resolvedStockKey);
+          }
+          
+          const hasAvailable = Object.values(stocks).some(s => !s.order?.orderId && !s.isReserved);
+
+          const cleanMaster = { 
+            ...masterInfo, 
+            id: targetKitId, 
+            lastUpdated: serverTimestamp(), 
+            createdAt: existingCreatedAt || serverTimestamp(),
+            lastRestockedAt: isRestock ? serverTimestamp() : existingRestockedAt,
+            searchName: masterInfo.name.toLowerCase(),
+            hasAvailableStock: hasAvailable
+          };
+
+          const kitRef = doc(db, 'kits', targetKitId);
+          await setDoc(kitRef, isExistingKit ? cleanMaster : { ...cleanMaster, stocks }, { merge: true });
+
+          if (resolvedStockKey) {
+            await updateDoc(kitRef, { 
+              [`stocks.${resolvedStockKey}`]: stocks[resolvedStockKey],
+              hasAvailableStock: hasAvailable 
+            });
+          }
+          console.log("SG DEBUG: addKit operation successful.");
+          return { id: targetKitId };
+        } catch (err) {
+          console.error("SG DEBUG: Error in addKit store action:", err);
+          throw err;
         }
-
-        const isRestock = !!newStock;
-
-        if (!updateMasterOnly && newStock) {
-          const stockKey = stockUpdateKey || `stock_${Date.now()}`;
-          stocks[stockKey] = { ...newStock, key: stockKey, lastUpdated: timing };
-        }
-        
-        const hasAvailable = Object.values(stocks).some(s => !s.order?.orderId && !s.isReserved);
-
-        const cleanMaster = { 
-          ...masterInfo, 
-          id: targetKitId, 
-          lastUpdated: serverTimestamp(), 
-          createdAt: existingCreatedAt || serverTimestamp(),
-          lastRestockedAt: isRestock ? serverTimestamp() : existingRestockedAt,
-          searchName: masterInfo.name.toLowerCase(),
-          hasAvailableStock: hasAvailable
-        };
-
-        const kitRef = doc(db, 'kits', targetKitId);
-        await setDoc(kitRef, isExistingKit ? cleanMaster : { ...cleanMaster, stocks }, { merge: true });
-
-        if (!updateMasterOnly && newStock) {
-          const stockKey = stockUpdateKey || `stock_${Date.now()}`;
-          await updateDoc(kitRef, { 
-            [`stocks.${stockKey}`]: stocks[stockKey],
-            hasAvailableStock: hasAvailable 
-          });
-        }
-        return { id: targetKitId };
       },
 
       deleteKit: async (kitId) => {
@@ -1018,14 +1030,20 @@ export const useStore = create(
 
       fixMisalignedStocks: async (issues) => {
         for (const issue of issues) {
-          await updateDoc(doc(db, "kits", issue.kitId), {
-            [`stocks.${issue.stockKey}.isReserved`]: false,
-            [`stocks.${issue.stockKey}.reservedAt`]: null,
-            [`stocks.${issue.stockKey}.reservedBy`]: null,
-            [`stocks.${issue.stockKey}.reservationType`]: deleteField(),
-            [`stocks.${issue.stockKey}.order`]: deleteField(),
-            hasAvailableStock: true
-          });
+          if (issue.reason === 'Onhand Stock with ETA') {
+            await updateDoc(doc(db, "kits", issue.kitId), {
+              [`stocks.${issue.stockKey}.eta`]: ''
+            });
+          } else {
+            await updateDoc(doc(db, "kits", issue.kitId), {
+              [`stocks.${issue.stockKey}.isReserved`]: false,
+              [`stocks.${issue.stockKey}.reservedAt`]: null,
+              [`stocks.${issue.stockKey}.reservedBy`]: null,
+              [`stocks.${issue.stockKey}.reservationType`]: deleteField(),
+              [`stocks.${issue.stockKey}.order`]: deleteField(),
+              hasAvailableStock: true
+            });
+          }
         }
       },
 
@@ -1053,13 +1071,18 @@ export const useStore = create(
             // If it has order data, check if that order is active. If no order data but isReserved is true, it might be orphaned.
             const hasNoActiveOrder = stock.isReserved && (stockOrderIds.length === 0 || !stockOrderIds.some(id => activeOrderIds.has(id)));
 
-            if (isLinkedToCancelled || hasNoActiveOrder) {
+            // Case 3: Stock is On-hand but still has an ETA
+            const isOnhand = String(stock.status || '').toLowerCase() === 'onhand';
+            const hasEta = Boolean(stock.eta?.trim());
+            const isOnhandWithEta = isOnhand && hasEta;
+
+            if (isLinkedToCancelled || hasNoActiveOrder || isOnhandWithEta) {
               issues.push({ 
                 kitId: kit.id, 
                 stockKey: key, 
                 orderId: stock.order?.orderId || stock.order?.orderDocId || 'None', 
                 orderStatus: stock.order?.status || (stock.isReserved ? 'Orphaned Reservation' : 'Unknown'),
-                reason: isLinkedToCancelled ? 'Cancelled Order' : 'Missing/Inactive Order'
+                reason: isOnhandWithEta ? 'Onhand Stock with ETA' : (isLinkedToCancelled ? 'Cancelled Order' : 'Missing/Inactive Order')
               });
             }
           });
@@ -2319,6 +2342,58 @@ export const useStore = create(
             console.error("SG LOG: Error syncing mutually exclusive deals:", err);
           }
         }
+      },
+
+      syncBundleDealsFulfillment: async () => {
+        const { kits, deals, user } = get();
+        if (!deals || !kits || !user) return;
+
+        const stockMatchesDealSource = (stock, source = 'onhand') => {
+          const status = String(stock?.status || '').toLowerCase();
+          const isPreOrder = status.includes('pre') || status.includes('batch');
+          return source === 'preorder' ? isPreOrder : !isPreOrder;
+        };
+
+        const isBundlePurchasableStock = (stock, source = 'onhand') => {
+          if (!stock || stock.order?.orderId || !stockMatchesDealSource(stock, source)) return false;
+          return !stock.isReserved || stock.reservationType === 'admin';
+        };
+
+        const bundleDeals = deals.filter(d => d.type === 'bundle_only' || d.type === 'bundle_discount');
+        if (bundleDeals.length === 0) return;
+
+        for (const deal of bundleDeals) {
+          if (!deal.kitIds || deal.kitIds.length === 0) continue;
+
+          const isFulfillable = deal.kitIds.every(dealKitId => {
+            const dealKit = kits.find(k => k.id === dealKitId);
+            if (!dealKit) return false;
+            const stocks = Object.values(dealKit.stocks || {});
+            return stocks.some(s => isBundlePurchasableStock(s, deal.stockSource || 'onhand'));
+          });
+
+          const currentActive = deal.isActive !== false;
+          if (isFulfillable && !currentActive) {
+            console.log(`SG LOG: Auto-activating deal ${deal.name} (${deal.id}) - stocks available`);
+            try {
+              await updateDoc(doc(db, "deals", deal.id), { isActive: true, lastUpdated: serverTimestamp() });
+            } catch (err) {
+              console.error("SG LOG: Error auto-activating deal:", err);
+            }
+          } else if (!isFulfillable && currentActive) {
+            console.log(`SG LOG: Auto-deactivating deal ${deal.name} (${deal.id}) - stock(s) unavailable`);
+            try {
+              await updateDoc(doc(db, "deals", deal.id), { isActive: false, lastUpdated: serverTimestamp() });
+            } catch (err) {
+              console.error("SG LOG: Error auto-deactivating deal:", err);
+            }
+          }
+        }
+      },
+
+      syncAllDeals: async () => {
+        get().syncMutuallyExclusiveDeals();
+        get().syncBundleDealsFulfillment();
       },
 
       addProjectToBasket: async (pData) => {

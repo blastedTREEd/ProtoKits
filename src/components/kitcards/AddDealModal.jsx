@@ -459,6 +459,21 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       dealData.stockSource = 'onhand';
     }
 
+    // Check if all included kits have purchasable stock — auto-deactivate if not
+    if (dealType === 'bundle_only') {
+      const unfulfillableKits = selectedKitIds.filter(kidId => {
+        const kit = kits.find(k => k.id === kidId);
+        if (!kit) return true;
+        const stocks = Object.values(kit.stocks || {});
+        return !stocks.some(s => isBundlePurchasableStock(s, 'onhand'));
+      });
+      if (unfulfillableKits.length > 0) {
+        const names = unfulfillableKits.map(id => kits.find(k => k.id === id)?.name || id).join(', ');
+        dealData.isActive = false;
+        alert(`Warning: The following kits have no available stock, so this deal will be saved as INACTIVE:\n${names}`);
+      }
+    }
+
     try {
       setIsSaving(true);
       await addDeal(dealData);
@@ -636,17 +651,27 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                    {/* Dropdown Suggestions */}
                    {kitSearchResults.length > 0 && (
                      <div className={`absolute left-0 right-0 mt-1 z-50 rounded-2xl border shadow-xl overflow-hidden ${isDarkMode ? 'bg-neutral-800 border-neutral-700' : 'bg-white border-neutral-200'}`}>
-                       {kitSearchResults.map(kit => (
-                         <div key={kit.id} onClick={() => { toggleKitSelection(kit.id); setSearchTerm(''); }} className="p-3 flex items-center gap-3 hover:bg-blue-500/10 cursor-pointer transition-colors border-b border-neutral-500/10 last:border-b-0">
+                       {kitSearchResults.map(kit => {
+                         const stocks = Object.values(kit.stocks || {});
+                         const hasPurchasableStock = stocks.some(s => isBundlePurchasableStock(s, 'onhand'));
+                         return (
+                         <div key={kit.id} onClick={() => {
+                           if (!hasPurchasableStock) {
+                             alert("This kit has no available stock for purchase. Reserved items cannot be added to a bundle.");
+                             return;
+                           }
+                           toggleKitSelection(kit.id); setSearchTerm('');
+                         }} className={`p-3 flex items-center gap-3 cursor-pointer transition-colors border-b border-neutral-500/10 last:border-b-0 ${hasPurchasableStock ? 'hover:bg-blue-500/10' : 'bg-red-500/10 hover:bg-red-500/20 opacity-60'}`}>
                            <img src={resolveImage(kit.image, kit.images)} className="w-8 h-8 rounded object-cover bg-white" alt="" />
                            <div className="flex-1 text-left">
-                             <p className="text-[10px] font-black uppercase leading-tight truncate">{kit.name}</p>
+                             <p className={`text-[10px] font-black uppercase leading-tight truncate ${!hasPurchasableStock ? 'text-red-500' : ''}`}>{kit.name}</p>
                              <p className="text-[8px] font-bold opacity-50 mt-0.5 uppercase truncate">{[kit.brand, kit.specs?.line].filter(Boolean).join(' / ') || 'No brand or line'}</p>
-                             <p className="text-[8px] font-bold opacity-40 mt-0.5">₱{(kit.sellPrice || 0).toLocaleString()}</p>
+                             <p className={`text-[8px] font-bold mt-0.5 ${!hasPurchasableStock ? 'text-red-400' : 'opacity-40'}`}>{hasPurchasableStock ? `₱${(kit.sellPrice || 0).toLocaleString()}` : 'NO STOCK'}</p>
                            </div>
-                           <Plus size={14} className="opacity-40" />
+                           <Plus size={14} className={hasPurchasableStock ? 'opacity-40' : 'opacity-20 text-red-400'} />
                          </div>
-                       ))}
+                         );
+                       })}
                      </div>
                    )}
                 </div>
@@ -730,7 +755,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                     : 'bg-black/5 dark:bg-white/5 text-[var(--color-text-main)] opacity-50 hover:opacity-100 hover:bg-black/10'
                                 }`}
                               >
-                                {isExclusive ? 'EXCLUSIVE ✔' : 'EXCLUSIVE'}
+                                {isExclusive ? 'EXCLUSIVE ✔' : 'STANDARD'}
                               </button>
                               <button
                                 type="button"

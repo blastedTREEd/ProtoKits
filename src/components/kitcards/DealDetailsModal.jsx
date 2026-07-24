@@ -1,6 +1,7 @@
 import React, { useMemo, useEffect } from 'react';
-import { X, Gift, Zap, ArrowRight } from 'lucide-react';
+import { X, Gift, Zap, ArrowRight, Star } from 'lucide-react';
 import { useStore } from '../../store/useStore';
+import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
 
 function resolveImage(idOrUrl, imagesArray) {
   if (!idOrUrl) return '';
@@ -21,7 +22,8 @@ function stockMatchesDealSource(stock, source = 'onhand') {
 }
 
 export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow }) {
-  const { kits } = useStore();
+  const { kits, shippingSettings } = useStore();
+  const { exclusiveDiscountPercent } = getCheckoutPaymentFees({ shippingSettings });
 
   const includedKits = useMemo(() => {
     if (!deal || !deal.kitIds) return [];
@@ -31,6 +33,48 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow }) {
     ];
     return getOrderedKits(kits, orderedKitIds);
   }, [deal, kits]);
+
+  // Compute proportional pricing with exclusive discount logic
+  const { normalTotal, bundlePrice, savings, kitPricing } = useMemo(() => {
+    const exclusiveKitIds = deal?.exclusiveKitIds || [];
+    const pct = exclusiveDiscountPercent / 100;
+
+    let nTotal = 0;
+    let exclusiveRefTotal = 0;
+    let standardRefTotal = 0;
+
+    const refPrices = includedKits.map(kit => {
+      const stocks = Object.values(kit.stocks || {});
+      const sourceStock = stocks.find(stock => stockMatchesDealSource(stock, deal?.stockSource || 'onhand'));
+      const refPrice = Number(sourceStock?.sellPrice || stocks[0]?.sellPrice || kit.sellPrice || 0);
+      nTotal += refPrice;
+      if (exclusiveKitIds.includes(kit.id)) {
+        exclusiveRefTotal += refPrice;
+      } else {
+        standardRefTotal += refPrice;
+      }
+      return { kitId: kit.id, refPrice, isExclusive: exclusiveKitIds.includes(kit.id) };
+    });
+
+    const bPrice = deal?.bundlePrice || 0;
+    const totalDiscount = nTotal > bPrice ? nTotal - bPrice : 0;
+
+    // Split discount pool between exclusive and standard kits
+    const exclusivePool = exclusiveKitIds.length > 0 ? totalDiscount * pct : 0;
+    const standardPool = totalDiscount - exclusivePool;
+
+    const pricing = refPrices.map(({ kitId, refPrice, isExclusive }) => {
+      let kitDiscount = 0;
+      if (isExclusive && exclusiveRefTotal > 0) {
+        kitDiscount = exclusivePool * (refPrice / exclusiveRefTotal);
+      } else if (!isExclusive && standardRefTotal > 0) {
+        kitDiscount = standardPool * (refPrice / standardRefTotal);
+      }
+      return { kitId, refPrice, distributedPrice: Math.round(refPrice - kitDiscount), isExclusive };
+    });
+
+    return { normalTotal: nTotal, bundlePrice: bPrice, savings: nTotal > bPrice ? nTotal - bPrice : 0, kitPricing: pricing };
+  }, [includedKits, deal, exclusiveDiscountPercent]);
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -61,17 +105,6 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow }) {
   }, [isOpen, onClose]);
 
   if (!isOpen || !deal) return null;
-
-  const normalTotal = includedKits.reduce((sum, k) => {
-    const stocks = Object.values(k.stocks || {});
-    const sourceStock = stocks.find(stock => stockMatchesDealSource(stock, deal.stockSource || 'onhand'));
-    const refPrice = sourceStock?.sellPrice || stocks[0]?.sellPrice || k.sellPrice || 0;
-    return sum + refPrice;
-  }, 0);
-
-  const bundlePrice = deal.bundlePrice || 0;
-  const savings = normalTotal > bundlePrice ? normalTotal - bundlePrice : 0;
-  const discountFactor = normalTotal > 0 ? bundlePrice / normalTotal : 1;
 
   return (
     <div className="fixed inset-0 z-[300] flex items-center justify-center p-0 md:p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300 overflow-hidden touch-action-none">
@@ -124,17 +157,20 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow }) {
               </div>
               
               {includedKits.map(kit => {
-                const stocks = Object.values(kit.stocks || {});
-                const sourceStock = stocks.find(stock => stockMatchesDealSource(stock, deal.stockSource || 'onhand'));
-                const refPrice = sourceStock?.sellPrice || stocks[0]?.sellPrice || kit.sellPrice || 0;
-                const distributedPrice = refPrice * discountFactor;
+                const pricing = kitPricing.find(p => p.kitId === kit.id) || {};
+                const { refPrice = 0, distributedPrice = 0, isExclusive = false } = pricing;
                 
                 return (
-                  <div key={kit.id} className="flex items-center gap-4 p-4 rounded-3xl bg-black/5 dark:bg-white/5 border border-white/5">
+                  <div key={kit.id} className={`flex items-center gap-4 p-4 rounded-3xl border ${isExclusive ? 'bg-emerald-500/5 dark:bg-emerald-500/10 border-emerald-500/20' : 'bg-black/5 dark:bg-white/5 border-white/5'}`}>
                      <img src={resolveImage(kit.image, kit.images)} className="w-12 h-12 rounded-xl object-cover bg-white shadow-sm" alt="" />
                      <div className="flex-1 text-left">
-                        <p className="text-[11px] font-black uppercase leading-tight line-clamp-1">{kit.name}</p>
-                        <p className="text-[9px] font-bold opacity-40 uppercase mt-1">{kit.specs?.line || ''}</p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-[11px] font-black uppercase leading-tight line-clamp-1">{kit.name}</p>
+                          {isExclusive && <Star size={10} className="text-emerald-500 fill-emerald-500 shrink-0" />}
+                        </div>
+                        <p className="text-[9px] font-bold opacity-40 uppercase mt-1">
+                          {isExclusive ? <span className="text-emerald-500 opacity-100">EXCLUSIVE</span> : kit.specs?.line || ''}
+                        </p>
                      </div>
                      <div className="text-right">
                         <p className="text-[11px] font-black italic text-emerald-500">₱{Math.round(distributedPrice).toLocaleString()}</p>

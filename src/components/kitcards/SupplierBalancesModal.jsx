@@ -394,6 +394,7 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
                                     try {
                                       await updateDoc(doc(db, 'kits', item.kitId), {
                                         [`stocks.${item.key}.status`]: 'onhand',
+                                        [`stocks.${item.key}.eta`]: '',
                                         [`stocks.${item.key}.isFreeShippingEligible`]: false,
                                         [`stocks.${item.key}.freeShippingUntil`]: '',
                                         [`stocks.${item.key}.freeShippingMethod`]: 'All',
