@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Trash2, ShoppingBag, ShelvingUnit, ShoppingBasket, PackageOpen, PackagePlus } from 'lucide-react';
 import { useStore } from '../store/useStore';
@@ -199,71 +199,123 @@ export default function Basket({ isDarkMode }) {
   };
 
   // --- Stable sort: hindi mag-re-sort ang basket items kapag nagbago lang ang stock data sa real-time ---
-  const basketSortOrderRef = useRef([]);
-  const lastBasketIdsRef = useRef('');
+  // const basketSortOrderRef = useRef([]);
+  // const lastBasketIdsRef = useRef('');
+
+  // const groupedItems = useMemo(() => {
+  //   const grouped = activeBasket.reduce((acc, item) => {
+  //     if (item.type === 'project') {
+  //       const key = JSON.stringify(item.projectData);
+  //       console.log("SG DEBUG: Grouping project key:", key, "Qty:", item.quantity);
+  //       if (!acc[key]) {
+  //         acc[key] = { ...item, qty: 0, basketIds: [], batchKey: 'project' };
+  //       }
+  //       acc[key].qty += (item.quantity || 1);
+  //       acc[key].basketIds.push(item.basketId);
+  //       return acc;
+  //     }
+  //     const kit = kits.find(k => k.id === item.id);
+  //     const stock = kit?.stocks?.[item.stockKey];
+      
+  //     const status = stock?.status?.toLowerCase() || 'default';
+  //     const eta = stock?.eta ? `-${stock.eta.toLowerCase().replace(/\s+/g, '-')}` : '';
+  //     const batchIdentifier = `${status}${eta}`;
+      
+  //     const key = `${item.id}-${batchIdentifier}`;
+      
+  //     if (!acc[key]) {
+  //       acc[key] = { ...item, qty: 0, basketIds: [], batchKey: batchIdentifier };
+  //     }
+  //     acc[key].qty += 1;
+  //     acc[key].basketIds.push(item.basketId);
+  //     return acc;
+  //   }, {});
+  //   console.log("SG DEBUG: Grouped items:", Object.values(grouped));
+  //   const groupEntries = Object.entries(grouped);
+
+  //   // Alamin kung nagbago ba ang MGA GRUPO (bago/nawala na group) — hindi lang quantity change
+  //   const currentGroupKeys = groupEntries.map(([key]) => key).sort().join(',');
+  //   const groupsChanged = currentGroupKeys !== lastBasketIdsRef.current;
+
+  //   if (groupsChanged || basketSortOrderRef.current.length === 0) {
+  //     // Mag-sort kasi may bago o nawala na group
+  //     const sorted = groupEntries.sort(([, a], [, b]) => {
+  //       const getLatest = (group) => Math.max(...group.basketIds.map(id => {
+  //           const item = activeBasket.find(i => i.basketId === id);
+  //           return new Date(item?.createdAt || 0).getTime();
+  //       }));
+  //       return getLatest(b) - getLatest(a);
+  //     });
+  //     basketSortOrderRef.current = sorted.map(([key]) => key);
+  //     lastBasketIdsRef.current = currentGroupKeys;
+  //     return sorted.map(([, value]) => value);
+  //   }
+
+  //   // Hindi nagbago ang basket — gamitin ang cached sort order
+  //   const groupMap = new Map(groupEntries);
+  //   const stableResult = basketSortOrderRef.current
+  //     .filter(key => groupMap.has(key))
+  //     .map(key => groupMap.get(key));
+  //   // Isama ang mga bago na wala pa sa cache (safety net)
+  //   groupEntries.forEach(([key, value]) => {
+  //     if (!basketSortOrderRef.current.includes(key)) {
+  //       stableResult.push(value);
+  //     }
+  //   });
+  //   return stableResult;
+  // }, [activeBasket, kits]);
 
   const groupedItems = useMemo(() => {
-    const grouped = activeBasket.reduce((acc, item) => {
-      if (item.type === 'project') {
-        const key = JSON.stringify(item.projectData);
-        console.log("SG DEBUG: Grouping project key:", key, "Qty:", item.quantity);
-        if (!acc[key]) {
-          acc[key] = { ...item, qty: 0, basketIds: [], batchKey: 'project' };
-        }
-        acc[key].qty += (item.quantity || 1);
-        acc[key].basketIds.push(item.basketId);
-        return acc;
-      }
-      const kit = kits.find(k => k.id === item.id);
-      const stock = kit?.stocks?.[item.stockKey];
-      
-      const status = stock?.status?.toLowerCase() || 'default';
-      const eta = stock?.eta ? `-${stock.eta.toLowerCase().replace(/\s+/g, '-')}` : '';
-      const batchIdentifier = `${status}${eta}`;
-      
-      const key = `${item.id}-${batchIdentifier}`;
-      
+  const grouped = activeBasket.reduce((acc, item) => {
+    if (item.type === 'project') {
+      const key = JSON.stringify(item.projectData);
+
       if (!acc[key]) {
-        acc[key] = { ...item, qty: 0, basketIds: [], batchKey: batchIdentifier };
+        acc[key] = {
+          ...item,
+          qty: 0,
+          basketIds: [],
+          batchKey: 'project',
+        };
       }
-      acc[key].qty += 1;
+
+      acc[key].qty += item.quantity || 1;
       acc[key].basketIds.push(item.basketId);
+
       return acc;
-    }, {});
-    console.log("SG DEBUG: Grouped items:", Object.values(grouped));
-    const groupEntries = Object.entries(grouped);
-
-    // Alamin kung nagbago ba ang MGA GRUPO (bago/nawala na group) — hindi lang quantity change
-    const currentGroupKeys = groupEntries.map(([key]) => key).sort().join(',');
-    const groupsChanged = currentGroupKeys !== lastBasketIdsRef.current;
-
-    if (groupsChanged || basketSortOrderRef.current.length === 0) {
-      // Mag-sort kasi may bago o nawala na group
-      const sorted = groupEntries.sort(([, a], [, b]) => {
-        const getLatest = (group) => Math.max(...group.basketIds.map(id => {
-            const item = activeBasket.find(i => i.basketId === id);
-            return new Date(item?.createdAt || 0).getTime();
-        }));
-        return getLatest(b) - getLatest(a);
-      });
-      basketSortOrderRef.current = sorted.map(([key]) => key);
-      lastBasketIdsRef.current = currentGroupKeys;
-      return sorted.map(([, value]) => value);
     }
 
-    // Hindi nagbago ang basket — gamitin ang cached sort order
-    const groupMap = new Map(groupEntries);
-    const stableResult = basketSortOrderRef.current
-      .filter(key => groupMap.has(key))
-      .map(key => groupMap.get(key));
-    // Isama ang mga bago na wala pa sa cache (safety net)
-    groupEntries.forEach(([key, value]) => {
-      if (!basketSortOrderRef.current.includes(key)) {
-        stableResult.push(value);
-      }
-    });
-    return stableResult;
-  }, [activeBasket, kits]);
+    // Use ONLY basket data to determine the group.
+    // Do NOT use live stock data here.
+    const key = `${item.id}-${item.stockKey}`;
+
+    if (!acc[key]) {
+      acc[key] = {
+        ...item,
+        qty: 0,
+        basketIds: [],
+        batchKey: item.stockKey,
+      };
+    }
+
+    acc[key].qty += 1;
+    acc[key].basketIds.push(item.basketId);
+
+    return acc;
+  }, {});
+
+  return Object.values(grouped).sort((a, b) => {
+    const getLatest = group =>
+      Math.max(
+        ...group.basketIds.map(id => {
+          const basketItem = activeBasket.find(i => i.basketId === id);
+          return new Date(basketItem?.createdAt || 0).getTime();
+        })
+      );
+
+    return getLatest(b) - getLatest(a);
+  });
+}, [activeBasket]);
 
   const hasVisibleBasketItems = !isLoading && groupedItems.length > 0;
 
