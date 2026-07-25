@@ -39,6 +39,7 @@ const Layout = ({ children }) => {
 
   useEffect(() => {
     const handleScroll = () => {
+      if (isProfileFullscreenOpen) return;
       const isNotHome = location.pathname !== "/";
       const isScrolled = window.scrollY > 5;
       setIsCompact(isNotHome || isScrolled);
@@ -47,14 +48,19 @@ const Layout = ({ children }) => {
     window.addEventListener('scroll', handleScroll);
     handleScroll(); 
     return () => window.removeEventListener('scroll', handleScroll);
-  }, [location.pathname]);
+  }, [location.pathname, isProfileFullscreenOpen]);
 
   useEffect(() => {
     const handleProfileFullscreenOpen = () => {
       setIsProfileFullscreenOpen(true);
       setIsCompact(true);
     };
-    const handleProfileFullscreenClose = () => setIsProfileFullscreenOpen(false);
+    const handleProfileFullscreenClose = () => {
+      setIsProfileFullscreenOpen(false);
+      const isNotHome = location.pathname !== "/";
+      const isScrolled = window.scrollY > 5;
+      setIsCompact(isNotHome || isScrolled);
+    };
 
     window.addEventListener('profileFullscreenOpen', handleProfileFullscreenOpen);
     window.addEventListener('profileFullscreenClose', handleProfileFullscreenClose);
@@ -63,7 +69,7 @@ const Layout = ({ children }) => {
       window.removeEventListener('profileFullscreenOpen', handleProfileFullscreenOpen);
       window.removeEventListener('profileFullscreenClose', handleProfileFullscreenClose);
     };
-  }, []);
+  }, [location.pathname]);
 
   useEffect(() => {
     if (location.pathname !== "/" || isCompact || isProfileFullscreenOpen) return undefined;
@@ -110,7 +116,7 @@ const Layout = ({ children }) => {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <Stories isCompact={isCompact} />
+      <Stories isCompact={isCompact || isProfileFullscreenOpen} hideImmediately={isProfileFullscreenOpen} />
       <Navbar isCompact={isCompact} />
       <main className="container mx-auto max-w-7xl flex-1">
         {children}

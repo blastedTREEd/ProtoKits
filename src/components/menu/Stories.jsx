@@ -9,7 +9,7 @@ function getRandomSyncColor() {
   return SYNC_GLOW_COLORS[Math.floor(Math.random() * SYNC_GLOW_COLORS.length)];
 }
 
-export default function Stories({ isCompact }) {
+export default function Stories({ isCompact, hideImmediately = false }) {
   // Kunin ang actual data mula sa Zustand store (DB)
   const { stories, garageInfo, isLoading, setStoriesHeight } = useStore();
   const [imgError, setImgError] = useState(false);
@@ -40,6 +40,13 @@ export default function Stories({ isCompact }) {
     const handleResize = () => setIsMobile(window.innerWidth < 768);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Close story preview when profile modal opens on mobile
+  useEffect(() => {
+    const handleProfileOpen = () => setActiveStoryIndex(null);
+    window.addEventListener('profileFullscreenOpen', handleProfileOpen);
+    return () => window.removeEventListener('profileFullscreenOpen', handleProfileOpen);
   }, []);
 
   // Filter out draft stories for non-admin viewers
@@ -104,7 +111,8 @@ export default function Stories({ isCompact }) {
       <div 
         ref={containerRef}
         className={`
-        relative z-40 transition-all duration-700 ease-in-out border-b border-white/10 overflow-hidden w-full
+        relative z-40 border-b border-white/10 overflow-hidden w-full
+        ${hideImmediately ? 'transition-none' : 'transition-all duration-700 ease-in-out'}
         ${isCompact ? 'max-h-0 opacity-0 pointer-events-none' : 'max-h-[500px] opacity-100'}
         bg-neutral-50/50 dark:bg-black/40
       `}>

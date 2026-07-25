@@ -1268,6 +1268,14 @@ export const useStore = create(
         await deleteDoc(doc(db, "hunts", notifyId));
       },
 
+      updateOfferPrice: async (notifyId, targetPrice) => {
+        const price = parseFloat(targetPrice);
+        if (!notifyId || Number.isNaN(price) || price <= 0) {
+          throw new Error('Invalid offer price');
+        }
+        await setDoc(doc(db, "hunts", notifyId), { targetPrice: price }, { merge: true });
+      },
+
       huntKit: async (kit, targetPrice) => {
         const { user, notifyList } = get();
         if (!user) { alert("Please login to Hunt this kit!"); return; }

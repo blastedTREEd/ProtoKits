@@ -357,7 +357,7 @@ const getPageTitle = () => {
     case '/prints': return { line1: 'PRINTS', line2: 'HUB' };
     case '/orders': return { line1: 'MY', line2: 'ORDERS' };
     case '/basket': return isAdminView ? { line1: 'ADMIN', line2: 'SHELF' } : { line1: 'YOUR', line2: 'BASKET' };
-    case '/notify-list': return { line1: isAdminView ? 'OFFERS' : 'NOTIFY', line2: 'LIST' };
+    case '/notify-list': return { line1: 'MY', line2: 'OFFERS' };
     default: return { line1: 'SNORLAX', line2: 'GARAGE' };
   }
 };
@@ -635,7 +635,7 @@ return (
                           {user && (
                             <button onClick={() => { navigate('/notify-list'); setIsProfileOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-colors ${isDarkMode ? 'hover:bg-white/5 text-white' : 'hover:bg-black/5 text-neutral-900'}`}>
                               <Bell size={18} className="opacity-40" />
-                              <span className="text-[12px] font-black uppercase tracking-widest">{isAdminView === true ? 'Offers List' : 'My Notify List'}</span> 
+                              <span className="text-[12px] font-black uppercase tracking-widest">OFFERS</span>
                             </button>
                           )}
                           <button onClick={handleLogout} className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-colors ${originalAdminUser ? 'text-orange-500 hover:bg-orange-500/10' : 'text-red-500 hover:bg-red-500/10'}`}>
