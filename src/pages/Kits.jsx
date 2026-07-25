@@ -171,7 +171,13 @@ export default function Kits() {
   }, [isLoading]);
 
 
-const allFilteredKits = useMemo(() => {
+// --- Stable sort: hindi mag-re-sort ang cards kapag nagbago lang ang stock count sa real-time ---
+  // Ref para i-cache ang last sorted order ng kit IDs
+  const sortedIdOrderRef = useRef([]);
+  // Track ang sort criteria para malaman kung kailan kailangan mag-re-sort
+  const lastSortCriteriaRef = useRef('');
+
+  const allFilteredKits = useMemo(() => {
     if (!storeKits || !Array.isArray(storeKits)) return [];
     
     const nowStr = new Date().toISOString().slice(0, 16);
@@ -319,28 +325,50 @@ const allFilteredKits = useMemo(() => {
         };
     });
 
-    if (searchTerm) {
-      return processedKits.sort((a, b) => {
-        if (a._statusOrder !== b._statusOrder) return b._statusOrder - a._statusOrder;
-        if (a._avail !== b._avail) return b._avail - a._avail;
-        return a.name.localeCompare(b.name);
-      });
+    // --- Stable sort logic: mag-re-sort lang kapag nagbago ang sort criteria (search, sortType, view) ---
+    const currentSortCriteria = `${searchTerm}||${sortType}||${isAdminView}`;
+    const sortCriteriaChanged = currentSortCriteria !== lastSortCriteriaRef.current;
+    const currentFilteredIds = new Set(processedKits.map(k => k.id));
+    // Alamin kung may bago o nawala na kit (hindi lang stock change)
+    const cachedIds = new Set(sortedIdOrderRef.current);
+    const hasNewKits = processedKits.some(k => !cachedIds.has(k.id));
+    const hasRemovedKits = sortedIdOrderRef.current.some(id => !currentFilteredIds.has(id));
+    const needsResort = sortCriteriaChanged || hasNewKits || hasRemovedKits || sortedIdOrderRef.current.length === 0;
+
+    if (needsResort) {
+      // Kailangan mag-sort: either nagbago ang criteria o may bago/nawala na kit
+      let sorted;
+      if (searchTerm) {
+        sorted = [...processedKits].sort((a, b) => {
+          if (a._statusOrder !== b._statusOrder) return b._statusOrder - a._statusOrder;
+          if (a._avail !== b._avail) return b._avail - a._avail;
+          return a.name.localeCompare(b.name);
+        });
+      } else if (sortType === 'latest') {
+        sorted = processedKits;
+      } else {
+        sorted = [...processedKits].sort((a, b) => {
+          if (a._statusOrder !== b._statusOrder) return b._statusOrder - a._statusOrder;
+          switch (sortType) {
+            case 'price-asc': return a._price - b._price;
+            case 'price-desc': return b._price - a._price;
+            case 'alpha-asc': return a.name.localeCompare(b.name);
+            case 'alpha-desc': return b.name.localeCompare(a.name);
+            case 'avail-asc': return a._avail - b._avail;
+            case 'avail-desc': return b._avail - a._avail;
+            default: return 0;
+          }
+        });
+      }
+      // I-cache ang bagong sorted order
+      sortedIdOrderRef.current = sorted.map(k => k.id);
+      lastSortCriteriaRef.current = currentSortCriteria;
+      return sorted;
     }
 
-    if (sortType === 'latest') return processedKits;
-
-    return processedKits.sort((a, b) => {
-      if (a._statusOrder !== b._statusOrder) return b._statusOrder - a._statusOrder;
-      switch (sortType) {
-        case 'price-asc': return a._price - b._price;
-        case 'price-desc': return b._price - a._price;
-        case 'alpha-asc': return a.name.localeCompare(b.name);
-        case 'alpha-desc': return b.name.localeCompare(a.name);
-        case 'avail-asc': return a._avail - b._avail;
-        case 'avail-desc': return b._avail - a._avail;
-        default: return 0;
-      }
-    });
+    // Hindi nagbago ang sort criteria — gamitin ang cached order para hindi mag-jump ang cards
+    const kitMap = new Map(processedKits.map(k => [k.id, k]));
+    return sortedIdOrderRef.current.map(id => kitMap.get(id)).filter(Boolean);
   }, [storeKits, isAdmin, isAdminView, searchTerm, sortType]);
 
   const visibleKits = useMemo(() => {

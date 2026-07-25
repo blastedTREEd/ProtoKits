@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Trash2, ShoppingBag, ShelvingUnit, ShoppingBasket, PackageOpen, PackagePlus } from 'lucide-react';
 import { useStore } from '../store/useStore';
@@ -198,6 +198,10 @@ export default function Basket({ isDarkMode }) {
     }
   };
 
+  // --- Stable sort: hindi mag-re-sort ang basket items kapag nagbago lang ang stock data sa real-time ---
+  const basketSortOrderRef = useRef([]);
+  const lastBasketIdsRef = useRef('');
+
   const groupedItems = useMemo(() => {
     const grouped = activeBasket.reduce((acc, item) => {
       if (item.type === 'project') {
@@ -227,14 +231,38 @@ export default function Basket({ isDarkMode }) {
       return acc;
     }, {});
     console.log("SG DEBUG: Grouped items:", Object.values(grouped));
-    return Object.values(grouped).sort((a, b) => {
-        // Find the newest creation date in each group
+    const groupEntries = Object.entries(grouped);
+
+    // Alamin kung nagbago ba ang MGA GRUPO (bago/nawala na group) — hindi lang quantity change
+    const currentGroupKeys = groupEntries.map(([key]) => key).sort().join(',');
+    const groupsChanged = currentGroupKeys !== lastBasketIdsRef.current;
+
+    if (groupsChanged || basketSortOrderRef.current.length === 0) {
+      // Mag-sort kasi may bago o nawala na group
+      const sorted = groupEntries.sort(([, a], [, b]) => {
         const getLatest = (group) => Math.max(...group.basketIds.map(id => {
             const item = activeBasket.find(i => i.basketId === id);
             return new Date(item?.createdAt || 0).getTime();
         }));
         return getLatest(b) - getLatest(a);
+      });
+      basketSortOrderRef.current = sorted.map(([key]) => key);
+      lastBasketIdsRef.current = currentGroupKeys;
+      return sorted.map(([, value]) => value);
+    }
+
+    // Hindi nagbago ang basket — gamitin ang cached sort order
+    const groupMap = new Map(groupEntries);
+    const stableResult = basketSortOrderRef.current
+      .filter(key => groupMap.has(key))
+      .map(key => groupMap.get(key));
+    // Isama ang mga bago na wala pa sa cache (safety net)
+    groupEntries.forEach(([key, value]) => {
+      if (!basketSortOrderRef.current.includes(key)) {
+        stableResult.push(value);
+      }
     });
+    return stableResult;
   }, [activeBasket, kits]);
 
   const hasVisibleBasketItems = !isLoading && groupedItems.length > 0;
