@@ -172,10 +172,7 @@ export default function Kits() {
 
 
 // --- Stable sort: hindi mag-re-sort ang cards kapag nagbago lang ang stock count sa real-time ---
-  // Ref para i-cache ang last sorted order ng kit IDs
-  const sortedIdOrderRef = useRef([]);
-  // Track ang sort criteria para malaman kung kailan kailangan mag-re-sort
-  const lastSortCriteriaRef = useRef('');
+  const [stableSortCache, setStableSortCache] = useState({ criteria: '', ids: [] });
 
   const allFilteredKits = useMemo(() => {
     if (!storeKits || !Array.isArray(storeKits)) return [];
@@ -327,13 +324,13 @@ export default function Kits() {
 
     // --- Stable sort logic: mag-re-sort lang kapag nagbago ang sort criteria (search, sortType, view) ---
     const currentSortCriteria = `${searchTerm}||${sortType}||${isAdminView}`;
-    const sortCriteriaChanged = currentSortCriteria !== lastSortCriteriaRef.current;
+    const sortCriteriaChanged = currentSortCriteria !== stableSortCache.criteria;
     const currentFilteredIds = new Set(processedKits.map(k => k.id));
     // Alamin kung may bago o nawala na kit (hindi lang stock change)
-    const cachedIds = new Set(sortedIdOrderRef.current);
+    const cachedIds = new Set(stableSortCache.ids);
     const hasNewKits = processedKits.some(k => !cachedIds.has(k.id));
-    const hasRemovedKits = sortedIdOrderRef.current.some(id => !currentFilteredIds.has(id));
-    const needsResort = sortCriteriaChanged || hasNewKits || hasRemovedKits || sortedIdOrderRef.current.length === 0;
+    const hasRemovedKits = stableSortCache.ids.some(id => !currentFilteredIds.has(id));
+    const needsResort = sortCriteriaChanged || hasNewKits || hasRemovedKits || stableSortCache.ids.length === 0;
 
     if (needsResort) {
       // Kailangan mag-sort: either nagbago ang criteria o may bago/nawala na kit
@@ -360,16 +357,26 @@ export default function Kits() {
           }
         });
       }
-      // I-cache ang bagong sorted order
-      sortedIdOrderRef.current = sorted.map(k => k.id);
-      lastSortCriteriaRef.current = currentSortCriteria;
       return sorted;
     }
 
     // Hindi nagbago ang sort criteria — gamitin ang cached order para hindi mag-jump ang cards
     const kitMap = new Map(processedKits.map(k => [k.id, k]));
-    return sortedIdOrderRef.current.map(id => kitMap.get(id)).filter(Boolean);
-  }, [storeKits, isAdmin, isAdminView, searchTerm, sortType]);
+    return stableSortCache.ids.map(id => kitMap.get(id)).filter(Boolean);
+  }, [storeKits, isAdmin, isAdminView, searchTerm, sortType, stableSortCache]);
+
+  useEffect(() => {
+    const currentSortCriteria = `${searchTerm}||${sortType}||${isAdminView}`;
+    const nextIds = allFilteredKits.map(kit => kit.id);
+    const timer = window.setTimeout(() => {
+      setStableSortCache(prev => {
+        const sameCriteria = prev.criteria === currentSortCriteria;
+        const sameIds = prev.ids.length === nextIds.length && prev.ids.every((id, index) => id === nextIds[index]);
+        return sameCriteria && sameIds ? prev : { criteria: currentSortCriteria, ids: nextIds };
+      });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [allFilteredKits, searchTerm, sortType, isAdminView]);
 
   const visibleKits = useMemo(() => {
     return allFilteredKits.slice(0, displayLimit);

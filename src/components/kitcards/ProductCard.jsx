@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  ShoppingBag, ShoppingBasket, X, Clock, Package, PackageOpen, PackageMinus, PackagePlus, PackageX, Calendar, UserCheck, Info,
+  ShoppingBag, ShoppingBasket, X, Clock, Package, ShelvingUnit, PackageMinus, PackagePlus, PackageX, Calendar, UserCheck, Info,
   ChevronRight, ChevronLeft, Truck, Pencil, Trash2, Bell, Plane, Plus, ArrowBigUpDash, Bike, Gift, Zap
   } from 'lucide-react';
 import { FaQuestion } from 'react-icons/fa';
@@ -154,6 +154,16 @@ function stockMatchesDealSource(stock, source = 'onhand') {
 function isOnHandStock(stock) {
   const status = String(stock?.status || '').toLowerCase().trim();
   return status === 'onhand' || status === 'on hand';
+}
+
+function getAvailabilityGroupLabel(stock) {
+  return isOnHandStock(stock) ? 'ONHAND' : (stock?.eta || 'TBA').toUpperCase();
+}
+
+function getAvailabilityGroupKey(prefix, stock) {
+  const stockType = isOnHandStock(stock) ? 'onhand' : 'preorder';
+  const etaKey = (stock?.eta || 'TBA').toString().trim().toLowerCase().replace(/\s+/g, '-');
+  return `${prefix}-${stockType}-${etaKey}`;
 }
 
 function isBundlePurchasableStock(stock, source = 'onhand') {
@@ -409,12 +419,13 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
 
     publicReleasableStocks.forEach(s => {
       const isOnHand = isOnHandStock(s);
-      const label = isOnHand ? 'ONHAND' : (isAdminView ? 'PRE-ORDER' : `${s.eta || 'TBA'}`);
+      const label = getAvailabilityGroupLabel(s);
+      const key = getAvailabilityGroupKey('availability', s);
       
-      if (!groups[label]) {
-        groups[label] = { key: `availability-${label}`, label, items: [], isOnHand, eta: s.eta, tag: 'availability' };
+      if (!groups[key]) {
+        groups[key] = { key, label, items: [], isOnHand, eta: s.eta, tag: 'availability' };
       }
-      groups[label].items.push(s);
+      groups[key].items.push(s);
     });
     
     return Object.values(groups).sort((a, b) => {
@@ -423,7 +434,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
       // If both are onhand, or both have ETAs, sort by ETA
       return parseEta(a.eta) - parseEta(b.eta);
     });
-  }, [publicReleasableStocks, isAdminView]);
+  }, [publicReleasableStocks]);
 
   const availableCount = useMemo(() => {
     return visibleStocks.length;
@@ -486,12 +497,16 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
     const groups = {};
     collectionStocks.forEach(s => {
       const isOnHand = isOnHandStock(s);
-      const label = isOnHand ? 'ONHAND' : 'PRE-ORDER';
-      const key = `collection-${isOnHand ? 'onhand' : 'preorder'}`;
+      const label = getAvailabilityGroupLabel(s);
+      const key = getAvailabilityGroupKey('collection', s);
       if (!groups[key]) groups[key] = { key, label, items: [], isOnHand, eta: s.eta, tag: 'collection' };
       groups[key].items.push(s);
     });
-    return Object.values(groups);
+    return Object.values(groups).sort((a, b) => {
+      if (a.isOnHand && !b.isOnHand) return -1;
+      if (!a.isOnHand && b.isOnHand) return 1;
+      return String(a.eta || '').localeCompare(String(b.eta || ''));
+    });
   }, [isCollectionOnly, isAdmin, isAdminView, collectionStocks]);
 
   const bundleOnlyDeals = useMemo(() => {
@@ -519,38 +534,46 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
         ...(deal.kitIds || []).filter(id => !(deal.previewKitIds || []).includes(id))
       ];
       const includedKits = orderedKitIds.map(id => id === kitId ? kit : (allKits || []).find(k => k.id === id)).filter(Boolean);
+      const currentKitStock = stockList.find(stock => isBundlePurchasableStock(stock, deal.stockSource || 'onhand')) || null;
       const currentItemPrice = deal.kitDiscounts?.[kitId]?.finalPrice ?? getBundleKitPrice(deal, kit, allKits, exclusiveDiscountPercent);
       const bundlePrice = Number(deal.bundlePrice ?? Math.max(0, Number(deal.totalSell || 0) - Number(deal.discountAmount || 0)));
-      return { deal, includedKits, currentItemPrice, bundlePrice };
+      return { deal, includedKits, currentKitStock, currentItemPrice, bundlePrice };
     }).filter(detail => Number.isFinite(Number(detail.currentItemPrice)) && Number(detail.currentItemPrice) > 0);
-  }, [bundleOnlyDeals, allKits, kitId, kit, exclusiveDiscountPercent]);
+  }, [bundleOnlyDeals, allKits, kitId, kit, stockList, exclusiveDiscountPercent]);
 
   const bundleDealGroups = useMemo(() => {
-    if (bundleDealDetails.length === 0) return [];
+    if (isAdminView || bundleDealDetails.length === 0) return [];
     return bundleDealDetails.map(detail => ({
       key: `bundle-deal-${detail.deal.id}`,
       label: 'BUNDLE DEAL',
-      items: [{ ...detail.deal, status: 'bundle_deal', sellPrice: detail.currentItemPrice }],
+      items: [detail.currentKitStock || { ...detail.deal, status: 'bundle_deal', sellPrice: detail.currentItemPrice }],
       isOnHand: true,
       tag: 'bundleDeal',
       deal: detail.deal,
       dealDetails: detail
     }));
-  }, [bundleDealDetails]);
+  }, [bundleDealDetails, isAdminView]);
 
   const availabilityGroups = useMemo(() => {
-    const stockGroups = (isAdmin && isAdminView)
-      ? [...groupedVariants, ...collectionGroupedVariants]
+    const stockGroups = isAdmin && isAdminView
+      ? groupedVariants
       : (isCollectionOnly ? collectionGroupedVariants : groupedVariants);
     return [...stockGroups, ...bundleDealGroups];
   }, [isAdmin, isAdminView, groupedVariants, collectionGroupedVariants, isCollectionOnly, bundleDealGroups]);
 
+  const selectableAvailabilityGroups = useMemo(() => {
+    return isAdmin && isAdminView
+      ? [...availabilityGroups, ...collectionGroupedVariants]
+      : availabilityGroups;
+  }, [isAdmin, isAdminView, availabilityGroups, collectionGroupedVariants]);
+
   const selectedAvailabilityGroup = useMemo(() => {
-    return availabilityGroups.find(group => group.key === selectedGroupLabel) || null;
-  }, [availabilityGroups, selectedGroupLabel]);
+    return selectableAvailabilityGroups.find(group => group.key === selectedGroupLabel) || null;
+  }, [selectableAvailabilityGroups, selectedGroupLabel]);
 
   const isSelectedCollectionGroup = selectedAvailabilityGroup?.tag === 'collection';
   const selectedBundleDealDetails = selectedAvailabilityGroup?.dealDetails || null;
+  const conditionDetailsStock = selectedBundleDealDetails?.currentKitStock || selectedStock;
   const selectedShelfItem = useMemo(() => {
     if (!isSelectedCollectionGroup || !selectedStock) return null;
     return (shelf || []).find(item => item.id === kitId && item.stockKey === selectedStock.key) || null;
@@ -784,8 +807,8 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
     setToastMessage(null);
     setGalleryIndex(0);
     lastManualActionTime.current = Date.now();
-    if (availabilityGroups.length > 0) {
-        handleSelectGroup(availabilityGroups[0]);
+    if (selectableAvailabilityGroups.length > 0) {
+        handleSelectGroup(selectableAvailabilityGroups[0]);
     }
     setIsProfileOpen(true);
   };
@@ -992,10 +1015,65 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
   if (!kit) return null;
   const buyLabel = getBuyLabel();
   const isNotifyState = buyLabel === 'NOTIFY ME' && !isAdminView && !isPendingRelease && availableCount === 0;
+  const gridUnavailableLabel = isCollectionOnly ? "MAKE AN OFFER!" : hasReserved ? "LET'S DEAL!" : "NOTIFY ME!";
+  const gridUnavailableClass = hasReserved ? 'text-blue-500' : 'text-red-500';
   const modalLowestPrice = Number(selectedBundleDealDetails?.currentItemPrice || sellPrice || 0);
   const modalReferencePrice = selectedBundleDealDetails ? Number(lowestPrice || 0) : displayPrice;
   const activeBundleDeal = selectedBundleDealDetails?.deal || exclusiveBundleDeal;
   const activeBundleItemPrice = Number(selectedBundleDealDetails?.currentItemPrice || exclusiveBundlePrice || 0);
+  const isPublicOfferMode = !isAdminView && (isCollectionOnly || isSelectedCollectionGroup || isNotifyState);
+  const showPublicModalPrice = !isAdminView && !isPublicOfferMode;
+  const renderAvailabilityGroupButton = (group) => {
+    const isSelected = selectedGroupLabel === (group.key || group.label);
+    const availableCountInGroup = group.items.filter(s => !s.isReserved && !s.order?.orderId).length;
+    const isCollectionGroup = group.tag === 'collection';
+    const isBundleDealGroup = group.tag === 'bundleDeal';
+    const isFullyReserved = !isCollectionGroup && availableCountInGroup === 0;
+
+    return (
+      <button 
+        key={group.key || group.label} 
+        onClick={() => handleSelectGroup(group)} 
+        className={`relative px-4 py-2.5 rounded-xl border text-[13px] font-black uppercase tracking-[0.05em] transition-all flex items-center gap-2
+          ${isSelected 
+            ? isCollectionGroup
+              ? 'bg-red-500 border-red-500 text-white shadow-lg shadow-red-500/20'
+              : isBundleDealGroup
+                ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-600/20'
+              : 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-600/20' 
+            : isCollectionGroup
+              ? 'bg-red-500/10 border-red-500/30 text-red-500 hover:border-red-500/60'
+              : isBundleDealGroup
+                ? 'bg-emerald-600/10 border-emerald-600/30 text-emerald-600 hover:border-emerald-600/60'
+                : 'bg-black/5 dark:bg-white/5 border-black/5 dark:border-white/10 hover:border-blue-600/50'
+          } 
+          ${isFullyReserved && !isSelected ? 'opacity-50' : ''}
+        `}
+      >
+        {!isCollectionGroup && !isBundleDealGroup && group.items.some(item => {
+            const isEligible = item.isFreeShippingEligible;
+            const until = item.freeShippingUntil;
+            if (!isEligible) return false;
+            if (!until) return true;
+            return Date.now() < new Date(until).getTime();
+        }) && (
+          <span className="absolute -top-3 w-[80%] -right-3  tracking-[0.15em] font-black uppercase italic bg-emerald-500 text-white text-[11.5px] px-0.5 py-0.5 rounded-md font-bold shadow uppercase backdrop-blur-sm">
+            FREE SHIPPING 
+          </span>
+        )}
+
+        {isBundleDealGroup ? <Gift size={18}/> : group.isOnHand ? <Package size={18}/> : <Plane size={18}/>}
+
+        {group.label}
+
+        <span className={`ml-1 px-1.5 py-0.5 rounded-md text-[8px] ${
+          isSelected ? 'bg-white/20' : isCollectionGroup ? 'bg-red-500/10 text-red-500' : isBundleDealGroup ? 'bg-emerald-600/10 text-emerald-600' : 'bg-blue-600/10 text-blue-600'
+        }`}>
+          {isBundleDealGroup ? (group.deal?.kitIds || []).length : group.items.length}
+        </span>
+      </button>
+    );
+  };
   
   // Triggering re-parse to clear phantom syntax errors.
   return (
@@ -1091,8 +1169,8 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                               </span>
                             </>
                           ) : (
-                            <span className={`text-[15px] lg:text-[12px] font-black tracking-tighter leading-none ${hasBundleExclusiveDeal ? 'text-emerald-500' : hasReserved ? 'text-blue-500' : 'text-red-500'}`}>
-                                {hasBundleExclusiveDeal ? "BUNDLE EXCLUSIVE" : hasReserved ? "LET'S DEAL!" : "NOTIFY ME!"}
+                            <span className={`text-[15px] lg:text-[12px] font-black tracking-tighter leading-none ${hasBundleExclusiveDeal ? 'text-emerald-500' : gridUnavailableClass}`}>
+                                {hasBundleExclusiveDeal ? "BUNDLE EXCLUSIVE" : gridUnavailableLabel}
                             </span>
                           )}
                         </>
@@ -1193,10 +1271,10 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                     </div>
 
                     <div className="space-y-2 px-8">
-                      {(availableCount > 0 || isAdminView || isCollectionOnly) && (
+                      {(showPublicModalPrice || isAdminView) && (
                           <div className="lg:hidden sm:hidden md:flex flex-col gap-0.5">
                             <div className="flex flex-col gap-1">
-                              {!isAdminView && (
+                              {showPublicModalPrice && (
                                <div className="flex items-center gap-2">
                                   <p className="text-[28px] sm:text-5xl font-black italic tracking-tighter leading-none text-blue-600 flex ">
                                     ₱{modalLowestPrice.toLocaleString()}
@@ -1242,10 +1320,10 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                           </React.Fragment>
                         ))}
                       </div>
-                      {(availableCount > 0 || isAdminView || isCollectionOnly) && (
+                      {(showPublicModalPrice || isAdminView) && (
                           <div className="hidden sm:flex md:hidden lg:flex flex-col gap-0.5 pt-2">
                             <div className="flex gap-3">
-                              {!isAdminView && (
+                              {showPublicModalPrice && (
                                 <div className="flex gap-3">
                                   <p className="text-[28px] lg:text-[40px] font-black italic tracking-tighter leading-none text-blue-600 flex ">
                                     ₱{modalLowestPrice.toLocaleString()}
@@ -1286,8 +1364,8 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                     <div className="space-y-2 px-8">
                       <p className="text-[12px] font-black uppercase tracking-[0.1em] opacity-30 flex items-center gap-2 text-left"><Package size={18} /> Condition Details</p>
                       <div className="flex flex-wrap gap-1.5">
-                        {selectedStock && getConditionDetails(selectedStock).length > 0 ? (
-                          getConditionDetails(selectedStock).map((detail, i) => {
+                        {conditionDetailsStock && getConditionDetails(conditionDetailsStock).length > 0 ? (
+                          getConditionDetails(conditionDetailsStock).map((detail, i) => {
                               let colorClass = "bg-blue-500/10 text-blue-500 border-blue-500/20";
                               if (detail.value.includes("Pristine") || detail.value.includes("Built") || detail.value.includes("Complete")) colorClass = "bg-emerald-500/10 text-emerald-500 border-emerald-500/20";
                               if (detail.value.includes("Dented") || detail.value.includes("Opened") || detail.value.includes("Incomplete") || detail.value.includes("Mark")) colorClass = "bg-amber-500/10 text-amber-400 border-amber-400/60";
@@ -1298,7 +1376,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                         )}
                       </div>
                       {/* 🌟 2. RE-CHECK MO KUNG GANITO ANG NAKALAGAY SA MAIN MODAL AREA 🌟 */}
-                      {(selectedStock?.issueDescription || visibleStocks[0]?.issueDescription) && (
+                      {(conditionDetailsStock?.issueDescription || visibleStocks[0]?.issueDescription) && (
   <div className="mt-2 flex items-center gap-1.5 w-fit px-2.5 py-2 rounded-lg border shadow-sm bg-amber-500/10 text-amber-500 border-amber-500/20 dark:border-amber-400/60 text-[12px] font-black uppercase tracking-[0.05em]">
     <div className="flex-none text-amber-500">
       <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
@@ -1307,7 +1385,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
     </div>
     <span className="leading-none">
       {/* <span className="underline mr-1">TAKE NOTE:</span> */}
-      {selectedStock?.issueDescription || visibleStocks[0]?.issueDescription}
+      {conditionDetailsStock?.issueDescription || visibleStocks[0]?.issueDescription}
     </span>
   </div>
 )}
@@ -1315,95 +1393,53 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                     <div className="space-y-4 px-8 pb-12">
                       <h4 className="text-[12px] font-black uppercase tracking-[0.1em] opacity-30 flex items-center gap-2 text-left"><Bike size={20} /> AVAILABILITY</h4>
                       <div className="flex flex-wrap gap-2">
-                        {availabilityGroups.length > 0 ? availabilityGroups.map((group) => {
-                          const isSelected = selectedGroupLabel === (group.key || group.label);
-                          const availableCountInGroup = group.items.filter(s => !s.isReserved && !s.order?.orderId).length;
-                          const isCollectionGroup = group.tag === 'collection';
-                          const isBundleDealGroup = group.tag === 'bundleDeal';
-                          const isFullyReserved = !isCollectionGroup && availableCountInGroup === 0;
-
-                          return (
-                            <button 
-                              key={group.key || group.label} 
-                              onClick={() => handleSelectGroup(group)} 
-                              className={`relative px-4 py-2.5 rounded-xl border text-[13px] font-black uppercase tracking-[0.05em] transition-all flex items-center gap-2
-                                ${isSelected 
-                                  ? isCollectionGroup
-                                    ? 'bg-red-500 border-red-500 text-white shadow-lg shadow-red-500/20'
-                                    : isBundleDealGroup
-                                      ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-600/20'
-                                    : 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-600/20' 
-                                  : isCollectionGroup
-                                    ? 'bg-red-500/10 border-red-500/30 text-red-500 hover:border-red-500/60'
-                                    : isBundleDealGroup
-                                      ? 'bg-emerald-600/10 border-emerald-600/30 text-emerald-600 hover:border-emerald-600/60'
-                                      : 'bg-black/5 dark:bg-white/5 border-black/5 dark:border-white/10 hover:border-blue-600/50'
-                                } 
-                                ${isFullyReserved && !isSelected ? 'opacity-50' : ''}
-                              `}
-                            >
-                              {/* FREE badge */}
-                              {!isCollectionGroup && !isBundleDealGroup && group.items.some(item => {
-                                  const isEligible = item.isFreeShippingEligible;
-                                  const until = item.freeShippingUntil;
-                                  if (!isEligible) return false;
-                                  if (!until) return true;
-                                  return Date.now() < new Date(until).getTime();
-                              }) && (
-                                <span className="absolute -top-3 w-[80%] -right-3  tracking-[0.15em] font-black uppercase italic bg-emerald-500 text-white text-[11.5px] px-0.5 py-0.5 rounded-md font-bold shadow uppercase backdrop-blur-sm">
-                                  FREE SHIPPING 
-                                </span>
-                              )}
-
-                              {isBundleDealGroup ? <Gift size={18}/> : group.isOnHand ? <Package size={18}/> : <Plane size={18}/>}
-
-                              {group.label}
-
-                              <span className={`ml-1 px-1.5 py-0.5 rounded-md text-[8px] ${
-                                isSelected ? 'bg-white/20' : isCollectionGroup ? 'bg-red-500/10 text-red-500' : isBundleDealGroup ? 'bg-emerald-600/10 text-emerald-600' : 'bg-blue-600/10 text-blue-600'
-                              }`}>
-                                {isBundleDealGroup ? (group.deal?.kitIds || []).length : group.items.length}
-                              </span>
-                            </button>
-                          );
-                        }) : <span className="text-[11px] font-black uppercase px-2.5 py-1 rounded-lg bg-neutral-500/10 text-neutral-500 border border-neutral-500/20">No Info</span>}
+                        {availabilityGroups.length > 0 ? availabilityGroups.map(renderAvailabilityGroupButton) : <span className="text-[11px] font-black uppercase px-2.5 py-1 rounded-lg bg-neutral-500/10 text-neutral-500 border border-neutral-500/20">No Info</span>}
                       </div>
 
-                      <div className="pt-4 space-y-2">
-                        <h4 className="text-[12px] font-black uppercase tracking-[0.1em] opacity-30 flex items-center gap-2 text-left">
-                          <Gift size={18} /> DEALS
-                        </h4>
-                        <div className="space-y-2">
-                          {bundleDealDetails.length > 0 ? bundleDealDetails.map(({ deal, includedKits, bundlePrice }) => (
-                            <div key={deal.id} className="flex items-center justify-between gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3">
-                              <div className="min-w-0 flex-1 text-left">
-                                <p className="truncate text-[12px] font-black uppercase italic leading-tight text-emerald-500">{deal.name}</p>
-                                <p className="mt-1 text-[9px] font-black uppercase tracking-widest opacity-50">
-                                  Bundle Deal / {getDealCountdownLabel(deal.validUntil)}
-                                </p>
-                                <div className="mt-2 flex -space-x-2 overflow-hidden">
-                                  {includedKits.slice(0, 6).map(includedKit => (
-                                    <img
-                                      key={includedKit.id}
-                                      src={resolveImage(includedKit.image, includedKit.images)}
-                                      className="h-8 w-8 rounded-full border-2 border-white bg-white object-cover dark:border-neutral-900"
-                                      alt=""
-                                    />
-                                  ))}
+                      {isAdmin && isAdminView && collectionGroupedVariants.length > 0 && (
+                        <div className="pt-4 space-y-2">
+                          <h4 className="text-[12px] font-black uppercase tracking-[0.1em] opacity-30 flex items-center gap-2 text-left">
+                            <ShelvingUnit size={18} /> COLLECTION
+                          </h4>
+                          <div className="flex flex-wrap gap-2">
+                            {collectionGroupedVariants.map(renderAvailabilityGroupButton)}
+                          </div>
+                        </div>
+                      )}
+
+                      {!isAdminView && bundleDealDetails.length > 0 && (
+                        <div className="pt-4 space-y-2">
+                          <h4 className="text-[12px] font-black uppercase tracking-[0.1em] opacity-30 flex items-center gap-2 text-left">
+                            <Gift size={18} /> DEALS
+                          </h4>
+                          <div className="space-y-2">
+                            {bundleDealDetails.map(({ deal, includedKits, bundlePrice }) => (
+                              <div key={deal.id} className="flex items-center justify-between gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3">
+                                <div className="min-w-0 flex-1 text-left">
+                                  <p className="truncate text-[12px] font-black uppercase italic leading-tight text-emerald-500">{deal.name}</p>
+                                  <p className="mt-1 text-[9px] font-black uppercase tracking-widest opacity-50">
+                                    Bundle Deal / {getDealCountdownLabel(deal.validUntil)}
+                                  </p>
+                                  <div className="mt-2 flex -space-x-2 overflow-hidden">
+                                    {includedKits.slice(0, 6).map(includedKit => (
+                                      <img
+                                        key={includedKit.id}
+                                        src={resolveImage(includedKit.image, includedKit.images)}
+                                        className="h-8 w-8 rounded-full border-2 border-white bg-white object-cover dark:border-neutral-900"
+                                        alt=""
+                                      />
+                                    ))}
+                                  </div>
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <p className="text-[13px] font-black italic text-amber-500">&#8369;{bundlePrice.toLocaleString()}</p>
+                                  <p className="text-[8px] font-black uppercase opacity-40">{(deal.kitIds || []).length} Kits</p>
                                 </div>
                               </div>
-                              <div className="text-right shrink-0">
-                                <p className="text-[13px] font-black italic text-amber-500">&#8369;{bundlePrice.toLocaleString()}</p>
-                                <p className="text-[8px] font-black uppercase opacity-40">{(deal.kitIds || []).length} Kits</p>
-                              </div>
-                            </div>
-                          )) : (
-                            <span className="inline-flex w-fit text-[11px] font-black uppercase px-2.5 py-1 rounded-lg bg-neutral-500/10 text-neutral-500 border border-neutral-500/20">
-                              Not Available
-                            </span>
-                          )}
+                            ))}
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                   </div>
 
