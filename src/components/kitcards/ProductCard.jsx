@@ -1015,7 +1015,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
   if (!kit) return null;
   const buyLabel = getBuyLabel();
   const isNotifyState = buyLabel === 'NOTIFY ME' && !isAdminView && !isPendingRelease && availableCount === 0;
-  const gridUnavailableLabel = isCollectionOnly ? "MAKE AN OFFER!" : hasReserved ? "LET'S DEAL!" : "NOTIFY ME!";
+  const gridUnavailableLabel = isCollectionOnly ? "SEND OFFER!" : hasReserved ? "LET'S DEAL!" : "NOTIFY ME!";
   const gridUnavailableClass = hasReserved ? 'text-blue-500' : 'text-red-500';
   const modalLowestPrice = Number(selectedBundleDealDetails?.currentItemPrice || sellPrice || 0);
   const modalReferencePrice = selectedBundleDealDetails ? Number(lowestPrice || 0) : displayPrice;
@@ -1125,7 +1125,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                   )}
                </div>
           <div className="p-3 flex flex-col h-full">
-            <div className="relative aspect-square rounded-2xl overflow-hidden mb-1 bg-[var(--color-bg)] shrink-0 z-0">
+            <div className="relative aspect-square rounded-2xl overflow-hidden mb-3 bg-[var(--color-bg)] shrink-0 z-0">
               <div className="absolute inset-0 w-full h-full bg-white dark:bg-[var(--color-surface)] overflow-hidden rounded-2xl">
                  <img src={resolveImage(kit.image, kit?.images) || null} alt={kit.name} loading="lazy" className="w-full h-full object-cover transition-transform duration-700 lg:group-hover:scale-110 transform-gpu" />
                  <div className="absolute top-2 right-2 z-20">
@@ -1169,7 +1169,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                               </span>
                             </>
                           ) : (
-                            <span className={`text-[15px] lg:text-[12px] font-black tracking-tighter leading-none ${hasBundleExclusiveDeal ? 'text-emerald-500' : gridUnavailableClass}`}>
+                            <span className={`text-[13px] font-black tracking-tighter leading-none ${hasBundleExclusiveDeal ? 'text-emerald-500' : gridUnavailableClass}`}>
                                 {hasBundleExclusiveDeal ? "BUNDLE EXCLUSIVE" : gridUnavailableLabel}
                             </span>
                           )}
