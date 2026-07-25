@@ -645,7 +645,7 @@ export default function Kits() {
             <div className="grid grid-cols-2 sm:grid-cols-4 sm:portrait:grid-cols-3 md:grid-cols-4 md:portrait:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-3 items-start justify-items-center">
               {isAdmin && isAdminView && (
                 <div className="w-full h-full p-0">
-                  <div className="grid gap-4 h-full w-full grid-cols-2 grid-rows-2">
+                  <div className="grid gap-2 h-full w-full grid-cols-2 grid-rows-2">
                     <button onClick={() => setIsAddKitModalOpen(true)} className="flex flex-col items-center justify-center p-6 h-full bg-blue-600/10 dark:bg-blue-600/20 border-2 border-dashed border-blue-600/20 dark:border-blue-500/40 hover:border-blue-600/50 rounded-[2.1rem] transition-all group">
                       <div className="relative flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-tr from-blue-600 to-cyan-400 text-white shadow-xl shadow-blue-600/20 mb-2">
                         <Plus size={24} className="group-hover:rotate-12 transition-transform" />

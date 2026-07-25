@@ -39,22 +39,50 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow }) {
     const exclusiveKitIds = deal?.exclusiveKitIds || [];
     const pct = exclusiveDiscountPercent / 100;
 
-    let nTotal = 0;
-    let exclusiveRefTotal = 0;
-    let standardRefTotal = 0;
+    const {
+  refPrices,
+  nTotal,
+  exclusiveRefTotal,
+  standardRefTotal,
+} = includedKits.reduce(
+  (acc, kit) => {
+    const stocks = Object.values(kit.stocks || {});
+    const sourceStock = stocks.find(stock =>
+      stockMatchesDealSource(stock, deal?.stockSource || 'onhand')
+    );
 
-    const refPrices = includedKits.map(kit => {
-      const stocks = Object.values(kit.stocks || {});
-      const sourceStock = stocks.find(stock => stockMatchesDealSource(stock, deal?.stockSource || 'onhand'));
-      const refPrice = Number(sourceStock?.sellPrice || stocks[0]?.sellPrice || kit.sellPrice || 0);
-      nTotal += refPrice;
-      if (exclusiveKitIds.includes(kit.id)) {
-        exclusiveRefTotal += refPrice;
-      } else {
-        standardRefTotal += refPrice;
-      }
-      return { kitId: kit.id, refPrice, isExclusive: exclusiveKitIds.includes(kit.id) };
+    const refPrice = Number(
+      sourceStock?.sellPrice ||
+      stocks[0]?.sellPrice ||
+      kit.sellPrice ||
+      0
+    );
+
+    const isExclusive = exclusiveKitIds.includes(kit.id);
+
+    acc.nTotal += refPrice;
+
+    if (isExclusive) {
+      acc.exclusiveRefTotal += refPrice;
+    } else {
+      acc.standardRefTotal += refPrice;
+    }
+
+    acc.refPrices.push({
+      kitId: kit.id,
+      refPrice,
+      isExclusive,
     });
+
+    return acc;
+  },
+  {
+    refPrices: [],
+    nTotal: 0,
+    exclusiveRefTotal: 0,
+    standardRefTotal: 0,
+  }
+);
 
     const bPrice = deal?.bundlePrice || 0;
     const totalDiscount = nTotal > bPrice ? nTotal - bPrice : 0;
@@ -187,7 +215,7 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow }) {
            <div className="flex flex-row items-center justify-between gap-4 w-full">
               <div className="text-left">
                  <span className="text-[8px] md:text-[10px] font-black uppercase tracking-widest opacity-40 block mb-0.5 leading-none">Promo Price</span>
-                 <span className="text-xl md:text-3xl font-black italic text-emerald-500 tracking-tighter leading-none">₱{deal.bundlePrice?.toLocaleString()}</span>
+                 <span className="text-xl md:text-3xl font-black italic text-emerald-500 tracking-tighter leading-none">₱{bundlePrice.toLocaleString()}</span>
               </div>
               
               <button 
