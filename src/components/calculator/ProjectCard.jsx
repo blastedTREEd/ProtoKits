@@ -732,7 +732,7 @@ export default function ProjectCard({
                               />
                             ) : (
                               <h2 
-                                className="text-xl sm:text-4xl font-black uppercase italic leading-none truncate cursor-pointer hover:text-blue-500 transition-colors"
+                                className="text-[13px] font-black uppercase italic leading-none truncate cursor-pointer hover:text-blue-500 transition-colors"
                                 onClick={(e) => { e.stopPropagation(); setIsEditingName(true); }}
                               >
                                 {projectNameLocal || 'Unnamed Project'}

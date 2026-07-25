@@ -1140,13 +1140,13 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
 
             <div className="px-1 text-center flex-1 flex flex-col min-w-0">
                 <div className="h-[2em] flex items-center justify-center min-w-0">
-                  <h3 className="text-[12px] lg:text-[13px] font-bold uppercase tracking-tighter leading-tight line-clamp-2 w-full group-hover:text-blue-600 transition-colors">{kit.name}</h3>
+                  <h3 className="text-[13px] font-bold uppercase tracking-tighter leading-tight line-clamp-2 w-full group-hover:text-blue-600 transition-colors">{kit.name}</h3>
                 </div>
             <div className="mt-auto min-w-0 min-h-[50px] flex flex-col justify-end">
                 <div className="flex items-center justify-between gap-2 min-w-0 w-full">
                   <div className="flex items-center justify-between gap-2 min-w-0 w-full">
                   <div className="flex flex-col items-start pb-1 min-w-0 flex-1 text-left">
-                    <span className="text-[13px] md:text-[15px] lg:text-[13px] font-black uppercase tracking-tighter truncate w-full block max-w-[120px] md:max-w-none">{kit.brand || 'NO BRAND'}</span>
+                    <span className="text-[13px] md:text-[15px] md:text-[15px] lg:text-[13px] font-black uppercase tracking-tighter truncate w-full block max-w-[120px] md:max-w-none">{kit.brand || 'NO BRAND'}</span>
                     <div className="flex items-baseline gap-1 w-full min-w-0">
                       {!isAdminView && (
                         <>
