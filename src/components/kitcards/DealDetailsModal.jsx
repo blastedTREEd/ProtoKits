@@ -104,6 +104,37 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow }) {
     return { normalTotal: nTotal, bundlePrice: bPrice, savings: nTotal > bPrice ? nTotal - bPrice : 0, kitPricing: pricing };
   }, [includedKits, deal, exclusiveDiscountPercent]);
 
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    const stateKey = `deal-details-modal-${Date.now()}`;
+    window.history.pushState({ modalKey: stateKey }, '');
+
+    const handlePopState = () => {
+      onClose();
+    };
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('keydown', handleKeyDown);
+      
+      // Check if history state still matches before calling back()
+      if (window.history.state?.modalKey === stateKey) {
+        window.history.back();
+      }
+    };
+  }, [isOpen, onClose]);
+  
   useEffect(() => {
     if (!isOpen) return undefined;
 

@@ -703,7 +703,7 @@ export default function Kits() {
                         </div>
                       </div>
                       <div className="relative aspect-square rounded-2xl overflow-hidden mb-3 bg-white dark:bg-[var(--color-surface)] shrink-0">
-                          <div className="grid gap-2 h-full w-full grid-cols-2 grid-rows-2">
+                          <div className="grid gap-1.5 h-full w-full grid-cols-2 grid-rows-2">
                             {previewKits.length > 0 ? previewKits.map((kit, idx) => (
                               <div key={kit?.id || idx} className={`relative w-full h-full rounded-xl overflow-hidden ${getPreviewTileClass(previewKits.length, idx)}`}>
                                 <img src={(() => { const id = kit?.image; if (!id) return ''; if (id.startsWith('data:') || id.startsWith('http')) return id; const match = (kit?.images || []).find(img => img.id === id); return match?.url || id; })()} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt="" />

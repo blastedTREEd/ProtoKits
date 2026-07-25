@@ -1015,7 +1015,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
   if (!kit) return null;
   const buyLabel = getBuyLabel();
   const isNotifyState = buyLabel === 'NOTIFY ME' && !isAdminView && !isPendingRelease && availableCount === 0;
-  const gridUnavailableLabel = isCollectionOnly ? "SEND OFFER!" : hasReserved ? "LET'S DEAL!" : "NOTIFY ME!";
+  const gridUnavailableLabel = isCollectionOnly ? "MAKE AN OFFER!" : hasReserved ? "LET'S DEAL!" : "NOTIFY ME!";
   const gridUnavailableClass = hasReserved ? 'text-blue-500' : 'text-red-500';
   const modalLowestPrice = Number(selectedBundleDealDetails?.currentItemPrice || sellPrice || 0);
   const modalReferencePrice = selectedBundleDealDetails ? Number(lowestPrice || 0) : displayPrice;
@@ -1169,7 +1169,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                               </span>
                             </>
                           ) : (
-                            <span className={`text-[13px] font-black tracking-tighter leading-none ${hasBundleExclusiveDeal ? 'text-emerald-500' : gridUnavailableClass}`}>
+                            <span className={`text-[15px] lg:text-[12px] font-black tracking-tighter leading-none ${hasBundleExclusiveDeal ? 'text-emerald-500' : gridUnavailableClass}`}>
                                 {hasBundleExclusiveDeal ? "BUNDLE EXCLUSIVE" : gridUnavailableLabel}
                             </span>
                           )}
