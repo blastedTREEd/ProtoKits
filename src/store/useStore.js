@@ -166,13 +166,14 @@ export const useStore = create(
 
       // Helper: determines which datasets a given pathname needs
       _getPageRequirements: (pathname) => {
+        const { isAdmin, isAdminView } = get();
         return {
           stories: pathname === '/' || pathname === '',
           kits: pathname.startsWith('/kits'),
           deals: pathname.startsWith('/kits'),
           orders: pathname === '/orders',
           basket: pathname === '/basket' || pathname === '/shelf',
-          shelf: pathname === '/basket' || pathname === '/shelf',
+          shelf: (pathname === '/shelf' && isAdmin) || (pathname === '/basket' && isAdmin && isAdminView),
           prints: pathname === '/prints' || pathname === '/blueprints'
         };
       },
@@ -195,7 +196,8 @@ export const useStore = create(
         if (req.shelf && !ds.shelf) { set({ isLoading: true }); return; }
         if (req.prints && !ds.prints) { set({ isLoading: true }); return; }
 
-        // All requirements met, don't re-show loading
+        set({ isLoading: false });
+        get().startBackgroundListeners();
       },
 
       markLoaded: (key) => {
@@ -286,7 +288,7 @@ export const useStore = create(
         }
 
         // 4. Shelf (if not already prioritized)
-        if (!ds.shelf) {
+        if (!ds.shelf && get().isAdmin) {
           const unsub = onSnapshot(collection(db, "shelf"), (snap) => {
             const items = snap.docs.map(doc => ({ basketId: doc.id, ...doc.data() }));
             set({ shelf: items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()) });
@@ -335,10 +337,12 @@ export const useStore = create(
           unsubs.push(unsubDeals);
         }
 
-        const unsubAdmins = onSnapshot(collection(db, "admins"), (snap) => {
-          set({ adminsList: docsToArray(snap) });
-        }, () => set({ adminsList: [] }));
-        unsubs.push(unsubAdmins);
+        if (auth.currentUser || get().isAdmin) {
+          const unsubAdmins = onSnapshot(collection(db, "admins"), (snap) => {
+            set({ adminsList: docsToArray(snap) });
+          }, () => set({ adminsList: [] }));
+          unsubs.push(unsubAdmins);
+        }
 
         set((state) => ({
           _bgUnsubs: [...state._bgUnsubs, ...unsubs]
@@ -1273,21 +1277,71 @@ export const useStore = create(
         if (!notifyId || Number.isNaN(price) || price <= 0) {
           throw new Error('Invalid offer price');
         }
-        await setDoc(doc(db, "hunts", notifyId), { targetPrice: price }, { merge: true });
+        const expiresAt = new Date(Date.now() + (14 * 24 * 60 * 60 * 1000)).toISOString();
+        await setDoc(doc(db, "hunts", notifyId), {
+          targetPrice: price,
+          status: 'pending',
+          expiresAt,
+          updatedAt: serverTimestamp(),
+          declinedAt: deleteField(),
+          declinedBy: deleteField()
+        }, { merge: true });
+      },
+
+      declineOffer: async (notifyId) => {
+        const { user } = get();
+        if (!notifyId) return;
+        await setDoc(doc(db, "hunts", notifyId), {
+          status: 'declined',
+          declinedAt: serverTimestamp(),
+          declinedBy: user?.uid || 'admin',
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      },
+
+      releaseOffer: async (offer) => {
+        const { shelf, updateStockPrice, removeFromBasket, user } = get();
+        if (!offer?.id || !offer?.kitId) return;
+        const shelfItem = (shelf || []).find(s => s.id === offer.kitId);
+        if (shelfItem) {
+          await updateStockPrice(offer.kitId, shelfItem.stockKey, offer.targetPrice);
+          await removeFromBasket(shelfItem.basketId);
+        }
+        await setDoc(doc(db, "hunts", offer.id), {
+          status: 'released',
+          releasedAt: serverTimestamp(),
+          releasedBy: user?.uid || 'admin',
+          updatedAt: serverTimestamp()
+        }, { merge: true });
       },
 
       huntKit: async (kit, targetPrice) => {
         const { user, notifyList } = get();
         if (!user) { alert("Please login to Hunt this kit!"); return; }
         const existingHunt = notifyList.find(n => n.uid === user.uid && n.kitId === kit.id);
-        const huntData = { uid: user.uid, userName: (user.displayName || 'Guest').toUpperCase(), photoURL: user.photoURL || '', kitId: kit.id, kitName: kit.name, targetPrice: parseFloat(targetPrice) || 0, status: 'hunting', createdAt: serverTimestamp() };
+        const expiresAt = new Date(Date.now() + (14 * 24 * 60 * 60 * 1000)).toISOString();
+        const huntData = {
+          uid: user.uid,
+          userName: (user.displayName || 'Guest').toUpperCase(),
+          photoURL: user.photoURL || '',
+          kitId: kit.id,
+          kitName: kit.name,
+          targetPrice: parseFloat(targetPrice) || 0,
+          status: 'pending',
+          expiresAt,
+          updatedAt: serverTimestamp()
+        };
         if (existingHunt) {
-            await setDoc(doc(db, "hunts", existingHunt.id), huntData, { merge: true });
-            alert(`Notify request updated for ${kit.name}!`);
+            await setDoc(doc(db, "hunts", existingHunt.id), {
+              ...huntData,
+              declinedAt: deleteField(),
+              declinedBy: deleteField()
+            }, { merge: true });
+            alert(`Offer updated for ${kit.name}!`);
         } else {
             const huntId = `HUNT_${Date.now()}_${user.uid.slice(0, 5)}`;
-            await setDoc(doc(db, "hunts", huntId), { ...huntData, id: huntId });
-          alert(`Hunting request submitted for ${kit.name}!`);
+            await setDoc(doc(db, "hunts", huntId), { ...huntData, id: huntId, createdAt: serverTimestamp() });
+          alert(`Offer submitted for ${kit.name}!`);
         }
       },
 
@@ -1313,10 +1367,12 @@ export const useStore = create(
         if (!fbUser) {
           console.log("DEBUG: No fbUser found, switching to guest mode.");
           const guestProjectVault = JSON.parse(localStorage.getItem('sg_guest_project_vault') || '[]');
-          set({ user: null, isAdmin: false, isAdminView: false, usersList: [], projectVault: guestProjectVault, shelf: [], unsubUser: null, unsubShelf: null, unsubAdmin: null, unsubBasket: null, syncStatus: 'Loading basket' });
+          const guestBasket = JSON.parse(localStorage.getItem('sg_guest_basket') || '[]');
+          set({ user: null, isAdmin: false, isAdminView: false, usersList: [], projectVault: guestProjectVault, guestBasket, shelf: [], unsubUser: null, unsubShelf: null, unsubAdmin: null, unsubBasket: null, syncStatus: 'Restoring local basket' });
           
           get().markLoaded('userProfile');
           get().markLoaded('basket');
+          get().markLoaded('shelf');
           
           if (onSyncComplete) onSyncComplete();
           return;

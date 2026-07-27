@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Trash2, Bell, PackageOpen } from 'lucide-react';
+import { Bell, CheckCircle2, Clock3, PackageOpen, Pencil, Save, Trash2, XCircle } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
@@ -12,16 +12,52 @@ function resolveImage(idOrUrl, imagesArray) {
   return match?.url || '';
 }
 
+function dateToMillis(value) {
+  if (!value) return 0;
+  if (typeof value.toMillis === 'function') return value.toMillis();
+  if (value.seconds) return value.seconds * 1000;
+  return new Date(value).getTime() || 0;
+}
+
+function getOfferStatus(item) {
+  const expiresAt = dateToMillis(item.expiresAt);
+  if (!['released', 'declined'].includes(item.status) && expiresAt && expiresAt <= Date.now()) {
+    return 'expired';
+  }
+  return item.status === 'hunting' ? 'pending' : (item.status || 'pending');
+}
+
+function getDaysLeft(item) {
+  const expiresAt = dateToMillis(item.expiresAt);
+  if (!expiresAt) return '14 days';
+  const diff = expiresAt - Date.now();
+  if (diff <= 0) return 'Expired';
+  const days = Math.ceil(diff / 86400000);
+  return `${days} ${days === 1 ? 'day' : 'days'} left`;
+}
+
+function getStatusClass(status) {
+  if (status === 'released') return 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20';
+  if (status === 'declined') return 'bg-red-500/10 text-red-600 border-red-500/20';
+  if (status === 'expired') return 'bg-neutral-500/10 text-neutral-500 border-neutral-500/20';
+  return 'bg-blue-500/10 text-blue-600 border-blue-500/20';
+}
+
 export default function NotifyList() {
   const { isDarkMode } = useTheme();
   const {
     user, isAdmin, isAdminView, notifyList,
     deleteFromNotifyList, kits, shelf,
-    removeFromBasket, updateStockPrice, subscribeNotifyList, isLoading,
+    subscribeNotifyList, isLoading,
+    updateOfferPrice, declineOffer, releaseOffer, setToastMessage
   } = useStore();
 
   const [selectedIds, setSelectedIds] = useState([]);
   const [isMiniNavVisible, setIsMiniNavVisible] = useState(true);
+  const [editingId, setEditingId] = useState(null);
+  const [editingPrice, setEditingPrice] = useState('');
+
+  const isReleaseMode = isAdmin && isAdminView;
 
   useEffect(() => {
     const unsubscribe = subscribeNotifyList();
@@ -40,62 +76,73 @@ export default function NotifyList() {
   }, []);
 
   const myNotifyList = useMemo(() => {
-    if (isAdmin && isAdminView) {
-      const grouped = notifyList.reduce((acc, curr) => {
-        if (!acc[curr.kitId] || curr.targetPrice > acc[curr.kitId].targetPrice) {
-          acc[curr.kitId] = curr;
-        }
-        return acc;
-      }, {});
-      return Object.values(grouped);
-    }
-    if (!user) return [];
-    return notifyList.filter(n => n.uid === user.uid);
-  }, [notifyList, user, isAdmin, isAdminView]);
+    const statusWeight = { pending: 0, declined: 1, expired: 2, released: 3 };
+    const visible = isReleaseMode ? notifyList : (user ? notifyList.filter(n => n.uid === user.uid) : []);
+    return [...visible].sort((a, b) => {
+      const aStatus = getOfferStatus(a);
+      const bStatus = getOfferStatus(b);
+      if ((statusWeight[aStatus] ?? 0) !== (statusWeight[bStatus] ?? 0)) {
+        return (statusWeight[aStatus] ?? 0) - (statusWeight[bStatus] ?? 0);
+      }
+      return dateToMillis(b.updatedAt || b.createdAt) - dateToMillis(a.updatedAt || a.createdAt);
+    });
+  }, [notifyList, user, isReleaseMode]);
 
   const toggleSelection = (id) => {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   };
 
   const toggleSelectAll = () => {
-    if (selectedIds.length === myNotifyList.length) {
-      setSelectedIds([]);
-    } else {
-      setSelectedIds(myNotifyList.map(i => i.id));
-    }
+    setSelectedIds(prev => prev.length === myNotifyList.length ? [] : myNotifyList.map(i => i.id));
   };
 
   const handleBulkDelete = async () => {
-    const isRelease = isAdmin && isAdminView;
-    const count = selectedIds.length;
-    const message = isRelease
-      ? `Release ${count} kit(s) to public using their Offer Prices?`
-      : `Remove ${count} item(s) from your offers?`;
-
-    if (!window.confirm(message)) return;
-
+    if (!window.confirm(`Remove ${selectedIds.length} item(s) from your offers?`)) return;
     for (const id of selectedIds) {
-      const item = notifyList.find(n => n.id === id);
-
-      if (item && isAdmin && isAdminView) {
-        const shelfItem = shelf.find(s => s.id === item.kitId);
-        if (shelfItem) {
-          try {
-            await updateStockPrice(item.kitId, shelfItem.stockKey, item.targetPrice);
-            await removeFromBasket(shelfItem.basketId);
-          } catch (e) {
-            console.error('SG LOG: Error syncing offer price to shelf:', e);
-          }
-        }
-      }
-
       await deleteFromNotifyList(id);
     }
     setSelectedIds([]);
   };
 
+  const handleBulkRelease = async () => {
+    if (!window.confirm(`Release ${selectedIds.length} selected kit(s) using their offer prices?`)) return;
+    for (const id of selectedIds) {
+      const item = notifyList.find(n => n.id === id);
+      if (!item) continue;
+      try {
+        await releaseOffer(item);
+      } catch (e) {
+        console.error('SG LOG: Error releasing offer:', e);
+      }
+    }
+    setSelectedIds([]);
+  };
+
+  const handleBulkDecline = async () => {
+    if (!window.confirm(`Decline ${selectedIds.length} selected offer(s)?`)) return;
+    for (const id of selectedIds) {
+      await declineOffer(id);
+    }
+    setSelectedIds([]);
+  };
+
+  const startEdit = (item) => {
+    setEditingId(item.id);
+    setEditingPrice(String(item.targetPrice || ''));
+  };
+
+  const saveEdit = async (item) => {
+    try {
+      await updateOfferPrice(item.id, editingPrice);
+      setToastMessage('Offer updated.');
+      setEditingId(null);
+      setEditingPrice('');
+    } catch (e) {
+      setToastMessage(e.message || 'Unable to update offer.');
+    }
+  };
+
   const hasVisibleItems = !isLoading && myNotifyList.length > 0;
-  const isReleaseMode = isAdmin && isAdminView;
 
   return (
     <PageTemplate isDarkMode={isDarkMode}>
@@ -113,12 +160,20 @@ export default function NotifyList() {
               {selectedIds.length > 0 && (
                 <>
                   <span className="text-[11px] font-black uppercase tracking-widest">{selectedIds.length} SELECTED</span>
-                  <button
-                    onClick={handleBulkDelete}
-                    className="flex items-center gap-1 text-red-500 hover:bg-red-500/10 px-3 py-1.5 rounded-lg transition-colors"
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                  {isReleaseMode ? (
+                    <>
+                      <button onClick={handleBulkDecline} className="flex items-center gap-1 text-red-500 hover:bg-red-500/10 px-3 py-1.5 rounded-lg transition-colors" title="Decline selected">
+                        <XCircle size={16} />
+                      </button>
+                      <button onClick={handleBulkRelease} className="flex items-center gap-1 text-emerald-600 hover:bg-emerald-500/10 px-3 py-1.5 rounded-lg transition-colors" title="Release selected">
+                        <CheckCircle2 size={16} />
+                      </button>
+                    </>
+                  ) : (
+                    <button onClick={handleBulkDelete} className="flex items-center gap-1 text-red-500 hover:bg-red-500/10 px-3 py-1.5 rounded-lg transition-colors" title="Remove selected">
+                      <Trash2 size={16} />
+                    </button>
+                  )}
                 </>
               )}
             </div>
@@ -127,11 +182,11 @@ export default function NotifyList() {
 
         <div className="flex-grow max-w-7xl mx-auto w-full p-4 md:p-8 pb-32 md:pb-8">
           {isLoading ? (
-            <LoadingState message="Loading your offers..." />
+            <LoadingState message="Loading offers" detail="Checking active offers and admin release windows." />
           ) : myNotifyList.length === 0 ? (
             <div className="text-center py-20 opacity-50">
               <Bell size={68} className="mx-auto mb-4" />
-              <p className="font-bold mb-6">Your offers list is empty..</p>
+              <p className="font-bold mb-6">Your offers list is empty.</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -143,16 +198,19 @@ export default function NotifyList() {
                 const brand = kit?.brand;
                 const line = kit?.specs?.line;
                 const scale = kit?.specs?.scale;
-
-                const cardClasses = `p-3 rounded-2xl border-2 cursor-pointer flex gap-4 items-center transition-all duration-300 ${
-                  isSelected ? 'border-blue-500 shadow-lg' : 'border-black/5 dark:border-white/5'
-                } bg-white dark:bg-neutral-900`;
+                const status = getOfferStatus(item);
+                const isEditing = editingId === item.id;
+                const isFinal = status === 'released';
+                const canEdit = !isReleaseMode && !isFinal;
+                const shelfItem = shelf.find(s => s.id === item.kitId);
+                const maxCost = kit?.stocks ? Math.max(...Object.values(kit.stocks).map(s => Number(s.costPrice || 0))) : 0;
+                const maxSell = kit?.stocks ? Math.max(...Object.values(kit.stocks).map(s => Number(s.sellPrice || 0))) : Number(kit?.sellPrice || 0);
 
                 return (
                   <div
                     key={item.id}
                     onClick={() => toggleSelection(item.id)}
-                    className={cardClasses}
+                    className={`p-3 rounded-2xl border-2 cursor-pointer flex gap-4 items-center transition-all duration-300 ${isSelected ? 'border-blue-500 shadow-lg' : 'border-black/5 dark:border-white/5'} ${status === 'expired' ? 'opacity-60' : ''} bg-white dark:bg-neutral-900`}
                   >
                     <div className="flex items-center justify-center">
                       {displayImage ? (
@@ -179,7 +237,7 @@ export default function NotifyList() {
                       <div className="flex flex-col justify-center">
                         <p className="font-bold text-sm leading-tight line-clamp-1 md:line-clamp-2">{displayName}</p>
                         <p className="text-[11px] uppercase font-black opacity-40 tracking-widest leading-tight mt-0.5">
-                          {[brand, line, scale].filter(Boolean).join(' • ')}
+                          {[brand, line, scale].filter(Boolean).join(' / ')}
                         </p>
                         {isReleaseMode && item.userName && (
                           <p className="text-[10px] font-black uppercase tracking-widest opacity-40 mt-0.5">{item.userName}</p>
@@ -187,21 +245,50 @@ export default function NotifyList() {
                       </div>
 
                       <div className="flex items-center gap-2 flex-wrap">
-                        <p className={`font-black text-[12px] ${isSelected ? 'text-emerald-600' : 'text-neutral-900 dark:text-white'}`}>
-                          ₱{item.targetPrice?.toLocaleString()}
-                        </p>
-                        <p className="text-[11px] font-black uppercase px-2 py-0.5 rounded-md truncate max-w-[100px] border bg-blue-500/10 text-blue-600 border-blue-500/20">
-                          Offer
-                        </p>
+                        {isEditing ? (
+                          <div onClick={(e) => e.stopPropagation()} className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              value={editingPrice}
+                              onChange={(e) => setEditingPrice(e.target.value)}
+                              className="w-32 rounded-lg border border-blue-500/30 bg-blue-500/5 px-3 py-1.5 text-[12px] font-black outline-none no-spinner"
+                            />
+                            <button onClick={() => saveEdit(item)} className="rounded-lg bg-emerald-600 p-2 text-white" title="Save offer">
+                              <Save size={14} />
+                            </button>
+                            <button onClick={() => setEditingId(null)} className="rounded-lg bg-neutral-500/10 p-2 text-neutral-500" title="Cancel edit">
+                              <XCircle size={14} />
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <p className={`font-black text-[12px] ${isSelected ? 'text-emerald-600' : 'text-neutral-900 dark:text-white'}`}>
+                              PHP {Number(item.targetPrice || 0).toLocaleString()}
+                            </p>
+                            <p className={`text-[11px] font-black uppercase px-2 py-0.5 rounded-md truncate max-w-[120px] border ${getStatusClass(status)}`}>
+                              {status}
+                            </p>
+                            <p className="inline-flex items-center gap-1 text-[10px] font-black uppercase opacity-40">
+                              <Clock3 size={12} /> {getDaysLeft(item)}
+                            </p>
+                            {canEdit && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); startEdit(item); }}
+                                className="inline-flex items-center gap-1 rounded-lg bg-blue-500/10 px-2 py-1 text-[10px] font-black uppercase text-blue-600"
+                              >
+                                <Pencil size={12} /> Edit Price
+                              </button>
+                            )}
+                          </>
+                        )}
 
                         {isReleaseMode && (
                           <>
-                            <p className="text-[11px] font-black text-amber-600">
-                              Cost ₱{(kit?.stocks ? Math.max(...Object.values(kit.stocks).map(s => Number(s.costPrice || 0))) : 0).toLocaleString()}
+                            <p className={`text-[11px] font-black ${shelfItem ? 'text-emerald-600' : 'text-red-500'}`}>
+                              {shelfItem ? 'Shelf ready' : 'Not on shelf'}
                             </p>
-                            <p className="text-[11px] font-black text-emerald-600">
-                              Sell ₱{(kit?.stocks ? Math.max(...Object.values(kit.stocks).map(s => Number(s.sellPrice || 0))) : (kit?.sellPrice || 0)).toLocaleString()}
-                            </p>
+                            <p className="text-[11px] font-black text-amber-600">Cost PHP {maxCost.toLocaleString()}</p>
+                            <p className="text-[11px] font-black text-emerald-600">Sell PHP {maxSell.toLocaleString()}</p>
                           </>
                         )}
                       </div>
@@ -223,7 +310,7 @@ export default function NotifyList() {
               {selectedIds.length === 0 ? (
                 <div className="w-full flex justify-center items-center h-[40px]">
                   <span className="text-[10px] md:text-[12px] font-black uppercase tracking-[0.2em] opacity-90">
-                    {isReleaseMode ? 'Select offers to release' : 'Select items to remove'}
+                    {isReleaseMode ? 'Select offers to release or decline' : 'Select items to remove'}
                   </span>
                 </div>
               ) : (
@@ -232,12 +319,20 @@ export default function NotifyList() {
                     <span className="text-[10px] font-black uppercase opacity-40 leading-none mb-1">Selected</span>
                     <span className="text-lg md:text-xl font-black italic leading-none">{selectedIds.length} item{selectedIds.length > 1 ? 's' : ''}</span>
                   </div>
-                  <button
-                    onClick={handleBulkDelete}
-                    className="px-10 py-3.5 rounded-full font-black uppercase tracking-widest text-xs transition-all bg-red-500 text-white shadow-lg shadow-red-500/20 hover:scale-105"
-                  >
-                    {isReleaseMode ? 'Release Selected' : 'Remove Selected'}
-                  </button>
+                  {isReleaseMode ? (
+                    <div className="flex items-center gap-2">
+                      <button onClick={handleBulkDecline} className="px-6 py-3.5 rounded-full font-black uppercase tracking-widest text-xs transition-all bg-red-500 text-white shadow-lg shadow-red-500/20 hover:scale-105">
+                        Decline
+                      </button>
+                      <button onClick={handleBulkRelease} className="px-6 py-3.5 rounded-full font-black uppercase tracking-widest text-xs transition-all bg-emerald-600 text-white shadow-lg shadow-emerald-500/20 hover:scale-105">
+                        Release
+                      </button>
+                    </div>
+                  ) : (
+                    <button onClick={handleBulkDelete} className="px-10 py-3.5 rounded-full font-black uppercase tracking-widest text-xs transition-all bg-red-500 text-white shadow-lg shadow-red-500/20 hover:scale-105">
+                      Remove Selected
+                    </button>
+                  )}
                 </div>
               )}
             </div>

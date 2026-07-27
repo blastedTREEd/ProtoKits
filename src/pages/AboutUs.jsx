@@ -107,7 +107,7 @@ export default function AboutUs() {
                 🤖 Vibe Coding
               </h3>
               <p className={`text-sm ${bodyClass}`}>
-                Applied <strong className={strongClass}>prompt engineering</strong> to co-pilot complex logic, solve difficult edge cases, and enhance code efficiency.
+                Leveraged <strong className={strongClass}>GPT-5.5</strong>, <strong className={strongClass}>Gemini 5.5</strong>, and AI coding assistants such as <strong className={strongClass}>Codex and Antigravity</strong> to accelerate development, solve complex logic, and improve code quality.
               </p>
             </div>
           </div>

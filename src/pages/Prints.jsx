@@ -278,7 +278,7 @@ export default function Prints({ isDarkMode }) {
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
-                      placeholder="SEARCH BLUEPRINTS OR SAVED PROJECTS..."
+                      placeholder="SEARCH PROJECTS..."
                       className="w-full pl-12 pr-12 py-3 bg-white dark:bg-white/5 border border-black/5 dark:border-white/10 rounded-2xl text-[11px] font-black uppercase tracking-widest outline-none focus:border-blue-500 transition-all"
                     />
                     {searchTerm && (

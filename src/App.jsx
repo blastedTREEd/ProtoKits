@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect } from 'react';
+import React, { Suspense, lazy, useState, useEffect, useLayoutEffect } from 'react';
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { getRedirectResult } from 'firebase/auth';
 import { auth } from './firebase/firebase';
@@ -6,25 +6,70 @@ import { ThemeProvider } from './context/ThemeContext';
 import Navbar from './components/menu/Navbar';
 import Stories from './components/menu/Stories';
 import Footer from './components/menu/Footer';
-import Landing from './pages/Landing';
-import Kits from './pages/Kits';
-import Prints from './pages/Prints';
-import Blueprints from './pages/Blueprints';
-import AboutUs from './pages/AboutUs';
-import Basket from './pages/Basket';
-import NotifyList from './pages/NotifyList';
-import Orders from './pages/Orders';
-import PrivacyPolicy from './pages/PrivacyPolicy';
-import TermsOfUse from './pages/TermsOfUse';
-import Deletion from './pages/Deletion';
-import ShippingPolicy from './pages/ShippingPolicy';
-import PaymentAndRefundPolicy from './pages/PaymentAndRefundPolicy';
 import ScrollManager from './components/menu/ScrollManager';
 import Auth from './components/Auth';
 import LoadingState from './components/common/LoadingState';
 import Toast from './components/common/Toast';
 import { useStore } from './store/useStore';
 import { motion as Motion, AnimatePresence } from 'framer-motion';
+
+const Landing = lazy(() => import('./pages/Landing'));
+const Kits = lazy(() => import('./pages/Kits'));
+const Prints = lazy(() => import('./pages/Prints'));
+const Blueprints = lazy(() => import('./pages/Blueprints'));
+const AboutUs = lazy(() => import('./pages/AboutUs'));
+const Basket = lazy(() => import('./pages/Basket'));
+const NotifyList = lazy(() => import('./pages/NotifyList'));
+const Orders = lazy(() => import('./pages/Orders'));
+const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
+const TermsOfUse = lazy(() => import('./pages/TermsOfUse'));
+const Deletion = lazy(() => import('./pages/Deletion'));
+const ShippingPolicy = lazy(() => import('./pages/ShippingPolicy'));
+const PaymentAndRefundPolicy = lazy(() => import('./pages/PaymentAndRefundPolicy'));
+
+const routeRequirementLabels = {
+  userProfile: 'Checking account mode',
+  stories: 'Loading garage stories',
+  kits: 'Loading available kits',
+  deals: 'Applying active deals',
+  orders: 'Loading order history',
+  basket: 'Restoring basket',
+  shelf: 'Loading admin shelf',
+  prints: 'Loading print projects'
+};
+
+const getLoadingDetails = ({ pathname, req, ds, isNavigating, isAdmin, isAdminView }) => {
+  const pageName = pathname === '/'
+    ? 'home'
+    : pathname.replace('/', '').replace(/-/g, ' ') || 'page';
+  const requiredKeys = ['userProfile', ...Object.keys(req).filter((key) => req[key])];
+  const pendingKeys = requiredKeys.filter((key) => !ds[key]);
+  const steps = requiredKeys.map((key) => ({
+    label: routeRequirementLabels[key] || key,
+    status: ds[key] ? 'done' : 'pending'
+  }));
+
+  if (isNavigating && pendingKeys.length === 0) {
+    return {
+      message: 'Opening page',
+      detail: 'Switching views and keeping the layout steady.',
+      steps
+    };
+  }
+
+  const context = isAdmin && isAdminView ? 'admin view' : 'guest/public view';
+  const waitingOn = pendingKeys
+    .map((key) => routeRequirementLabels[key] || key)
+    .join(', ');
+
+  return {
+    message: `Loading ${pageName}`,
+    detail: waitingOn
+      ? `Waiting on ${waitingOn.toLowerCase()} for the ${context}. Cached data is used first when available.`
+      : 'Finalizing the page from local cache.',
+    steps
+  };
+};
 
 // Scroll restoration
 if (typeof window !== 'undefined' && 'scrollRestoration' in window.history) {
@@ -156,6 +201,8 @@ const RouterContent = () => {
   const checkPageReady = useStore((state) => state.checkPageReady);
   const _loadedDatasets = useStore((state) => state._loadedDatasets);
   const _getPageRequirements = useStore((state) => state._getPageRequirements);
+  const isAdmin = useStore((state) => state.isAdmin);
+  const isAdminView = useStore((state) => state.isAdminView);
 
   // Keep _activePath in sync and trigger background listeners when ready
   useLayoutEffect(() => {
@@ -163,7 +210,7 @@ const RouterContent = () => {
   }, [location.pathname, checkPageReady]);
 
   useEffect(() => {
-    const timer = setTimeout(() => setIsNavigating(false), 800);
+    const timer = setTimeout(() => setIsNavigating(false), 250);
     return () => clearTimeout(timer);
   }, [location.pathname]);
 
@@ -174,10 +221,19 @@ const RouterContent = () => {
     !ds.userProfile ||
     (req.stories && !ds.stories) ||
     (req.kits && !ds.kits) ||
+    (req.deals && !ds.deals) ||
     (req.orders && !ds.orders) ||
     (req.basket && !ds.basket) ||
     (req.shelf && !ds.shelf) ||
     (req.prints && !ds.prints);
+  const loadingDetails = getLoadingDetails({
+    pathname: location.pathname,
+    req,
+    ds,
+    isNavigating,
+    isAdmin,
+    isAdminView
+  });
 
   const AdminRouteWrapper = ({ children }) => {
     const { isAdmin } = useStore();
@@ -191,33 +247,39 @@ const RouterContent = () => {
     <>
       {isNavigating || showLoading ? (
          <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-white/50 dark:bg-black/50 backdrop-blur-sm">
-            <LoadingState message="Loading ..." />
+            <LoadingState {...loadingDetails} />
          </div>
       ) : (
-        <Routes>
-          <Route path="/" element={<Landing />} />
-          <Route path="/kits" element={<Kits />} />
-          <Route path="/kits/:kitId" element={<Kits />} />
-          <Route path="/prints" element={<Prints />} />
-          <Route path="/blueprints" element={<Blueprints />} />
-          <Route path="/about-us" element={<AboutUs />} />
-          <Route path="/orders" element={<Orders />} />
-          <Route path="/basket" element={<Basket />} />
-          <Route 
-            path="/shelf" 
-            element={
-               <AdminRouteWrapper>
-                 <Basket />
-               </AdminRouteWrapper>
-            } 
-          />
-          <Route path="/notify-list" element={<NotifyList />} />
-          <Route path="/privacy-policy" element={<PrivacyPolicy />} />
-          <Route path="/terms-of-use" element={<TermsOfUse />} />
-          <Route path="/data-deletion" element={<Deletion />} />
-          <Route path="/shipping-policy" element={<ShippingPolicy />} />
-          <Route path="/payment-and-refund-policy" element={<PaymentAndRefundPolicy />} />
-        </Routes>
+        <Suspense fallback={
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-white/50 backdrop-blur-sm dark:bg-black/50">
+            <LoadingState message="Opening page" detail="Downloading this view once, then the browser cache keeps it nearby." />
+          </div>
+        }>
+          <Routes>
+            <Route path="/" element={<Landing />} />
+            <Route path="/kits" element={<Kits />} />
+            <Route path="/kits/:kitId" element={<Kits />} />
+            <Route path="/prints" element={<Prints />} />
+            <Route path="/blueprints" element={<Blueprints />} />
+            <Route path="/about-us" element={<AboutUs />} />
+            <Route path="/orders" element={<Orders />} />
+            <Route path="/basket" element={<Basket />} />
+            <Route 
+              path="/shelf" 
+              element={
+                 <AdminRouteWrapper>
+                   <Basket />
+                 </AdminRouteWrapper>
+              } 
+            />
+            <Route path="/notify-list" element={<NotifyList />} />
+            <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+            <Route path="/terms-of-use" element={<TermsOfUse />} />
+            <Route path="/data-deletion" element={<Deletion />} />
+            <Route path="/shipping-policy" element={<ShippingPolicy />} />
+            <Route path="/payment-and-refund-policy" element={<PaymentAndRefundPolicy />} />
+          </Routes>
+        </Suspense>
       )}
     </>
   );
@@ -270,7 +332,15 @@ export default function App() {
                 className="fixed inset-0 z-[99999] flex items-center justify-center bg-white/70 dark:bg-black/70 backdrop-blur-sm pointer-events-auto"
               >
                 <div className="flex flex-col items-center gap-3">
-                  <LoadingState message="Syncing..." className="py-0" />
+                  <LoadingState
+                    message="Syncing account"
+                    detail={syncStatus || 'Loading account'}
+                    steps={[
+                      { label: 'Authorize session', status: 'done' },
+                      { label: syncStatus || 'Loading account', status: 'pending' }
+                    ]}
+                    className="py-0"
+                  />
                   <p className="text-[10px] font-black uppercase tracking-[0.28em] text-red-600 dark:text-red-400">
                     {syncStatus || 'Loading account'}
                   </p>

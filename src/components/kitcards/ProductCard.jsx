@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/preserve-manual-memoization */
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -249,6 +250,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
   const [timeLeft, setTimeLeft] = useState("");
   const [now, setNow] = useState(0);
   const [isDealDetailsOpen, setIsDealDetailsOpen] = useState(false);
+  const [dealForDetails, setDealForDetails] = useState(null);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [checkoutItems, setCheckoutItems] = useState([]);
 
@@ -314,8 +316,20 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
 
     setCheckoutItems(items);
     setIsDealDetailsOpen(false);
+    setDealForDetails(null);
     if (!user) { setLoginModalOpen(true); return; }
     setIsCheckoutOpen(true);
+  };
+
+  const openSelectedDealDetails = () => {
+    const deal = selectedBundleDealDetails?.deal;
+    if (!deal) return;
+    setDealForDetails(deal);
+    setIsDealDetailsOpen(true);
+    setIsProfileOpen(false);
+    if (window.history.state?.modal === 'product') {
+      window.history.replaceState({}, '');
+    }
   };
   
   const { 
@@ -591,10 +605,9 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
   }, [deals, kitId, now]);
 
   // Compute the exclusive bundle deal and proportional discounted price for this kit
-  const { exclusiveBundleDeal, exclusiveBundlePrice } = useMemo(() => {
-    if (!isExclusiveToBundle || !kitId) return { exclusiveBundleDeal: null, exclusiveBundlePrice: 0 };
+  const exclusiveBundlePrice = useMemo(() => {
+    if (!isExclusiveToBundle || !kitId) return 0;
     // Find the best deal (largest discount) that marks this kit as exclusive
-    let bestDeal = null;
     let bestPrice = Infinity;
     for (const deal of (deals || [])) {
       const isBundleDeal = deal?.type === 'bundle_only' || deal?.type === 'bundle_discount';
@@ -622,9 +635,9 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
       if (!thisKit) continue;
       const kitDiscount = exclusiveRefTotal > 0 ? exclusivePool * (thisKit.rp / exclusiveRefTotal) : 0;
       const price = Math.round(thisKit.rp - kitDiscount);
-      if (price < bestPrice) { bestPrice = price; bestDeal = deal; }
+      if (price < bestPrice) bestPrice = price;
     }
-    return { exclusiveBundleDeal: bestDeal, exclusiveBundlePrice: bestPrice === Infinity ? 0 : bestPrice };
+    return bestPrice === Infinity ? 0 : bestPrice;
   }, [isExclusiveToBundle, deals, kitId, kit, allKits, exclusiveDiscountPercent, now]);
 
   const isEarlyAccess = useMemo(() => {
@@ -816,9 +829,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
   const getBuyLabel = useCallback(() => {
     if (isAdmin && isAdminView) return shelfItem ? "RELEASE STOCK" : "KEEP NOW";
     if (selectedAvailabilityGroup?.tag === 'collection') return "NOTIFY ME";
-    if (selectedAvailabilityGroup?.tag === 'bundleDeal') return "VIEW DEALS";
-    if (isExclusiveToBundle) return "VIEW DEALS";
-    if (availableCount <= 0 && hasBundleExclusiveDeal) return "VIEW DEALS";
+    if (selectedAvailabilityGroup?.tag === 'bundleDeal') return "GRAB DEAL";
     if (availableCount <= 0) return "NOTIFY ME";
     if (selectedStock) {
       const isReserved = selectedStock.isReserved || selectedStock.order?.orderId;
@@ -830,7 +841,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
     if (hasOnhand) return "BUY NOW";
     const hasPreorder = visibleStocks.some(s => (s.status?.toLowerCase().includes('pre') || s.status?.toLowerCase().includes('batch')) && !s.isReserved && !s.order?.orderId);
     return hasPreorder ? "PRE-ORDER" : "BUY NOW";
-  }, [isAdmin, isAdminView, shelfItem, selectedAvailabilityGroup, selectedStock, visibleStocks, availableCount, hasBundleExclusiveDeal, isExclusiveToBundle]);
+  }, [isAdmin, isAdminView, shelfItem, selectedAvailabilityGroup, selectedStock, visibleStocks, availableCount]);
 
   const getAddtoCartLabel = useCallback(() => "ADD TO BASKET", []);
   const addToCartLabel = getAddtoCartLabel();
@@ -864,7 +875,9 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
   }, [isAdmin, isAdminView, visibleStocks, publicReleasableStocks, stockList, shelf, kitId, user]);
 
   const handleAddToCart = () => {
-    const stockForBasket = selectedStock || getDefaultCartStock();
+    const stockForBasket = selectedAvailabilityGroup?.tag === 'bundleDeal'
+      ? (visibleStocks[0] || publicReleasableStocks[0] || getDefaultCartStock())
+      : (selectedStock || getDefaultCartStock());
     if (!stockForBasket) return;
     addToBasket({
       ...kit,
@@ -887,7 +900,10 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
 
   const handleAction = () => {
     const buyLabel = getBuyLabel(); // This was the problematic re-declaration
-    if (buyLabel === "VIEW DEALS") return;
+    if (buyLabel === "GRAB DEAL") {
+      openSelectedDealDetails();
+      return;
+    }
     if (buyLabel === "NOTIFY ME") {
        const finalTargetPrice = parseFloat(targetPrice) || displayPrice;
        if (!user) {
@@ -907,8 +923,8 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
   const handleBuyNow = (e, targetStock = selectedStock) => {
     if (e) e.stopPropagation();
     const buyLabelFromFunction = getBuyLabel();
-    if (buyLabelFromFunction === "VIEW DEALS") {
-      handleOpenModal();
+    if (buyLabelFromFunction === "GRAB DEAL") {
+      openSelectedDealDetails();
       return;
     }
     
@@ -1019,8 +1035,9 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
   const gridUnavailableClass = hasReserved ? 'text-blue-500' : 'text-red-500';
   const modalLowestPrice = Number(selectedBundleDealDetails?.currentItemPrice || sellPrice || 0);
   const modalReferencePrice = selectedBundleDealDetails ? Number(lowestPrice || 0) : displayPrice;
-  const activeBundleDeal = selectedBundleDealDetails?.deal || exclusiveBundleDeal;
-  const activeBundleItemPrice = Number(selectedBundleDealDetails?.currentItemPrice || exclusiveBundlePrice || 0);
+  const activeBundleDeal = selectedBundleDealDetails?.deal || null;
+  const dealDetailsDeal = dealForDetails || activeBundleDeal;
+  const activeBundleItemPrice = Number(selectedBundleDealDetails?.currentItemPrice || 0);
   const isPublicOfferMode = !isAdminView && (isCollectionOnly || isSelectedCollectionGroup || isNotifyState);
   const showPublicModalPrice = !isAdminView && !isPublicOfferMode;
   const renderAvailabilityGroupButton = (group) => {
@@ -1218,10 +1235,10 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                       </button>
                   ) : (
                     <button 
-                      onClick={(e) => { e.stopPropagation(); availableCount <= 0 && !isExclusiveToBundle ? handleOpenModal() : handleAddToCart(); }} 
+                      onClick={(e) => { e.stopPropagation(); availableCount <= 0 ? handleOpenModal() : handleAddToCart(); }} 
                       className="flex items-center justify-center w-8 h-8 rounded-full transition-all shadow-lg active:scale-95 bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-blue-500/40 lg:hover:scale-110 shrink-0"
                     >
-                      {availableCount <= 0 && !isExclusiveToBundle ? (hasBundleExclusiveDeal ? <Gift size={14} className="text-white" /> : <Bell size={14} className="text-white fill-white" />) : <Plus size={16} strokeWidth={3} />}
+                      {availableCount <= 0 ? (hasBundleExclusiveDeal ? <Gift size={14} className="text-white" /> : <Bell size={14} className="text-white fill-white" />) : <Plus size={16} strokeWidth={3} />}
                     </button>
                   )}
                 </div>
@@ -1486,24 +1503,14 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                                 <span className="text-emerald-500 font-black">BUNDLE DISCOUNT: -₱{Math.max(0, lowestPrice - activeBundleItemPrice).toLocaleString()}</span>
                                 <span className="text-emerald-500 font-black text-xs">PROMO: ₱{activeBundleItemPrice.toLocaleString()}</span>
                               </div>
-                              <div className="flex w-full items-stretch gap-2">
+                              <div className="flex w-full items-stretch justify-center">
                                 <button 
-                                  onClick={handleAddToCart} 
-                                  className="flex-1 flex items-center justify-center gap-2 px-2 py-4 rounded-full font-black italic uppercase text-[12px] tracking-widest transition-all active:scale-95 whitespace-nowrap border border-black/5 dark:border-white/10 group/basket bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg shadow-blue-500/20"
-                                >
-                                  <ShoppingBasket size={14} strokeWidth={2.5}/> ADD TO BASKET
-                                </button>
-                                <button 
-                                  onClick={() => setIsDealDetailsOpen(true)} 
-                                  className="flex-1 flex items-center justify-center gap-2 px-2 py-4 rounded-full text-white font-black italic uppercase text-[12px] tracking-widest shadow-lg transition-all active:scale-95 whitespace-nowrap bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-emerald-500/20"
+                                  onClick={openSelectedDealDetails} 
+                                  className="w-full max-w-sm flex items-center justify-center gap-2 px-2 py-4 rounded-full text-white font-black italic uppercase text-[12px] tracking-widest shadow-lg transition-all active:scale-95 whitespace-nowrap bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-emerald-500/20"
                                 >
                                   <Zap size={14} fill="currentColor" /> GRAB DEAL
                                 </button>
                               </div>
-                            </div>
-                          ) : (hasBundleExclusiveDeal && availableCount === 0) && !isAdminView ? (
-                            <div className="w-full px-8 py-4 rounded-3xl bg-emerald-600 text-white text-center font-black italic uppercase tracking-widest shadow-lg shadow-emerald-600/20">
-                              Bundle Exclusive
                             </div>
                           ) : (
                                isAdmin && isAdminView ? (
@@ -1543,11 +1550,11 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
           </div>
         </div>
       )}
-      {isDealDetailsOpen && activeBundleDeal && (
+      {isDealDetailsOpen && dealDetailsDeal && (
         <DealDetailsModal 
           isOpen={isDealDetailsOpen} 
-          onClose={() => setIsDealDetailsOpen(false)} 
-          deal={activeBundleDeal} 
+          onClose={() => { setIsDealDetailsOpen(false); setDealForDetails(null); }} 
+          deal={dealDetailsDeal} 
           onBuyNow={handleDealCheckout} 
         />
       )}

@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect } from 'react';
+import React, { useMemo, useEffect, useRef } from 'react';
 import { X, Gift, Zap, ArrowRight, Star } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
@@ -24,6 +24,11 @@ function stockMatchesDealSource(stock, source = 'onhand') {
 export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow }) {
   const { kits, shippingSettings } = useStore();
   const { exclusiveDiscountPercent } = getCheckoutPaymentFees({ shippingSettings });
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   const includedKits = useMemo(() => {
     if (!deal || !deal.kitIds) return [];
@@ -112,12 +117,12 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow }) {
     window.history.pushState({ modalKey: stateKey }, '');
 
     const handlePopState = () => {
-      onClose();
+      onCloseRef.current();
     };
 
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
-        onClose();
+        onCloseRef.current();
       }
     };
 
@@ -127,41 +132,8 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow }) {
     return () => {
       window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('keydown', handleKeyDown);
-      
-      // Check if history state still matches before calling back()
-      if (window.history.state?.modalKey === stateKey) {
-        window.history.back();
-      }
     };
-  }, [isOpen, onClose]);
-  
-  useEffect(() => {
-    if (!isOpen) return undefined;
-
-    const stateKey = `deal-details-modal-${Date.now()}`;
-    window.history.pushState({ modalKey: stateKey }, '');
-
-    const handlePopState = () => {
-      onClose();
-    };
-
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    window.addEventListener('popstate', handlePopState);
-    window.addEventListener('keydown', handleKeyDown);
-
-    return () => {
-      window.removeEventListener('popstate', handlePopState);
-      window.removeEventListener('keydown', handleKeyDown);
-      if (window.history.state?.modalKey === stateKey) {
-        window.history.back();
-      }
-    };
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   if (!isOpen || !deal) return null;
 
