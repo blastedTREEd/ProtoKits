@@ -1437,12 +1437,13 @@ const baseTotal = useMemo(() => {
       
       useStore.setState({ isSyncing: true, syncStatus: 'Authorizing Session' });
       const result = await signInWithPopup(auth, googleProvider);
-      useStore.setState({ syncStatus: 'Verifying Identity' });
+      useStore.setState({ syncStatus: 'Syncing Profile' });
       
       // Store user details in Firestore
       await setDoc(doc(db, 'users', result.user.uid), {
         email: result.user.email,
         displayName: result.user.displayName,
+        photoURL: result.user.photoURL || '',
         lastLogin: serverTimestamp(),
         role: 'customer'
       }, { merge: true });

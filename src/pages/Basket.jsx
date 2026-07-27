@@ -198,9 +198,21 @@ export default function Basket({ isDarkMode }) {
     }
   };
 
-  // --- Stable sort: hindi mag-re-sort ang basket items kapag nagbago lang ang stock data sa real-time ---
-  // const basketSortOrderRef = useRef([]);
-  // const lastBasketIdsRef = useRef('');
+  const confirmShelfRelease = useCallback((count = 1) => {
+    if (!(isAdmin && isAdminView)) return true;
+    const label = count === 1 ? 'this item' : `${count} selected items`;
+    return window.confirm(`Release ${label} from the shelf? This will unreserve the stock.`);
+  }, [isAdmin, isAdminView]);
+
+  const handleRemoveBasketItem = useCallback((basketId, count = 1) => {
+    if (!confirmShelfRelease(count)) return;
+    removeFromBasket(basketId);
+  }, [confirmShelfRelease, removeFromBasket]);
+
+  const handleDecrementProjectItem = useCallback((basketId, count = 1) => {
+    if (!confirmShelfRelease(count)) return;
+    decrementProjectQuantity(basketId);
+  }, [confirmShelfRelease, decrementProjectQuantity]);
 
   // const groupedItems = useMemo(() => {
   //   const grouped = activeBasket.reduce((acc, item) => {
@@ -304,17 +316,7 @@ export default function Basket({ isDarkMode }) {
     return acc;
   }, {});
 
-  return Object.values(grouped).sort((a, b) => {
-    const getLatest = group =>
-      Math.max(
-        ...group.basketIds.map(id => {
-          const basketItem = activeBasket.find(i => i.basketId === id);
-          return new Date(basketItem?.createdAt || 0).getTime();
-        })
-      );
-
-    return getLatest(b) - getLatest(a);
-  });
+  return Object.values(grouped);
 }, [activeBasket]);
 
   const hasVisibleBasketItems = !isLoading && groupedItems.length > 0;
@@ -351,10 +353,7 @@ export default function Basket({ isDarkMode }) {
                         <span className="text-[11px] font-black uppercase tracking-widest">{activeSelection.length} SELECTED</span>
                         <button 
                             onClick={() => {
-                                if (isAdmin && isAdminView) {
-                                    const count = activeSelection.length;
-                                    if (!window.confirm(`Release ${count} item${count > 1 ? 's' : ''} from the shelf? This will unreserve the stock.`)) return;
-                                }
+                                if (!confirmShelfRelease(activeSelection.length)) return;
                                 const selectedItems = activeBasket.filter(i => activeSelection.includes(i.basketId));
                                 selectedItems.forEach(item => removeFromBasket(item.basketId));
                                 setManualSelectedIds([]);
@@ -409,6 +408,8 @@ export default function Basket({ isDarkMode }) {
                 const availabilityLabel = isOnhand
                   ? 'Onhand'
                   : (stock?.eta || item.eta || 'TBA');
+                const shelfCostPrice = Number(item.costPrice ?? stock?.costPrice ?? 0);
+                const shelfSellPrice = Number(item.sellPrice ?? stock?.sellPrice ?? getBasketDisplayPrice(item));
                 
                 const uniqueGroupKey = `${item.id}-${item.batchKey}`;
                 const itemError = validation.itemRules[uniqueGroupKey];
@@ -452,11 +453,22 @@ export default function Basket({ isDarkMode }) {
                         )}
                       </div>
                       <div className="flex items-center gap-2">
-                      <p className={`font-black text-[12px] ${
-                          isSelected 
-                          ? 'text-emerald-600' 
-                          : (isAdmin && isAdminView ? 'text-emerald-600' : 'text-neutral-900 dark:text-white')
-                      }`}>₱{getBasketDisplayPrice(item).toLocaleString()}</p>
+                      {isAdmin && isAdminView ? (
+                        <div className="flex items-center gap-2 shrink-0">
+                          <p className="font-black text-[12px] text-blue-600">
+                            ₱{shelfCostPrice.toLocaleString()}
+                          </p>
+                          <p className="font-black text-[12px] text-emerald-600">
+                            ₱{shelfSellPrice.toLocaleString()}
+                          </p>
+                        </div>
+                      ) : (
+                        <p className={`font-black text-[12px] ${
+                            isSelected 
+                            ? 'text-emerald-600' 
+                            : 'text-neutral-900 dark:text-white'
+                        }`}>₱{getBasketDisplayPrice(item).toLocaleString()}</p>
+                      )}
                       <p className={`text-[11px] font-black uppercase px-2 py-0.5 rounded-md truncate max-w-[100px] border ${
                         isOnhand 
                           ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' 
@@ -466,7 +478,7 @@ export default function Basket({ isDarkMode }) {
                       </p>
                         {/* Quantity Controls for Project */}
                         {item.type === 'project' && <div className="ml-auto flex items-center gap-3 bg-neutral-100 dark:bg-neutral-800 rounded-full px-2 py-1">
-                            <button onClick={(e) => { e.stopPropagation(); decrementProjectQuantity(item.basketIds[item.basketIds.length - 1]); }} className="w-6 h-6 flex items-center justify-center rounded-full bg-white dark:bg-neutral-700 hover:text-red-500 transition-colors">
+                            <button onClick={(e) => { e.stopPropagation(); handleDecrementProjectItem(item.basketIds[item.basketIds.length - 1], 1); }} className="w-6 h-6 flex items-center justify-center rounded-full bg-white dark:bg-neutral-700 hover:text-red-500 transition-colors">
                                 {item.qty === 1 ? <Trash2 size={12} /> : '-'}
                             </button>
                             <span className="font-black text-[11px] w-4 text-center">{item.qty}</span>
@@ -481,7 +493,7 @@ export default function Basket({ isDarkMode }) {
                         
                         {/* Quantity Controls for Kit */}
                         {item.type !== 'project' && <div className="ml-auto flex items-center gap-3 bg-neutral-100 dark:bg-neutral-800 rounded-full px-2 py-1">
-                            <button onClick={(e) => { e.stopPropagation(); removeFromBasket(item.basketIds[0]); }} className="w-6 h-6 flex items-center justify-center rounded-full bg-white dark:bg-neutral-700 hover:text-red-500 transition-colors">
+                            <button onClick={(e) => { e.stopPropagation(); handleRemoveBasketItem(item.basketIds[0], 1); }} className="w-6 h-6 flex items-center justify-center rounded-full bg-white dark:bg-neutral-700 hover:text-red-500 transition-colors">
                                 {item.qty === 1 ? <Trash2 size={12} /> : '-'}
                             </button>
                             <span className="font-black text-[11px] w-4 text-center">{item.qty}</span>

@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   Sun, Moon, ShoppingBasket, Home, X, ShelvingUnit,
-  CircleUserRound, Settings, LogOut, AlertCircle, ContactRound,
+  CircleUserRound, Settings, LogOut, ContactRound,
   Shield, ShieldCheck, Box, Printer, ClipboardList, UserPlus, PackageOpen, Truck, Bell, CreditCard, CircleX, BookImage
 } from 'lucide-react';
 import { FcGoogle } from 'react-icons/fc';
@@ -83,10 +83,14 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   const isDesktop = windowWidth >= 1024;
   const isLandscape = typeof window !== 'undefined' ? window.innerWidth > window.innerHeight : false;
   const isProfileFullscreen = isMobile || (windowWidth >= 640 && windowWidth < 1024 && isLandscape);
+  const profilePhotoURL = user?.photoURL || auth.currentUser?.photoURL || '';
+  const adminRingClass = 'bg-gradient-to-br from-amber-300 via-yellow-400 to-orange-500 shadow-lg shadow-yellow-500/25';
+  const customerRingClass = 'bg-gradient-to-br from-[#0866FF] to-[#00CFFF]';
 
   useEffect(() => {
     if (!isProfileOpen) {
       setShowFacebook(false); // Reset to Google
+      setAuthError(null);
       if (timeoutTimerRef.current) clearTimeout(timeoutTimerRef.current);
       if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
       return;
@@ -123,6 +127,10 @@ export default function Navbar({ isCompact: scrolledCompact }) {
       window.removeEventListener('closeProfileDropdown', handleCloseProfile);
     };
   }, [isProfileOpen, isProfileFullscreen]);
+
+  useEffect(() => {
+    setProfileImgError(false);
+  }, [profilePhotoURL]);
 
   useEffect(() => {
     if (!isProfileOpen || !isProfileFullscreen) {
@@ -220,11 +228,11 @@ useEffect(() => {
       setAuthError(null);
       useStore.setState({ isSyncing: true, syncStatus: 'Authorizing Session' });
       await signInWithPopup(auth, fbProvider);
-      useStore.setState({ syncStatus: 'Verifying Identity' });
+      useStore.setState({ syncStatus: 'Syncing Profile' });
       setIsProfileOpen(false);
     } catch (err) {
       console.error(err);
-      setAuthError(err.message);
+      setAuthError('Authentication failed');
       useStore.setState({ isSyncing: false });
     }
   };
@@ -234,13 +242,14 @@ useEffect(() => {
       setAuthError(null);
       useStore.setState({ isSyncing: true, syncStatus: 'Authorizing Session' });
       const result = await signInWithPopup(auth, googleProvider);
-      useStore.setState({ syncStatus: 'Verifying Identity' });
+      useStore.setState({ syncStatus: 'Syncing Profile' });
       
       // Store user details in Firestore
       const { doc, setDoc, serverTimestamp } = await import('firebase/firestore');
       await setDoc(doc(db, 'users', result.user.uid), {
         email: result.user.email,
         displayName: result.user.displayName,
+        photoURL: result.user.photoURL || '',
         lastLogin: serverTimestamp(),
         role: 'customer' // Set default role if not existing
       }, { merge: true });
@@ -248,7 +257,7 @@ useEffect(() => {
       setIsProfileOpen(false);
     } catch (err) {
       console.error(err);
-      setAuthError(err.message);
+      setAuthError('Authentication failed');
       useStore.setState({ isSyncing: false });
     }
   };
@@ -347,9 +356,8 @@ const specs = {
   utilIcon: isDesktop ? (isCompactMode ? 22 : 26) : 24,
 };
 
-const DEFAULT_LOGO = "https://via.placeholder.com/150"; // Or your preferred placeholder
-
-const displayImg = (!garageInfo?.fbPageId || imgError) ? (garageInfo?.logoURL) : `https://graph.facebook.com/${garageInfo.fbPageId}/picture?type=large`;
+const displayImg = (!garageInfo?.fbPageId || imgError) ? (garageInfo?.logoURL || '') : `https://graph.facebook.com/${garageInfo.fbPageId}/picture?type=large`;
+const isFallbackLogo = !garageInfo?.fbPageId || imgError;
 
 const getPageTitle = () => {
   if (!isMobile) return { line1: 'SNORLAX', line2: 'GARAGE' };
@@ -401,7 +409,18 @@ return (
               className="relative rounded-full flex items-center justify-center bg-gradient-to-br from-[#0866FF] to-[#00CFFF] shadow-xl transition-all duration-500"
             >
               <div className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center border-[2px] ${isDarkMode ? 'border-neutral-900' : 'border-white'} bg-white dark:bg-neutral-800`}>
-                <img src={displayImg} alt="Logo" onError={() => setImgError(true)} className={`w-full h-full object-cover transition-all duration-500 ${(!garageInfo?.fbPageId || imgError) ? 'grayscale-[100%] opacity-70' : ''}`} />
+                {displayImg ? (
+                  <img
+                    src={displayImg}
+                    alt="Logo"
+                    onError={() => setImgError(true)}
+                    className={`w-full h-full object-cover transition-all duration-500 ${isFallbackLogo ? 'grayscale-[100%] opacity-70' : ''}`}
+                  />
+                ) : (
+                  <span className="text-[10px] font-black tracking-tighter text-neutral-400 dark:text-neutral-500">
+                    SG
+                  </span>
+                )}
               </div>
             </div>
             <div className={`transition-all duration-500 z-[140] ${specs.contentML}`}>
@@ -418,7 +437,18 @@ return (
               className="absolute rounded-full flex items-center justify-center bg-gradient-to-br from-[#0866FF] to-[#00CFFF] shadow-xl transition-all duration-500"
             >
               <div className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center border-[2px] ${isDarkMode ? 'border-neutral-900' : 'border-white'} bg-white dark:bg-neutral-800`}>
-                <img src={displayImg} alt="Logo" onError={() => setImgError(true)} className={`w-full h-full object-cover transition-all duration-500 ${(!garageInfo?.fbPageId || imgError) ? 'grayscale-[100%] opacity-70' : ''}`} />
+                {displayImg ? (
+                  <img
+                    src={displayImg}
+                    alt="Logo"
+                    onError={() => setImgError(true)}
+                    className={`w-full h-full object-cover transition-all duration-500 ${isFallbackLogo ? 'grayscale-[100%] opacity-70' : ''}`}
+                  />
+                ) : (
+                  <span className="text-sm font-black tracking-tighter text-neutral-400 dark:text-neutral-500">
+                    SG
+                  </span>
+                )}
               </div>
             </div>
             <div className={`transition-all duration-500 z-[140] ${specs.contentML}`}>
@@ -486,23 +516,33 @@ return (
                 className={`p-1 transition-all duration-300 relative group ${isProfileOpen ? 'scale-110' : 'scale-100'}`}
               >
                 <div 
-                  className={`rounded-full p-[2px] transition-all duration-300 ${isProfileOpen ? 'bg-red-500/10' : (isProfileOpen ? 'bg-gradient-to-br from-[#0866FF] to-[#00CFFF] shadow-lg shadow-blue-500/20' : 'bg-transparent group-hover:bg-gradient-to-br group-hover:from-[#0866FF] group-hover:to-[#00CFFF]')}`}
+                  className={`rounded-full p-[2px] transition-all duration-300 ${isProfileOpen ? 'bg-red-500/10' : (isAdmin && isAdminView ? adminRingClass : 'bg-transparent group-hover:bg-gradient-to-br group-hover:from-[#0866FF] group-hover:to-[#00CFFF]')}`}
                 >
                   <div className={`rounded-full overflow-hidden border-2 transition-colors ${isProfileOpen ? 'border-red-500' : (isProfileOpen ? (isDarkMode ? 'border-neutral-900' : 'border-white') : 'border-transparent group-hover:border-white dark:group-hover:border-neutral-900')}`}>
                     {isProfileOpen ? (
                         <CircleX size={specs.utilIcon - 4} className="text-red-500" />
                     ) : (isAdmin && isAdminView) ? (
+                      garageInfo?.logoURL ? (
+                        <img 
+                          src={garageInfo.logoURL} 
+                          alt="admin-logo" 
+                          className="object-cover rounded-full" 
+                          style={{ width: specs.utilIcon - 4, height: specs.utilIcon - 4 }} 
+                        />
+                      ) : (
+                        <span
+                          className="flex items-center justify-center rounded-full text-[9px] font-black tracking-tighter text-neutral-400 dark:text-neutral-500"
+                          style={{ width: specs.utilIcon - 4, height: specs.utilIcon - 4 }}
+                        >
+                          SG
+                        </span>
+                      )
+                    ) : profilePhotoURL && !profileImgError ? (
                       <img 
-                        src={garageInfo?.logoURL || DEFAULT_LOGO} 
-                        alt="admin-logo" 
-                        className="object-cover rounded-full" 
-                        style={{ width: specs.utilIcon - 4, height: specs.utilIcon - 4 }} 
-                      />
-                    ) : user?.photoURL && !profileImgError ? (
-                      <img 
-                        src={user.photoURL} 
+                        src={profilePhotoURL} 
                         alt="profile" 
-                        onError={() => setProfileImgError(true)} 
+                        referrerPolicy="no-referrer"
+                        onError={() => setProfileImgError(true)}
                         className="object-cover rounded-full" 
                         style={{ width: specs.utilIcon - 4, height: specs.utilIcon - 4 }} 
                       />
@@ -517,17 +557,6 @@ return (
                 <div ref={profileModalRef} style={profilePanelStyle} className={`fixed animate-in fade-in slide-in-from-top-2 duration-200 ${isProfileFullscreen ? 'w-screen' : 'w-72'}`}>
                   <div className={`${isProfileFullscreen ? 'h-full max-h-full rounded-none overscroll-contain ml-auto max-w-sm' : 'max-h-[calc(100dvh-5rem)] rounded-[2rem]'} overflow-y-auto shadow-2xl border ${isDarkMode ? 'bg-neutral-900/95 border-white/10' : 'bg-white/95 border-black/5'} backdrop-blur-xl`}>
                     
-                    {authError && (
-                      <div className="bg-red-500/10 border-b border-red-500/20 p-4 flex items-start gap-3">
-                        <AlertCircle size={16} className="text-red-500 shrink-0 mt-0.5" />
-                        <div className="space-y-1">
-                          <p className="text-[10px] font-black uppercase text-red-500">Login Issue</p>
-                          <p className="text-[9px] font-medium leading-tight opacity-70 italic">{authError}</p>
-                        </div>
-                        <button onClick={() => setAuthError(null)} className="p-1 hover:bg-black/5 rounded-full"><X size={14} /></button>
-                      </div>
-                    )}
-
                     <div className="p-6 flex flex-col items-center text-center space-y-3 border-b border-black/5 dark:border-white/5">
                       <div 
                         className="relative group cursor-pointer py-2"
@@ -537,25 +566,39 @@ return (
                       >
                         {isAdmin ? (
                             <div className="flex items-center justify-center -space-x-4">
-                              <div className={`relative transition-all duration-500 rounded-full p-0.5 ${isAdminView ? 'z-20 scale-110 bg-gradient-to-br from-[#0866FF] to-[#00CFFF] shadow-xl' : 'z-0 scale-90 opacity-40 bg-white/10'}`}>
-                                <img 
-                                  src={garageInfo?.logoURL || DEFAULT_LOGO} 
-                                  alt="brand-logo" 
-                                  className={`w-14 h-14 rounded-full border-2 object-cover ${isAdminView ? 'border-white dark:border-neutral-900' : 'border-transparent'}`} 
-                                />
+                              <div className={`relative transition-all duration-500 rounded-full p-0.5 ${isAdminView ? `z-20 scale-110 ${adminRingClass} shadow-xl` : 'z-0 scale-90 opacity-40 bg-white/10'}`}>
+                                {garageInfo?.logoURL ? (
+                                  <img 
+                                    src={garageInfo.logoURL} 
+                                    alt="brand-logo" 
+                                    className={`w-14 h-14 rounded-full border-2 object-cover ${isAdminView ? 'border-white dark:border-neutral-900' : 'border-transparent'}`} 
+                                  />
+                                ) : (
+                                  <div className={`w-14 h-14 rounded-full border-2 flex items-center justify-center bg-zinc-100 dark:bg-zinc-800 text-neutral-400 ${isAdminView ? 'border-white dark:border-neutral-900' : 'border-transparent'}`}>
+                                    <span className="text-sm font-black tracking-tighter">SG</span>
+                                  </div>
+                                )}
 
                                 {isAdminView && (
-                                  <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-gradient-to-br from-[#0866FF] to-[#00CFFF] text-white flex items-center justify-center border-2 border-white dark:border-neutral-900 shadow-lg">
+                                  <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-gradient-to-br from-amber-300 via-yellow-400 to-orange-500 text-white flex items-center justify-center border-2 border-white dark:border-neutral-900 shadow-lg">
                                     <ShieldCheck size={10} />
                                   </div>
                                 )}
                               </div>
-                              <div className={`relative transition-all duration-500 rounded-full p-0.5 ${!isAdminView ? 'z-20 scale-110 bg-gradient-to-br from-[#0866FF] to-[#00CFFF] shadow-xl' : 'z-0 scale-90 opacity-40 bg-white/10'}`}>
-                                <img 
-                                  src={user?.photoURL} 
-                                  alt="user-photo" 
-                                  className={`w-14 h-14 rounded-full border-2 object-cover ${!isAdminView ? 'border-white dark:border-neutral-900' : 'border-transparent'}`} 
-                                />
+                              <div className={`relative transition-all duration-500 rounded-full p-0.5 ${!isAdminView ? `z-20 scale-110 ${customerRingClass} shadow-xl` : 'z-0 scale-90 opacity-40 bg-white/10'}`}>
+                                {profilePhotoURL && !profileImgError ? (
+                                  <img 
+                                    src={profilePhotoURL} 
+                                    alt="user-photo"
+                                    referrerPolicy="no-referrer"
+                                    onError={() => setProfileImgError(true)}
+                                    className={`w-14 h-14 rounded-full border-2 object-cover ${!isAdminView ? 'border-white dark:border-neutral-900' : 'border-transparent'}`} 
+                                  />
+                                ) : (
+                                  <div className={`w-14 h-14 rounded-full border-2 flex items-center justify-center bg-zinc-100 dark:bg-zinc-800 text-neutral-400 ${!isAdminView ? 'border-white dark:border-neutral-900' : 'border-transparent'}`}>
+                                    <ContactRound size={30} />
+                                  </div>
+                                )}
                                 {!isAdminView && (
                                   <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-gradient-to-br from-[#0866FF] to-[#00CFFF] text-white flex items-center justify-center border-2 border-white dark:border-neutral-900 shadow-lg">
                                     <Shield size={10} />
@@ -565,11 +608,12 @@ return (
                             </div>
                         ) : (
                           <div className="relative rounded-full p-0.5 bg-gradient-to-br from-[#0866FF] to-[#00CFFF]">
-                            {user?.photoURL && !profileImgError ? (
+                            {profilePhotoURL && !profileImgError ? (
                               <img 
-                                src={user.photoURL} 
+                                src={profilePhotoURL} 
                                 alt="profile-display" 
-                                onError={() => setProfileImgError(true)} 
+                                referrerPolicy="no-referrer"
+                                onError={() => setProfileImgError(true)}
                                 className="w-16 h-16 rounded-full border-2 border-white dark:border-neutral-900 object-cover" 
                               />
                             ) : (
@@ -605,9 +649,9 @@ return (
                         <>
                           {isAdminView ? (
                             <>
-                              <button className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-colors bg-blue-500/10 text-blue-500 border border-blue-500/20 hover:bg-blue-500/20`}>
+                              <button onClick={() => { navigate('/users-dashboard'); setIsProfileOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-colors bg-blue-500/10 text-blue-500 border border-blue-500/20 hover:bg-blue-500/20`}>
                                 <UserPlus size={18} className="text-blue-500" />
-                                <span className="text-[12px] font-black uppercase tracking-widest text-left leading-tight">Manage Users</span>
+                                <span className="text-[12px] font-black uppercase tracking-widest text-left leading-tight">Users Dashboard</span>
                               </button>
                               <button onClick={() => { setIsPickupPointOpen(true); setIsProfileOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-colors ${isDarkMode ? 'hover:bg-white/5 text-white' : 'hover:bg-black/5 text-neutral-900'}`}>
                                 <Truck size={18} className="opacity-40" />
@@ -681,6 +725,11 @@ return (
                                <FcGoogle size={18} />
                               <span className="text-[12px] font-black uppercase tracking-widest">{showFacebook ? 'Login with Facebook' : 'Login with Google'}</span>
                             </button>
+                          )}
+                          {authError && !showFacebook && (
+                            <p className="text-center text-[10px] font-black uppercase tracking-[0.16em] text-red-500">
+                              {authError}
+                            </p>
                           )}
                         </div>
                       )}

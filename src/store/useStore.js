@@ -18,6 +18,11 @@ const getAvailableStockCount = (kit) => {
   return Object.values(kit?.stocks || {}).filter((stock) => !stock?.order?.orderId && !stock?.isReserved).length;
 };
 
+const getStockCostPrice = (stock) => {
+  const value = Number(stock?.costPrice);
+  return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
+};
+
 const getKitSortGroup = (kit) => {
   const stocks = Object.values(kit?.stocks || {});
   if (stocks.length === 0) return 1; // Group 3: No stocks at all
@@ -117,7 +122,7 @@ export const useStore = create(
       toastMessage: null,
       isSpectralMode: true,
       isSyncing: false,
-      syncStatus: 'Verifying Identity',
+      syncStatus: 'Syncing Profile',
       storiesHeight: 0,
       unsubPrintResources: null,
       setStoriesHeight: (height) => set({ storiesHeight: height }),
@@ -776,7 +781,7 @@ export const useStore = create(
             if (availableStocks.length === 0) return;
 
             // Sort by costPrice ascending, pick the cheapest one
-            availableStocks.sort((a, b) => Number(a.costPrice || 0) - Number(b.costPrice || 0));
+            availableStocks.sort((a, b) => getStockCostPrice(a) - getStockCostPrice(b));
             const stock = availableStocks[0];
             const hasAvailable = (availableStocks.length - 1) > 0;
             itemsToKeep.push({ kit, stock, key: stock.key, hasAvailable });
@@ -1072,13 +1077,14 @@ export const useStore = create(
         (kits || []).forEach(kit => {
           Object.entries(kit.stocks || {}).forEach(([key, stock]) => {
             const stockOrderIds = [stock.order?.orderDocId, stock.order?.orderId].filter(Boolean);
+            const isAdminShelfReservation = stock.isReserved && stock.reservationType === 'admin';
             
             // Case 1: Stock is linked to a cancelled order
             const isLinkedToCancelled = stockOrderIds.some(id => cancelledOrderIds.has(id));
             
             // Case 2: Stock is marked reserved but has no order data OR the linked order doesn't exist in active orders
             // If it has order data, check if that order is active. If no order data but isReserved is true, it might be orphaned.
-            const hasNoActiveOrder = stock.isReserved && (stockOrderIds.length === 0 || !stockOrderIds.some(id => activeOrderIds.has(id)));
+            const hasNoActiveOrder = stock.isReserved && !isAdminShelfReservation && (stockOrderIds.length === 0 || !stockOrderIds.some(id => activeOrderIds.has(id)));
 
             // Case 3: Stock is On-hand but still has an ETA
             const isOnhand = String(stock.status || '').toLowerCase() === 'onhand';
@@ -1358,7 +1364,7 @@ export const useStore = create(
 
       syncUserAccount: async (fbUser, onSyncComplete) => {
         console.log("DEBUG: syncUserAccount called with:", fbUser ? fbUser.uid : "null");
-        set({ syncStatus: 'Verifying Identity' });
+        set({ syncStatus: 'Syncing Profile' });
         if (get().unsubUser) get().unsubUser();
         if (get().unsubShelf) get().unsubShelf();
         if (get().unsubAdmin) get().unsubAdmin();
@@ -1391,6 +1397,13 @@ export const useStore = create(
         // Fetch user data once for migration
         const initialDocSnap = await getDoc(userRef);
         let userData = initialDocSnap.exists() ? initialDocSnap.data() : null;
+        const authPhotoURL = fbUser.photoURL || '';
+        const storedPhotoURL = userData?.photoURL || '';
+
+        if (authPhotoURL && storedPhotoURL !== authPhotoURL) {
+          await setDoc(userRef, { photoURL: authPhotoURL }, { merge: true });
+          userData = { ...(userData || {}), photoURL: authPhotoURL };
+        }
         
         set({ syncStatus: 'Loading basket' });
 
@@ -1451,9 +1464,9 @@ export const useStore = create(
               // naka-store na ito sa sariling collections/subcollections para iwas sa 1MB limit
               set({ 
                 user: { 
-                  uid: fbUser.uid, 
-                  photoURL: fbUser.photoURL, 
-                  ...data, 
+                  uid: fbUser.uid,
+                  ...data,
+                  photoURL: data.photoURL || fbUser.photoURL || '',
                   displayName: (data.displayName || fbUser.displayName || "Anonymous").toUpperCase() 
                 }, 
                 isAdmin: isActuallyAdmin, 
@@ -1642,10 +1655,12 @@ export const useStore = create(
 
         const occupied = new Set(currentList.filter(i => i.id === itemData.id).map(i => i.stockKey));
         const available = Object.entries(kit.stocks).filter(([key, s]) => !s.isReserved && !s.order?.orderId && !occupied.has(key));
-        available.sort((a, b) => isAdminContext ? (a[1].costPrice || 0) - (b[1].costPrice || 0) : (b[1].costPrice || 0) - (a[1].costPrice || 0));
+        available.sort((a, b) => isAdminContext ? getStockCostPrice(a[1]) - getStockCostPrice(b[1]) : Number(b[1].costPrice || 0) - Number(a[1].costPrice || 0));
         
         const allStocks = Object.entries(kit.stocks);
-        const targetKey = itemData.stockKey && kit.stocks[itemData.stockKey]
+        const targetKey = isAdminContext
+          ? available[0]?.[0]
+          : itemData.stockKey && kit.stocks[itemData.stockKey]
           ? itemData.stockKey
           : (available[0]?.[0] || allStocks[0]?.[0]);
           

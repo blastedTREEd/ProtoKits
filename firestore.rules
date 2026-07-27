@@ -1,0 +1,130 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function isAdmin() {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // --- PUBLIC COLLECTIONS ---
+    match /settings/garage {
+      allow read: if true;
+    }
+
+    match /settings/checkout {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /settings/shelf {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /methods/{id} {
+      allow read: if true;
+    }
+
+    match /printers/{id} {
+      allow read: if true;
+    }
+
+    match /feeders/{id} {
+      allow read: if true;
+    }
+
+    match /extras/{id} {
+      allow read: if true;
+    }
+
+    match /rates/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /filaments/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /stories/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // --- KITS ---
+    match /kits/{kitId} {
+      allow read: if true;
+      allow write: if signedIn(); // Temporary debug rule from current production rules.
+    }
+
+    // --- BLUEPRINTS ---
+    match /blueprints/{blueprintId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // --- DEALS ---
+    match /deals/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // --- HUNTS / OFFERS ---
+    match /hunts/{huntId} {
+      allow read: if true;
+      allow write: if signedIn();
+    }
+
+    // --- USERS ---
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isOwner(userId);
+
+      match /basket/{basketId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow write: if isOwner(userId);
+      }
+    }
+
+    // --- PROJECT VAULTS ---
+    match /projectVaults/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow write: if isOwner(uid);
+    }
+
+    // --- ORDERS ---
+    match /orders/{orderId} {
+      allow read, create: if signedIn();
+      allow delete: if isAdmin();
+      allow update: if signedIn() && (
+        isAdmin() || (
+          resource.data.userId == request.auth.uid &&
+          (!('receipt' in resource.data) || resource.data.receipt == null || resource.data.receipt == "") &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'receipt', 'lastUpdated']) &&
+          (request.resource.data.status == 'Validating' || request.resource.data.status == 'Cancelled')
+        )
+      );
+    }
+
+    // --- ADMINS ---
+    match /admins/{adminId} {
+      allow read, write: if isOwner(adminId);
+    }
+
+    // --- SHELF ---
+    match /shelf/{itemId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}

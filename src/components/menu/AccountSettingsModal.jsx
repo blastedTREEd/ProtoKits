@@ -243,7 +243,7 @@ export default function AccountSettingsModal({ isOpen, onClose }) {
       setAuthError(null); 
       useStore.setState({ isSyncing: true, syncStatus: 'Authorizing Session' });
       await signInWithPopup(auth, fbProvider);
-      useStore.setState({ syncStatus: 'Verifying Identity' });
+      useStore.setState({ syncStatus: 'Syncing Profile' });
     } catch (err) { 
       setAuthError(err.message); 
       useStore.setState({ isSyncing: false });
@@ -255,7 +255,7 @@ export default function AccountSettingsModal({ isOpen, onClose }) {
       setAuthError(null); 
       useStore.setState({ isSyncing: true, syncStatus: 'Authorizing Session' });
       await signInWithPopup(auth, googleProvider);
-      useStore.setState({ syncStatus: 'Verifying Identity' });
+      useStore.setState({ syncStatus: 'Syncing Profile' });
     } catch (err) { 
       setAuthError(err.message); 
       useStore.setState({ isSyncing: false });

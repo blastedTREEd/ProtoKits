@@ -157,6 +157,11 @@ function isOnHandStock(stock) {
   return status === 'onhand' || status === 'on hand';
 }
 
+function getStockCostPrice(stock) {
+  const value = Number(stock?.costPrice);
+  return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
+}
+
 function getAvailabilityGroupLabel(stock) {
   return isOnHandStock(stock) ? 'ONHAND' : (stock?.eta || 'TBA').toUpperCase();
 }
@@ -675,7 +680,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
       return { cost, sell, profit: sell - cost };
     }
 
-    const cheapestStock = unsoldStocks.reduce((prev, curr) => (Number(curr.costPrice || 0) < Number(prev.costPrice || 0)) ? curr : prev);
+    const cheapestStock = unsoldStocks.reduce((prev, curr) => (getStockCostPrice(curr) < getStockCostPrice(prev)) ? curr : prev);
     const cost = Number(cheapestStock.costPrice || 0);
     const sell = maxSellPrice || 0;
     return { cost, sell, profit: sell - cost };
@@ -862,7 +867,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
 
       // Sort by costPrice (lowest first)
       const sortedStocks = [...adminKeepableStocks].sort((a, b) => {
-        return (Number(a.costPrice || 0)) - (Number(b.costPrice || 0));
+        return getStockCostPrice(a) - getStockCostPrice(b);
       });
 
       return sortedStocks[0];
@@ -957,7 +962,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
     });
 
     let finalStock = (isAdmin && isAdminView) 
-      ? availableForPurchase.reduce((prev, curr) => (Number(curr.costPrice || 0) < Number(prev.costPrice || 0)) ? curr : prev, availableForPurchase[0]) 
+      ? availableForPurchase.reduce((prev, curr) => (getStockCostPrice(curr) < getStockCostPrice(prev)) ? curr : prev, availableForPurchase[0]) 
       : (targetStock || availableForPurchase[0]);
 
     if (!finalStock) return;

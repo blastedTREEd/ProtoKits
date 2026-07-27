@@ -21,6 +21,7 @@ const AboutUs = lazy(() => import('./pages/AboutUs'));
 const Basket = lazy(() => import('./pages/Basket'));
 const NotifyList = lazy(() => import('./pages/NotifyList'));
 const Orders = lazy(() => import('./pages/Orders'));
+const UsersDashboard = lazy(() => import('./pages/UsersDashboard'));
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
 const TermsOfUse = lazy(() => import('./pages/TermsOfUse'));
 const Deletion = lazy(() => import('./pages/Deletion'));
@@ -28,53 +29,32 @@ const ShippingPolicy = lazy(() => import('./pages/ShippingPolicy'));
 const PaymentAndRefundPolicy = lazy(() => import('./pages/PaymentAndRefundPolicy'));
 
 const getPageLoadingLabel = (pathname) => {
-  if (pathname === '/') return 'Loading Stories';
+  if (pathname === '/') return 'Loading SnorlaxGarage';
   if (pathname.startsWith('/kits')) return 'Loading Kits';
-  if (pathname === '/prints' || pathname === '/blueprints') return 'Loading Projects';
+  if (pathname === '/prints' || pathname === '/blueprints') return 'Loading Prints';
   if (pathname === '/orders') return 'Loading Orders';
   if (pathname === '/notify-list') return 'Loading Offers';
+  if (pathname === '/users-dashboard') return 'Loading Users Dashboard';
   if (pathname === '/basket' || pathname === '/shelf') return 'Loading Basket';
   return 'Loading SnorlaxGarage';
 };
 
-const getLoadingDetails = ({ pathname, req, ds, showChecklist }) => {
-  const pageName = pathname === '/'
-    ? 'snorlaxgarage'
-    : pathname === '/prints'
-      ? 'projects'
-      : pathname.replace('/', '').replace(/-/g, ' ') || 'page';
-  const requiredKeys = Object.keys(req).filter((key) => req[key]);
-  const isPageReady = requiredKeys.every((key) => ds[key]);
-
+const getLoadingDetails = ({ pathname }) => {
   return {
-    message: `Loading ${pageName}`,
-    steps: showChecklist
-      ? [
-        { label: 'Checking Session', status: ds.userProfile ? 'done' : 'pending' },
-        ...(ds.userProfile ? [{ label: getPageLoadingLabel(pathname), status: isPageReady ? 'done' : 'pending' }] : [])
-      ]
-      : []
+    message: getPageLoadingLabel(pathname),
+    steps: []
   };
 };
 
-const getSyncSteps = (syncStatus, pathname) => {
+const getSyncMessage = (syncStatus, pathname) => {
   const normalizedStatus = String(syncStatus || '').toLowerCase();
   const isAuthorizing = normalizedStatus.includes('waiting') || normalizedStatus.includes('authoriz');
-  const isVerifying = normalizedStatus.includes('verify') || normalizedStatus.includes('profile') || normalizedStatus.includes('account') || normalizedStatus.includes('synchronizing');
-  const phase = isAuthorizing ? 0 : isVerifying ? 1 : 2;
-  const steps = [
-    { label: 'Authorizing Session', status: phase > 0 ? 'done' : 'pending' }
-  ];
+  const isSyncingProfile = normalizedStatus.includes('verify') || normalizedStatus.includes('profile') || normalizedStatus.includes('account') || normalizedStatus.includes('synchronizing');
 
-  if (phase >= 1) {
-    steps.push({ label: 'Verifying Identity', status: phase > 1 ? 'done' : 'pending' });
-  }
+  if (isAuthorizing) return 'Authenticating Session';
+  if (isSyncingProfile) return 'Syncing Profile';
 
-  if (phase >= 2) {
-    steps.push({ label: getPageLoadingLabel(pathname), status: 'pending' });
-  }
-
-  return steps;
+  return getPageLoadingLabel(pathname);
 };
 
 // Scroll restoration
@@ -231,10 +211,7 @@ const RouterContent = () => {
     (req.shelf && !ds.shelf) ||
     (req.prints && !ds.prints);
   const loadingDetails = getLoadingDetails({
-    pathname: location.pathname,
-    req,
-    ds,
-    showChecklist: showLoading
+    pathname: location.pathname
   });
 
   const AdminRouteWrapper = ({ children }) => {
@@ -254,7 +231,7 @@ const RouterContent = () => {
       ) : (
         <Suspense fallback={
           <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-white/50 backdrop-blur-sm dark:bg-black/50">
-            <LoadingState {...loadingDetails} steps={[]} />
+            <LoadingState {...loadingDetails} />
           </div>
         }>
           <Routes>
@@ -275,6 +252,14 @@ const RouterContent = () => {
               } 
             />
             <Route path="/notify-list" element={<NotifyList />} />
+            <Route
+              path="/users-dashboard"
+              element={
+                <AdminRouteWrapper>
+                  <UsersDashboard />
+                </AdminRouteWrapper>
+              }
+            />
             <Route path="/privacy-policy" element={<PrivacyPolicy />} />
             <Route path="/terms-of-use" element={<TermsOfUse />} />
             <Route path="/data-deletion" element={<Deletion />} />
@@ -303,8 +288,7 @@ const SyncOverlay = () => {
         >
           <div className="flex flex-col items-center gap-3">
             <LoadingState
-              message="Syncing your account..."
-              steps={getSyncSteps(syncStatus, location.pathname)}
+              message={getSyncMessage(syncStatus, location.pathname)}
               className="py-0"
             />
           </div>
