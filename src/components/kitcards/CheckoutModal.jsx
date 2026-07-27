@@ -40,6 +40,28 @@ function resolveImage(idOrUrl, imagesArray) {
   return match?.url || '';
 }
 
+const toCheckoutNumber = (value) => Number(value || 0);
+
+const getCheckoutItemBasePrice = (item, kit, fees = {}) => {
+  if (item.type === 'project') {
+    return toCheckoutNumber(item.projectData?.sellPrice || item.sellPrice || item.price);
+  }
+
+  const storedPrice = toCheckoutNumber(item.price);
+  if (item.isBundleItem && storedPrice > 0) return storedPrice;
+
+  const stockPrice = toCheckoutNumber(kit?.stocks?.[item.stockKey]?.sellPrice);
+  if (stockPrice > 0) return stockPrice;
+
+  const itemSellPrice = toCheckoutNumber(item.sellPrice);
+  const knownFees = toCheckoutNumber(fees.handling) + toCheckoutNumber(fees.installment) + toCheckoutNumber(fees.transfer);
+  if (storedPrice > 0 && itemSellPrice > 0 && storedPrice > itemSellPrice) {
+    return Math.max(0, storedPrice - knownFees);
+  }
+
+  return itemSellPrice || storedPrice;
+};
+
 const DEFAULT_DELIVERY_COORDS = { lat: 14.5995, lng: 120.9842 };
 // Ang mga locally-handled na methods na hindi gumagamit ng delivery address form
 const LOCAL_METHODS = ['Seller Meetup', 'Self-Pickup'];
@@ -675,8 +697,15 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     
     return (items || []).map(item => {
       const quantity = item.quantity || 1;
-      const basePrice = Number(item.sellPrice || item.projectData?.sellPrice || item.price || 0);
       const kit = kits.find(k => k.id === item.id);
+      const appliedHandlingFee = Number(item.appliedHandlingFee) > 0 ? Number(item.appliedHandlingFee) : handlingFee;
+      const appliedInstallmentFee = Number(item.appliedInstallmentFee) > 0 ? Number(item.appliedInstallmentFee) : installmentFee;
+      const appliedTransferFee = Number(item.appliedTransferFee) > 0 ? Number(item.appliedTransferFee) : transferFee;
+      const basePrice = getCheckoutItemBasePrice(item, kit, {
+        handling: appliedHandlingFee,
+        installment: appliedInstallmentFee,
+        transfer: appliedTransferFee
+      });
       
       return {
         ...item,
@@ -686,9 +715,9 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
         displayPrice: basePrice, // Base price per unit
         image: item.image || kit?.image || null,
         images: item.images || kit?.images || null,
-        appliedHandlingFee: Number(item.appliedHandlingFee) > 0 ? Number(item.appliedHandlingFee) : handlingFee,
-        appliedInstallmentFee: Number(item.appliedInstallmentFee) > 0 ? Number(item.appliedInstallmentFee) : installmentFee,
-        appliedTransferFee: Number(item.appliedTransferFee) > 0 ? Number(item.appliedTransferFee) : transferFee,
+        appliedHandlingFee,
+        appliedInstallmentFee,
+        appliedTransferFee,
         isFreeShippingEligible: isFreeShippingActive(item, kit?.stocks?.[item.stockKey]),
         freeShippingUntil: item.freeShippingUntil || kit?.stocks?.[item.stockKey]?.freeShippingUntil || '',
         freeShippingMethod: item.freeShippingMethod || kit?.stocks?.[item.stockKey]?.freeShippingMethod || 'All',
@@ -749,7 +778,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
 const baseTotal = useMemo(() => {
   // 1. Kunin muna ang sum ng lahat ng items (Base Price + Installment Fee * Quantity)
   const itemsTotal = checkoutItems.reduce((total, item) => {
-    const basePrice = Number(item.sellPrice || item.projectData?.sellPrice || item.price || 0);
+    const basePrice = Number(item.price || item.sellPrice || item.projectData?.sellPrice || 0);
     const installmentFee = Number(item.appliedInstallmentFee) || 0;
     
     return total + (basePrice + installmentFee) * (item.quantity || 1);
@@ -2481,7 +2510,7 @@ const handleFinalizeOrder = async () => {
                       {checkoutItems.map((item, idx) => {
   // 1. Kunin ang totoong base price ng item (Gagana sa parehong Kit at Project!)
   // Kung project ito, kukunin nito ang malinis na ₱2,100 mula sa projectData?.sellPrice
-  const basePrice = Number(item.sellPrice || item.projectData?.sellPrice || item.price || 0);
+  const basePrice = Number(item.price || item.sellPrice || item.projectData?.sellPrice || 0);
   
   // 2. I-add ang installment fee (₱2,100 + ₱100 = ₱2,200)
   const itemPrice = basePrice + (Number(item.appliedInstallmentFee) || 0);

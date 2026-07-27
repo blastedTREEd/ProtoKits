@@ -35,7 +35,8 @@ const getPageLoadingLabel = (pathname) => {
   if (pathname === '/orders') return 'Loading Orders';
   if (pathname === '/notify-list') return 'Loading Offers';
   if (pathname === '/users-dashboard') return 'Loading Users Dashboard';
-  if (pathname === '/basket' || pathname === '/shelf') return 'Loading Basket';
+  if (pathname === '/shelf') return 'Loading Collection';
+  if (pathname === '/basket') return 'Loading Basket';
   return 'Loading SnorlaxGarage';
 };
 

@@ -295,7 +295,7 @@ export const useStore = create(
         // 4. Shelf (if not already prioritized)
         if (!ds.shelf && get().isAdmin) {
           const unsub = onSnapshot(collection(db, "shelf"), (snap) => {
-            const items = snap.docs.map(doc => ({ basketId: doc.id, ...doc.data() }));
+            const items = snap.docs.map(doc => ({ ...doc.data(), basketId: doc.id }));
             set({ shelf: items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()) });
             get().markLoaded('shelf');
           }, (err) => {
@@ -435,7 +435,7 @@ export const useStore = create(
             // 4. Shelf priority -> Shelf collection (Basket is already sync'ed priority in syncUserAccount)
             if (currentReq.shelf) {
               const unsub = onSnapshot(collection(db, "shelf"), (snap) => {
-                const items = snap.docs.map(doc => ({ basketId: doc.id, ...doc.data() }));
+                const items = snap.docs.map(doc => ({ ...doc.data(), basketId: doc.id }));
                 set({ shelf: items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()) });
                 get().markLoaded('shelf');
               }, (err) => {
@@ -1490,7 +1490,7 @@ export const useStore = create(
         set({ syncStatus: 'Loading Basket' });
 
         const unsubBasket = onSnapshot(collection(db, 'users', fbUser.uid, 'basket'), (basketSnap) => {
-            const basketItems = basketSnap.docs.map(doc => ({ basketId: doc.id, ...doc.data() }));
+            const basketItems = basketSnap.docs.map(doc => ({ ...doc.data(), basketId: doc.id }));
             set({ basket: basketItems.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()) });
             
             get().markLoaded('basket');
@@ -1768,7 +1768,8 @@ export const useStore = create(
         const newList = currentList.filter(i => i.basketId !== basketId);
         set({ [field]: newList });
         
-        if (isAdminContext) {
+        try {
+          if (isAdminContext) {
             const shelfCount = newList.filter(i => i.id === item.id).length;
             set({ toastMessage: `${shelfCount} in shelf` });
             await deleteDoc(doc(db, 'shelf', basketId));
@@ -1791,8 +1792,13 @@ export const useStore = create(
                 hasAvailableStock: hasAvailable
               });
             }
-        } else {
+          } else {
             await deleteDoc(doc(db, 'users', user.uid, 'basket', basketId));
+          }
+        } catch (error) {
+          console.error("SG LOG: Failed to remove basket item:", error);
+          set({ [field]: currentList, toastMessage: 'Unable to update basket. Please try again.' });
+          throw error;
         }
       },
 
@@ -2168,11 +2174,17 @@ export const useStore = create(
             } else {
                 set({ [field]: updatedList });
                 if (user) {
+                  try {
                     if (isAdmin && isAdminView) {
                         await updateDoc(doc(db, 'shelf', basketId), { quantity: (item.quantity || 1) - 1 });
                     } else {
                         await updateDoc(doc(db, 'users', user.uid, 'basket', basketId), { quantity: (item.quantity || 1) - 1 });
                     }
+                  } catch (error) {
+                    console.error("SG LOG: Failed to update basket quantity:", error);
+                    set({ [field]: list, toastMessage: 'Unable to update basket. Please try again.' });
+                    throw error;
+                  }
                 }
             }
         } else {

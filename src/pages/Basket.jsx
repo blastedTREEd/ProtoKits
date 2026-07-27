@@ -369,7 +369,7 @@ export default function Basket({ isDarkMode }) {
         </div>
         <div className={`flex-grow max-w-7xl mx-auto w-full p-4 md:p-8 pb-32 md:pb-8`}>
           {isLoading ? (
-            <LoadingState message={isAdmin && isAdminView ? "Loading your shelf..." : "Loading your basket..."} />
+            <LoadingState message={isAdmin && isAdminView ? "Loading Collection" : "Loading Basket"} />
           ) : activeBasket.length === 0 ? (
             <div className="text-center py-20 opacity-50">
               {isAdmin && isAdminView ? (
