@@ -10,7 +10,7 @@ export default function WelcomeModal({ isOpen, onClose, onSetup }) {
   const handleSkip = async () => {
     if (!user) return;
     setIsSkipping(true);
-    useStore.setState({ isSyncing: true, syncStatus: 'Loading Profile' });
+    useStore.setState({ isSyncing: true, syncStatus: 'Verifying Identity' });
     try {
       await updateUserProfile(user.uid, {
         userDetails: {

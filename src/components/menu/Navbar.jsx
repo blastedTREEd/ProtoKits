@@ -218,8 +218,9 @@ useEffect(() => {
   const handleLogin = async () => {
     try {
       setAuthError(null);
-      useStore.setState({ isSyncing: true, syncStatus: 'Waiting to Login' });
+      useStore.setState({ isSyncing: true, syncStatus: 'Authorizing Session' });
       await signInWithPopup(auth, fbProvider);
+      useStore.setState({ syncStatus: 'Verifying Identity' });
       setIsProfileOpen(false);
     } catch (err) {
       console.error(err);
@@ -231,8 +232,9 @@ useEffect(() => {
   const handleGoogleLogin = async () => {
     try {
       setAuthError(null);
-      useStore.setState({ isSyncing: true, syncStatus: 'Waiting to Login' });
+      useStore.setState({ isSyncing: true, syncStatus: 'Authorizing Session' });
       const result = await signInWithPopup(auth, googleProvider);
+      useStore.setState({ syncStatus: 'Verifying Identity' });
       
       // Store user details in Firestore
       const { doc, setDoc, serverTimestamp } = await import('firebase/firestore');

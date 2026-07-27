@@ -1435,8 +1435,9 @@ const baseTotal = useMemo(() => {
       localStorage.setItem('sg_pending_checkout', JSON.stringify(checkoutDataRef.current));
       localStorage.setItem('sg_pending_delivery', JSON.stringify(deliveryDataRef.current));
       
-      useStore.setState({ isSyncing: true, syncStatus: 'Synchronizing account' });
+      useStore.setState({ isSyncing: true, syncStatus: 'Authorizing Session' });
       const result = await signInWithPopup(auth, googleProvider);
+      useStore.setState({ syncStatus: 'Verifying Identity' });
       
       // Store user details in Firestore
       await setDoc(doc(db, 'users', result.user.uid), {

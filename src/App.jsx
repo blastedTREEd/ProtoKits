@@ -27,48 +27,54 @@ const Deletion = lazy(() => import('./pages/Deletion'));
 const ShippingPolicy = lazy(() => import('./pages/ShippingPolicy'));
 const PaymentAndRefundPolicy = lazy(() => import('./pages/PaymentAndRefundPolicy'));
 
-const routeRequirementLabels = {
-  userProfile: 'Checking account mode',
-  stories: 'Loading garage stories',
-  kits: 'Loading available kits',
-  deals: 'Applying active deals',
-  orders: 'Loading order history',
-  basket: 'Restoring basket',
-  shelf: 'Loading admin shelf',
-  prints: 'Loading print projects'
+const getPageLoadingLabel = (pathname) => {
+  if (pathname === '/') return 'Loading Stories';
+  if (pathname.startsWith('/kits')) return 'Loading Kits';
+  if (pathname === '/prints' || pathname === '/blueprints') return 'Loading Projects';
+  if (pathname === '/orders') return 'Loading Orders';
+  if (pathname === '/notify-list') return 'Loading Offers';
+  if (pathname === '/basket' || pathname === '/shelf') return 'Loading Basket';
+  return 'Loading SnorlaxGarage';
 };
 
-const getLoadingDetails = ({ pathname, req, ds, isNavigating, isAdmin, isAdminView }) => {
+const getLoadingDetails = ({ pathname, req, ds, showChecklist }) => {
   const pageName = pathname === '/'
-    ? 'home'
-    : pathname.replace('/', '').replace(/-/g, ' ') || 'page';
-  const requiredKeys = ['userProfile', ...Object.keys(req).filter((key) => req[key])];
-  const pendingKeys = requiredKeys.filter((key) => !ds[key]);
-  const steps = requiredKeys.map((key) => ({
-    label: routeRequirementLabels[key] || key,
-    status: ds[key] ? 'done' : 'pending'
-  }));
-
-  if (isNavigating && pendingKeys.length === 0) {
-    return {
-      message: 'Opening page',
-      detail: 'Switching views and keeping the layout steady.',
-      steps
-    };
-  }
-
-  const context = isAdmin && isAdminView ? 'admin view' : 'guest/public view';
-  const waitingOn = pendingKeys
-    .map((key) => routeRequirementLabels[key] || key)
-    .join(', ');
+    ? 'snorlaxgarage'
+    : pathname === '/prints'
+      ? 'projects'
+      : pathname.replace('/', '').replace(/-/g, ' ') || 'page';
+  const requiredKeys = Object.keys(req).filter((key) => req[key]);
+  const isPageReady = requiredKeys.every((key) => ds[key]);
 
   return {
     message: `Loading ${pageName}`,
-    detail: waitingOn
-      ? `Waiting on ${waitingOn.toLowerCase()} for the ${context}. Cached data is used first when available.`
-      : 'Finalizing the page from local cache.',
-    steps
+    steps: showChecklist
+      ? [
+        { label: 'Checking Session', status: ds.userProfile ? 'done' : 'pending' },
+        ...(ds.userProfile ? [{ label: getPageLoadingLabel(pathname), status: isPageReady ? 'done' : 'pending' }] : [])
+      ]
+      : []
   };
+};
+
+const getSyncSteps = (syncStatus, pathname) => {
+  const normalizedStatus = String(syncStatus || '').toLowerCase();
+  const isAuthorizing = normalizedStatus.includes('waiting') || normalizedStatus.includes('authoriz');
+  const isVerifying = normalizedStatus.includes('verify') || normalizedStatus.includes('profile') || normalizedStatus.includes('account') || normalizedStatus.includes('synchronizing');
+  const phase = isAuthorizing ? 0 : isVerifying ? 1 : 2;
+  const steps = [
+    { label: 'Authorizing Session', status: phase > 0 ? 'done' : 'pending' }
+  ];
+
+  if (phase >= 1) {
+    steps.push({ label: 'Verifying Identity', status: phase > 1 ? 'done' : 'pending' });
+  }
+
+  if (phase >= 2) {
+    steps.push({ label: getPageLoadingLabel(pathname), status: 'pending' });
+  }
+
+  return steps;
 };
 
 // Scroll restoration
@@ -201,8 +207,6 @@ const RouterContent = () => {
   const checkPageReady = useStore((state) => state.checkPageReady);
   const _loadedDatasets = useStore((state) => state._loadedDatasets);
   const _getPageRequirements = useStore((state) => state._getPageRequirements);
-  const isAdmin = useStore((state) => state.isAdmin);
-  const isAdminView = useStore((state) => state.isAdminView);
 
   // Keep _activePath in sync and trigger background listeners when ready
   useLayoutEffect(() => {
@@ -230,9 +234,7 @@ const RouterContent = () => {
     pathname: location.pathname,
     req,
     ds,
-    isNavigating,
-    isAdmin,
-    isAdminView
+    showChecklist: showLoading
   });
 
   const AdminRouteWrapper = ({ children }) => {
@@ -252,7 +254,7 @@ const RouterContent = () => {
       ) : (
         <Suspense fallback={
           <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-white/50 backdrop-blur-sm dark:bg-black/50">
-            <LoadingState message="Opening page" detail="Downloading this view once, then the browser cache keeps it nearby." />
+            <LoadingState {...loadingDetails} steps={[]} />
           </div>
         }>
           <Routes>
@@ -285,9 +287,36 @@ const RouterContent = () => {
   );
 };
 
+const SyncOverlay = () => {
+  const location = useLocation();
+  const isSyncing = useStore((state) => state.isSyncing);
+  const syncStatus = useStore((state) => state.syncStatus);
+
+  return (
+    <AnimatePresence>
+      {isSyncing && (
+        <Motion.div 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[99999] flex items-center justify-center bg-white/70 dark:bg-black/70 backdrop-blur-sm pointer-events-auto"
+        >
+          <div className="flex flex-col items-center gap-3">
+            <LoadingState
+              message="Syncing your account..."
+              steps={getSyncSteps(syncStatus, location.pathname)}
+              className="py-0"
+            />
+          </div>
+        </Motion.div>
+      )}
+    </AnimatePresence>
+  );
+};
+
 
 export default function App() {
-  const { fetchInitialData, setToastMessage, isSyncing, syncStatus } = useStore();
+  const { fetchInitialData, setToastMessage } = useStore();
 
   useEffect(() => {
     let cleanup = null;
@@ -321,33 +350,7 @@ export default function App() {
     <ThemeProvider>
         <BrowserRouter>
           <ScrollManager />
-          
-          {/* Global Syncing Overlay */}
-          <AnimatePresence>
-            {isSyncing && (
-              <Motion.div 
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="fixed inset-0 z-[99999] flex items-center justify-center bg-white/70 dark:bg-black/70 backdrop-blur-sm pointer-events-auto"
-              >
-                <div className="flex flex-col items-center gap-3">
-                  <LoadingState
-                    message="Syncing account"
-                    detail={syncStatus || 'Loading account'}
-                    steps={[
-                      { label: 'Authorize session', status: 'done' },
-                      { label: syncStatus || 'Loading account', status: 'pending' }
-                    ]}
-                    className="py-0"
-                  />
-                  <p className="text-[10px] font-black uppercase tracking-[0.28em] text-red-600 dark:text-red-400">
-                    {syncStatus || 'Loading account'}
-                  </p>
-                </div>
-              </Motion.div>
-            )}
-          </AnimatePresence>
+          <SyncOverlay />
 
           <Layout>
              <Toast />

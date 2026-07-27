@@ -241,8 +241,9 @@ export default function AccountSettingsModal({ isOpen, onClose }) {
   const handleLogin = async () => {
     try { 
       setAuthError(null); 
-      useStore.setState({ isSyncing: true, syncStatus: 'Synchronizing account' });
-      await signInWithPopup(auth, fbProvider); 
+      useStore.setState({ isSyncing: true, syncStatus: 'Authorizing Session' });
+      await signInWithPopup(auth, fbProvider);
+      useStore.setState({ syncStatus: 'Verifying Identity' });
     } catch (err) { 
       setAuthError(err.message); 
       useStore.setState({ isSyncing: false });
@@ -252,8 +253,9 @@ export default function AccountSettingsModal({ isOpen, onClose }) {
   const handleGoogleLogin = async () => {
     try { 
       setAuthError(null); 
-      useStore.setState({ isSyncing: true, syncStatus: 'Synchronizing account' });
-      await signInWithPopup(auth, googleProvider); 
+      useStore.setState({ isSyncing: true, syncStatus: 'Authorizing Session' });
+      await signInWithPopup(auth, googleProvider);
+      useStore.setState({ syncStatus: 'Verifying Identity' });
     } catch (err) { 
       setAuthError(err.message); 
       useStore.setState({ isSyncing: false });

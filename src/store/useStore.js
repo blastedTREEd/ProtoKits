@@ -117,7 +117,7 @@ export const useStore = create(
       toastMessage: null,
       isSpectralMode: true,
       isSyncing: false,
-      syncStatus: 'Loading Profile',
+      syncStatus: 'Verifying Identity',
       storiesHeight: 0,
       unsubPrintResources: null,
       setStoriesHeight: (height) => set({ storiesHeight: height }),
@@ -1358,7 +1358,7 @@ export const useStore = create(
 
       syncUserAccount: async (fbUser, onSyncComplete) => {
         console.log("DEBUG: syncUserAccount called with:", fbUser ? fbUser.uid : "null");
-        set({ syncStatus: 'Loading Profile' });
+        set({ syncStatus: 'Verifying Identity' });
         if (get().unsubUser) get().unsubUser();
         if (get().unsubShelf) get().unsubShelf();
         if (get().unsubAdmin) get().unsubAdmin();
