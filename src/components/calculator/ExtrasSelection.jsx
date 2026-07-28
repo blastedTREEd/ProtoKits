@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { 
-  Plus, Spool, Box, Layers, ArrowRight, Magnet, Waypoints, Check, ArrowLeft, RotateCcw, X, Search
+  Plus, Spool, Box, Layers, ArrowRight, Magnet, Waypoints, Check, ArrowLeft, RotateCcw, X, Search, Shapes
 } from 'lucide-react';
 
 export default function ExtrasSelection({ 
@@ -135,6 +135,9 @@ export default function ExtrasSelection({
       </div>
 
       {/* --- ADD-ONS LIST --- */}
+      <h2 className="text-[12px] font-black uppercase mb-2 flex items-center justify-center gap-2 text-blue-600 px-4">
+        <Shapes size={14} strokeWidth={3} /> Optional Add-Ons
+      </h2>
       <div className="px-3 w-full max-w-2xl mx-auto grid gap-3">
         {availableExtras.map((item) => {
           const currentTotalQty = getAssignmentQty(item.id);
@@ -176,15 +179,29 @@ export default function ExtrasSelection({
         {isMagnet ? <Magnet size={20} /> : <Spool size={20} />}
       </div>
       
-      <div className="text-left truncate">
-        {/* Label: Mas visible na gray */}
-        <p className={`text-[8px] font-black uppercase italic tracking-wider ${isCurrentlySelected ? 'text-blue-600' : 'text-gray-500'}`}>
-          {currentTotalQty > 0 ? (canBeEqual && currentMode === 'Equal' ? 'SMART EQUAL' : 'CUSTOM QTY') : 'ADD-ON'}
-        </p>
-        <h4 className={`font-black uppercase text-[12px] tracking-tight ${isCurrentlySelected ? 'text-[var(--color-text-main)]' : 'text-[var(--color-text-main)]'}`}>
-          {item.name}
-        </h4>
-      </div>
+      <div className="text-left min-w-0 flex-1">
+  <p
+    className={`text-[8px] font-black uppercase italic tracking-wider ${
+      isCurrentlySelected ? 'text-blue-600' : 'text-gray-500'
+    }`}
+  >
+    {currentTotalQty > 0
+      ? (canBeEqual && currentMode === 'Equal'
+          ? 'SMART EQUAL'
+          : 'CUSTOM QTY')
+      : 'ADD-ON'}
+  </p>
+
+  <h4 className="font-black uppercase text-[12px] tracking-tight">
+    {item.name}
+  </h4>
+
+{item.note && (
+  <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 line-clamp-2">
+    {item.note}
+  </p>
+)}
+</div>
     </div>
 
     {/* Input at Plus Button */}
