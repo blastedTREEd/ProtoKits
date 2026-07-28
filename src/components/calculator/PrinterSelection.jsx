@@ -237,13 +237,11 @@ export default function PrinterSelection({ onSelect, selectedPrinter: initialSel
       </div>
 
       {/* NEXT BUTTON */}
-      <div className={`px-5 sticky bottom-4 w-full mt-4 transition-all duration-500 z-50 
-        ${isSelectedOnline ? 'translate-y-0 opacity-100 scale-100' : 'translate-y-10 opacity-0 pointer-events-none scale-95'}`}
-      >
+      <div className="px-5 sticky bottom-4 w-full mt-4 transition-all duration-500 z-50">
         <div className="bg-white/80 dark:bg-black/80 backdrop-blur-md p-1 rounded-[2.5rem] border border-gray-200 dark:border-white/10 shadow-2xl">
           <button 
             onClick={() => {
-              if (!selectedPrinter) return;
+              if (!isSelectedOnline || !selectedPrinter) return;
               onSelect({
                 ...selectedPrinter,
                 id: selectedPrinter.id,
@@ -261,7 +259,8 @@ export default function PrinterSelection({ onSelect, selectedPrinter: initialSel
                 }
               });
             }}
-            className="w-full py-5 rounded-[2.2rem] font-black italic uppercase tracking-[0.2em] text-xs bg-[var(--color-primary)] text-white shadow-xl active:scale-95 transition-all"
+            disabled={!isSelectedOnline}
+            className={`w-full py-5 rounded-[2.2rem] font-black italic uppercase tracking-[0.2em] text-xs bg-[var(--color-primary)] text-white shadow-xl active:scale-95 transition-all ${isSelectedOnline ? '' : 'opacity-50 cursor-not-allowed active:scale-100'}`}
           >
             NEXT
           </button>

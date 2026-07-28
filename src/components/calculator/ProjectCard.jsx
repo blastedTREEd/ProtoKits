@@ -2,8 +2,8 @@ import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { 
   Box, Clock, Sparkles, Zap, Plus, Lock, Edit3, Trash2, PackagePlus, PackageMinus,
   X, Weight, Droplet, Layers, AlertTriangle, Link2, ExternalLink, ChevronRight, ChevronLeft, Calendar,
-  ShoppingBasket, Play, Pause, FileText, ShieldCheck, CheckCircle2, XCircle, Spool, PenLine, Save, Paintbrush,
-  Settings
+  ShoppingBasket, Play, Pause, FileText, ShieldCheck, CheckCircle2, XCircle, Spool, Save, Paintbrush,
+  Settings, Pencil
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
@@ -709,8 +709,8 @@ export default function ProjectCard({
                     {/* Header */}
                     <div className="flex items-center justify-between gap-4 w-full">
                       <div className="flex items-center gap-4 flex-1 min-w-0">
-                        <div className="p-3 bg-blue-600 rounded-2xl shadow-lg shadow-blue-600/20 shrink-0">
-                          <Box size={24} className="text-white" />
+                        <div className="h-10 w-10 rounded-xl border border-black/5 bg-black/[0.03] dark:border-white/10 dark:bg-white/[0.04] text-blue-600 flex items-center justify-center shrink-0">
+                          <Box size={18} strokeWidth={2.4} />
                         </div>
                         <div className="text-left flex-1 min-w-0">
                           {isVault ? (
@@ -727,7 +727,7 @@ export default function ProjectCard({
                                 }}
                                 onClick={(e) => e.stopPropagation()}
                                 placeholder="Rename Project"
-                                className="bg-transparent border-b border-dashed border-neutral-300 dark:border-white/20 focus:border-blue-500 focus:outline-none text-xl sm:text-4xl font-black uppercase italic leading-none w-full py-1 text-[var(--color-text-main)] placeholder:opacity-20 transition-colors"
+                                className="bg-transparent border-b border-dashed border-neutral-300 dark:border-white/20 focus:border-blue-500 focus:outline-none text-[13px] font-black uppercase italic leading-none w-full py-1 text-[var(--color-text-main)] placeholder:opacity-20 transition-colors"
                                 autoFocus
                               />
                             ) : (
@@ -762,13 +762,13 @@ export default function ProjectCard({
                               e.preventDefault();
                             }
                           }}
-                          className="p-2.5 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-white/5 dark:hover:bg-white/10 text-blue-500 transition-all shrink-0 flex items-center justify-center border border-black/5 dark:border-white/5 shadow-sm active:scale-95"
+                          className="h-9 w-9 rounded-full bg-transparent hover:bg-black/5 dark:hover:bg-white/10 text-blue-600 transition-all shrink-0 flex items-center justify-center active:scale-95"
                           title={isEditingName ? 'Save Name' : 'Edit Name'}
                         >
                           {isEditingName ? (
-                            <Save size={18} strokeWidth={2.5} />
+                            <Save size={16} strokeWidth={2.5} />
                           ) : (
-                            <PenLine size={18} strokeWidth={2.5} />
+                            <Pencil size={16} strokeWidth={2.5} />
                           )}
                         </button>
                       )}

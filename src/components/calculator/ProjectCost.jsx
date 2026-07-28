@@ -283,8 +283,44 @@ export default function ProjectCost({
     };
   }, [totals.timeline?.schedule, data?.extras]) || {};
 
+  const footerActions = (
+    <div className="fixed left-1/2 bottom-0 md:bottom-[5dvh] z-[260] w-full max-w-[calc(100vw-2rem)] md:max-w-2xl lg:max-w-2xl -translate-x-1/2 px-3 pb-5 pt-8 bg-gradient-to-t from-[var(--color-bg)] via-[var(--color-bg)]/90 to-transparent lg:rounded-b-[2rem] overflow-hidden">
+      <div className="flex items-center gap-3 bg-[var(--color-bg)]/90 backdrop-blur-xl p-2 rounded-[2.5rem] border border-black/5 dark:border-white/5 shadow-2xl">
+        <button
+          type="button"
+          onClick={onBack}
+          className="flex-none h-14 w-14 rounded-full bg-black dark:bg-white text-white dark:text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-lg"
+          aria-label="Back"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+
+        <button
+          onClick={handleMainAction}
+          disabled={isSaving}
+          className="flex-1 h-14 rounded-[2.2rem] font-black italic uppercase tracking-[0.2em] text-xs bg-[var(--color-primary)] text-white shadow-xl flex items-center justify-center gap-4 group active:scale-95 transition-all disabled:opacity-50"
+        >
+          {isSaving ? (
+            <RefreshCw size={18} className="animate-spin" />
+          ) : isEditMode && isInventoryMode ? (
+            <><Check size={18} strokeWidth={3} /> CONFIRM</>
+          ) : (
+            <>
+              SAVE ESTIMATE
+              <div className="p-1 rounded-full bg-white/20 group-hover:translate-x-1 transition-transform">
+                <Check size={12} strokeWidth={4} />
+              </div>
+            </>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+
   return (
-    <div className="w-full space-y-4 pb-[160px] sm:pb-32 md:pb-32 lg:pb-32 px-4 overflow-x-hidden">
+    <div className="w-full min-h-[calc(100dvh-210px)] lg:min-h-[calc(90dvh-210px)] flex flex-col gap-4 pb-[160px] sm:pb-32 md:pb-32 lg:pb-32 px-4 overflow-x-hidden">
       <style>{`
         input::-webkit-outer-spin-button,
         input::-webkit-inner-spin-button {
@@ -295,7 +331,6 @@ export default function ProjectCost({
           -moz-appearance: textfield;
         }
       `}</style>
-      
       {/* HEADER METADATA */}
       {data.projectName && (
         <div className="px-2 mb-2 flex items-center gap-2">
@@ -306,7 +341,7 @@ export default function ProjectCost({
         </div>
       )}
 
-      <div className="max-w-2xl mx-auto bg-blue-600 rounded-[2.5rem] p-8 text-white relative overflow-hidden shadow-2xl mt-4">
+      <div className="w-full max-w-2xl mx-auto bg-blue-600 rounded-[2.5rem] p-8 text-white relative overflow-hidden shadow-2xl mt-4">
         <Receipt size={120} className="absolute -right-6 -bottom-6 opacity-20 rotate-12" />
         <span className="text-[10px] font-black uppercase tracking-[0.3em] opacity-60">Lowest Price</span>
         <div className="flex items-baseline gap-1 mt-1">
@@ -328,7 +363,7 @@ export default function ProjectCost({
         </div>
       </div>
 
-      <div className="max-w-2xl mx-auto bg-neutral-900 dark:bg-[var(--color-surface)] rounded-[2.5rem] p-8 text-white relative overflow-hidden shadow-xl">
+      <div className="w-full max-w-2xl mx-auto bg-neutral-900 dark:bg-[var(--color-surface)] rounded-[2.5rem] p-8 text-white relative overflow-hidden shadow-xl">
         <Wallet size={120} className="absolute -right-6 -bottom-6 opacity-10 -rotate-12" />
         <span className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-500">Downpayment</span>
         <div className="flex items-baseline gap-1 mt-1">
@@ -337,7 +372,7 @@ export default function ProjectCost({
         </div>
       </div>
 
-      <div className="max-w-2xl mx-auto bg-[var(--color-bg)] rounded-[2.5rem] p-7 border border-[var(--color-border)] space-y-5 text-left">
+      <div className="w-full max-w-2xl mx-auto bg-[var(--color-bg)] rounded-[2.5rem] p-7 border border-[var(--color-border)] space-y-5 text-left">
         <div className="flex justify-between items-center text-left">
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-blue-500 rounded-xl bg-opacity-10 text-blue-600"><ListChecks size={20} /></div>
@@ -384,7 +419,7 @@ export default function ProjectCost({
       </div>
 
       {isAdmin && (
-        <div className="max-w-2xl mx-auto flex gap-1 p-1 bg-[var(--color-bg)] rounded-2xl mb-6 mx-2 border border-[var(--color-border)]">
+        <div className="w-full max-w-2xl mx-auto flex gap-1 p-1 bg-[var(--color-bg)] rounded-2xl mb-6 border border-[var(--color-border)]">
           {[
             { id: 'plan', label: 'Plan', icon: Clock },
             { id: 'cost', label: 'Cost', icon: Coins },
@@ -421,7 +456,7 @@ export default function ProjectCost({
         {activeTab === 'rates' && (
           <div className="space-y-4 px-2">
             {hasPendingRateChanges && (
-              <div className=" max-w-2xl mx-auto sticky top-2 z-20 flex justify-end gap-2">
+              <div className="w-full max-w-2xl mx-auto sticky top-2 z-20 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={handleCancelRateChanges}
@@ -449,7 +484,7 @@ export default function ProjectCost({
                 (sectionRates[field.key] ?? '') !== ((storeRates?.[section.id] || {})[field.key] ?? '')
               ));
               return (
-                <div key={section.id} className="max-w-2xl mx-auto bg-[var(--color-bg)] rounded-[2rem] p-4 border border-[var(--color-border)] space-y-3">
+                <div key={section.id} className="w-full max-w-2xl mx-auto bg-[var(--color-bg)] rounded-[2rem] p-4 border border-[var(--color-border)] space-y-3">
                   <div className="px-2 flex items-center justify-between gap-3">
                     <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-40">{section.title}</span>
                     {sectionHasChanges && (
@@ -506,47 +541,7 @@ export default function ProjectCost({
           </div>
       )}
 
-      {/* --- COLUMN-SPECIFIC FOOTER --- */}
-<div className="sticky bottom-0 left-0 w-full right-0 w-full p-2 z-[110]">
-  <div className="bg-[var(--color-bg)]/80 backdrop-blur-md p-2 rounded-[2.5rem] border border-black/10 dark:border-white/10 shadow-2xl">
-    <div className="flex items-center gap-3">
-      
-    {/* BACK BUTTON */}
-    <button
-      type="button"
-      onClick={onBack}
-      className="flex-none h-14 w-14 rounded-full bg-black dark:bg-white text-white dark:text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-lg"
-      aria-label="Back"
-    >
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-      </svg>
-    </button>
-      
-      {/* MAIN ACTION BUTTON */}
-      <button 
-        onClick={handleMainAction} 
-        disabled={isSaving}
-        className="flex-1 h-14 rounded-[2.2rem] font-black italic uppercase tracking-[0.2em] text-xs bg-[var(--color-primary)] text-white shadow-xl flex items-center justify-center gap-4 group active:scale-95 transition-all disabled:opacity-50"
-      >
-        {isSaving ? (
-          <RefreshCw size={18} className="animate-spin" />
-        ) : isEditMode && isInventoryMode ? (
-          <><Check size={18} strokeWidth={3} /> CONFIRM</>
-        ) : (
-          <>
-            SAVE ESTIMATE
-            <div className="p-1 rounded-full bg-white/20 group-hover:translate-x-1 transition-transform">
-              <Check size={12} strokeWidth={4} />
-            </div>
-          </>
-        )}
-      </button>
-      
-    </div>
-  </div>
-</div>
-      
+      {footerActions}
     </div>
   );
 }

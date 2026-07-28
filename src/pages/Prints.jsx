@@ -12,20 +12,6 @@ import LoadingState from '../components/common/LoadingState';
 import AddPrintModal from '../components/calculator/AddPrintModal';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
 
-const BrandLogo = ({ size = "w-11 h-11" }) => {
-  const fbLogoUrl = "https://graph.facebook.com/SnorlaxGarage/picture?type=large";
-  return (
-    <div className={`${size} rounded-full flex items-center justify-center bg-gradient-to-br from-blue-600 to-blue-400 shadow-lg shrink-0 overflow-hidden border-2 border-white/10`}>
-      <img 
-        src={fbLogoUrl} 
-        alt="SG Logo" 
-        className="w-full h-full object-cover"
-        onError={(e) => { e.target.style.display = 'none'; }} 
-      />
-    </div>
-  );
-};
-
 const isPrintListing = (project) => (
   project?.source === 'admin-print'
   || project?.listingType === 'print'
@@ -417,11 +403,10 @@ export default function Prints({ isDarkMode }) {
         
         {viewMode === 'estimating' && (
            <div className="fixed inset-0 z-[200] flex items-stretch justify-center lg:items-center lg:p-4 backdrop-blur-sm bg-black/40 animate-in fade-in duration-200">
-               <div className={`relative w-full h-full lg:h-[90dvh] lg:max-w-5xl rounded-none lg:rounded-[2rem] border-0 lg:border shadow-2xl overflow-hidden bg-[var(--color-surface)] border-[var(--color-border)] ${shadow}`}>
+               <div className={`relative w-full h-full lg:h-[90dvh] lg:max-w-2xl rounded-none lg:rounded-[2rem] border-0 lg:border shadow-2xl overflow-hidden bg-[var(--color-surface)] border-[var(--color-border)] ${shadow}`}>
                   <div className="h-full overflow-y-auto">
                       <PrintsCalculator 
                         onExit={() => {setViewMode('idle'); setModifyingProject(null); window.dispatchEvent(new Event('showNavbar'));} }
-                        BrandLogo={BrandLogo}
                         initialData={modifyingProject}
                         isEditMode={!!modifyingProject}
                         onConfirmEdit={handleEstimateUpdate}

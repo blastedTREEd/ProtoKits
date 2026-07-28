@@ -8,22 +8,7 @@ import ProjectPreview from './ProjectPreview';
 import ProjectPrepare from './ProjectPrepare';
 import ExtrasSelection from './ExtrasSelection';
 import ProjectCost from './ProjectCost';
-
-const HistoryItem = ({ value, showSeparator, delay = 0, isError = false }) => {
-  if (!value || value === 'null') return null;
-  return (
-    <div className="flex items-center gap-1 animate-in zoom-in duration-300 flex-shrink-0" style={{ animationDelay: `${delay}ms` }}>
-      <span className={`text-[10px] font-black px-1.5 py-1 rounded uppercase tracking-widest border transition-all duration-300 whitespace-nowrap ${
-        isError 
-        ? 'bg-red-500 text-white border-red-600 animate-pulse shadow-lg shadow-red-500/20' 
-        : 'bg-[var(--color-primary)]/5 text-[var(--color-text-main)] border-[var(--color-primary)]/10'
-      }`}>
-        {value}
-      </span>
-      {showSeparator && <div className="w-0.5 h-0.5 bg-[var(--color-border)] rounded-full opacity-20 flex-shrink-0" />}
-    </div>
-  );
-};
+import { Astroid, X } from 'lucide-react';
 
 const getMaterialIdFromDetail = (detail) => (
   detail?.material?.materialId
@@ -118,7 +103,6 @@ const normalizePrepareDetails = (details = []) => (
 
 export default function PrintsCalculator({ 
   onExit, 
-  BrandLogo, 
   initialData = null, 
   isEditMode = false, 
   onConfirmEdit = null,
@@ -138,7 +122,7 @@ export default function PrintsCalculator({
     return (projectVault || []).length >= limit;
   }, [orders, projectVault, isAdmin, isAdminView]);
   
-  const [displayUnit, setDisplayUnit] = useState(initialData?.unit || 'mm');
+  const [, setDisplayUnit] = useState(initialData?.unit || 'mm');
   const initialMethodName = String(initialData?.method?.name || '').toUpperCase();
   const [previewData, setPreviewData] = useState(initialData?.projectDetails && initialMethodName === '3MF' ? normalizePreviewDetails(initialData.projectDetails) : []);
   const [prepareData, setPrepareData] = useState(initialData?.projectDetails && initialMethodName === 'STL' ? normalizePrepareDetails(initialData.projectDetails) : []);
@@ -152,6 +136,7 @@ export default function PrintsCalculator({
     projectName: '', // 🔥 NEW
     gdriveLink: '', // 🔥 NEW
   });
+  const modifyingProjectName = (calculatorData?.projectName || initialData?.projectName || 'Unnamed Project').trim() || 'Unnamed Project';
 
   useEffect(() => {
     if (!isEditMode && (!window.history.state || window.history.state.step === undefined)) {
@@ -264,22 +249,6 @@ export default function PrintsCalculator({
     return settings.find(s => s.id === "electricity-cost") || settings[0] || defaultVal;
   }, [settings]);
 
-  const formatValue = useCallback((num, unit) => {
-    if (unit === 'cm') return (num / 10).toFixed(1).replace(/\.?0+$/, '');
-    if (unit === 'in') return (num / 25.4).toFixed(2).replace(/\.?0+$/, '');
-    return num; 
-  }, []);
-
-  const getPrinterHistoryValue = () => {
-    const printer = calculatorData.printer;
-    if (!printer) return null;
-    if (calculatorData.method?.name === '3MF') return printer.model || printer.name;
-    const x = printer.buildCapacity?.x ?? 256;
-    const y = printer.buildCapacity?.y ?? 256;
-    const z = printer.buildCapacity?.z ?? 256;
-    return `${[x, y, z].map(d => formatValue(d, displayUnit)).join('×')} ${displayUnit.toUpperCase()}`;
-  };
-
   const STEP_CONFIG = {
     0: { title: "Select", accent: "Case" },
     // 1: { title: "Select", accent: "Printer" },
@@ -290,32 +259,19 @@ export default function PrintsCalculator({
   };
   const visibleSteps = [0, 1, 2, 3];
   const activeProgressIndex = Math.max(0, visibleSteps.indexOf(activeStep));
-  const HeaderBrandLogo = BrandLogo;
-  // const handleStepBack = () => {
-  //   if (activeStep <= 0) return;
-  //   if (isEditMode) {
-  //     setActiveStep(prev => Math.max(0, prev - 1));
-  //   } else {
-  //     window.history.back();
-  //   }
-  // };
+  const selectedCaseLabel = String(calculatorData?.method?.name || '').toUpperCase();
+  const headerBadge = activeStep === 0 || !selectedCaseLabel
+    ? (
+      <div className="w-11 h-11 rounded-full bg-[var(--color-primary)] text-white shadow-lg shadow-[var(--color-primary)]/25 flex items-center justify-center">
+        <Astroid size={20} strokeWidth={3} />
+      </div>
+    )
+    : (
+      <div className="w-11 h-11 rounded-full bg-[var(--color-primary)] text-white shadow-lg shadow-[var(--color-primary)]/25 flex items-center justify-center">
+        <span className="text-[14px] font-black italic uppercase tracking-tighter leading-none">{selectedCaseLabel}</span>
+      </div>
+    );
 
-//   const handleStepBack = () => {
-//   if (isEditMode) {
-//     // If in EditMode, we have a fixed path we want to follow
-//     // You can define a logic map or just a switch
-//     setActiveStep(prev => Math.max(0, prev - 1));
-//   } else {
-//     // Standard back behavior
-//     if (activeStep === 0) {
-//       window.history.back();
-//     } else {
-//       // If your steps aren't just simple prev - 1 (e.g., Cost -> 4, Preview -> 3)
-//       // This handles the transition logic automatically
-//       setActiveStep(prev => Math.max(0, prev - 1));
-//     }
-//   }
-// };
 
 const handleStepBack = () => {
   if (isEditMode) {
@@ -332,7 +288,7 @@ const handleStepBack = () => {
 };
 
   return (
-    <div className="w-full min-h-full prints-calculator-container animate-in fade-in zoom-in-95 duration-500 px-3 sm:px-5 pb-10 text-[var(--color-text-main)]">
+    <div className="w-full min-h-full prints-calculator-container animate-in fade-in zoom-in-95 duration-500 px-3 sm:px-5 pb-0 text-[var(--color-text-main)]">
       <style>{`
         .prints-calculator-body :where(p, span, label, button, input, textarea, select, h2, h3, h4, h5, h6) {
           font-size: 12px;
@@ -346,24 +302,28 @@ const handleStepBack = () => {
           font-size: var(--preserve-size) !important;
         }
       `}</style>
-      <div className="sticky top-0 z-50 -mx-3 sm:-mx-5 px-3 sm:px-5 pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-3 mb-4 bg-[var(--color-surface)]/95 backdrop-blur-xl border-b border-[var(--color-border)]">
+      <div className="sticky top-0 z-50 -mx-3 sm:-mx-5 px-3 sm:px-5 pt-[calc(env(safe-area-inset-top)+1.25rem)] pb-3 mb-4 bg-[var(--color-surface)]/95 backdrop-blur-xl border-b border-[var(--color-border)]">
         <div className="flex justify-between items-center mb-4">
           <div className="flex items-center gap-3 min-w-0">
             <button onClick={() => activeStep > 0 ? (isEditMode ? setActiveStep(prev => prev - 1) : window.history.back()) : onExit()} className="active:scale-90 transition-all shrink-0">
-              {HeaderBrandLogo ? <HeaderBrandLogo size="w-11 h-11" /> : <div className="w-11 h-11 bg-[var(--color-primary)] rounded-full" />}
+              {headerBadge}
             </button>
             <h1 className="text-[18px] font-black italic tracking-tighter uppercase">
               {STEP_CONFIG[activeStep]?.title} <span className="text-[var(--color-primary)]">{STEP_CONFIG[activeStep]?.accent}</span>
             </h1>
           </div>
-          <button onClick={onExit} className="p-2 bg-black border border-white/10 rounded-full text-white active:scale-90 transition-all shrink-0">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" /></svg>
+          <button onClick={onExit} className="p-2 rounded-full backdrop-blur-md border transition-all shadow-lg bg-black/20 text-white border-white/10 hover:bg-black/40 active:scale-90 shrink-0">
+            <X size={20} />
           </button>
         </div>
         
-        {estimationLimitReached && (
-          <div className="text-[9px] font-black uppercase tracking-widest text-red-600 animate-pulse text-center mb-2 bg-red-500/10 py-2 rounded-full border border-red-500/20">
-            LIMIT REACHED, DELETE OLD ESTIMATION TO SAVE
+        {isEditMode ? (
+          <div className="text-[14px] font-black uppercase tracking-widest text-[var(--color-primary)] text-center mb-2 py-2 rounded-full">
+            MODIFYING {modifyingProjectName}
+          </div>
+        ) : estimationLimitReached && (
+          <div className="text-[14px] font-black uppercase tracking-widest text-red-600 animate-pulse text-center mb-2 py-2 rounded-full">
+            LIMIT REACHED. DELETE SAVED PROJECT.
           </div>
         )}
 
@@ -375,18 +335,8 @@ const handleStepBack = () => {
       </div>
 
       <div className="prints-calculator-body">
-        <div className="flex items-center gap-1 mb-6 min-h-[24px] overflow-x-auto no-scrollbar flex-nowrap px-1">
-          <HistoryItem value={calculatorData.method?.name} showSeparator={activeStep > 0} />
-          <HistoryItem value={getPrinterHistoryValue()} showSeparator={activeStep > 1} delay={75} />
-          <HistoryItem value={calculatorData.filaments?.length > 0 ? `${calculatorData.filaments.length} MATS` : null} showSeparator={activeStep > 2} delay={150} />
-          <HistoryItem value={calculatorData.extras?.length > 0 ? `+${calculatorData.extras.length} EXT` : null} showSeparator={activeStep > 3} delay={225} />
-        </div>
-
         <div className="min-h-[400px]">
           {activeStep === 0 && <CaseSelection onSelect={(method) => updateData({ method })} selectedCase={calculatorData.method} />}
-          {/* {is3MF && activeStep === 1 && <PrinterSelection onSelect={(printer) => updateData({ printer })} selectedPrinter={calculatorData.printer} />} */}
-          {/* {is3MF && activeStep === 2 && <FilamentSelection onSelect={(filaments) => updateData({ filaments })} selectedFilaments={calculatorData.filaments} />} */}
-
         {activeStep === 1 && (
           is3MF ? (
             <ProjectPreview 
@@ -403,7 +353,6 @@ const handleStepBack = () => {
               previewData={previewData}
               setPreviewData={setPreviewData}
               onConfirm={(details) => updateData({ projectDetails: details }, 2)}
-              // onBack={() => isEditMode ? setActiveStep(0) : window.history.back()}
               onBack={handleStepBack}
               projectName={calculatorData.projectName}
               gdriveLink={calculatorData.gdriveLink}
@@ -427,7 +376,6 @@ const handleStepBack = () => {
               activePrinter={calculatorData.printer}
               onUnitChange={setDisplayUnit}
               onConfirm={(details) => updateData({ projectDetails: details }, 2)}
-              // onBack={() => isEditMode ? setActiveStep(0) : window.history.back()}
               onBack={handleStepBack}
               projectName={calculatorData.projectName}
               gdriveLink={calculatorData.gdriveLink}
@@ -466,19 +414,6 @@ const handleStepBack = () => {
         )}
         </div>
       </div>
-
-      {/* {activeStep > 0 && activeStep < 5 && (
-        <button
-          type="button"
-          onClick={handleStepBack}
-          className="fixed left-4 bottom-[calc(env(safe-area-inset-bottom)+1rem)] z-[120] h-12 w-12 rounded-full bg-neutral-900 text-white shadow-2xl border border-white/10 flex items-center justify-center active:scale-95 transition-all"
-          aria-label="Back"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="4" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
-      )} */}
 
       {/* {!isEditMode && (
         <div className="bg-black text-green-400 text-[10px] p-3 rounded-xl mt-4 overflow-auto">

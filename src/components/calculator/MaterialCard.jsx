@@ -27,16 +27,13 @@ export default function MaterialCard({
   const isLowStock = !isOutOfStock && finalRemaining < finalRequired;
   
   const activeColor = finalUpfront ? '#EE4D2D' : 'var(--color-primary)';
-  const activeBg = finalUpfront ? 'rgba(238, 77, 45, 0.05)' : 'var(--color-primary-light)';
 
   const formatWeight = (val) => {
     const num = parseFloat(val || 0);
     return num % 1 === 0 ? num.toString() : num.toFixed(1);
   };
 
-  const weightColorClass = isSelected 
-    ? { color: activeColor } 
-    : (isOutOfStock ? { color: '#ef4444' } : (isLowStock ? { color: '#f59e0b' } : { color: '#22c55e' }));
+  const weightColorClass = isOutOfStock ? { color: '#ef4444' } : (isLowStock ? { color: '#f59e0b' } : { color: '#22c55e' });
 
   // ---------------------------------------------------------
   // RENDER OPTION 1: THE NEW SELECTION UI (For the List/Grid)
@@ -47,30 +44,26 @@ export default function MaterialCard({
         onClick={() => onSelect(activeMaterial.id)}
         className={`
           relative w-full flex flex-col p-4 rounded-[2.2rem] border-2 transition-all duration-500 text-left overflow-hidden
+          bg-[var(--color-bg)]
           ${isSelected 
-            ? `shadow-xl scale-[1.02] z-10` 
-            : 'bg-[var(--color-bg)] border-[var(--color-border)] hover:border-blue-500/30'}
+            ? `z-10` 
+            : 'border-[var(--color-border)] hover:border-blue-500/30'}
           ${!isSelected && isOutOfStock ? 'opacity-60' : ''}
           ${noBorder ? 'border-none shadow-none' : ''}
         `}
         style={isSelected ? { 
-          borderColor: activeColor, 
-          backgroundColor: activeBg,
-          boxShadow: noBorder ? 'none' : `0 20px 25px -5px ${activeColor}1A` 
+          borderColor: activeColor
         } : {}}
       >
         <div className="flex justify-between items-start mb-4">
           <div 
             className="w-10 h-10 rounded-2xl shadow-inner border border-black/20 dark:border-white/20 transition-transform duration-500" 
             style={{ 
-              backgroundColor: activeMaterial.color || '#4B91F1',
-              transform: isSelected ? 'scale(1.1)' : 'scale(1)'
+              backgroundColor: activeMaterial.color || '#4B91F1'
             }}
           />
           <div className="flex items-center gap-1.5">
-            <div className={`px-2 py-0.5 rounded-lg border font-black uppercase tracking-[0.1em] text-[8px] transition-all duration-500 ${
-              isSelected ? 'bg-white/20 border-white/20 text-white' : 'bg-blue-500/10 border-blue-500/20 text-blue-600 dark:text-blue-400'
-            }`}>
+            <div className="px-2 py-0.5 rounded-lg border font-black uppercase tracking-[0.1em] text-[8px] transition-all duration-500 bg-blue-500/10 border-blue-500/20 text-blue-600 dark:text-blue-400">
               {activeMaterial.type || 'PLA'}
             </div>
             {isSelected && (
@@ -82,11 +75,11 @@ export default function MaterialCard({
         </div>
         <div className="mb-3">
           <p className="text-[10px] font-bold uppercase tracking-widest leading-none mb-1 text-[var(--color-text-main)] opacity-30">{activeMaterial.brand || 'Unknown'}</p>
-          <h3 className={`text-[13px] font-black italic uppercase leading-tight tracking-tight transition-colors ${isSelected ? '' : 'text-[var(--color-text-main)]'}`} style={isSelected ? { color: activeColor } : {}}>{activeMaterial.name}</h3>
+          <h3 className="text-[13px] font-black italic uppercase leading-tight tracking-tight transition-colors text-[var(--color-text-main)]">{activeMaterial.name}</h3>
         </div>
         <div className="mt-auto flex items-center justify-between">
           <div className="flex items-center gap-1">
-            <Weight size={10} className={isSelected ? 'opacity-100' : 'opacity-20'} style={{ color: isSelected ? activeColor : 'inherit' }} />
+            <Weight size={10} className="opacity-20" />
             <span className="text-[11px] font-black uppercase tracking-tighter" style={weightColorClass}>
               {formatWeight(activeMaterial.remaining)}g left
             </span>

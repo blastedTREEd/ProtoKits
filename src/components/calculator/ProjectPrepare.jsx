@@ -1,8 +1,8 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { 
-  Plus, Minus, Box, Droplet, Copy, Trash2, X, Lock,
-  VectorSquare, RefreshCw, Check, Scissors, Cpu, Layers,
-  Dumbbell, Scale, Clock, Search, Printer, Palette, UserRoundCog
+  Plus, PackageMinus, PackagePlus, Box, Droplet, Copy, Trash2, X, Lock,
+  VectorSquare, RefreshCw, Check, Scissors, Cpu,
+  Dumbbell, Scale, Clock, Search, Printer, Palette, UserRoundCog, Dot
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import MaterialCard from './MaterialCard';
@@ -42,6 +42,10 @@ export default function ProjectPrepare({
       input { background: transparent; border: none; outline: none; padding: 0; margin: 0; }
       input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
       .no-scrollbar::-webkit-scrollbar { display: none; }
+      .project-prepare-flow > * { order: 3; }
+      .project-printer-selection { order: 1; }
+      .project-printer-options { order: 1; }
+      .project-models-nav { order: 2; }
     `}</style>
   );
 
@@ -193,6 +197,12 @@ export default function ProjectPrepare({
   }, [feeders]);
 
   const compatibleFeeders = useMemo(() => getCompatibleFeeders(selectedPrinter), [getCompatibleFeeders, selectedPrinter]);
+  const getPrinterFilamentSlots = useCallback((printer) => {
+    if (!printer) return 1;
+    const pFeeders = getCompatibleFeeders(printer);
+    const feederSlots = pFeeders.reduce((sum, unit) => sum + (Number(unit.filamentSlots) || 0), 0);
+    return Math.max(1, feederSlots || Number(printer.filamentSlots) || 1);
+  }, [getCompatibleFeeders]);
   const getCfsSwapRate = useCallback((printer) => {
     const primaryFeeder = getCompatibleFeeders(printer)[0];
     const laborRates = storeRates?.['labor-cost'] || {};
@@ -217,12 +227,8 @@ export default function ProjectPrepare({
   // Calculate the absolute maximum filament slots available across ALL printers
   const maxProjectFilamentSlots = useMemo(() => {
     if (!printers || printers.length === 0) return 1;
-    return Math.max(...printers.map(p => {
-      const pFeeders = getCompatibleFeeders(p);
-      const feederSlots = pFeeders.reduce((sum, unit) => sum + (Number(unit.filamentSlots) || 0), 0);
-      return Math.max(1, feederSlots || Number(p.filamentSlots) || 1);
-    }));
-  }, [printers, getCompatibleFeeders]);
+    return Math.max(...printers.map(p => getPrinterFilamentSlots(p)));
+  }, [printers, getPrinterFilamentSlots]);
 
   const activeMaterialSlotsLimit = maxProjectFilamentSlots;
 
@@ -539,26 +545,6 @@ export default function ProjectPrepare({
     return buildPlateGroups.find(group => group.models.includes(activeModelId)) || buildPlateGroups[0] || null;
   }, [buildPlateGroups, activeModelId]);
 
-  const getModelBuildPlateUsage = useCallback((model) => {
-    if (!model) return { no: 1, count: 1 };
-    const group = buildPlateGroups.find(gp => gp.models.includes(model.id));
-    const dims = getLogicalDims(model);
-    const qty = Math.max(1, parseInt(model.quantity, 10) || 1);
-    const slots = (model.materialSlots?.length ? model.materialSlots : [{ materialId: model.materialId }]).filter(slot => slot?.materialId);
-    const isMulticolor = slots.length > 1;
-
-    if (dims.parts <= 1) {
-      return { no: group?.no || 1, count: 1 };
-    }
-
-    const physicalParts = Math.max(1, dims.parts * qty);
-    const partsPerPlate = isMulticolor ? 1 : getBuildPlatePartCapacity(model);
-    return {
-      no: group?.no || 1,
-      count: Math.max(1, Math.ceil(physicalParts / partsPerPlate))
-    };
-  }, [buildPlateGroups, getBuildPlatePartCapacity, getLogicalDims]);
-
   const isModelBuildPlateQuantityFull = useCallback((model) => {
     if (!model) return false;
     const dims = getLogicalDims(model);
@@ -733,7 +719,7 @@ export default function ProjectPrepare({
   };
 
   const addBlankModel = () => {
-    if (models.length >= MAX_MODELS || isSplitDetected) return;
+    if (models.length >= MAX_MODELS || isSplitDetected || activeIsMulticolor) return;
     const nid = Date.now();
     setPrepareData(prev => [
       ...(prev || []),
@@ -863,7 +849,8 @@ export default function ProjectPrepare({
   };
 
   const isEverythingValid = models.every(isModelValid);
-  const firstIncomplete = models.find(m => !isModelValid(m));
+  const isActiveModelValid = activeModel ? isModelValid(activeModel) : false;
+  const nextIncompleteModel = models.find(m => !isModelValid(m) && String(m.id) !== String(activeModel?.id));
 
   const timeBreakdown = useMemo(() => {
     const hoursToUse = logicalData.parts > 1 ? logicalData.part.hours : activeEstimatedHours;
@@ -885,12 +872,12 @@ export default function ProjectPrepare({
   const cardError = "border-red-500/40 bg-red-500/5";
 
   return (
-    <div className="w-full space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10 text-[var(--color-text-main)] text-left">
+    <div className="project-prepare-flow w-full min-h-[calc(100dvh-210px)] lg:min-h-[calc(90dvh-210px)] flex flex-col gap-8 pb-[160px] sm:pb-32 md:pb-32 lg:pb-32 animate-in fade-in slide-in-from-bottom-4 duration-500 text-[var(--color-text-main)] text-left">
       {customStyles}
 
       {/* --- NAVIGATION --- */}
-      <div className="space-y-0 text-center">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-4">
+      <div className="project-models-nav w-full max-w-2xl mx-auto px-3 space-y-0 text-center">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-[14px] font-black uppercase flex items-center gap-2 text-[var(--color-primary)]">
             <Box size={14} strokeWidth={3} /> Project Models {models.length > 0 && <span className="opacity-40">({models.length}/{MAX_MODELS})</span>}
           </h2>
@@ -902,7 +889,7 @@ export default function ProjectPrepare({
               className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${activeQuantity <= 1 ? 'opacity-30 cursor-not-allowed bg-gray-400/10 text-gray-400' : 'bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 active:scale-90'}`}
               title="Decrease quantity"
             >
-              <Minus size={12} strokeWidth={4} />
+              <PackageMinus size={14} strokeWidth={3} />
             </button>
             <button
               type="button"
@@ -911,7 +898,16 @@ export default function ProjectPrepare({
               className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${(activeQuantity >= activeQuantityLimit || !canFitModelsOnPlate([...activeBuildPlate.modelData.filter(m => m.id !== activeModelId), { ...activeModel, quantity: activeQuantity + 1 }])) ? 'opacity-30 cursor-not-allowed bg-gray-400/10 text-gray-400' : 'bg-blue-500/15 text-blue-600 hover:bg-blue-500/25 active:scale-90'}`}
               title="Increase quantity"
             >
-              <Plus size={12} strokeWidth={4} />
+              <PackagePlus size={14} strokeWidth={3} />
+            </button>
+            <button
+              type="button"
+              onClick={addBlankModel}
+              disabled={models.length >= MAX_MODELS || isSplitDetected || activeIsMulticolor}
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${(models.length >= MAX_MODELS || isSplitDetected || activeIsMulticolor) ? 'opacity-30 cursor-not-allowed bg-gray-400/10 text-gray-400' : 'bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 active:scale-90'}`}
+              title="Add model"
+            >
+              <Plus size={14} strokeWidth={4} />
             </button>
             <button
               type="button"
@@ -920,7 +916,7 @@ export default function ProjectPrepare({
               className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${(models.length >= MAX_MODELS || isSplitDetected || activeIsMulticolor) ? 'opacity-30 cursor-not-allowed bg-gray-400/10 text-gray-400' : 'bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 active:scale-90'}`}
               title="Duplicate model"
             >
-              <Copy size={12} strokeWidth={3} />
+              <Copy size={14} strokeWidth={3} />
             </button>
             <button
               type="button"
@@ -928,70 +924,68 @@ export default function ProjectPrepare({
               className="w-8 h-8 rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-600 flex items-center justify-center active:scale-90 transition-all"
               title="Delete model"
             >
-              <Trash2 size={12} strokeWidth={3} />
+              <Trash2 size={14} strokeWidth={3} />
             </button>
           </div>
         </div>
 <div className="relative w-full h-[90px] flex items-center">
-  <div className="flex items-center gap-3 overflow-x-auto no-scrollbar py-2 w-full h-full px-4">
-    {models.map((model) => {
-      const isActive = activeModelId === model.id;
-      const modelQty = Math.max(1, parseInt(model.quantity, 10) || 1);
-      const plateUsage = getModelBuildPlateUsage(model);
-      const isSplitModel = getLogicalDims(model).parts > 1;
-      const plateLabel = isSplitModel
-        ? `BP x${plateUsage.count}`
-        : `BP${plateUsage.no}${plateUsage.count > 1 ? ` x${plateUsage.count}` : ''}`;
-      
-      const isPlateFull = buildPlateWarningModelIds.has(model.id);
-      
-      // Determine dynamic classes based on state
-      const baseClasses = "relative flex-shrink-0 rounded-[12rem] border-2 transition-all duration-300 flex flex-col items-center justify-center snap-center";
-      const activeClasses = "w-[58px] h-[58px] bg-[var(--color-surface)] border-[var(--color-primary)] text-[var(--color-primary)] scale-110 z-10";
-      const inactiveClasses = `w-[50px] h-[50px] bg-black/5 dark:bg-white/5 border-gray-400/30 opacity-40 hover:opacity-70 ${isPlateFull ? 'text-amber-500 border-amber-500' : 'text-black dark:text-white'}`;
+  <div className="flex items-center gap-3 overflow-x-auto no-scrollbar py-2 px-1 w-full h-full">
+    {buildPlateGroups.map((group, groupIdx) => (
+      <React.Fragment key={group.id}>
+        {groupIdx > 0 && (
+          <Dot
+            size={24}
+            strokeWidth={6}
+            className="flex-shrink-0 text-[var(--color-primary)]"
+            aria-hidden="true"
+          />
+        )}
+        {group.modelData.map((model) => {
+          const isActive = activeModelId === model.id;
+          const modelQty = Math.max(1, parseInt(model.quantity, 10) || 1);
+          const isPlateFull = buildPlateWarningModelIds.has(model.id);
+          
+          const baseClasses = "relative flex-shrink-0 rounded-[12rem] border-2 transition-all duration-300 flex flex-col items-center justify-center snap-center";
+          const activeClasses = "w-[58px] h-[58px] bg-[var(--color-surface)] border-[var(--color-primary)] text-[var(--color-primary)] scale-110 z-10";
+          const inactiveClasses = `w-[50px] h-[50px] bg-black/5 dark:bg-white/5 border-gray-400/30 opacity-40 hover:opacity-70 ${isPlateFull ? 'text-amber-500 border-amber-500' : 'text-black dark:text-white'}`;
 
-      return (
-        <button
-          key={model.id}
-          type="button"
-          onClick={() => { changeModel(model.id); setIsSelectingMaterial(false); }}
-          className={`${baseClasses} ${isActive ? activeClasses : inactiveClasses}`}
-        >
-          <div className="flex flex-col items-center leading-none gap-0.5">
-            <div className="w-4 flex items-center justify-center">
-              {isModelValid(model) 
-                ? <Check size={14} strokeWidth={4} className="animate-in zoom-in" /> 
-                : <Box size={13} strokeWidth={3} />}
-            </div>
-            <span className="text-[10px] font-black uppercase italic">
-              M{model.no}{modelQty > 1 ? ` x${modelQty}` : ''}
-            </span>
-            <span className="text-[8px] font-bold opacity-70 scale-90 truncate max-w-[45px]">
-              {plateLabel}
-            </span>
-          </div>
-        </button>
-      );
-    })}
+          return (
+            <React.Fragment key={model.id}>
+              <button
+                type="button"
+                onClick={() => { changeModel(model.id); setIsSelectingMaterial(false); setIsSelectingPrinter(false); }}
+                className={`${baseClasses} ${isActive ? activeClasses : inactiveClasses}`}
+              >
+                {modelQty > 1 && (
+                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 min-w-5 h-5 px-1 rounded-full bg-[var(--color-primary)] text-white border-2 border-[var(--color-surface)] flex items-center justify-center text-[8px] font-black italic leading-none shadow-md">
+                    x{modelQty}
+                  </span>
+                )}
+                <div className="flex flex-col items-center leading-none gap-0.5">
+                  <div className="w-4 flex items-center justify-center">
+                    {isModelValid(model) 
+                      ? <Check size={14} strokeWidth={4} className="animate-in zoom-in" /> 
+                      : <Box size={13} strokeWidth={3} />}
+                  </div>
+                  <span className="text-[10px] font-black uppercase italic">
+                    M{model.no}
+                  </span>
+                </div>
+              </button>
+            </React.Fragment>
+          );
+        })}
+      </React.Fragment>
+    ))}
 
-    {/* Standalone Action Buttons (Maintained for UI consistency) */}
-    {models.length < MAX_MODELS && !isSplitDetected && !activeIsMulticolor && (
-      <button type="button" onClick={addBlankModel} className="flex-shrink-0 w-[50px] h-[50px] rounded-[12rem] border-2 border-dashed border-[var(--color-primary)] text-[var(--color-primary)] flex items-center justify-center active:scale-90 transition-all opacity-80 hover:bg-[var(--color-primary)]/5">
-        <Plus size={21} strokeWidth={3} />
-      </button>
-    )}
-
-    <button type="button" disabled={models.length <= 1} onClick={() => resetActiveModel(true)} className={`flex-shrink-0 w-[50px] h-[50px] rounded-[12rem] border-2 transition-all active:scale-90 flex items-center justify-center ${models.length <= 1 ? 'border-gray-400/20 text-gray-400 bg-gray-100/10 opacity-30 cursor-not-allowed' : 'border-amber-500/30 text-amber-600 bg-amber-500/5 hover:bg-amber-500/10'}`}>
-      <RefreshCw size={16} strokeWidth={3} />
-    </button>
   </div>
 </div>
       </div>
 
-      <div className="flex flex-col items-center text-center w-full px-4 mt-6">
+      <div className="project-printer-selection flex flex-col items-center text-center w-full max-w-2xl mx-auto px-3">
         <div className="flex flex-wrap justify-between items-center w-full mb-2 gap-2">
           <label className="text-[14px] font-black uppercase flex items-center gap-2 text-[var(--color-primary)]">
-            <Printer size={14} strokeWidth={3} /> 3D Printer
+            <Printer size={12} strokeWidth={3} /> 3D Printer
           </label>
           <div className="flex gap-2">
             <button
@@ -1000,11 +994,12 @@ export default function ProjectPrepare({
                 const isCurrentlyManual = !!activeModel?.isManualPrinter;
                 setPrepareData(prev => prev.map(m => m.id === activeModelId ? { ...m, isManualPrinter: !isCurrentlyManual } : m));
                 setIsSelectingPrinter(false);
+                setIsSelectingMaterial(false);
               }}
-              className={`h-8 sm:h-auto w-8 sm:w-auto text-[14px] font-black uppercase sm:px-3 sm:py-1 rounded-full border transition-all duration-300 active:scale-95 inline-flex items-center justify-center gap-1.5 ${
+              className={`text-[14px] font-black uppercase leading-none p-0 transition-all duration-300 active:scale-95 inline-flex items-center justify-center gap-1.5 ${
                 activeModel?.isManualPrinter 
-                  ? 'bg-amber-500/10 text-amber-600 border-amber-500/30' 
-                  : 'bg-blue-500/10 text-blue-600 border-blue-500/30'
+                  ? 'bg-transparent text-amber-600 hover:text-amber-500' 
+                  : 'bg-transparent text-blue-600 hover:text-blue-500'
               }`}
               title={activeModel?.isManualPrinter ? 'Switch to auto printer assignment' : 'Switch to manual printer assignment'}
             >
@@ -1019,42 +1014,34 @@ export default function ProjectPrepare({
               onClick={() => {
                 if (activeModel?.isManualPrinter) {
                   setIsSelectingPrinter(!isSelectingPrinter);
+                  setIsSelectingMaterial(false);
                 }
               }}
-              className={`w-full p-6 rounded-[2.5rem] bg-transparent flex flex-col gap-2 transition-all duration-300 ${
+              className={`w-full p-6 rounded-[1.8rem] bg-transparent flex flex-col gap-4 transition-all duration-300 ${
                 activeModel?.isManualPrinter 
                   ? 'cursor-pointer hover:border-[var(--color-primary)]/70 hover:bg-black/5 dark:hover:bg-white/5 active:scale-[0.99]' 
                   : 'cursor-default'
-              } ${containerBorderStyle}`}
+              } ${isSelectingPrinter ? 'border-[var(--color-primary)] shadow-lg shadow-blue-500/10' : containerBorderStyle}`}
             >
               <div className="flex justify-between items-start w-full gap-4">
                 {/* Left Column: Brand, Model, Build Capacity */}
                 <div className="flex flex-col text-left min-w-0 flex-1 gap-1">
-                  <p className="text-[10px] font-black uppercase text-[var(--color-primary)] truncate leading-none">{selectedPrinter?.brand || 'No Printer Assigned'}</p>
-                  
-                  <div className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-3">
-                    <p className="text-[12px] font-black uppercase text-black dark:text-white truncate leading-none mt-0.5">{selectedPrinter?.model || selectedPrinter?.name || '---'}</p>
-                    {selectedPrinter ? (
-                      <span className="hidden sm:inline-flex items-center gap-1 opacity-60 text-[10px] font-black uppercase tracking-wider bg-black/5 dark:bg-white/5 px-2 py-0.5 rounded-full leading-none">
-                        <Layers size={9} className="text-[var(--color-primary)]" />
-                        {convertCapacity(selectedPrinter.buildCapacity, activeModel.unit)} {activeModel.unit.toUpperCase()}
-                      </span>
-                    ) : (
-                      <span className="hidden sm:inline text-[10px] font-black uppercase tracking-wider text-amber-500/70 leading-none">
-                        Tap to select printer...
-                      </span>
-                    )}
+                  <div className="flex flex-wrap items-baseline gap-2 min-w-0">
+                    <span className="text-[14px] font-black uppercase text-[var(--color-primary)] truncate leading-none">{selectedPrinter?.brand || 'No Printer Assigned'}</span>
+                    <span className="text-[14px] font-black uppercase text-black dark:text-white truncate leading-none">{selectedPrinter?.model || selectedPrinter?.name || '---'}</span>
                   </div>
 
                   {selectedPrinter ? (
-                    <div className="flex sm:hidden items-center gap-1.5 opacity-60 mt-1">
-                      <Layers size={10} className="text-[var(--color-primary)]" />
-                      <span className="text-[10px] font-black uppercase tracking-wider">
+                    <>
+                      <span className="text-[14px] font-black uppercase text-black dark:text-white truncate leading-none">
                         {convertCapacity(selectedPrinter.buildCapacity, activeModel.unit)} {activeModel.unit.toUpperCase()}
                       </span>
-                    </div>
+                      <span className="text-[14px] font-black uppercase text-black dark:text-white truncate leading-none">
+                        {getPrinterFilamentSlots(selectedPrinter)} Filament {getPrinterFilamentSlots(selectedPrinter) === 1 ? 'Slot' : 'Slots'}
+                      </span>
+                    </>
                   ) : (
-                    <div className="text-[10px] font-black uppercase tracking-wider text-amber-500/70 mt-1 sm:hidden">
+                    <div className="text-[10px] font-black uppercase tracking-wider text-amber-500/70 mt-1">
                       Tap to select printer...
                     </div>
                   )}
@@ -1063,85 +1050,82 @@ export default function ProjectPrepare({
                 {/* Right Column: Status (Online/Offline), Assignment Mode (Best Fit/Manual), and tap action label */}
                 <div className="flex flex-col items-end gap-1.5 shrink-0 justify-start">
                   {selectedPrinter && (
-                    <span className={`text-[9px] font-black uppercase px-2 py-1 rounded-lg shrink-0 leading-none ${selectedPrinter?.status?.toLowerCase() === 'online' || selectedPrinter?.status?.toLowerCase() === 'virtual' ? 'bg-green-500/10 text-green-600' : 'bg-red-500/10 text-red-600'}`}>
+                    <span className={`text-[9px] font-black uppercase px-2 py-1 rounded-lg shrink-0 leading-none ${selectedPrinter?.status?.toLowerCase() === 'online' || selectedPrinter?.status?.toLowerCase() === 'virtual' ? 'text-green-600' : 'text-red-600'}`}>
                       {selectedPrinter?.status || '---'}
                     </span>
                   )}
 
                   {activeModel?.isManualPrinter ? (
                     isSelectingPrinter ? (
-                      <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-black/10 dark:bg-white/10 text-black dark:text-white shrink-0 leading-none">Selecting</span>
+                      <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full text-black dark:text-white shrink-0 leading-none">Selected</span>
                     ) : (
-                      <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-black/5 dark:bg-white/5 text-gray-500 shrink-0 leading-none">Tap to Change</span>
+                      <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full text-gray-500 shrink-0 leading-none">Tap to Change</span>
                     )
                   ) : (
-                    <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 shrink-0 leading-none">Best Fit</span>
+                    <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full text-blue-600 shrink-0 leading-none">Best Fit</span>
                   )}
                 </div>
               </div>
+              {isSelectingPrinter && activeModel?.isManualPrinter && (
+                <div className="mt-1 border-t border-black/10 dark:border-white/10">
+                  {printers.filter((p) => String(p.id) !== String(activeModel?.printerId)).map((p, index) => {
+                    const isOnline = p.status?.toLowerCase() === 'online' || p.status?.toLowerCase() === 'virtual';
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          updateModelPrinter(p.id);
+                          setIsSelectingPrinter(false);
+                          setIsSelectingMaterial(false);
+                        }}
+                        className={`w-full py-4 flex items-center justify-between gap-4 text-left transition-colors ${
+                          index > 0 ? 'border-t border-black/10 dark:border-white/10' : ''
+                        } hover:text-[var(--color-primary)]`}
+                      >
+                        <div className="min-w-0 flex flex-col gap-1">
+                          <div className="flex flex-wrap items-baseline gap-2 min-w-0">
+                            <span className="text-[14px] font-black uppercase text-[var(--color-primary)] truncate">{p.brand}</span>
+                            <span className="text-[14px] font-black uppercase text-black dark:text-white truncate">{p.model || p.name}</span>
+                          </div>
+                          <span className="text-[14px] font-black uppercase text-black dark:text-white truncate">
+                            {convertCapacity(p.buildCapacity, activeModel?.unit)} {activeModel?.unit?.toUpperCase()}
+                          </span>
+                          <span className="text-[14px] font-black uppercase text-black dark:text-white truncate">
+                            {getPrinterFilamentSlots(p)} Filament {getPrinterFilamentSlots(p) === 1 ? 'Slot' : 'Slots'}
+                          </span>
+                        </div>
+                        <span className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-lg shrink-0 ${
+                          isOnline ? 'text-green-600' : 'text-red-600'
+                        }`}>
+                          {p.status}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
         </div>
       </div>        
 
-        {isSelectingPrinter ? (
-          <div className="space-y-4 animate-in slide-in-from-bottom-4 duration-300 pb-10 px-4">
-            <div className="px-3 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-1.5 h-4 bg-[var(--color-primary)] rounded-full" />
-                <h4 className="text-[11px] font-black uppercase tracking-widest text-[var(--color-primary)]">
-                  Select Printer for M{activeModel?.no}
-                </h4>
-              </div>
-              <button 
-                type="button" 
-                onClick={() => setIsSelectingPrinter(false)}
-                className="text-[10px] font-black uppercase opacity-50 hover:opacity-100"
+        {!isSelectingPrinter && (
+          <div className="flex flex-col items-center mt-6 animate-in fade-in zoom-in duration-300 px-3 w-full max-w-2xl mx-auto">
+            <div className="flex flex-wrap justify-between items-center w-full mb-2 gap-2">
+              <label className="text-[14px] font-black uppercase flex items-center gap-2 text-[var(--color-primary)]">
+                <VectorSquare size={12} strokeWidth={3} /> Dimensions
+              </label>
+              <button
+                type="button"
+                onClick={handleUnitChange}
+                className="text-[14px] font-black uppercase leading-none p-0 transition-all duration-300 active:scale-95 inline-flex items-center justify-center gap-1.5 text-blue-600 hover:text-blue-500"
               >
-                Cancel
+                <RefreshCw size={12} strokeWidth={3} />
+                <span className="hidden sm:inline">Tap to Convert</span>
               </button>
             </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {printers.map(p => {
-                const isSelected = String(p.id) === String(activeModel?.printerId);
-                const isOnline = p.status?.toLowerCase() === 'online' || p.status?.toLowerCase() === 'virtual';
-                return (
-                  <div
-                    key={p.id}
-                    onClick={() => {
-                      updateModelPrinter(p.id);
-                      setIsSelectingPrinter(false);
-                    }}
-                    className={`p-4 rounded-[1.8rem] border-2 text-left cursor-pointer transition-all duration-300 flex flex-col justify-between ${
-                      isSelected 
-                        ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/5' 
-                        : 'border-gray-400/20 hover:border-[var(--color-primary)]/40 bg-transparent'
-                    }`}
-                  >
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <p className="text-[9px] font-black uppercase text-[var(--color-primary)]">{p.brand}</p>
-                        <p className="text-[12px] font-black uppercase text-black dark:text-white leading-tight">{p.model || p.name}</p>
-                      </div>
-                      <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-md ${
-                        isOnline ? 'bg-green-500/10 text-green-600' : 'bg-red-500/10 text-red-600'
-                      }`}>
-                        {p.status}
-                      </span>
-                    </div>
-                    <div className="mt-4 flex justify-between items-center text-[9px] font-black uppercase opacity-60">
-                      <span>Capacity: {convertCapacity(p.buildCapacity, activeModel?.unit)} {activeModel?.unit?.toUpperCase()}</span>
-                      <span>{p.filamentSlots || 1} Slots</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ) : !isSelectingMaterial ? (
-          <div className="flex flex-col items-center mt-6 animate-in fade-in zoom-in duration-300 px-4">
-            <label className="text-[12px] font-black uppercase mb-2 flex items-center justify-center gap-2 text-[var(--color-primary)]"><VectorSquare size={14} strokeWidth={3} /> Dimensions</label>
-            <div className={`bg-transparent rounded-[2.5rem] px-4 py-4 w-full flex items-center gap-1 text-[var(--color-text-main)] ${containerBorderStyle}`}>
+            <div className={`bg-transparent rounded-[1.8rem] px-4 py-4 w-full flex items-center gap-1 text-[var(--color-text-main)] ${containerBorderStyle}`}>
               {[{ field: 'length', label: 'L', key: 'l' }, { field: 'width', label: 'W', key: 'w' }, { field: 'height', label: 'H', key: 'h' }].map((item, idx) => {
                 const displayValue = activeModel?.[item.field];
                 let ghostMM = logicalData[item.key];
@@ -1165,54 +1149,11 @@ export default function ProjectPrepare({
               </button>
             </div>
           </div>
-        ) : (
-          <div className="space-y-4 animate-in slide-in-from-bottom-4 duration-300 pb-10 px-4">
-            <div className="px-3 flex items-center gap-2">
-                <div className="w-1.5 h-4 bg-[var(--color-primary)] rounded-full" />
-                <h4 className="text-[11px] font-black uppercase tracking-widest text-[var(--color-primary)]">
-                  Changing Filament for M{activeModel?.no}
-                </h4>
-             </div>
-
-            {(allFilaments || []).length >= 10 && (
-               <div className="px-1">
-                 <div className="relative group">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--color-text-main)] opacity-20 group-focus-within:opacity-100 group-focus-within:text-blue-500 transition-all" size={16} />
-                    <input 
-                      value={matSearchQuery}
-                      onChange={e => setMatSearchQuery(e.target.value)}
-                      placeholder="Search colors..."
-                      className="w-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-2xl pl-11 pr-4 py-3 text-[11px] font-black uppercase tracking-widest outline-none focus:border-blue-500/50 transition-all"
-                    />
-                 </div>
-               </div>
-             )}
-
-            <div className="grid grid-cols-2 gap-3">
-              {sortedMaterials.length > 0 ? (
-                sortedMaterials.map(mat => (
-                  <MaterialCard 
-                    key={mat.id} 
-                    mat={mat} 
-                    isGrid={true} 
-                    isSelected={String(mat.id) === String(currentMaterialId)}
-                    activeMaterialId={String(currentMaterialId)} 
-                    onSelect={(id) => { updateModelData(activeModelId, 'materialId', id); setIsSelectingMaterial(false); setMatSearchQuery(''); }} 
-                    isUpfront={mat.isUpfront}
-                  />
-                ))
-              ) : (
-                <div className="col-span-2 py-10 text-center opacity-30">
-                   <p className="text-[10px] font-black uppercase tracking-widest">No matching filaments</p>
-                 </div>
-              )}
-            </div>
-          </div>
         )}
 
-        {!isSelectingPrinter && !isSelectingMaterial && (
+        {!isSelectingPrinter && (
           <>
-            <div className="flex gap-4 items-end mt-6 px-4">
+            <div className="flex gap-4 items-end mt-6 px-3 w-full max-w-2xl mx-auto">
               <div className="w-[43%] flex flex-col items-center">
                 <label className="text-[12px] font-black uppercase mb-2 flex items-center justify-center gap-2 text-[var(--color-primary)]"><Dumbbell size={14} strokeWidth={3} /> Strength</label>
                 <div className={`w-full h-[68px] bg-transparent rounded-[1.8rem] flex items-stretch justify-center px-1 ${containerBorderStyle}`}>
@@ -1239,6 +1180,7 @@ export default function ProjectPrepare({
                     type="button"
                     onClick={() => {
                       if (!canChangeActiveColor) return;
+                      setIsSelectingPrinter(false);
                       setIsSelectingMaterial(!isSelectingMaterial);
                     }}
                     disabled={!canChangeActiveColor}
@@ -1274,7 +1216,7 @@ export default function ProjectPrepare({
               </div>
             </div>
 
-            <div className="space-y-3 px-4 mt-4">
+            <div className="space-y-3 px-3 mt-4 w-full max-w-2xl mx-auto">
               {activeMaterialSlotsData.map((slot, idx) => {
                 const actualIdx = idx; 
                 const slotMaterial = getLatestMaterial(slot.materialId);
@@ -1306,8 +1248,8 @@ export default function ProjectPrepare({
               })}
             </div>
 
-            <div className="space-y-6 animate-in fade-in zoom-in duration-300 px-4 mt-6">
-              <div className={`transition-all duration-500 ${logicalData.l > 0 ? 'opacity-100' : 'opacity-0'}`}>
+            {logicalData.l > 0 && (
+              <div className="space-y-6 animate-in fade-in zoom-in duration-300 px-3 mt-3 w-full max-w-2xl mx-auto">
                 <div className="grid grid-cols-2 gap-2">
                   {logicalData.parts > 1 && <div className={`${cardBase} ${logicalData.parts >= 10 ? cardError : cardNormal}`}>
                     <div className={`flex items-center gap-1.5 mb-1 ${logicalData.parts >= 10 ? 'text-red-500' : 'text-[var(--color-primary)]'}`}><Scissors size={13} strokeWidth={3} /><span className="text-[14px] font-black italic">{logicalData.parts}</span></div>
@@ -1331,12 +1273,57 @@ export default function ProjectPrepare({
                   )}
                 </div>
               </div>
-            </div>
+            )}
           </>
         )}
 
+        {!isSelectingPrinter && isSelectingMaterial && (
+          <div className="space-y-4 animate-in slide-in-from-bottom-4 duration-300 pb-10 px-3 w-full max-w-2xl mx-auto">
+            <div className="px-3 flex items-center gap-2">
+              <div className="w-1.5 h-4 bg-[var(--color-primary)] rounded-full" />
+              <h4 className="text-[11px] font-black uppercase tracking-widest text-[var(--color-primary)]">
+                Changing Filament for M{activeModel?.no}
+              </h4>
+            </div>
+
+            {(allFilaments || []).length >= 10 && (
+              <div className="px-1">
+                <div className="relative group">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--color-text-main)] opacity-20 group-focus-within:opacity-100 group-focus-within:text-blue-500 transition-all" size={16} />
+                  <input
+                    value={matSearchQuery}
+                    onChange={e => setMatSearchQuery(e.target.value)}
+                    placeholder="Search colors..."
+                    className="w-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-2xl pl-11 pr-4 py-3 text-[11px] font-black uppercase tracking-widest outline-none focus:border-blue-500/50 transition-all"
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              {sortedMaterials.length > 0 ? (
+                sortedMaterials.map(mat => (
+                  <MaterialCard
+                    key={mat.id}
+                    mat={mat}
+                    isGrid={true}
+                    isSelected={String(mat.id) === String(currentMaterialId)}
+                    activeMaterialId={String(currentMaterialId)}
+                    onSelect={(id) => { updateModelData(activeModelId, 'materialId', id); setIsSelectingMaterial(false); setMatSearchQuery(''); }}
+                    isUpfront={mat.isUpfront}
+                  />
+                ))
+              ) : (
+                <div className="col-span-2 py-10 text-center opacity-30">
+                  <p className="text-[10px] font-black uppercase tracking-widest">No matching filaments</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* --- STICKY CONFIRM BUTTON --- */}
-<div className={`px-5 pb-6 pt-4 sticky bottom-0 left-0 w-full z-50 bg-gradient-to-t from-[var(--color-bg)] to-transparent ${isModelValid(activeModel) && !isSelectingPrinter && !isSelectingMaterial && !isTripleLimitHit ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`}>
+<div className="fixed left-1/2 bottom-0 md:bottom-[5dvh] z-[260] w-full max-w-[calc(100vw-2rem)] md:max-w-2xl lg:max-w-2xl -translate-x-1/2 px-3 pb-5 pt-8 bg-gradient-to-t from-[var(--color-bg)] via-[var(--color-bg)]/90 to-transparent lg:rounded-b-[2rem] overflow-hidden transition-all duration-500">
   
   <div className="flex items-center gap-3 bg-[var(--color-bg)]/90 backdrop-blur-xl p-2 rounded-[2.5rem] border border-black/5 dark:border-white/5 shadow-2xl">
     
@@ -1353,8 +1340,9 @@ export default function ProjectPrepare({
     </button>
             <button 
               onClick={() => { 
-                if (firstIncomplete) {
-                  setInternalActiveId(firstIncomplete.id); 
+                if (!isActiveModelValid || isTripleLimitHit) return;
+                if (nextIncompleteModel) {
+                  setInternalActiveId(nextIncompleteModel.id); 
                 } else {
                   const buildPlateNumberByJobId = new Map();
                   let nextBuildPlateNo = 1;
@@ -1542,9 +1530,10 @@ export default function ProjectPrepare({
                   onConfirm(projectSummary); 
                 }
               }} 
-              className="w-full py-5 rounded-[2.2rem] font-black italic uppercase tracking-[0.2em] text-xs flex items-center justify-center gap-4 transition-all duration-500 active:scale-95 group bg-[var(--color-primary)] text-white shadow-xl shadow-[var(--color-primary)]/20"
+              disabled={!isActiveModelValid || isTripleLimitHit}
+              className="flex-1 h-14 rounded-[2.2rem] font-black italic uppercase tracking-[0.2em] text-xs flex items-center justify-center gap-4 transition-all duration-500 active:scale-95 group bg-[var(--color-primary)] text-white shadow-xl shadow-[var(--color-primary)]/20 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
             >
-              {!isEverythingValid && firstIncomplete ? (<>NEXT <Box size={14} /></>) : (<>CONFIRM PROJECT <div className="p-1 rounded-full bg-white/20 group-hover:translate-x-1 transition-transform"><svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="4" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg></div></>)}
+              {isEverythingValid ? (<>CONFIRM DETAILS <div className="p-1 rounded-full bg-white/20 group-hover:translate-x-1 transition-transform"><svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="4" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg></div></>) : (<>NEXT MODEL <Box size={14} /></>)}
             </button>
           </div>
         </div>

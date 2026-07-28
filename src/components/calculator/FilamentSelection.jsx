@@ -56,6 +56,7 @@ export default function FilamentSelection({ onSelect, selectedFilaments = [] }) 
   };
 
   const handleDeploy = () => {
+    if (tempSelection.length === 0) return;
     const finalSelection = tempSelection.map(item => {
       const stock = parseFloat(item.remaining);
       const isUpfront = stock <= 0;
@@ -196,13 +197,12 @@ export default function FilamentSelection({ onSelect, selectedFilaments = [] }) 
       )}
 
       {/* SMART STICKY FOOTER */}
-      <div className={`px-5 sticky bottom-4 left-0 w-full mt-4 transition-all duration-500 z-50 
-        ${tempSelection.length > 0 ? 'translate-y-0 opacity-100 scale-100' : 'translate-y-10 opacity-0 pointer-events-none scale-95'}`}
-      >
+      <div className="px-5 sticky bottom-4 left-0 w-full mt-4 transition-all duration-500 z-50">
         <div className="bg-[var(--color-surface)]/80 backdrop-blur-md p-1 rounded-[2.5rem] border border-[var(--color-border)] shadow-2xl">
           <button 
             onClick={handleDeploy}
-            className="w-full py-5 rounded-[2.2rem] font-black italic uppercase text-[11px] tracking-[0.2em] bg-blue-600 text-white shadow-xl shadow-blue-600/20 flex items-center justify-center gap-4 group active:scale-95 transition-all"
+            disabled={tempSelection.length === 0}
+            className={`w-full py-5 rounded-[2.2rem] font-black italic uppercase text-[11px] tracking-[0.2em] bg-blue-600 text-white shadow-xl shadow-blue-600/20 flex items-center justify-center gap-4 group active:scale-95 transition-all ${tempSelection.length > 0 ? '' : 'opacity-50 cursor-not-allowed active:scale-100'}`}
           >
             PROCEED WITH {tempSelection.length} {tempSelection.length === 1 ? 'COLOR' : 'COLORS'}
             <div className="p-1 rounded-full bg-white/20 group-hover:translate-x-1 transition-transform">

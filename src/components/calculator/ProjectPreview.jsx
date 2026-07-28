@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { 
   Plus, Layers, WeightTilde, Droplet, ClockCheck, 
-  Settings2, Copy, Trash2, X, Lock, Check, AlertTriangle, Search,
+  Copy, Trash2, X, Check, AlertTriangle, Search,
   Tag, Link2, Printer, Zap
 } from 'lucide-react';
 import MaterialCard from './MaterialCard';
@@ -29,7 +29,6 @@ export default function ProjectPreview({
   const [activePlateId, setActivePlateId] = useState(null);
   const [isSelectingMaterial, setIsSelectingMaterial] = useState(false);
   const [isSelectingPrinter, setIsSelectingPrinter] = useState(false);
-  const [isManageMode, setIsManageMode] = useState(false);
   const [matSearchQuery, setMatSearchQuery] = useState('');
   const [activeMaterialSlot, setActiveMaterialSlot] = useState(0);
 
@@ -53,12 +52,23 @@ export default function ProjectPreview({
   }, [feeders]);
 
   const compatibleFeeders = useMemo(() => getCompatibleFeeders(selectedPrinter), [getCompatibleFeeders, selectedPrinter]);
+  const getPrinterFilamentSlots = useCallback((printer) => {
+    if (!printer) return 1;
+    const pFeeders = getCompatibleFeeders(printer);
+    const feederSlots = pFeeders.reduce((sum, unit) => sum + (Number(unit.filamentSlots) || 0), 0);
+    return Math.max(1, feederSlots || Number(printer.filamentSlots) || 1);
+  }, [getCompatibleFeeders]);
   const activeMaterialSlotsLimit = useMemo(() => {
-    const feederSlots = compatibleFeeders.reduce((sum, unit) => sum + (Number(unit.filamentSlots) || 0), 0);
-    return Math.max(1, feederSlots || Number(selectedPrinter?.filamentSlots) || 1);
-  }, [compatibleFeeders, selectedPrinter]);
+    return getPrinterFilamentSlots(selectedPrinter);
+  }, [getPrinterFilamentSlots, selectedPrinter]);
   const selectedPrinterHasFeeder = compatibleFeeders.length > 0;
   const activeUsesFeeder = selectedPrinterHasFeeder && activePlate?.useCfs !== false;
+  const formatPrinterCapacity = useCallback((capacity) => {
+    if (!capacity) return '---';
+    return [capacity.x, capacity.y, capacity.z]
+      .map(value => Number(value) || 0)
+      .join(' × ');
+  }, []);
   const activeMaterialSlotsData = useMemo(() => {
     if (activePlate?.materialSlots?.length) {
       return activePlate.materialSlots
@@ -187,7 +197,6 @@ export default function ProjectPreview({
 
   // --- 3. UPDATERS & NAVIGATION ---
   const updatePlateData = useCallback((id, field, value) => {
-    if (isManageMode && field !== 'materialId') return;
     let processedValue = value;
     if (field === 'weight') {
       processedValue = value.replace(/[^0-9.]/g, ''); 
@@ -202,7 +211,7 @@ export default function ProjectPreview({
       }
       return { ...p, [field]: processedValue };
     }));
-  }, [activeMaterialSlot, isManageMode, setPreviewData]);
+  }, [activeMaterialSlot, setPreviewData]);
 
   const updateMaterialSlotWeight = (slotIdx, value) => {
     const clean = value.replace(/[^0-9.]/g, '');
@@ -261,12 +270,18 @@ export default function ProjectPreview({
 
   const isEverythingValid = plates.every(isPlateValid);
   const firstIncomplete = plates.find(p => !isPlateValid(p));
+  const isActivePlateValid = activePlate ? isPlateValid(activePlate) : false;
+  const nextIncompletePlate = plates.find(p => !isPlateValid(p) && String(p.id) !== String(activePlate?.id));
 
   const handleNext = () => {
-    if (!isPlateValid(activePlate)) return;
-    const nextIncomplete = plates.find(p => !isPlateValid(p));
-    if (nextIncomplete) {
-      setActivePlateId(nextIncomplete.id);
+    if (!isActivePlateValid) {
+      const targetPlate = firstIncomplete || activePlate;
+      if (targetPlate?.id) setActivePlateId(targetPlate.id);
+      setIsSelectingMaterial(false);
+      return;
+    }
+    if (nextIncompletePlate) {
+      setActivePlateId(nextIncompletePlate.id);
     } else if (isEverythingValid) {
       handleFinalConfirm();
     }
@@ -348,6 +363,44 @@ export default function ProjectPreview({
     if (effectiveActiveId === id) setActivePlateId(updated[0].id);
   };
 
+  const addBlankPlate = () => {
+    if (plates.length >= MAX_PLATES) return;
+    const newId = Date.now();
+    const materialId = activePlate.materialId || (allFilaments || [])[0]?.id;
+    setPreviewData(prev => [...(prev || []), {
+      id: newId,
+      no: (prev || []).length + 1,
+      weight: '',
+      days: '',
+      hours: '',
+      mins: '',
+      secs: '',
+      materialId,
+      materialSlots: [{ materialId, weight: '' }],
+      printerId: activePlate.printerId || (printers || [])[0]?.id,
+      useCfs: activePlate.useCfs
+    }]);
+    setActivePlateId(newId);
+    setIsSelectingMaterial(false);
+  };
+
+  const duplicateActivePlate = () => {
+    if (plates.length >= MAX_PLATES || !activePlate?.id) return;
+    const newId = Date.now();
+    setPreviewData(prev => {
+      const source = (prev || []).find(p => p.id === effectiveActiveId) || activePlate;
+      const next = {
+        ...source,
+        id: newId,
+        no: (prev || []).length + 1,
+        materialSlots: (source.materialSlots || []).map(slot => ({ ...slot }))
+      };
+      return [...(prev || []), next];
+    });
+    setActivePlateId(newId);
+    setIsSelectingMaterial(false);
+  };
+
   const handleTimeChange = (field, value) => {
     let cleanValue = value.replace(/[^0-9]/g, '').slice(0, 2);
     if (cleanValue === '') {
@@ -367,136 +420,164 @@ export default function ProjectPreview({
   };
 
   return (
-    <div className="w-full space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10 text-black dark:text-white text-left">
+    <div className="project-preview-flow w-full min-h-[calc(100dvh-210px)] lg:min-h-[calc(90dvh-210px)] flex flex-col gap-8 pb-[160px] sm:pb-32 md:pb-32 lg:pb-32 animate-in fade-in slide-in-from-bottom-4 duration-500 text-black dark:text-white text-left">
       <style>{`
         @keyframes pulse-subtle { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
         .animate-pulse-subtle { animation: pulse-subtle 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
        input[type=number] { -moz-appearance: textfield; }
+        .project-preview-flow > * { order: 3; }
+        .project-preview-printer { order: 1; }
+        .project-preview-plates { order: 2; }
       `}</style>
       
       {/* --- PLATE NAVIGATION --- */}
-      <div className="space-y-0 text-center">
-        <h2 className="text-[12px] font-black uppercase mb-2 flex items-center justify-center gap-2 text-[var(--color-primary)]">
-          <Layers size={14} strokeWidth={3} /> Build Plates {plates.length > 0 && <span className="opacity-40">({plates.length}/{MAX_PLATES})</span>}
-        </h2>
+      <div className="project-preview-plates w-full max-w-2xl mx-auto px-3 space-y-0 text-center">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-[14px] font-black uppercase flex items-center gap-2 text-[var(--color-primary)]">
+            <Layers size={14} strokeWidth={3} /> Build Plates {plates.length > 0 && <span className="opacity-40">({plates.length}/{MAX_PLATES})</span>}
+          </h2>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={addBlankPlate}
+              disabled={plates.length >= MAX_PLATES}
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${plates.length >= MAX_PLATES ? 'opacity-30 cursor-not-allowed bg-gray-400/10 text-gray-400' : 'bg-blue-500/15 text-blue-600 hover:bg-blue-500/25 active:scale-90'}`}
+              title="Add build plate"
+            >
+              <Plus size={14} strokeWidth={4} />
+            </button>
+            <button
+              type="button"
+              onClick={duplicateActivePlate}
+              disabled={plates.length >= MAX_PLATES || !activePlate?.id}
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${(plates.length >= MAX_PLATES || !activePlate?.id) ? 'opacity-30 cursor-not-allowed bg-gray-400/10 text-gray-400' : 'bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 active:scale-90'}`}
+              title="Duplicate build plate"
+            >
+              <Copy size={14} strokeWidth={3} />
+            </button>
+            <button
+              type="button"
+              onClick={() => deletePlate(effectiveActiveId)}
+              disabled={plates.length <= 1}
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${plates.length <= 1 ? 'opacity-30 cursor-not-allowed bg-red-500/5 text-red-400' : 'bg-red-500/10 hover:bg-red-500/20 text-red-600 active:scale-90'}`}
+              title="Delete build plate"
+            >
+              <Trash2 size={14} strokeWidth={3} />
+            </button>
+          </div>
+        </div>
         <div className="relative w-full h-[90px] flex items-center">
-          <div className="flex items-center gap-3 overflow-x-auto no-scrollbar py-4 px-4 w-full h-full snap-x">
+          <div className="flex items-center gap-3 overflow-x-auto no-scrollbar py-4 px-1 w-full h-full snap-x">
             {plates.map((plate) => (
               <button 
                 key={plate.id} 
-                onClick={() => { setActivePlateId(plate.id); setIsSelectingMaterial(false); }} 
+                onClick={() => { setActivePlateId(plate.id); setIsSelectingMaterial(false); setIsSelectingPrinter(false); }} 
                 className={`relative flex-shrink-0 rounded-[12rem] border-2 transition-all duration-300 flex flex-col items-center justify-center snap-center 
-                  ${effectiveActiveId === plate.id ? (
-                    isManageMode 
-                      ? (plates.length > 1 ? 'w-[58px] h-[58px] bg-red-500/5 border-red-500 text-red-500 scale-110 z-10' : 'w-[58px] h-[58px] bg-gray-400/5 border-gray-400 text-gray-400 scale-110 z-10')
-                      : 'w-[58px] h-[58px] bg-[var(--color-surface)] border-[var(--color-primary)] text-[var(--color-primary)] scale-110 z-10'
-                  ) : 'w-[50px] h-[50px] bg-black/5 dark:bg-white/5 border-gray-400/30 opacity-40 text-black dark:text-white'}`}
+                  ${effectiveActiveId === plate.id ? 'w-[58px] h-[58px] bg-[var(--color-surface)] border-[var(--color-primary)] text-[var(--color-primary)] scale-110 z-10' : 'w-[50px] h-[50px] bg-black/5 dark:bg-white/5 border-gray-400/30 opacity-40 text-black dark:text-white'}`}
               >
-                {isManageMode && effectiveActiveId === plate.id ? (
-                  <div onClick={(e) => { e.stopPropagation(); deletePlate(plate.id); }} className="flex flex-col items-center animate-in zoom-in duration-200 leading-none">
-                    {plates.length > 1 ? (
-                      <><Trash2 size={18} strokeWidth={3} className="mb-0.5" /><span className="text-[9px] font-black uppercase italic">BP{plate.no}</span></>
-                    ) : (
-                      <><Lock size={14} strokeWidth={3} className="mb-0.5" /><span className="text-[9px] font-black uppercase italic">BP{plate.no}</span></>
-                    )}
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center leading-none">
-                    {isPlateValid(plate) ? <Check size={16} strokeWidth={4} className="mb-0.5 animate-in zoom-in" /> : <Layers size={14} strokeWidth={3} className="mb-0.5" />}
-                    <span className="text-[9px] font-black uppercase italic">BP{plate.no}</span>
-                  </div>
-                )}
+                <div className="flex flex-col items-center leading-none">
+                  {isPlateValid(plate) ? <Check size={16} strokeWidth={4} className="mb-0.5 animate-in zoom-in" /> : <Layers size={14} strokeWidth={3} className="mb-0.5" />}
+                  <span className="text-[9px] font-black uppercase italic">BP{plate.no}</span>
+                </div>
               </button>
             ))}
-            {plates.length < MAX_PLATES && (
-              <button 
-                onClick={() => {
-                  const newId = Date.now();
-                  const materialId = activePlate.materialId || (allFilaments || [])[0]?.id;
-                  setPreviewData(prev => [...(prev || []), { id: newId, no: (prev || []).length + 1, weight: '', days: '', hours: '', mins: '', secs: '', materialId, materialSlots: [{ materialId, weight: '' }], printerId: activePlate.printerId || (printers || [])[0]?.id, useCfs: activePlate.useCfs }]);
-                  setActivePlateId(newId);
-                  setIsSelectingMaterial(false);
-                  setIsManageMode(false);
-                }} 
-                className="relative flex-shrink-0 w-[50px] h-[50px] rounded-full border-2 border-dashed border-[var(--color-primary)] text-[var(--color-primary)] flex items-center justify-center active:scale-90 transition-all opacity-80"
-              >
-                <Plus size={22} strokeWidth={3} />
-              </button>
-            )}
-            <button onClick={() => { setIsManageMode(!isManageMode); setIsSelectingMaterial(false); }} className={`relative flex-shrink-0 w-[50px] h-[50px] rounded-full border-2 transition-all active:scale-90 flex items-center justify-center ${isManageMode ? 'border-black dark:border-white bg-[var(--color-surface)] z-10' : 'border-black/30 dark:border-white/30 opacity-80'}`} >
-              {isManageMode ? <X size={15} strokeWidth={4} /> : <Settings2 size={16} strokeWidth={2.5} />}
-            </button>
           </div>
         </div>
       </div>
 
       {/* 🔥 NEW: PRINTER SELECTION (Collapsible) */}
-      <div className="flex flex-col items-center text-center w-full mt-6">
-        <label className="text-[12px] font-black uppercase mb-4 flex items-center justify-center gap-2 text-[var(--color-primary)]">
-          <Printer size={14} strokeWidth={3} /> 3D Printer
-        </label>
+      <div className="project-preview-printer flex flex-col items-center text-center w-full max-w-2xl mx-auto px-3">
+        <div className="flex flex-wrap justify-between items-center w-full mb-2 gap-2">
+          <label className="text-[14px] font-black uppercase flex items-center gap-2 text-[var(--color-primary)]">
+            <Printer size={12} strokeWidth={3} /> 3D Printer
+          </label>
+        </div>
         
         <div className="w-full space-y-3">
-          {!isSelectingPrinter ? (
-            <button
-              onClick={() => setIsSelectingPrinter(true)}
-              className="w-full p-6 rounded-[2.5rem] border-2 border-[var(--color-primary)] bg-[var(--color-primary)]/5 shadow-lg flex flex-col gap-2 transition-all text-left"
+            <div
+              onClick={() => {
+                setIsSelectingPrinter((value) => !value);
+                setIsSelectingMaterial(false);
+              }}
+              className={`w-full p-6 rounded-[1.8rem] bg-transparent flex flex-col gap-4 transition-all text-left cursor-pointer hover:border-[var(--color-primary)]/70 hover:bg-black/5 dark:hover:bg-white/5 active:scale-[0.99] ${
+                isSelectingPrinter ? 'border-[var(--color-primary)] shadow-lg shadow-blue-500/10' : containerBorderStyle
+              }`}
             >
-              <div className="flex justify-between items-center w-full">
-                <div className="text-left flex-1 min-w-0">
-                  <p className="text-[10px] font-black uppercase text-[var(--color-primary)] truncate">{selectedPrinter?.brand || 'Select Printer'}</p>
-                  <div className="flex items-baseline gap-3 flex-wrap">
-                    <p className="text-[12px] font-black uppercase text-black dark:text-white truncate">{selectedPrinter?.model || selectedPrinter?.name || '---'}</p>
-                    {selectedPrinter && (
-                        <div className="flex items-center gap-1 opacity-90 shrink-0">
-                            <Layers size={10} />
-                            <span className="text-[11px] font-bold">{selectedPrinter.buildCapacity ? `${selectedPrinter.buildCapacity.x}×${selectedPrinter.buildCapacity.y}×${selectedPrinter.buildCapacity.z}` : '---'}</span>
-                        </div>
-                    )}
+              <div className="flex justify-between items-start w-full gap-4">
+                <div className="text-left flex-1 min-w-0 flex flex-col gap-1">
+                  <div className="flex flex-wrap items-baseline gap-2 min-w-0">
+                    <span className="text-[14px] font-black uppercase text-[var(--color-primary)] truncate leading-none">{selectedPrinter?.brand || 'Select Printer'}</span>
+                    <span className="text-[14px] font-black uppercase text-black dark:text-white truncate leading-none">{selectedPrinter?.model || selectedPrinter?.name || '---'}</span>
                   </div>
+                  {selectedPrinter && (
+                    <span className="text-[14px] font-black uppercase text-black dark:text-white truncate leading-none">
+                      {formatPrinterCapacity(selectedPrinter.buildCapacity)} MM
+                    </span>
+                  )}
+                  {selectedPrinter && (
+                    <span className="text-[14px] font-black uppercase text-black dark:text-white truncate leading-none">
+                      {getPrinterFilamentSlots(selectedPrinter)} Filament {getPrinterFilamentSlots(selectedPrinter) === 1 ? 'Slot' : 'Slots'}
+                    </span>
+                  )}
                 </div>
-                <span className={`text-[9px] font-black uppercase px-2 py-1 rounded-lg ${selectedPrinter?.status?.toLowerCase() === 'online' || selectedPrinter?.status?.toLowerCase() === 'virtual' ? 'bg-green-500/10 text-green-600' : 'bg-red-500/10 text-red-600'}`}>
-                  {selectedPrinter?.status || '---'}
-                </span>
+                <div className="flex flex-col items-end gap-1.5 shrink-0 justify-start">
+                  <span className={`text-[9px] font-black uppercase px-2 py-1 rounded-lg shrink-0 leading-none ${selectedPrinter?.status?.toLowerCase() === 'online' || selectedPrinter?.status?.toLowerCase() === 'virtual' ? 'text-green-600' : 'text-red-600'}`}>
+                    {selectedPrinter?.status || '---'}
+                  </span>
+                  <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full text-gray-500 shrink-0 leading-none">
+                    {isSelectingPrinter ? 'Selected' : 'Tap to Change'}
+                  </span>
+                </div>
               </div>
-            </button>
-          ) : (
-            <div className="space-y-3 animate-in slide-in-from-bottom-2 duration-300">
-              {printers.map(p => {
-                const isOnline = p.status?.toLowerCase() === 'online' || p.status?.toLowerCase() === 'virtual';
-                return (
-                  <button
-                    key={p.id}
-                    onClick={() => {
-                      const hasFeeder = getCompatibleFeeders(p).length > 0;
-                      setPreviewData(prev => (prev || []).map(plate => (
-                        plate.id === effectiveActiveId ? { ...plate, printerId: p.id, useCfs: hasFeeder ? plate.useCfs !== false : false } : plate
-                      )));
-                      setIsSelectingPrinter(false);
-                    }}
-                    className="w-full p-4 rounded-2xl border-2 border-black/10 dark:border-white/10 hover:border-black/30 flex flex-col gap-2 transition-all text-left"
-                  >
-                    <div className="flex justify-between items-center w-full">
-                      <div>
-                        <p className="text-[10px] font-black uppercase opacity-50">{p.brand}</p>
-                        <p className="text-[12px] font-black uppercase">{p.model || p.name}</p>
-                      </div>
-                      <span className={`text-[9px] font-black uppercase px-2 py-1 rounded-lg ${isOnline ? 'bg-green-500/10 text-green-600' : 'bg-red-500/10 text-red-600'}`}>
-                        {p.status}
-                      </span>
-                    </div>
-                  </button>
-                );
-              })}
+              {isSelectingPrinter && (
+                <div className="mt-1 border-t border-black/10 dark:border-white/10">
+                  {printers.filter((p) => String(p.id) !== String(activePlate?.printerId)).map((p, index) => {
+                    const isOnline = p.status?.toLowerCase() === 'online' || p.status?.toLowerCase() === 'virtual';
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const hasFeeder = getCompatibleFeeders(p).length > 0;
+                          setPreviewData(prev => (prev || []).map(plate => (
+                            plate.id === effectiveActiveId ? { ...plate, printerId: p.id, useCfs: hasFeeder ? plate.useCfs !== false : false } : plate
+                          )));
+                          setIsSelectingPrinter(false);
+                          setIsSelectingMaterial(false);
+                        }}
+                        className={`w-full py-4 flex items-center justify-between gap-4 text-left transition-colors ${
+                          index > 0 ? 'border-t border-black/10 dark:border-white/10' : ''
+                        } hover:text-[var(--color-primary)]`}
+                      >
+                        <div className="min-w-0 flex flex-col gap-1">
+                          <div className="flex flex-wrap items-baseline gap-2 min-w-0">
+                            <span className="text-[14px] font-black uppercase text-[var(--color-primary)] truncate">{p.brand}</span>
+                            <span className="text-[14px] font-black uppercase text-black dark:text-white truncate">{p.model || p.name}</span>
+                          </div>
+                          <span className="text-[14px] font-black uppercase text-black dark:text-white truncate">
+                            {formatPrinterCapacity(p.buildCapacity)} MM
+                          </span>
+                          <span className="text-[14px] font-black uppercase text-black dark:text-white truncate">
+                            {getPrinterFilamentSlots(p)} Filament {getPrinterFilamentSlots(p) === 1 ? 'Slot' : 'Slots'}
+                          </span>
+                        </div>
+                        <span className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-lg shrink-0 ${isOnline ? 'text-green-600' : 'text-red-600'}`}>
+                          {p.status}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          )}
         </div>
       </div>
 
       {!isSelectingPrinter && (
-        <div className="space-y-6 animate-in fade-in zoom-in duration-300">
+        <div className="space-y-6 animate-in fade-in zoom-in duration-300 w-full max-w-2xl mx-auto px-3">
           <div className="flex flex-col items-center text-center">
             <label className="text-[12px] font-black uppercase mb-2 flex items-center justify-center gap-2 text-[var(--color-primary)]">
               <ClockCheck size={14} strokeWidth={3} /> Print Time
@@ -518,7 +599,7 @@ export default function ProjectPreview({
 
       {/* --- FORM SECTION --- */}
       {!isSelectingPrinter && (
-        <div className={`space-y-8 transition-all duration-500 relative ${isManageMode ? 'opacity-30 pointer-events-none' : ''}`}>
+        <div className="space-y-8 transition-all duration-500 relative w-full max-w-2xl mx-auto px-3">
           <div className="space-y-3 mt-8">
             {activeMaterialSlotsData.map((slot, idx) => {
                 const slotMaterial = getLatestMaterial(slot.materialId, plates);
@@ -550,7 +631,7 @@ export default function ProjectPreview({
                         <MaterialCard
                           mat={slotMaterial}
                           isUpfront={slotMaterial?.isUpfront}
-                          toggleSelect={() => { setActiveMaterialSlot(idx); setIsSelectingMaterial(!isSelectingMaterial || activeMaterialSlot !== idx); }}
+                          toggleSelect={() => { setActiveMaterialSlot(idx); setIsSelectingPrinter(false); setIsSelectingMaterial(!isSelectingMaterial || activeMaterialSlot !== idx); }}
                           isChanging={isSelectingMaterial && activeMaterialSlot === idx}
                         />
                         {!isSelectingMaterial && activeMaterialSlotsData.length > 1 && (
@@ -618,7 +699,7 @@ export default function ProjectPreview({
           )}
 
 {/* --- STICKY PLATE FOOTER --- */}
-<div className={`px-5 pb-6 pt-4 sticky bottom-0 left-0 w-full z-50 bg-gradient-to-t from-[var(--color-bg)] to-transparent transition-all duration-500 ${isPlateValid(activePlate) && !isSelectingMaterial ? 'translate-y-0 opacity-100 scale-100' : 'translate-y-10 opacity-0 pointer-events-none scale-95'}`}>
+<div className="fixed left-1/2 bottom-0 md:bottom-[5dvh] z-[260] w-full max-w-[calc(100vw-2rem)] md:max-w-2xl lg:max-w-2xl -translate-x-1/2 px-3 pb-5 pt-8 bg-gradient-to-t from-[var(--color-bg)] via-[var(--color-bg)]/90 to-transparent lg:rounded-b-[2rem] overflow-hidden transition-all duration-500">
   
   <div className="flex items-center gap-3 bg-[var(--color-bg)]/90 backdrop-blur-xl p-2 rounded-[2.5rem] border border-black/5 dark:border-white/5 shadow-2xl">
     
@@ -635,18 +716,19 @@ export default function ProjectPreview({
     </button>
     <button 
                 onClick={handleNext}
-                className="w-full py-5 rounded-[2.2rem] font-black italic uppercase tracking-[0.2em] text-xs flex items-center justify-center gap-4 bg-[var(--color-primary)] text-white shadow-xl shadow-[var(--color-primary)]/20 active:scale-95 group"
+                disabled={!isActivePlateValid}
+                className="flex-1 h-14 rounded-[2.2rem] font-black italic uppercase tracking-[0.2em] text-xs flex items-center justify-center gap-4 bg-[var(--color-primary)] text-white shadow-xl shadow-[var(--color-primary)]/20 active:scale-95 group disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
               >
-                {!isEverythingValid && firstIncomplete ? (
-                  <>NEXT PLATE <Layers size={14} /> </>
-                ) : (
-                  <>ESTIMATE COST
+                {isEverythingValid ? (
+                  <>CONFIRM DETAILS
                   <div className="p-1 rounded-full bg-white/20 group-hover:translate-x-1 transition-transform">
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="4" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
                     </svg>
                   </div>
                   </>
+                ) : (
+                  <>NEXT PLATE <Layers size={14} /> </>
                 )}
               </button>
             </div>

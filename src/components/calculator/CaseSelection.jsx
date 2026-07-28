@@ -12,7 +12,7 @@ export default function CaseSelection({ onSelect, selectedCase = null }) {
   const selectedMethod = cases.find(item => item.id === expandedId);
 
   return (
-    <div className="relative animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="relative min-h-[calc(100dvh-210px)] lg:min-h-[calc(90dvh-210px)] flex flex-col pb-[160px] sm:pb-32 md:pb-32 lg:pb-32 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <style>{`
         @keyframes soft-pulse {
           0%, 100% { opacity: 1; transform: scale(1); }
@@ -23,7 +23,7 @@ export default function CaseSelection({ onSelect, selectedCase = null }) {
         }
       `}</style>
 
-      <div className="grid grid-cols-1 gap-3 mb-4">
+      <div className="px-3 w-full max-w-2xl mx-auto grid grid-cols-1 gap-3">
         {cases.map((item) => {
           const isSelected = expandedId === item.id;
           return (
@@ -85,12 +85,12 @@ export default function CaseSelection({ onSelect, selectedCase = null }) {
                       REQUIRED INPUT:
                     </span>
                     
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="flex flex-wrap gap-x-3 gap-y-1">
                       {item.requirements.map((req, idx) => (
-                        <span key={idx} className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1.5 rounded-xl border transition-all ${
+                        <span key={idx} className={`text-[10px] font-black uppercase tracking-widest transition-colors ${
                           isSelected 
-                            ? 'bg-[var(--color-primary)]/10 text-[var(--color-primary)] border-[var(--color-primary)]/20 shadow-sm' 
-                            : 'bg-[var(--color-text-main)]/[0.03] text-[var(--color-text-main)]/40 border-transparent'
+                            ? 'text-[var(--color-primary)]' 
+                            : 'text-[var(--color-text-main)]/40'
                         }`}>
                           {req}
                         </span>
@@ -104,13 +104,12 @@ export default function CaseSelection({ onSelect, selectedCase = null }) {
         })}
       </div>
 
-      <div className={`px-5 sticky bottom-4 left-0 w-full mt-4 transition-all duration-500 z-50 
-        ${expandedId ? 'translate-y-0 opacity-100 scale-100' : 'translate-y-10 opacity-0 pointer-events-none scale-95'}`}
-      >
-        <div className="bg-[var(--color-bg)]/80 backdrop-blur-md p-1 rounded-[2.5rem] border border-gray-200 dark:border-white/10 shadow-2xl">
+      <div className="fixed left-1/2 bottom-0 md:bottom-[5dvh] z-[260] w-full max-w-[calc(100vw-2rem)] md:max-w-2xl lg:max-w-2xl -translate-x-1/2 px-3 pb-5 pt-8 bg-gradient-to-t from-[var(--color-bg)] via-[var(--color-bg)]/90 to-transparent lg:rounded-b-[2rem] overflow-hidden">
+        <div className="flex items-center gap-3 bg-[var(--color-bg)]/90 backdrop-blur-xl p-2 rounded-[2.5rem] border border-black/5 dark:border-white/5 shadow-2xl">
           <button 
-            onClick={() => onSelect(selectedMethod)}
-            className="w-full py-5 rounded-[2.2rem] font-black italic uppercase tracking-[0.2em] text-xs bg-[var(--color-primary)] text-white shadow-xl flex items-center justify-center gap-4 group active:scale-95 transition-all"
+            onClick={() => selectedMethod && onSelect(selectedMethod)}
+            disabled={!selectedMethod}
+            className={`flex-1 h-14 rounded-[2.2rem] font-black italic uppercase tracking-[0.2em] text-xs bg-[var(--color-primary)] text-white shadow-xl flex items-center justify-center gap-4 group active:scale-95 transition-all ${selectedMethod ? '' : 'opacity-50 cursor-not-allowed active:scale-100'}`}
           >
             NEXT
             <div className="p-1 rounded-full bg-white/20 group-hover:translate-x-1 transition-transform">

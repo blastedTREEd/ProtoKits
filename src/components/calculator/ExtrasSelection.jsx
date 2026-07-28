@@ -86,7 +86,7 @@ export default function ExtrasSelection({
   };
 
   return (
-    <div className="space-y-0 text-center mb-6 text-[var(--color-text-main)] select-none">
+    <div className="min-h-[calc(100dvh-210px)] lg:min-h-[calc(90dvh-210px)] flex flex-col pb-[160px] sm:pb-32 md:pb-32 lg:pb-32 text-center text-[var(--color-text-main)] select-none">
       <style>{`input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }`}</style>
 
       {/* --- NAVIGATION --- */}
@@ -135,7 +135,7 @@ export default function ExtrasSelection({
       </div>
 
       {/* --- ADD-ONS LIST --- */}
-      <div className="px-3 w-full max-w-2xl mx-auto grid gap-3 pb-[160px] sm:pb-32 md:pb-32 lg:pb-32">
+      <div className="px-3 w-full max-w-2xl mx-auto grid gap-3">
         {availableExtras.map((item) => {
           const currentTotalQty = getAssignmentQty(item.id);
           const selection = selectedExtras.find(s => String(s.id) === String(item.id));
@@ -266,9 +266,8 @@ export default function ExtrasSelection({
       </div>
 
  {/* --- COLUMN-SPECIFIC FOOTER --- */}
- <div className="sticky bottom-0 left-0 w-full sm:absolute md:fixed lg:absolute bottom-0 left-0 right-0 w-full p-2 z-[110]">
-  <div className="px-4 py-2">
-    <div className="flex gap-3 bg-[var(--color-bg)]/80 backdrop-blur-md p-2 rounded-[2.5rem] border border-black/10 dark:border-white/10 shadow-2xl">
+ <div className="fixed left-1/2 bottom-0 md:bottom-[5dvh] z-[260] w-full max-w-[calc(100vw-2rem)] md:max-w-2xl lg:max-w-2xl -translate-x-1/2 px-3 pb-5 pt-8 bg-gradient-to-t from-[var(--color-bg)] via-[var(--color-bg)]/90 to-transparent lg:rounded-b-[2rem] overflow-hidden">
+  <div className="flex items-center gap-3 bg-[var(--color-bg)]/90 backdrop-blur-xl p-2 rounded-[2.5rem] border border-black/5 dark:border-white/5 shadow-2xl">
       
     {/* BACK BUTTON */}
     <button
@@ -293,9 +292,8 @@ export default function ExtrasSelection({
                 </svg>
               </div>
             </button>
-          </div>
-        </div>
       </div>
     </div>
+  </div>
   );
 }
