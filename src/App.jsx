@@ -28,7 +28,7 @@ const Deletion = lazy(() => import('./pages/Deletion'));
 const ShippingPolicy = lazy(() => import('./pages/ShippingPolicy'));
 const PaymentAndRefundPolicy = lazy(() => import('./pages/PaymentAndRefundPolicy'));
 
-const getPageLoadingLabel = (pathname) => {
+const getPageLoadingLabel = (pathname, { isAdminView = false } = {}) => {
   if (pathname === '/') return 'Loading SnorlaxGarage';
   if (pathname.startsWith('/kits')) return 'Loading Kits';
   if (pathname === '/prints' || pathname === '/blueprints') return 'Loading Prints';
@@ -36,18 +36,19 @@ const getPageLoadingLabel = (pathname) => {
   if (pathname === '/notify-list') return 'Loading Offers';
   if (pathname === '/users-dashboard') return 'Loading Users Dashboard';
   if (pathname === '/shelf') return 'Loading Collection';
+  if (pathname === '/basket' && isAdminView) return 'Loading Collection';
   if (pathname === '/basket') return 'Loading Basket';
   return 'Loading SnorlaxGarage';
 };
 
-const getLoadingDetails = ({ pathname }) => {
+const getLoadingDetails = ({ pathname, isAdminView = false }) => {
   return {
-    message: getPageLoadingLabel(pathname),
+    message: getPageLoadingLabel(pathname, { isAdminView }),
     steps: []
   };
 };
 
-const getSyncMessage = (syncStatus, pathname) => {
+const getSyncMessage = (syncStatus, pathname, { isAdminView = false } = {}) => {
   const normalizedStatus = String(syncStatus || '').toLowerCase();
   const isAuthorizing = normalizedStatus.includes('waiting') || normalizedStatus.includes('authoriz');
   const isSyncingProfile = normalizedStatus.includes('verify') || normalizedStatus.includes('profile') || normalizedStatus.includes('account') || normalizedStatus.includes('synchronizing');
@@ -55,7 +56,7 @@ const getSyncMessage = (syncStatus, pathname) => {
   if (isAuthorizing) return 'Authenticating Session';
   if (isSyncingProfile) return 'Syncing Profile';
 
-  return getPageLoadingLabel(pathname);
+  return getPageLoadingLabel(pathname, { isAdminView });
 };
 
 // Scroll restoration
@@ -188,6 +189,7 @@ const RouterContent = () => {
   const checkPageReady = useStore((state) => state.checkPageReady);
   const _loadedDatasets = useStore((state) => state._loadedDatasets);
   const _getPageRequirements = useStore((state) => state._getPageRequirements);
+  const isAdminView = useStore((state) => state.isAdminView);
 
   // Keep _activePath in sync and trigger background listeners when ready
   useLayoutEffect(() => {
@@ -212,7 +214,8 @@ const RouterContent = () => {
     (req.shelf && !ds.shelf) ||
     (req.prints && !ds.prints);
   const loadingDetails = getLoadingDetails({
-    pathname: location.pathname
+    pathname: location.pathname,
+    isAdminView
   });
 
   const AdminRouteWrapper = ({ children }) => {
@@ -277,6 +280,7 @@ const SyncOverlay = () => {
   const location = useLocation();
   const isSyncing = useStore((state) => state.isSyncing);
   const syncStatus = useStore((state) => state.syncStatus);
+  const isAdminView = useStore((state) => state.isAdminView);
 
   return (
     <AnimatePresence>
@@ -289,7 +293,7 @@ const SyncOverlay = () => {
         >
           <div className="flex flex-col items-center gap-3">
             <LoadingState
-              message={getSyncMessage(syncStatus, location.pathname)}
+              message={getSyncMessage(syncStatus, location.pathname, { isAdminView })}
               className="py-0"
             />
           </div>

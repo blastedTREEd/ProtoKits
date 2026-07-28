@@ -450,6 +450,19 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   const [createdOrderIds, setCreatedOrderIds] = useState([]);
   const [orderCreatedAt, setOrderCreatedAt] = useState(null);
   const [agreedToPolicy, setAgreedToPolicy] = useState(false);
+  const [isCheckoutLoginPending, setIsCheckoutLoginPending] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setIsCheckoutLoginPending(false);
+      return;
+    }
+
+    if (isCheckoutLoginPending && !isGuestPreview) {
+      useStore.setState({ isSyncing: false });
+      setIsCheckoutLoginPending(false);
+    }
+  }, [isOpen, isCheckoutLoginPending, isGuestPreview]);
   
   const getMinTime = useCallback((startHour, endHour) => {
     const now = new Date();
@@ -1464,6 +1477,7 @@ const baseTotal = useMemo(() => {
       localStorage.setItem('sg_pending_checkout', JSON.stringify(checkoutDataRef.current));
       localStorage.setItem('sg_pending_delivery', JSON.stringify(deliveryDataRef.current));
       
+      setIsCheckoutLoginPending(true);
       useStore.setState({ isSyncing: true, syncStatus: 'Authorizing Session' });
       const result = await signInWithPopup(auth, googleProvider);
       useStore.setState({ syncStatus: 'Syncing Profile' });
@@ -1477,9 +1491,9 @@ const baseTotal = useMemo(() => {
         role: 'customer'
       }, { merge: true });
 
-      useStore.setState({ isSyncing: false });
     } catch (err) {
       console.error(err);
+      setIsCheckoutLoginPending(false);
       useStore.setState({ isSyncing: false });
     }
   };
