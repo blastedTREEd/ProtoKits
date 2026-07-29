@@ -1,8 +1,8 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { 
   Box, Clock, Zap, Plus, Lock, Edit3, Trash2, PackagePlus, PackageMinus,
-  X, Weight, Droplet, Layers, AlertTriangle, Link2, ExternalLink, ChevronRight, ChevronLeft, Calendar,
-  ShoppingBasket, Play, Pause, FileText, ShieldCheck, CheckCircle2, XCircle, Spool, Save, Paintbrush,
+  X, Weight, Droplet, Layers, AlertTriangle, Link2, ExternalLink, ChevronRight, ChevronLeft,
+  ShoppingBasket, Play, Pause, FileText, ShieldCheck, CheckCircle2, XCircle, Spool, Save,
   Settings, Pencil
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
@@ -145,20 +145,28 @@ export default function ProjectCard({
 
   // Keep track of prev project values to sync local state during render
   const [prevProject, setPrevProject] = useState(project);
+  const [prevProjectKey, setPrevProjectKey] = useState(project?.vaultId || project?.id || null);
 
   const [fileLink, setFileLink] = useState(project?.gdriveLink || '');
   const [licenseAcknowledged, setLicenseAcknowledged] = useState(project?.licenseAcknowledged || false);
   const [projectNameLocal, setProjectNameLocal] = useState(project?.projectName || '');
   const [isEditingName, setIsEditingName] = useState(false);
   const [selectedDesignService, setSelectedDesignService] = useState(project?.selectedDesignService || null);
+  const [activeVaultPanel, setActiveVaultPanel] = useState('file');
 
   // Sync props to state during render (prevents cascading renders via useEffect)
   if (project !== prevProject) {
+    const projectKey = project?.vaultId || project?.id || null;
+    const isDifferentProject = projectKey !== prevProjectKey;
     setPrevProject(project);
+    setPrevProjectKey(projectKey);
     setFileLink(project?.gdriveLink || '');
     setLicenseAcknowledged(project?.licenseAcknowledged || false);
     setProjectNameLocal(project?.projectName || '');
     setSelectedDesignService(project?.selectedDesignService || null);
+    if (isDifferentProject) {
+      setActiveVaultPanel('file');
+    }
   }
 
   const handleProjectNameBlur = async () => {
@@ -303,6 +311,21 @@ export default function ProjectCard({
         basePrice: Number(val.basePrice) || 0
       }));
   }, [storeRates]);
+  const hasDesignServices = !is3MF && availableDesignServices.length > 0;
+
+  const showDesignServicesPanel = (e) => {
+    e.stopPropagation();
+    setActiveVaultPanel('services');
+  };
+
+  const showFileLinkPanel = (e) => {
+    e.stopPropagation();
+    setSelectedDesignService(null);
+    if (isVault && project?.vaultId) {
+      updateProjectInVault(project.vaultId, { selectedDesignService: null }).catch(err => console.error('SG LOG: Failed to clear design service:', err));
+    }
+    setActiveVaultPanel('file');
+  };
 
   // Compute design service cost (basePrice only — complexity is set in order modal by admin)
   const serviceCost = useMemo(() => {
@@ -827,11 +850,22 @@ export default function ProjectCard({
                     {/* Links & Date */}
                     <div className="space-y-3">
                       {/* Vault: File Link Input + License Checkbox */}
-                      {isVault && (
+                      {isVault && (!hasDesignServices || activeVaultPanel === 'file') && (
                         <div className="space-y-3">
                           <div className="flex items-center gap-4 px-2">
                             <span className="text-[12px] font-black uppercase tracking-[0.4em] opacity-30">File Link</span>
                             <div className="h-px flex-1 bg-[var(--color-border)]" />
+                            {hasDesignServices && (
+                              <button
+                                type="button"
+                                onClick={showDesignServicesPanel}
+                                className="h-8 px-3 rounded-full bg-purple-600/10 text-purple-600 hover:bg-purple-600 hover:text-white transition-all flex items-center gap-1.5 shrink-0"
+                                title="Show 3D designing services"
+                              >
+                                <LuRotate3D size={13} strokeWidth={3} />
+                                <span className="text-[10px] font-black uppercase tracking-widest">3D Services</span>
+                              </button>
+                            )}
                           </div>
                           <div className="bg-white dark:bg-white/5 p-4 rounded-2xl border border-[var(--color-border)] space-y-4">
                             <div className="space-y-2">
@@ -916,7 +950,7 @@ export default function ProjectCard({
                       )}
 
                       {/* View link button for vault when link is a valid GDrive URL */}
-                      {isVault && fileLinkIsValid && (
+                      {isVault && fileLinkIsValid && (!hasDesignServices || activeVaultPanel === 'file') && (
                         <a href={fileLink} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between p-4 rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all group">
                           <div className="flex items-center gap-3">
                             <Link2 size={18} strokeWidth={3} />
@@ -925,22 +959,23 @@ export default function ProjectCard({
                           <ExternalLink size={14} className="opacity-40 group-hover:opacity-100 transition-opacity" />
                         </a>
                       )}
-                      
-                      {project.createdAt && (
-                        <div className="flex items-center justify-center gap-2 py-2">
-                          <Calendar size={18} strokeWidth={3}/>
-                          <span className="text-[12px] font-black uppercase tracking-widest">
-                            Created {new Date(project.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
-                          </span>
-                        </div>
-                      )}
-
                       {/* 3D Designing Services — Dynamically loaded from Firestore */}
-                      {!is3MF && availableDesignServices.length > 0 && (
+                      {hasDesignServices && (!isVault || activeVaultPanel === 'services') && (
                         <div className="space-y-3">
                           <div className="flex items-center gap-4 px-2">
                             <span className="text-[12px] font-black uppercase tracking-[0.4em] opacity-30">3D Designing Services</span>
                             <div className="h-px flex-1 bg-[var(--color-border)]" />
+                            {isVault && (
+                              <button
+                                type="button"
+                                onClick={showFileLinkPanel}
+                                className="h-8 px-3 rounded-full bg-blue-600/10 text-blue-600 hover:bg-blue-600 hover:text-white transition-all flex items-center gap-1.5 shrink-0"
+                                title="Show file link"
+                              >
+                                <LiaGoogleDrive size={14} strokeWidth={1} />
+                                <span className="text-[10px] font-black uppercase tracking-widest">File Link</span>
+                              </button>
+                            )}
                           </div>
                           <div className="grid grid-cols-1 gap-2">
                             {availableDesignServices.map((service) => {
@@ -983,14 +1018,6 @@ export default function ProjectCard({
                               );
                             })}
                           </div>
-                          {selectedDesignService && (
-                            <div className="bg-amber-500/10 border border-amber-500/20 p-3 rounded-xl flex gap-2 items-start">
-                              <AlertTriangle size={16} strokeWidth={2} className="text-amber-500 shrink-0 mt-0.5" />
-                              <p className="text-[10px] font-bold text-amber-700 dark:text-amber-400 leading-tight">
-                                Price is not yet final. Service complexity level will be adjusted by the admin upon order review.
-                              </p>
-                            </div>
-                          )}
                         </div>
                       )}
                     </div>

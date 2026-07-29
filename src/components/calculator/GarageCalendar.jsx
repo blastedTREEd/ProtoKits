@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, Calendar, Zap, Clock } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const DESIGN_SERVICE_EXTRA_DAYS = 1;
 
 // Derive busy date ranges from active orders that contain project items
 const getOccupiedDates = (orders = []) => {
@@ -18,8 +19,9 @@ const getOccupiedDates = (orders = []) => {
     const items = order.items || [];
     items.forEach(item => {
       if (item.type !== 'project') return;
-      const days = Number(item.projectData?.totals?.days || 0);
-      if (days <= 0) return;
+      const printDays = Number(item.projectData?.totals?.days || 0);
+      if (printDays <= 0) return;
+      const designServiceDays = item.projectData?.selectedDesignService ? DESIGN_SERVICE_EXTRA_DAYS : 0;
 
       // Use order creation date as start
       let startDate;
@@ -35,7 +37,7 @@ const getOccupiedDates = (orders = []) => {
 
       // Multiply by quantity
       const qty = Number(item.quantity || 1);
-      const totalDays = days * qty;
+      const totalDays = (printDays + designServiceDays) * qty;
 
       for (let d = 0; d < totalDays; d++) {
         const date = new Date(startDate);
@@ -49,15 +51,14 @@ const getOccupiedDates = (orders = []) => {
   return occupied;
 };
 
-// Find the first available start date (can be today if time permits and no design service, otherwise tomorrow or later)
-const findFirstAvailable = (occupied, hasDesignService) => {
+// Find the first available start date (can be today if before cutoff, otherwise tomorrow or later)
+const findFirstAvailable = (occupied) => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   let candidate = new Date(today);
   
-  // SG: Tinitingnan kung may design service o kung lagpas na sa cutoff time (5 PM) para mag-delay ng simula
   const currentHour = new Date().getHours();
-  const canStartToday = !hasDesignService && currentHour < 17;
+  const canStartToday = currentHour < 17;
   
   if (!canStartToday) {
     candidate.setDate(candidate.getDate() + 1);
@@ -85,13 +86,13 @@ export default function GarageCalendar({ project, className = '' }) {
 
   const occupied = useMemo(() => getOccupiedDates(orders), [orders]);
 
-  const projectDays = Number(project?.totals?.days || 0);
   const hasDesignService = !!project?.selectedDesignService;
+  const projectDays = Number(project?.totals?.days || 0) + (hasDesignService ? DESIGN_SERVICE_EXTRA_DAYS : 0);
 
   // Estimate production window for current project
   const projectionRange = useMemo(() => {
     if (projectDays <= 0) return new Set();
-    const start = findFirstAvailable(occupied, hasDesignService);
+    const start = findFirstAvailable(occupied);
     const range = new Set();
     let added = 0;
     let candidate = new Date(start);
@@ -105,7 +106,7 @@ export default function GarageCalendar({ project, className = '' }) {
       if (added === 0 && candidate.getTime() - start.getTime() > 365 * 86400000) break;
     }
     return range;
-  }, [occupied, projectDays, hasDesignService]);
+  }, [occupied, projectDays]);
 
   // Calendar math
   const year = viewDate.getFullYear();
@@ -239,6 +240,7 @@ export default function GarageCalendar({ project, className = '' }) {
             </div>
           )}
         </div>
+
       </div>
     </div>
   );
