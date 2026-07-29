@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { 
   X, Plus, Box, Image as ImageIcon, Save, Trash2, Layers, 
   Weight, Ruler, Coins, Droplet, Printer, Search, Loader2,
@@ -7,20 +7,9 @@ import {
 import { useStore } from '../../store/useStore';
 import PrintsCalculator from './PrintsCalculator';
 
-const CATEGORIES = [
-  'ACTION FIGURE',
-  'PROP / REPLICA',
-  'HOUSEHOLD',
-  'OFFICE',
-  'GAMES / TOYS',
-  'ART / DECOR',
-  'OTHERS'
-];
-
 const labelClass = 'mb-2 block text-[9px] font-black uppercase tracking-[0.2em] opacity-50';
-const inputClass = 'w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-xs font-bold outline-none focus:border-blue-500 transition-all uppercase';
-const numberInputClass = 'w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-xs font-bold outline-none focus:border-blue-500 transition-all appearance-none';
-const FIRESTORE_DOC_LIMIT = 1048576;
+const inputClass = 'w-full bg-black/5 dark:bg-white/5 border border-[var(--color-border)] rounded-2xl px-4 py-3 text-xs font-bold outline-none focus:border-[var(--color-primary)] transition-all uppercase text-[var(--color-text-main)] placeholder:text-[var(--color-text-main)] placeholder:opacity-40';
+const numberInputClass = 'w-full bg-black/5 dark:bg-white/5 border border-[var(--color-border)] rounded-2xl px-4 py-3 text-xs font-bold outline-none focus:border-[var(--color-primary)] transition-all appearance-none text-[var(--color-text-main)] placeholder:text-[var(--color-text-main)] placeholder:opacity-40';
 const FIRESTORE_SAFE_LIMIT = 900000;
 
 const parseMoney = (value) => parseFloat(String(value || 0).replace(/,/g, '')) || 0;
@@ -72,8 +61,6 @@ const buildInitialFormData = (project = null) => {
 };
 
 export default function AddPrintModal({ onClose, initialProject = null }) {
-  const filamentInventory = useStore((state) => state.filamentInventory);
-  const printers = useStore((state) => state.printers);
   const publishBlueprint = useStore((state) => state.publishBlueprint);
   const updateBlueprint = useStore((state) => state.updateBlueprint);
   const shippingSettings = useStore((state) => state.shippingSettings);
@@ -85,6 +72,16 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
 
   const [imagePreviews, setImagePreviews] = useState(() => buildInitialFormData(initialProject).images);
   const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    document.body.style.height = '100vh';
+
+    return () => {
+      document.body.style.overflow = '';
+      document.body.style.height = '';
+    };
+  }, []);
 
   const updateForm = (field, value) => {
     if (field.includes('.')) {
@@ -200,7 +197,7 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
     }));
   };
 
-  const buildProjectPayload = () => {
+  const buildProjectPayload = useCallback(() => {
     const settings = shippingSettings?.paymentSettings || {};
     const displayFees = Number(settings.handlingFee || 0) + Number(settings.installmentFee || 0) + Number(settings.transferFee || 0);
     const baseSellPrice = Number(formData.sellPrice) || 0;
@@ -233,7 +230,7 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
       canAddToBasket: formData.canAddToBasket,
       status: formData.canAddToBasket ? 'Published' : 'Public Only'
     };
-  };
+  }, [formData, shippingSettings]);
 
   const estimatedDocumentSize = useMemo(() => {
     if (!formData.calculationData) return 0;
@@ -242,8 +239,7 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
     } catch {
       return 0;
     }
-  }, [formData]);
-  const sizePercent = estimatedDocumentSize ? (estimatedDocumentSize / FIRESTORE_DOC_LIMIT) * 100 : 0;
+  }, [buildProjectPayload, formData.calculationData]);
   const isDocumentTooLarge = estimatedDocumentSize > FIRESTORE_SAFE_LIMIT;
 
   const handleSave = async () => {
@@ -252,7 +248,7 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
       return;
     }
     if (isDocumentTooLarge) {
-      alert("This print listing is too large to save. Remove or compress photos before finalizing.");
+      alert("This project is too large to save. Remove or compress photos before finalizing.");
       return;
     }
 
@@ -266,7 +262,7 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
       onClose();
     } catch (e) {
       console.error(e);
-      alert(e?.message || "Failed to save print.");
+      alert(e?.message || "Failed to save project.");
     } finally {
       setIsSaving(false);
     }
@@ -274,17 +270,17 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
 
   if (showCalculator) {
     return (
-      <div className="fixed inset-0 z-[250] flex items-stretch justify-center md:items-center md:p-4 backdrop-blur-md bg-black/60 animate-in fade-in duration-200">
-        <div className="relative w-full h-dvh md:w-[540px] md:h-[90dvh] md:max-h-[90dvh] rounded-none md:rounded-[2.5rem] shadow-2xl overflow-hidden bg-[var(--color-surface)] border border-white/10 flex flex-col">
-          <div className="flex-1 overflow-y-auto">
+      <div className="fixed inset-0 z-[250] flex items-stretch justify-center lg:items-center lg:p-4 bg-white dark:bg-[#0a0a0a] lg:bg-white/30 lg:dark:bg-black/30 backdrop-blur-md lg:backdrop-blur-sm animate-in fade-in duration-200 overflow-hidden overscroll-none">
+        <div className="relative w-full h-full lg:h-[90dvh] lg:max-w-2xl rounded-none lg:rounded-[2rem] border-0 lg:border shadow-2xl overflow-hidden bg-[var(--color-surface)] border-[var(--color-border)] text-[var(--color-text-main)] flex flex-col">
+          <div className="h-full overflow-y-auto">
             <PrintsCalculator 
-              isEditMode={true}
+              isEditMode={false}
               isInventoryMode={true}
               onExit={() => setShowCalculator(false)}
               onConfirmEdit={handleCalculatorComplete}
               initialData={formData.calculationData}
               BrandLogo={() => (
-                <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-black italic shadow-lg shadow-blue-600/20">SG</div>
+                <div className="w-10 h-10 rounded-full bg-[var(--color-primary)] flex items-center justify-center text-white font-black italic shadow-lg shadow-[var(--color-primary)]/20">SG</div>
               )}
             />
           </div>
@@ -294,29 +290,29 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-0 md:p-4 animate-in fade-in duration-300">
-      <div className="bg-[#0b0b0c] border-0 md:border border-white/10 w-full h-full md:h-auto md:max-h-[95vh] md:max-w-4xl rounded-none md:rounded-[2.5rem] flex flex-col shadow-2xl overflow-hidden text-white">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-white dark:bg-[#0a0a0a] md:bg-white/30 md:dark:bg-black/30 backdrop-blur-md md:backdrop-blur-sm p-0 md:p-4 animate-in fade-in duration-300 overflow-hidden overscroll-none">
+      <div className="bg-[var(--color-surface)] border-0 md:border border-[var(--color-border)] w-full h-full md:h-auto md:max-h-[95vh] md:max-w-4xl rounded-none md:rounded-[2.5rem] flex flex-col shadow-2xl overflow-hidden text-[var(--color-text-main)]">
         {/* Mobile sticky close button (same pattern as ProductCard and AddDealModal) */}
         <div className="sticky top-0 z-[220] w-full h-0 overflow-visible md:hidden shrink-0">
           <div className="absolute top-4 right-4 flex justify-end items-center">
-            <button onClick={onClose} className="p-2 rounded-full backdrop-blur-md border transition-all shadow-lg bg-black/20 text-white border-white/10 hover:bg-black/40">
+            <button onClick={onClose} className="p-2 rounded-full backdrop-blur-md border transition-all shadow-lg bg-black/10 dark:bg-white/10 border-[var(--color-border)] hover:bg-black/20 dark:hover:bg-white/20">
               <X size={20} />
             </button>
           </div>
         </div>
         
         {/* HEADER */}
-        <div className="p-6 border-b border-white/10 flex items-center justify-between shrink-0">
+        <div className="p-6 border-b border-[var(--color-border)] flex items-center justify-between shrink-0">
           <div className="flex items-center gap-4 text-left">
-            <div className="p-3 bg-blue-600 rounded-2xl shadow-lg shadow-blue-600/20">
+            <div className="p-3 bg-[var(--color-primary)] rounded-2xl shadow-lg shadow-[var(--color-primary)]/20">
               <Box size={24} className="text-white" />
             </div>
             <div>
-              <h2 className="text-xl font-black uppercase italic leading-none tracking-tight">{isEditing ? 'Modify Finished Print' : 'Register Finished Print'}</h2>
-              <p className="text-[10px] font-black uppercase tracking-[0.25em] text-blue-500 mt-1.5 opacity-80">{isEditing ? 'Update Gallery, Details, Pricing, Estimate' : 'Ready-to-sell Inventory'}</p>
+              <h2 className="text-xl font-black uppercase italic leading-none tracking-tight">{isEditing ? 'Modify Project' : 'Register New Project'}</h2>
+              <p className="text-[10px] font-black uppercase tracking-[0.25em] text-[var(--color-primary)] mt-1.5 opacity-80">{isEditing ? 'Update Gallery, Details, Pricing, Estimate' : 'Ready-to-sell Project'}</p>
             </div>
           </div>
-          <button onClick={onClose} className="hidden md:block p-2 hover:bg-white/5 rounded-full transition-colors opacity-40 hover:opacity-100">
+          <button onClick={onClose} className="hidden md:block p-2 hover:bg-black/5 dark:hover:bg-white/10 rounded-full transition-colors opacity-40 hover:opacity-100">
             <X size={24} />
           </button>
         </div>
@@ -336,25 +332,10 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
                     placeholder="MODEL NAME (E.G. RX-78-2 BUST)"
                     className={inputClass}
                   />
-                  <div className="grid grid-cols-2 gap-2">
-                    {CATEGORIES.map(cat => (
-                      <button
-                        key={cat}
-                        onClick={() => updateForm('category', cat)}
-                        className={`px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all border ${
-                          formData.category === cat 
-                            ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-600/20' 
-                            : 'bg-white/5 border-white/10 opacity-40 hover:opacity-100 hover:border-white/20'
-                        }`}
-                      >
-                        {cat}
-                      </button>
-                    ))}
-                  </div>
                   <textarea 
                     value={formData.description}
                     onChange={(e) => updateForm('description', e.target.value)}
-                    placeholder="ADD DETAILS ABOUT THE PRINT..."
+                    placeholder="ADD DETAILS ABOUT THE PROJECT..."
                     className={`${inputClass} h-32 resize-none normal-case font-medium opacity-80`}
                   />
                 </div>
@@ -364,7 +345,7 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
                 <label className={labelClass}>Product Gallery</label>
                 <div className="grid grid-cols-3 gap-3">
                   {imagePreviews.map((src, idx) => (
-                    <div key={idx} className="relative aspect-square rounded-2xl overflow-hidden border border-white/10 group">
+                    <div key={idx} className="relative aspect-square rounded-2xl overflow-hidden border border-[var(--color-border)] group">
                       <img src={src} alt="" className="w-full h-full object-cover" />
                       <button 
                         onClick={() => removeImage(idx)}
@@ -373,15 +354,15 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
                         <Trash2 size={14} />
                       </button>
                       {idx === 0 && (
-                        <div className="absolute bottom-2 left-2 px-2 py-0.5 bg-blue-600 text-[7px] font-black uppercase tracking-widest rounded">Main</div>
+                        <div className="absolute bottom-2 left-2 px-2 py-0.5 bg-[var(--color-primary)] text-white text-[7px] font-black uppercase tracking-widest rounded">Main</div>
                       )}
                     </div>
                   ))}
                   <button 
                     onClick={() => fileInputRef.current?.click()}
-                    className="aspect-square rounded-2xl border-2 border-dashed border-white/10 hover:border-blue-500/50 hover:bg-blue-500/5 transition-all flex flex-col items-center justify-center gap-2 group"
+                    className="aspect-square rounded-2xl border-2 border-dashed border-[var(--color-border)] hover:border-[var(--color-primary)]/50 hover:bg-[var(--color-primary)]/5 transition-all flex flex-col items-center justify-center gap-2 group"
                   >
-                    <div className="p-3 rounded-full bg-white/5 group-hover:bg-blue-600 group-hover:text-white transition-all">
+                    <div className="p-3 rounded-full bg-black/5 dark:bg-white/5 group-hover:bg-[var(--color-primary)] group-hover:text-white transition-all">
                       <Plus size={20} />
                     </div>
                     <span className="text-[9px] font-black uppercase tracking-widest opacity-40 group-hover:opacity-100">Add Photo</span>
@@ -397,17 +378,17 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
               {/* CALCULATOR INTEGRATION */}
               <section className="space-y-4 text-left">
                 <label className={labelClass}>Production Details</label>
-                <div className="bg-white/5 rounded-[2rem] border border-white/10 p-6 space-y-6">
+                <div className="bg-black/5 dark:bg-white/5 rounded-[2rem] border border-[var(--color-border)] p-6 space-y-6">
                    {!formData.calculationData ? (
                      <button 
                        onClick={() => setShowCalculator(true)}
-                       className="w-full py-10 rounded-3xl border-2 border-dashed border-blue-500/30 hover:border-blue-500 hover:bg-blue-500/5 flex flex-col items-center justify-center gap-3 transition-all group"
+                       className="w-full py-10 rounded-3xl border-2 border-dashed border-[var(--color-primary)]/30 hover:border-[var(--color-primary)] hover:bg-[var(--color-primary)]/5 flex flex-col items-center justify-center gap-3 transition-all group"
                      >
-                        <div className="p-4 rounded-full bg-blue-600 text-white shadow-xl shadow-blue-600/30 group-hover:scale-110 transition-transform">
+                        <div className="p-4 rounded-full bg-[var(--color-primary)] text-white shadow-xl shadow-[var(--color-primary)]/30 group-hover:scale-110 transition-transform">
                           <Calculator size={32} />
                         </div>
                         <div className="text-center">
-                          <span className="block text-xs font-black uppercase tracking-widest text-blue-500">Open Prints Calculator</span>
+                          <span className="block text-xs font-black uppercase tracking-widest text-[var(--color-primary)]">Open Project Calculator</span>
                           <span className="block text-[8px] font-black uppercase tracking-[0.2em] opacity-30 mt-1">To get Weight, Cost, & Print Time</span>
                         </div>
                      </button>
@@ -427,9 +408,9 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
                             <input type="number" value={formData.costPrice} readOnly className={`${numberInputClass} opacity-60 cursor-not-allowed`} />
                           </div>
                         </div>
-                        <div className="flex items-center justify-between p-4 bg-black/20 rounded-2xl border border-white/5">
+                        <div className="flex items-center justify-between p-4 bg-black/5 dark:bg-black/20 rounded-2xl border border-[var(--color-border)]">
                             <div className="flex items-center gap-3">
-                               <Printer size={16} className="text-blue-500" />
+                               <Printer size={16} className="text-[var(--color-primary)]" />
                                <div className="text-left">
                                   <span className="block text-[10px] font-black uppercase italic leading-none">{formData.calculationData.printer?.name || 'Unknown Printer'}</span>
                                   <span className="block text-[7px] font-black uppercase tracking-widest opacity-30 mt-1">Hardware Used</span>
@@ -437,7 +418,7 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
                             </div>
                             <button 
                               onClick={() => setShowCalculator(true)}
-                              className="p-2 hover:bg-white/10 rounded-xl transition-colors text-blue-500"
+                              className="p-2 hover:bg-black/5 dark:hover:bg-white/10 rounded-xl transition-colors text-[var(--color-primary)]"
                             >
                               <ChevronRight size={20} />
                             </button>
@@ -445,7 +426,7 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
 
                          <div className="flex flex-wrap gap-2">
                             {formData.calculationData.filaments?.map((f, i) => (
-                              <div key={i} className="px-3 py-1.5 bg-white/5 rounded-full border border-white/5 flex items-center gap-2">
+                              <div key={i} className="px-3 py-1.5 bg-black/5 dark:bg-white/5 rounded-full border border-[var(--color-border)] flex items-center gap-2">
                                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: f.color }} />
                                  <span className="text-[8px] font-black uppercase tracking-widest opacity-60">{f.brand} {f.name}</span>
                               </div>
@@ -456,31 +437,12 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
                 </div>
               </section>
 
-              {/* MANUAL DIMENSIONS */}
-              <section className="space-y-4 text-left">
-                <label className={labelClass}>Post-Print Dimensions (CM)</label>
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[8px] font-black opacity-20">L</span>
-                    <input type="number" value={formData.dimensions.l} onChange={(e) => updateForm('dimensions.l', e.target.value)} placeholder="0" className={`${numberInputClass} pl-6 py-3.5 text-xs font-black`} />
-                  </div>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[8px] font-black opacity-20">W</span>
-                    <input type="number" value={formData.dimensions.w} onChange={(e) => updateForm('dimensions.w', e.target.value)} placeholder="0" className={`${numberInputClass} pl-6 py-3.5 text-xs font-black`} />
-                  </div>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[8px] font-black opacity-20">H</span>
-                    <input type="number" value={formData.dimensions.h} onChange={(e) => updateForm('dimensions.h', e.target.value)} placeholder="0" className={`${numberInputClass} pl-6 py-3.5 text-xs font-black`} />
-                  </div>
-                </div>
-              </section>
-
               {/* PRICING */}
               <section className="space-y-4 text-left">
                 <label className={labelClass}>Market Pricing</label>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <div className="relative bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-4 text-sm font-bold flex items-center text-emerald-400 min-h-[54px] select-none">
+                    <div className="relative bg-black/5 dark:bg-white/5 border border-[var(--color-border)] rounded-2xl pl-12 pr-4 py-4 text-sm font-bold flex items-center text-emerald-500 min-h-[54px] select-none">
                       <Tag size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-500" />
                       <span>₱{(Number(formData.sellPrice) || 0).toLocaleString()}</span>
                       <span className="text-[8px] font-black uppercase tracking-widest opacity-40 ml-auto">Sell Price</span>
@@ -508,12 +470,12 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
                   onClick={() => updateForm('canAddToBasket', !formData.canAddToBasket)}
                   className={`w-full p-4 rounded-2xl border flex items-center justify-between gap-4 transition-all text-left ${
                     formData.canAddToBasket
-                      ? 'bg-blue-600/10 border-blue-500/30 text-blue-300'
+                      ? 'bg-[var(--color-primary)]/10 border-[var(--color-primary)]/30 text-[var(--color-primary)]'
                       : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${formData.canAddToBasket ? 'bg-blue-600 text-white' : 'bg-amber-500 text-black'}`}>
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${formData.canAddToBasket ? 'bg-[var(--color-primary)] text-white' : 'bg-amber-500 text-black'}`}>
                       {formData.canAddToBasket ? <ShoppingBasket size={18} /> : <Eye size={18} />}
                     </div>
                     <div>
@@ -521,11 +483,11 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
                         {formData.canAddToBasket ? 'Can Be Added To Basket' : 'Public View Only'}
                       </span>
                       <span className="block text-[8px] font-black uppercase tracking-[0.18em] opacity-50 mt-1">
-                        {formData.canAddToBasket ? 'Customers can order this print' : 'Visible publicly, ordering disabled'}
+                        {formData.canAddToBasket ? 'Customers can order this project' : 'Visible publicly, ordering disabled'}
                       </span>
                     </div>
                   </div>
-                  <div className={`w-12 h-7 rounded-full p-1 transition-all ${formData.canAddToBasket ? 'bg-blue-600' : 'bg-amber-500'}`}>
+                  <div className={`w-12 h-7 rounded-full p-1 transition-all ${formData.canAddToBasket ? 'bg-[var(--color-primary)]' : 'bg-amber-500'}`}>
                     <div className={`w-5 h-5 rounded-full bg-white transition-transform ${formData.canAddToBasket ? 'translate-x-5' : 'translate-x-0'}`} />
                   </div>
                 </button>
@@ -535,7 +497,7 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
         </div>
 
         {/* FOOTER */}
-        <div className="p-6 md:p-8 border-t border-white/10 bg-white/[0.02] flex items-center justify-between shrink-0">
+        <div className="p-6 md:p-8 border-t border-[var(--color-border)] bg-black/[0.02] dark:bg-white/[0.02] flex items-center justify-between shrink-0">
           <div className="flex items-center gap-6">
              <div className="flex flex-col text-left">
                 <span className="text-[9px] font-black uppercase tracking-widest opacity-30">Profit Projection</span>
@@ -554,17 +516,17 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
           <div className="flex gap-3">
             <button 
               onClick={onClose}
-              className="px-8 py-4 rounded-3xl bg-white/5 hover:bg-white/10 text-[10px] font-black uppercase tracking-[0.2em] transition-all active:scale-95"
+              className="px-8 py-4 rounded-3xl bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-[10px] font-black uppercase tracking-[0.2em] transition-all active:scale-95"
             >
               Cancel
             </button>
             <button 
               onClick={handleSave}
               disabled={isSaving || isDocumentTooLarge}
-              className="px-12 py-4 rounded-3xl bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-black uppercase tracking-[0.2em] shadow-xl shadow-blue-600/20 transition-all active:scale-95 flex items-center gap-3 disabled:opacity-50 disabled:active:scale-100"
+              className="px-12 py-4 rounded-3xl bg-[var(--color-primary)] hover:brightness-110 text-white text-[10px] font-black uppercase tracking-[0.2em] shadow-xl shadow-[var(--color-primary)]/20 transition-all active:scale-95 flex items-center gap-3 disabled:opacity-50 disabled:active:scale-100"
             >
               {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-              {isEditing ? 'Save Changes' : 'Finalize Listing'}
+              {isEditing ? 'Save Changes' : 'Finalize Project'}
             </button>
           </div>
         </div>

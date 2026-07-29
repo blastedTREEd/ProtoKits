@@ -91,16 +91,26 @@ export default function Prints({ isDarkMode }) {
     });
   }, [blueprints, searchTerm]);
 
+  const vaultProjectTitles = useMemo(() => {
+    const map = new Map();
+    const vault = projectVault || [];
+    vault.forEach((project, index) => {
+      const savedNumber = vault.length - index;
+      map.set(project.vaultId, `PROJECT #${savedNumber}`);
+    });
+    return map;
+  }, [projectVault]);
+
   const filteredVault = useMemo(() => {
     if (isAdmin && isAdminView) return [];
     if (!projectVault) return [];
     if (!searchTerm) return projectVault;
     const searchWords = searchTerm.toLowerCase().replace(/[-]/g, ' ').split(/\s+/).filter(Boolean);
     return projectVault.filter(p => {
-        const targetString = `${p.projectName || ''}`.toLowerCase().replace(/[-]/g, ' ');
+        const targetString = `${p.projectName || ''} ${vaultProjectTitles.get(p.vaultId) || ''}`.toLowerCase().replace(/[-]/g, ' ');
         return searchWords.every(word => targetString.includes(word));
     });
-  }, [projectVault, searchTerm, isAdmin, isAdminView]);
+  }, [projectVault, searchTerm, isAdmin, isAdminView, vaultProjectTitles]);
   
   const totalMatches = filteredBlueprints.length + filteredVault.length;
 
@@ -308,7 +318,7 @@ export default function Prints({ isDarkMode }) {
                         <Plus size={12} strokeWidth={4} />
                     </div>
                   </div>
-                  <span className="mt-4 text-[10px] font-black uppercase tracking-widest text-blue-600 dark:text-blue-400 opacity-60 group-hover:opacity-100 transition-opacity text-center leading-tight">New<br/>Print</span>
+                  <span className="mt-4 text-[12px] font-black uppercase tracking-widest text-blue-600 dark:text-blue-400 opacity-60 group-hover:opacity-100 transition-opacity text-center leading-tight">New<br/>Project</span>
                 </button>
               )}
 
@@ -325,8 +335,8 @@ export default function Prints({ isDarkMode }) {
                       {estimationLimitReached ? <Lock size={12} strokeWidth={4} /> : <Plus size={12} strokeWidth={4} />}
                     </div>
                   </div>
-                  <span className={`mt-4 text-[10px] font-black uppercase tracking-widest text-center leading-tight transition-opacity text-blue-600 dark:text-blue-400 opacity-60 group-hover:opacity-100`}>
-                    New<br/>Estimate
+                  <span className={`mt-4 text-[12px] font-black uppercase tracking-widest text-center leading-tight transition-opacity text-blue-600 dark:text-blue-400 opacity-60 group-hover:opacity-100`}>
+                    New<br/>Project
                   </span>
                 </button>
               )}
@@ -342,7 +352,7 @@ export default function Prints({ isDarkMode }) {
                         <Plus size={12} strokeWidth={4} />
                     </div>
                   </div>
-                  <span className="mt-4 text-[10px] font-black uppercase tracking-widest text-emerald-600 dark:text-emerald-400 opacity-60 group-hover:opacity-100 transition-opacity text-center leading-tight">Inventory<br/>Stock</span>
+                  <span className="mt-4 text-[12px] font-black uppercase tracking-widest text-emerald-600 dark:text-emerald-400 opacity-60 group-hover:opacity-100 transition-opacity text-center leading-tight">Inventory<br/>Stock</span>
                 </button>
               )}
 
@@ -357,7 +367,7 @@ export default function Prints({ isDarkMode }) {
                         <Plus size={12} strokeWidth={4} />
                     </div>
                   </div>
-                  <span className="mt-4 text-[10px] font-black uppercase tracking-widest text-rose-600 dark:text-rose-400 opacity-60 group-hover:opacity-100 transition-opacity text-center leading-tight">Printing<br/>Rates</span>
+                  <span className="mt-4 text-[12px] font-black uppercase tracking-widest text-rose-600 dark:text-rose-400 opacity-60 group-hover:opacity-100 transition-opacity text-center leading-tight">Printing<br/>Rates</span>
                 </button>
               )}
 
@@ -382,6 +392,7 @@ export default function Prints({ isDarkMode }) {
                     key={project.vaultId}
                     project={project}
                     type="vault"
+                    fallbackTitle={vaultProjectTitles.get(project.vaultId)}
                     onBasketAction={handleBasketAction}
                     onOrderNow={handleOrderNow}
                     showManagementActions={true}
@@ -408,6 +419,7 @@ export default function Prints({ isDarkMode }) {
                       <PrintsCalculator 
                         onExit={() => {setViewMode('idle'); setModifyingProject(null); window.dispatchEvent(new Event('showNavbar'));} }
                         initialData={modifyingProject}
+                        fallbackTitle={modifyingProject ? vaultProjectTitles.get(modifyingProject.vaultId) : undefined}
                         isEditMode={!!modifyingProject}
                         onConfirmEdit={handleEstimateUpdate}
                       />

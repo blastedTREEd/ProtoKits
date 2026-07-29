@@ -519,7 +519,6 @@ export default function Kits() {
   };
 
   const handleDealCardClick = (deal) => {
-    if (isAdmin && isAdminView) return;
     setSelectedDeal(deal);
   };
 
@@ -822,7 +821,18 @@ export default function Kits() {
 
           <AddKitModal isOpen={isAddKitModalOpen} onClose={() => { setIsAddKitModalOpen(false); setKitToEdit(null); }} onSave={handleSaveNewKit} editingKit={kitToEdit} />
           <AddDealModal isOpen={isAddDealModalOpen} onClose={handleCloseDealModal} dealToEdit={dealToEdit} />
-          <DealDetailsModal isOpen={!!selectedDeal} onClose={() => setSelectedDeal(null)} deal={selectedDeal} onBuyNow={handleDealCheckout} />
+          <DealDetailsModal
+            isOpen={!!selectedDeal}
+            onClose={() => setSelectedDeal(null)}
+            deal={selectedDeal}
+            onBuyNow={handleDealCheckout}
+            isEditMode={isAdmin && isAdminView}
+            onEditDeal={(deal) => {
+              setSelectedDeal(null);
+              setDealToEdit(deal);
+              setIsAddDealModalOpen(true);
+            }}
+          />
           <CheckoutModal isOpen={isCheckoutModalOpen} onClose={() => setIsCheckoutModalOpen(false)} items={itemsForCheckout} isGuestPreview={!user} />
           <SupplierBalancesModal isOpen={isSupplierBalancesModalOpen} onClose={() => setIsSupplierBalancesModalOpen(false)} />
           <SalesDashboardModal isOpen={isSalesDashboardModalOpen} onClose={() => setIsSalesDashboardModalOpen(false)} />

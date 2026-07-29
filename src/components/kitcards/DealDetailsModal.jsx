@@ -1,5 +1,5 @@
 import React, { useMemo, useEffect, useRef } from 'react';
-import { X, Gift, Zap, ArrowRight, Star } from 'lucide-react';
+import { X, Gift, Zap, ArrowRight, Star, Settings } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
 
@@ -21,10 +21,11 @@ function stockMatchesDealSource(stock, source = 'onhand') {
   return source === 'preorder' ? isPreOrder : !isPreOrder;
 }
 
-export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow }) {
+export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, isEditMode = false, onEditDeal }) {
   const { kits, shippingSettings } = useStore();
   const { exclusiveDiscountPercent } = getCheckoutPaymentFees({ shippingSettings });
   const onCloseRef = useRef(onClose);
+  const isEditable = isEditMode && typeof onEditDeal === 'function';
 
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -222,11 +223,15 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow }) {
               </div>
               
               <button 
-                onClick={() => onBuyNow(deal)}
-                className="px-5 py-3.5 md:px-10 md:py-5 rounded-[1.5rem] md:rounded-[2rem] bg-emerald-600 text-white font-black italic uppercase text-[10px] md:text-[12px] tracking-[0.1em] md:tracking-[0.15em] shadow-xl shadow-emerald-600/20 active:scale-95 transition-all flex items-center justify-center gap-2 md:gap-3 group shrink-0"
+                onClick={() => isEditable ? onEditDeal(deal) : onBuyNow(deal)}
+                className={`px-5 py-3.5 md:px-10 md:py-5 rounded-[1.5rem] md:rounded-[2rem] text-white font-black italic uppercase text-[10px] md:text-[12px] tracking-[0.1em] md:tracking-[0.15em] shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2 md:gap-3 group shrink-0 ${
+                  isEditable
+                    ? 'bg-blue-600 shadow-blue-600/20'
+                    : 'bg-emerald-600 shadow-emerald-600/20'
+                }`}
               >
-                <Zap size={14} fill="currentColor" />
-                Grab Deal
+                {isEditable ? <Settings size={14} /> : <Zap size={14} fill="currentColor" />}
+                {isEditable ? 'Edit Deal' : 'Grab Deal'}
                 <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" strokeWidth={3} />
               </button>
            </div>

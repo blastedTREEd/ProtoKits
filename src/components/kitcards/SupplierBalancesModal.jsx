@@ -239,6 +239,68 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
     }
   };
 
+  const refreshKits = async () => {
+    const snap = await getDocs(collection(db, "kits"));
+    setAllKits(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+  };
+
+  const markArrived = async (item) => {
+    if (!window.confirm("Mark as arrived? Status changes to On-Hand & Free Shipping promo will be cleared, but Balance will remain.")) return;
+
+    try {
+      await updateDoc(doc(db, 'kits', item.kitId), {
+        [`stocks.${item.key}.status`]: 'onhand',
+        [`stocks.${item.key}.eta`]: '',
+        [`stocks.${item.key}.isFreeShippingEligible`]: false,
+        [`stocks.${item.key}.freeShippingUntil`]: '',
+        [`stocks.${item.key}.freeShippingMethod`]: 'All',
+        [`stocks.${item.key}.freeShippingSuboption`]: 'All'
+      });
+      alert("Stock marked as arrived!");
+      await refreshKits();
+    } catch (e) {
+      console.error("Arrived update failed", e);
+      alert("Failed to update stock status.");
+    }
+  };
+
+  const markPaid = async (item) => {
+    if (!window.confirm("Settle supplier payment? This marks item as On-Hand, fully clears Balance, and removes Free Shipping promo.")) return;
+
+    try {
+      await updateDoc(doc(db, 'kits', item.kitId), {
+        [`stocks.${item.key}.status`]: 'onhand',
+        [`stocks.${item.key}.paidToSupplier`]: item.cost,
+        [`stocks.${item.key}.isFreeShippingEligible`]: false,
+        [`stocks.${item.key}.freeShippingUntil`]: '',
+        [`stocks.${item.key}.freeShippingMethod`]: 'All',
+        [`stocks.${item.key}.freeShippingSuboption`]: 'All'
+      });
+      alert("Supplier payment recorded successfully!");
+      await refreshKits();
+    } catch (e) {
+      console.error("Payment update failed", e);
+      alert("Failed to record supplier payment.");
+    }
+  };
+
+  const cancelStock = async (item) => {
+    if (!window.confirm("Are you sure you want to cancel this stock item? This will permanently remove it.")) return;
+
+    try {
+      const firestore = await import('firebase/firestore');
+      const { deleteField } = firestore;
+      await updateDoc(doc(db, 'kits', item.kitId), {
+        [`stocks.${item.key}`]: deleteField()
+      });
+      alert("Stock item removed!");
+      await refreshKits();
+    } catch (e) {
+      console.error("Removal failed", e);
+      alert("Failed to remove stock.");
+    }
+  };
+
 // APAT NA DYNAMIC STYLING CONDITIONS BASE SA IYONG UPDATE
   const getItemCardStyles = (item) => {
     const isOnHand = item.status?.toLowerCase() === 'onhand';
@@ -274,8 +336,8 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
     : 'bg-white border-black/10 text-neutral-900';
 
   return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/70 p-0 md:p-4 backdrop-blur-sm text-left">
-      <div className={`relative flex h-full md:h-[85dvh] w-full max-w-4xl flex-col overflow-hidden rounded-none md:rounded-[2rem] border-0 md:border shadow-2xl ${panelClass}`}>
+    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/70 p-0 md:p-4 md:portrait:p-0 backdrop-blur-sm text-left">
+      <div className={`relative flex h-full md:h-[85dvh] md:portrait:h-full w-full max-w-4xl md:portrait:max-w-none flex-col overflow-hidden rounded-none md:rounded-[2rem] md:portrait:rounded-none border-0 md:border md:portrait:border-0 shadow-2xl ${panelClass}`}>
         {/* Mobile sticky close button (same pattern as ProductCard and AddDealModal) */}
         <div className="sticky top-0 z-[220] w-full h-0 overflow-visible md:hidden shrink-0">
           <div className="absolute top-4 right-4 flex justify-end items-center">
@@ -322,7 +384,7 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
               {groupedItems.map((group) => (
                 <div key={group.label} className="space-y-4">
                   {/* Month Divider / Group Header */}
-                  <div className="sticky top-0 z-10 -mx-6 bg-inherit px-6 py-2 backdrop-blur-md">
+                  <div className="sticky top-[-1.5rem] z-20 -mx-6 bg-[var(--color-surface)] px-6 py-2">
                     <div className="flex items-center justify-between border-b border-white/5 pb-2">
                       <div className="flex items-center gap-3">
                         <div className={`h-1.5 w-1.5 rounded-full ${group.label.includes('ON-HAND') ? 'bg-emerald-500' : 'bg-amber-500'}`} />
@@ -334,15 +396,15 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
                         <button
                           onClick={() => handlePayGroup(group)}
                           disabled={isSyncing || group.items.filter(item => Number(item.paid || 0) === 0).length === 0}
-                          className="ml-2 flex items-center gap-1 rounded-md bg-blue-600 px-2 py-0.5 text-[9px] font-black uppercase tracking-tight text-white transition-all hover:bg-blue-700 disabled:opacity-50"
+                          className="ml-2 flex items-center gap-1 rounded-md bg-blue-600 px-2 py-0.5 text-[12px] font-black uppercase tracking-tight text-white transition-all hover:bg-blue-700 disabled:opacity-50"
                         >
                           <CheckSquare size={10} />
                           Paid All ({group.items.filter(item => Number(item.paid || 0) === 0).length})
                         </button>
                       </div>
                       <div className="text-right">
-                        <span className="text-[8px] font-black uppercase tracking-widest opacity-30 mr-2">Monthly Total</span>
-                        <span className={`text-[11px] font-black italic ${group.total > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
+                        <span className="text-[12px] font-black uppercase tracking-widest opacity-30 mr-2">Monthly Total</span>
+                        <span className={`text-[13px] font-black italic ${group.total > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
                           ₱{group.total.toLocaleString()}
                         </span>
                       </div>
@@ -365,27 +427,20 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
                         </div>
                         
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="rounded-full bg-blue-600/10 px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-blue-500">
-                              {item.kitLine || item.kitBrand}
-                            </span>
-                            <span className={`rounded-full px-2 py-0.5 text-[8px] font-black uppercase tracking-widest ${
-                              item.status?.toLowerCase() === 'onhand' 
-                                ? 'bg-emerald-500/20 text-emerald-600' 
-                                : Number(item.paid || 0) === 0 
-                                ? 'bg-amber-500/20 text-amber-600' 
-                                : 'bg-red-500/20 text-red-600'
-                            }`}>
-                              {item.status}
-                            </span>
+                          <div className="min-w-0">
+                            <h3 className="truncate text-xs font-black uppercase tracking-tight">
+                              {item.kitName}
+                            </h3>
+                            <div className="mt-1 flex items-center gap-2">
+                              <span className="shrink-0 rounded-full bg-blue-600/10 px-2 py-0.5 text-[11px] font-black uppercase tracking-widest text-blue-500">
+                                {item.kitLine || item.kitBrand}
+                              </span>
+                            </div>
                           </div>
-                          <h3 className="truncate text-xs font-black uppercase tracking-tight">
-                            {item.kitName}
-                          </h3>
-                          <div className="mt-2 flex items-center gap-3 text-[10px] font-bold ">
+                          <div className="hidden">
                             <span>Cost: ₱{item.cost.toLocaleString()}</span>
                             <span>Paid: ₱{item.paid.toLocaleString()}</span>
-                            <div className="flex gap-1 ml-auto">
+                            <div className="contents">
                               {/* ARRIVED BUTTON */}
                               <button 
                                 onClick={async (e) => {
@@ -410,7 +465,7 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
                                     }
                                   }
                                 }}
-                                className="rounded-lg bg-emerald-500 px-2 py-1 text-[8px] font-black uppercase text-white hover:bg-emerald-600 transition-all"
+                                className="rounded-lg bg-emerald-500 px-2 py-1 text-[11px] font-black uppercase text-white hover:bg-emerald-600 transition-all"
                               >
                                 Arrived
                               </button>
@@ -440,7 +495,7 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
                                     }
                                   }
                                 }}
-                                className="rounded-lg bg-blue-600 px-2 py-1 text-[8px] font-black uppercase text-white hover:bg-blue-700 transition-all"
+                                className="rounded-lg bg-blue-600 px-2 py-1 text-[11px] font-black uppercase text-white hover:bg-blue-700 transition-all"
                               >
                                 Paid
                               </button>
@@ -466,7 +521,7 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
                                     }
                                   }
                                 }}
-                                className="rounded-lg bg-red-500/10 px-2 py-1 text-[8px] font-black uppercase text-red-500 hover:bg-red-500 hover:text-white transition-all"
+                                className="rounded-lg bg-red-500/10 px-2 py-1 text-[11px] font-black uppercase text-red-500 hover:bg-red-500 hover:text-white transition-all"
                               >
                                 Cancel
                               </button>
@@ -474,11 +529,42 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
                           </div>
                         </div>
 
-                        <div className="text-right shrink-0">
-                          <p className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1">Balance</p>
+                        <div className="shrink-0 text-right">
+                          <div className="flex items-baseline justify-end gap-2">
+                          <p className="text-[10px] font-black uppercase tracking-widest opacity-40">Balance</p>
                           <p className={`text-sm font-black italic ${item.balance > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
                             ₱{item.balance.toLocaleString()}
                           </p>
+                          </div>
+                          <div className="mt-2 flex flex-wrap justify-end gap-1">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                markArrived(item);
+                              }}
+                              className="rounded-lg bg-emerald-500 px-2 py-1 text-[11px] font-black uppercase text-white hover:bg-emerald-600 transition-all"
+                            >
+                              Arrived
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                markPaid(item);
+                              }}
+                              className="rounded-lg bg-blue-600 px-2 py-1 text-[11px] font-black uppercase text-white hover:bg-blue-700 transition-all"
+                            >
+                              Paid
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                cancelStock(item);
+                              }}
+                              className="rounded-lg bg-red-500/10 px-2 py-1 text-[11px] font-black uppercase text-red-500 hover:bg-red-500 hover:text-white transition-all"
+                            >
+                              Cancel
+                            </button>
+                          </div>
                         </div>
                       </div>
                     ))}

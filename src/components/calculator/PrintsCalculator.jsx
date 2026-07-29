@@ -104,6 +104,7 @@ const normalizePrepareDetails = (details = []) => (
 export default function PrintsCalculator({ 
   onExit, 
   initialData = null, 
+  fallbackTitle,
   isEditMode = false, 
   onConfirmEdit = null,
   isInventoryMode = false
@@ -136,7 +137,14 @@ export default function PrintsCalculator({
     projectName: '', // 🔥 NEW
     gdriveLink: '', // 🔥 NEW
   });
-  const modifyingProjectName = (calculatorData?.projectName || initialData?.projectName || 'Unnamed Project').trim() || 'Unnamed Project';
+  const isUnnamedProjectName = (value) => {
+    const normalized = String(value || '').trim().toLowerCase();
+    return !normalized || normalized === 'unnamed project';
+  };
+  const rawModifyingProjectName = calculatorData?.projectName || initialData?.projectName || '';
+  const modifyingProjectName = isUnnamedProjectName(rawModifyingProjectName)
+    ? (fallbackTitle || 'PROJECT #')
+    : rawModifyingProjectName.trim();
 
   useEffect(() => {
     if (!isEditMode && (!window.history.state || window.history.state.step === undefined)) {
@@ -199,7 +207,7 @@ export default function PrintsCalculator({
   };
 
   const handleFinalConfirm = (finalPayload) => {
-    if (isEditMode && onConfirmEdit) {
+    if (onConfirmEdit) {
       const payload = finalPayload?.projectDetails || finalPayload?.totals
         ? finalPayload
         : { ...calculatorData, totals: finalPayload };
@@ -286,7 +294,7 @@ const handleStepBack = () => {
 };
 
   return (
-    <div className="w-full min-h-full prints-calculator-container animate-in fade-in zoom-in-95 duration-500 px-3 sm:px-5 pb-0 text-[var(--color-text-main)] [--print-font-size:12px] sm:[--print-font-size:16px] lg:[--print-font-size:12px] ">
+    <div className="w-full min-h-full prints-calculator-container animate-in fade-in zoom-in-95 duration-500 px-3 sm:px-5 pb-0 text-[var(--color-text-main)] [--print-font-size:12px] sm:[--print-font-size:16px] lg:[--print-font-size:13px] ">
       <style>{`
         .prints-calculator-body :where(p, span, label, button, input, textarea, select, h1, h2, h3, h4, h5, h6) {
           font-size: var(--print-font-size);

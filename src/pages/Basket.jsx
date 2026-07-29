@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Trash2, ShoppingBag, ShelvingUnit, ShoppingBasket, PackageOpen, PackagePlus } from 'lucide-react';
+import { Trash2, ShoppingBag, ShelvingUnit, ShoppingBasket, PackageOpen, PackagePlus, Plus, Minus } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import PageTemplate from './PageTemplate';
 import CheckoutModal from '../components/kitcards/CheckoutModal';
@@ -15,6 +15,14 @@ function resolveImage(idOrUrl, imagesArray) {
   if (idOrUrl.startsWith('data:') || idOrUrl.startsWith('http')) return idOrUrl;
   const match = (imagesArray || []).find(img => img.id === idOrUrl);
   return match?.url || '';
+}
+
+function getBasketItemTime(item) {
+  const createdAtTime = new Date(item?.createdAt || 0).getTime();
+  if (Number.isFinite(createdAtTime) && createdAtTime > 0) return createdAtTime;
+
+  const idTime = String(item?.basketId || '').match(/_(\d{10,})_/);
+  return idTime ? Number(idTime[1]) : 0;
 }
 
 export default function Basket({ isDarkMode }) {
@@ -278,46 +286,52 @@ export default function Basket({ isDarkMode }) {
   // }, [activeBasket, kits]);
 
   const groupedItems = useMemo(() => {
-  const grouped = activeBasket.reduce((acc, item) => {
-    if (item.type === 'project') {
-      const key = JSON.stringify(item.projectData);
+    const grouped = activeBasket.reduce((acc, item) => {
+      const itemTime = getBasketItemTime(item);
+
+      if (item.type === 'project') {
+        const key = JSON.stringify(item.projectData);
+
+        if (!acc[key]) {
+          acc[key] = {
+            ...item,
+            qty: 0,
+            basketIds: [],
+            batchKey: 'project',
+            sortTime: itemTime,
+          };
+        }
+
+        acc[key].qty += item.quantity || 1;
+        acc[key].basketIds.push(item.basketId);
+        acc[key].sortTime = Math.min(acc[key].sortTime || itemTime, itemTime);
+
+        return acc;
+      }
+
+      // Use ONLY basket data to determine the group.
+      // Do NOT use live stock data here.
+      const key = `${item.id}-${item.stockKey}`;
 
       if (!acc[key]) {
         acc[key] = {
           ...item,
           qty: 0,
           basketIds: [],
-          batchKey: 'project',
+          batchKey: item.stockKey,
+          sortTime: itemTime,
         };
       }
 
-      acc[key].qty += item.quantity || 1;
+      acc[key].qty += 1;
       acc[key].basketIds.push(item.basketId);
+      acc[key].sortTime = Math.min(acc[key].sortTime || itemTime, itemTime);
 
       return acc;
-    }
+    }, {});
 
-    // Use ONLY basket data to determine the group.
-    // Do NOT use live stock data here.
-    const key = `${item.id}-${item.stockKey}`;
-
-    if (!acc[key]) {
-      acc[key] = {
-        ...item,
-        qty: 0,
-        basketIds: [],
-        batchKey: item.stockKey,
-      };
-    }
-
-    acc[key].qty += 1;
-    acc[key].basketIds.push(item.basketId);
-
-    return acc;
-  }, {});
-
-  return Object.values(grouped);
-}, [activeBasket]);
+    return Object.values(grouped).sort((a, b) => (b.sortTime || 0) - (a.sortTime || 0));
+  }, [activeBasket]);
 
   const hasVisibleBasketItems = !isLoading && groupedItems.length > 0;
 
@@ -445,7 +459,7 @@ export default function Basket({ isDarkMode }) {
                     <div className="flex-1 flex flex-col gap-3 min-w-0 min-h-[80px] justify-center">
                       <div className="flex flex-col justify-center">
                         <p className="font-bold text-sm leading-tight line-clamp-1 md:line-clamp-2">{displayName}</p>
-                        <p className="text-[11px] uppercase font-black opacity-40 tracking-widest leading-tight mt-0.5">
+                        <p className="text-[12px] uppercase font-black tracking-widest leading-tight mt-0.5">
                             {[brand, line, scale].filter(Boolean).join(' • ')}
                         </p>
                         {itemError && !(isAdmin && isAdminView) && (
@@ -455,21 +469,21 @@ export default function Basket({ isDarkMode }) {
                       <div className="flex items-center gap-2">
                       {isAdmin && isAdminView ? (
                         <div className="flex items-center gap-2 shrink-0">
-                          <p className="font-black text-[12px] text-blue-600">
+                          <p className="font-black text-[14px] text-blue-600">
                             ₱{shelfCostPrice.toLocaleString()}
                           </p>
-                          <p className="font-black text-[12px] text-emerald-600">
+                          <p className="font-black text-[14px] text-emerald-600">
                             ₱{shelfSellPrice.toLocaleString()}
                           </p>
                         </div>
                       ) : (
-                        <p className={`font-black text-[12px] ${
+                        <p className={`font-black text-[14px] ${
                             isSelected 
                             ? 'text-emerald-600' 
                             : 'text-neutral-900 dark:text-white'
                         }`}>₱{getBasketDisplayPrice(item).toLocaleString()}</p>
                       )}
-                      <p className={`text-[11px] font-black uppercase px-2 py-0.5 rounded-md truncate max-w-[100px] border ${
+                      <p className={`text-[13px] font-black uppercase px-2 py-0.5 rounded-md truncate max-w-[100px] border ${
                         isOnhand 
                           ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' 
                           : 'bg-blue-500/10 text-blue-600 border-blue-500/20'
@@ -478,8 +492,12 @@ export default function Basket({ isDarkMode }) {
                       </p>
                         {/* Quantity Controls for Project */}
                         {item.type === 'project' && <div className="ml-auto flex items-center gap-3 bg-neutral-100 dark:bg-neutral-800 rounded-full px-2 py-1">
-                            <button onClick={(e) => { e.stopPropagation(); handleDecrementProjectItem(item.basketIds[item.basketIds.length - 1], 1); }} className="w-6 h-6 flex items-center justify-center rounded-full bg-white dark:bg-neutral-700 hover:text-red-500 transition-colors">
-                                {item.qty === 1 ? <Trash2 size={12} /> : '-'}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleDecrementProjectItem(item.basketIds[item.basketIds.length - 1], 1); }}
+                              className="w-6 h-6 flex items-center justify-center rounded-full bg-white dark:bg-neutral-700 hover:text-red-500 transition-colors"
+                              title={item.qty === 1 ? 'Remove item' : 'Decrease quantity'}
+                            >
+                                {item.qty === 1 ? <Trash2 size={14} /> : <Minus size={14} strokeWidth={3} />}
                             </button>
                             <span className="font-black text-[11px] w-4 text-center">{item.qty}</span>
                             <button 
@@ -488,19 +506,29 @@ export default function Basket({ isDarkMode }) {
                                   addProjectToBasket(item.projectData); 
                                 }} 
                                 className="w-6 h-6 flex items-center justify-center rounded-full bg-white dark:bg-neutral-700 transition-colors hover:text-blue-500"
-                            >+</button>
+                                title="Increase quantity"
+                            >
+                              <Plus size={15} strokeWidth={3} />
+                            </button>
                         </div>}
                         
                         {/* Quantity Controls for Kit */}
                         {item.type !== 'project' && <div className="ml-auto flex items-center gap-3 bg-neutral-100 dark:bg-neutral-800 rounded-full px-2 py-1">
-                            <button onClick={(e) => { e.stopPropagation(); handleRemoveBasketItem(item.basketIds[0], 1); }} className="w-6 h-6 flex items-center justify-center rounded-full bg-white dark:bg-neutral-700 hover:text-red-500 transition-colors">
-                                {item.qty === 1 ? <Trash2 size={12} /> : '-'}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleRemoveBasketItem(item.basketIds[0], 1); }}
+                              className="w-6 h-6 flex items-center justify-center rounded-full bg-white dark:bg-neutral-700 hover:text-red-500 transition-colors"
+                              title={item.qty === 1 ? 'Remove item' : 'Decrease quantity'}
+                            >
+                                {item.qty === 1 ? <Trash2 size={14} /> : <Minus size={14} strokeWidth={3} />}
                             </button>
-                            <span className="font-black text-[11px] w-4 text-center">{item.qty}</span>
+                            <span className="font-black text-[14px] w-4 text-center">{item.qty}</span>
                             <button 
                                 onClick={(e) => { e.stopPropagation(); addToBasket(item); }} 
                                 className="w-6 h-6 flex items-center justify-center rounded-full bg-white dark:bg-neutral-700 transition-colors hover:text-blue-500"
-                            >+</button>
+                                title="Increase quantity"
+                            >
+                              <Plus size={15} strokeWidth={3} />
+                            </button>
                         </div>}
                       </div>
                     </div>

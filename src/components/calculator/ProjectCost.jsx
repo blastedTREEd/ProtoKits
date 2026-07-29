@@ -234,7 +234,7 @@ export default function ProjectCost({
         rates: draftRates
       };
 
-      if (isEditMode && onFinalConfirm) {
+      if (onFinalConfirm && (isEditMode || isInventoryMode)) {
         onFinalConfirm(projectPayload);
       } else if (isAdmin && isAdminView) {
         // PUBLISH AS BLUEPRINT

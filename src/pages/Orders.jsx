@@ -3,7 +3,7 @@ import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
 import { 
-  ClipboardList, Plus, MapPin, Package, ShieldCheck, X, CheckCircle2, 
+  ClipboardList, Plus, MapPin, Package, PackageOpen, ShieldCheck, X, CheckCircle2, 
   ChevronRight, Clock, Store, Truck, Tag, Trash2, AlertCircle,
   Camera, Upload, QrCode, ArrowRight, Eye, RefreshCw, Download, ListTodo
 } from 'lucide-react';
@@ -277,12 +277,6 @@ export default function Orders() {
       setShippingFeeInput(selectedOrder.shippingFee ?? '');
     }
   }, [selectedOrder]);
-
-  const supplierObligations = useMemo(() => {
-    let total = 0;
-    (kits || []).forEach(kit => { Object.values(kit?.stocks || {}).forEach(stock => { if (stock?.status?.toUpperCase() === 'PRE-ORDER') { const balance = (Number(stock?.costPrice) || 0) - (Number(stock?.paidToSupplier) || 0); if (balance > 0) total += balance; } }); });
-    return total;
-  }, [kits]);
 
   useEffect(() => {
     console.log("SG DEBUG: Orders array length:", orders.length);
@@ -721,8 +715,6 @@ export default function Orders() {
     return baseTabs.map(t => ({ ...t, orders: sortedOrders.filter(t.filter) }));
   }, [sortedOrders, isAdminMode, calculateBalance]);
 
-  const totalUserBalance = useMemo(() => isAdminMode ? 0 : sortedOrders.filter(o => !['Shipped', 'Dispatched', 'In Transit', 'Completed', 'Cancelled'].includes(o.status)).reduce((sum, o) => sum + Math.max(0, calculateBalance(o)), 0), [sortedOrders, calculateBalance, isAdminMode]);
-
   useEffect(() => { 
     if (!isLoading && tabData.length > 0 && !tabData.find(t => t.id === activeTab)) {
       setActiveTab(tabData[0].id);
@@ -760,24 +752,11 @@ export default function Orders() {
           <div className="max-w-7xl mx-auto px-4 md:px-8 h-full flex items-center justify-between gap-4">
             <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-2">
               {tabData.map((tab) => (
-                <button key={tab.id} onClick={() => { setActiveTab(tab.id); setSelectedOrder(null); }} className={`whitespace-nowrap px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${activeTab === tab.id ? 'bg-blue-600 text-white border-blue-600 shadow-lg' : 'bg-transparent text-neutral-500 dark:text-neutral-300 border-black/10 dark:border-white/10 hover:border-blue-500/50'}`}>
+                <button key={tab.id} onClick={() => { setActiveTab(tab.id); setSelectedOrder(null); }} className={`whitespace-nowrap px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest border transition-all ${activeTab === tab.id ? 'bg-blue-600 text-white border-blue-600 shadow-lg' : 'bg-transparent text-neutral-500 dark:text-neutral-300 border-black/10 dark:border-white/10 hover:border-blue-500/50'}`}>
                   {tab.label} ({tab.orders.length})
                 </button>
               ))}
             </div>
-            {isAdminMode ? (
-              <div className="flex items-center gap-4 shrink-0">
-                <div className="text-right hidden sm:block">
-                  <p className="text-[7px] font-black uppercase opacity-40 tracking-widest leading-none mb-1">Supplier Bal</p>
-                  <p className="text-[10px] font-black text-red-500 italic leading-none">₱{supplierObligations.toLocaleString()}</p>
-                </div>
-              </div>
-            ) : (totalUserBalance > 0 && (
-              <div className="text-right shrink-0">
-                <p className="text-[7px] font-black uppercase opacity-40 tracking-widest leading-none mb-1">Payable Balance</p>
-                <p className="text-xs font-black text-red-500 italic leading-none">₱{totalUserBalance.toLocaleString()}</p>
-              </div>
-            ))}
           </div>
         </div>
 
@@ -796,7 +775,11 @@ export default function Orders() {
               {visibleOrders.map(o => {
                 const isSelected = selectedOrders.includes(o.id);
                 const balance = calculateBalance(o);
-                const isPaid = balance <= 0 && o.status !== 'Reserved';
+                const orderItems = Array.isArray(o.items) && o.items.length > 0 ? o.items : [o];
+                const kitCount = orderItems
+                  .filter(item => item.type !== 'project')
+                  .reduce((sum, item) => sum + (Number(item.quantity) || 1), 0);
+                const includedCount = kitCount || orderItems.reduce((sum, item) => sum + (Number(item.quantity) || 1), 0);
 
                 // Helper: Firestore Timestamp or ISO string → Date
                 const tsToDate = (ts) => {
@@ -835,106 +818,143 @@ export default function Orders() {
 
                     {/* Thumbnail */}
                     {(() => {
-                      const firstItem = o.items?.[0] || o;
-                      const kit = kits.find(k => k.id === firstItem.id || k.id === o.kitId || k.id === o.productId || k.name === o.item);
-                      const displayImage = firstItem.type === 'project'
-                        ? (firstItem.projectData?.image || firstItem.image)
-                        : resolveImage(firstItem.image || kit?.image, firstItem.images || kit?.images);
+                      const pricedItems = orderItems.map((item) => {
+                        const matchedKit = kits.find(k => k.id === item.id || k.id === o.kitId || k.id === o.productId || k.name === o.item || k.name === item.name);
+                        const stockSellPrice = Number(matchedKit?.stocks?.[item.stockKey]?.sellPrice || 0);
+                        const itemSellPrice = Number(item.sellPrice || item.price || item.displayPrice || item.projectData?.sellPrice || 0);
+                        const kitSellPrice = Number(matchedKit?.sellPrice || 0);
+                        return {
+                          item,
+                          kit: matchedKit,
+                          sellPrice: Math.max(stockSellPrice, itemSellPrice, kitSellPrice),
+                        };
+                      });
+                      const selected = (
+                        pricedItems
+                          .filter(({ item }) => item.type !== 'project')
+                          .sort((a, b) => b.sellPrice - a.sellPrice)[0]
+                      ) || pricedItems[0] || { item: o, kit: null };
+                      const thumbnailItem = selected.item;
+                      const kit = selected.kit;
+                      const displayImage = thumbnailItem.type === 'project'
+                        ? (thumbnailItem.projectData?.image || thumbnailItem.image)
+                        : resolveImage(thumbnailItem.image || kit?.image, thumbnailItem.images || kit?.images);
+                      const displayName = thumbnailItem.name || kit?.name || o.item || o.orderId || 'Order item';
 
                       return (
                         <div className="shrink-0 flex items-center justify-center">
-                          <div className="w-20 h-20 md:w-24 md:h-24 rounded-xl border border-neutral-100 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center overflow-hidden">
-                            {displayImage ? (
-                              <img src={displayImage} alt="" className="w-full h-full object-cover" />
-                            ) : (
-                              <Package size={28} className="opacity-20" />
-                            )}
+                          {displayImage ? (
+                            <img
+                              src={displayImage}
+                              alt={displayName}
+                              loading="lazy"
+                              className="w-20 h-20 sm:w-28 md:w-40 lg:w-64 xl:w-72 md:h-24 object-cover object-[center_25%] rounded-xl border border-neutral-100 dark:border-neutral-800 transition-opacity duration-500"
+                              onLoad={(e) => e.target.classList.remove('opacity-0')}
+                              onError={(e) => {
+                                e.target.style.display = 'none';
+                                e.target.nextSibling.style.display = 'flex';
+                              }}
+                            />
+                          ) : null}
+                          <div className="w-20 h-20 sm:w-28 md:w-40 lg:w-64 xl:w-72 md:h-24 rounded-xl border border-neutral-100 dark:border-neutral-800 bg-neutral-200 dark:bg-neutral-800 flex items-center justify-center" style={{ display: displayImage ? 'none' : 'flex' }}>
+                            <PackageOpen size={32} className="opacity-20" />
                           </div>
                         </div>
                       );
                     })()}
 
                     {/* Main content */}
-                    <div className="flex-1 flex flex-col gap-2 min-w-0">
-                      {/* Row 1: Order ID + date + buyer name */}
-                      <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 flex min-h-20 min-w-0 flex-col justify-between gap-2 md:min-h-24">
+                      <div className="space-y-1">
+                        {/* Row 1: Order ID */}
                         <div className="min-w-0">
-                          <span className="font-black text-xs text-blue-600 uppercase italic">{o.orderId}</span>
-                          <span className="text-[9px] font-bold opacity-30 ml-2">{o.date}</span>
-                          {isAdminMode && o.buyerName && (
-                            <p className="text-[10px] font-black uppercase opacity-50 tracking-wider truncate mt-0.5">{o.buyerName}</p>
-                          )}
+                          <div className="flex flex-wrap items-center gap-1.5 leading-none">
+                            <span className="font-black text-[16px] text-blue-600 uppercase italic leading-none">{o.orderId}</span>
+                          </div>
                         </div>
-                        {/* Balance / Paid indicator */}
-                        <div className="shrink-0 flex items-center gap-2">
-                          {isPaid ? (
-                            <CheckCircle2 size={18} className="text-emerald-500" />
+
+                        {/* Row 2: Date */}
+                        {createdLabel && (
+                          <div className="min-w-0">
+                            <p className="text-[13px] font-bold uppercase leading-none">
+                              Created {createdLabel}
+                            </p>
+                          </div>
+                        )}
+
+                        {cancelledLabel && (
+                          <div className="flex flex-col gap-0.5">
+                            <p className="text-[12px] font-bold text-red-400">
+                              <span className="opacity-70 mr-1">Cancelled</span>{cancelledLabel}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="space-y-1">
+                        {/* Row 3: Shipping method */}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {o.isMaintenanceOrder && ['Completed', 'Cancelled'].includes(o.status) && (
+                            <DeletionTimer completedAt={o.completedAt || o.cancelledAt || o.lastUpdated} />
+                          )}
+                          <span className="text-[12px] font-black px-2 py-0.5 rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400 uppercase tracking-wider">
+                            {o.shippingMethod || '—'}
+                          </span>
+                        </div>
+
+                        {/* Row 4: Payment plan + method */}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {o.paymentPlan && o.paymentPlan !== 'full' ? (
+                            <span className="text-[12px] font-black px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-500 uppercase tracking-wider">
+                              {o.paymentPlan === 'partial' ? 'Partial' : o.paymentPlan === 'reservation' ? 'Reservation' : 'Installment'}
+                            </span>
                           ) : (
-                            <span className="font-black text-sm text-neutral-900 dark:text-white">
-                              ₱{balance.toLocaleString()}
+                            <span className="text-[12px] font-black px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 uppercase tracking-wider">
+                              Full Pay
                             </span>
                           )}
-                          {isAdminMode && activeTab === 'cancelled' && !isMultiSelectEnabled && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleDeleteOrder(e, o.id); }}
-                              className="text-red-400 hover:text-red-500 transition-colors"
-                            >
-                              <Trash2 size={15} />
-                            </button>
+                          {/* Payment Method */}
+                          {o.paymentMethod && (
+                            <span className={`text-[12px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider ${
+                              o.paymentMethod === 'GCash' ? 'bg-blue-500/10 text-blue-500' :
+                              o.paymentMethod === 'Cash'  ? 'bg-amber-500/10 text-amber-600' :
+                              'bg-neutral-500/10 text-neutral-500'
+                            }`}>
+                              {o.paymentMethod}
+                            </span>
                           )}
                         </div>
                       </div>
+                    </div>
 
-                      {/* Row 2: Timestamps */}
-                      <div className="flex flex-col gap-0.5">
-                        {createdLabel && (
-                          <p className="text-[10px] font-bold opacity-50">
-                            <span className="opacity-60 mr-1">Created</span>{createdLabel}
-                          </p>
-                        )}
-                        {cancelledLabel && (
-                          <p className="text-[10px] font-bold text-red-400">
-                            <span className="opacity-70 mr-1">Cancelled</span>{cancelledLabel}
-                          </p>
-                        )}
-                      </div>
-
-                      {/* Row 3: Badges */}
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {/* Invalid Order Badge — permanent for maintenance-mode orders */}
+                    {/* Included count + total */}
+                    <div className="shrink-0 flex min-h-20 w-28 items-stretch justify-end gap-2 self-stretch sm:w-36 md:min-h-24">
+                      <div className="flex w-full flex-col items-end justify-between gap-2 text-right">
                         {o.isMaintenanceOrder && (
-                          <span className="text-[9px] font-black px-2 py-0.5 rounded-md bg-red-500/15 text-red-500 uppercase tracking-wider border border-red-500/20">
-                            ⚠ Invalid Order
+                          <span className="inline-block text-[12px] font-black px-2 py-0.5 rounded-md bg-red-500/15 text-red-500 uppercase tracking-wider border border-red-500/20 leading-none">
+                            Invalid Order
                           </span>
                         )}
-                        {o.isMaintenanceOrder && ['Completed', 'Cancelled'].includes(o.status) && (
-                          <DeletionTimer completedAt={o.completedAt || o.cancelledAt || o.lastUpdated} />
-                        )}
-                        {/* Shipping */}
-                        <span className="text-[9px] font-black px-2 py-0.5 rounded-md bg-black/5 dark:bg-white/5 text-neutral-500 dark:text-neutral-400 uppercase tracking-wider truncate max-w-[140px]">
-                          {o.shippingMethod || '—'}
-                        </span>
-                        {/* Payment Plan */}
-                        {o.paymentPlan && o.paymentPlan !== 'full' ? (
-                          <span className="text-[9px] font-black px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-500 uppercase tracking-wider">
-                            {o.paymentPlan === 'partial' ? 'Partial' : o.paymentPlan === 'reservation' ? 'Reservation' : 'Installment'}
-                          </span>
-                        ) : (
-                          <span className="text-[9px] font-black px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 uppercase tracking-wider">
-                            Full Pay
-                          </span>
-                        )}
-                        {/* Payment Method */}
-                        {o.paymentMethod && (
-                          <span className={`text-[9px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider ${
-                            o.paymentMethod === 'GCash' ? 'bg-blue-500/10 text-blue-500' :
-                            o.paymentMethod === 'Cash'  ? 'bg-amber-500/10 text-amber-600' :
-                            'bg-neutral-500/10 text-neutral-500'
-                          }`}>
-                            {o.paymentMethod}
-                          </span>
-                        )}
+                        <div className="flex flex-col items-end gap-1">
+                          <p className="rounded-md bg-orange-500/10 px-2 py-0.5 text-[14px] font-black uppercase tracking-widest text-orange-600 dark:text-orange-400 leading-none">
+                            {includedCount} {includedCount === 1 ? 'Kit' : 'Kits'}
+                          </p>
+                          <div className="flex items-baseline justify-end gap-2 leading-none">
+                            <span className="text-[14px] font-black uppercase tracking-widest">Total</span>
+                            <span className="font-black text-[16px] text-neutral-900 dark:text-white">
+                              ₱{balance.toLocaleString()}
+                            </span>
+                          </div>
+                        </div>
                       </div>
+                      {isAdminMode && activeTab === 'cancelled' && !isMultiSelectEnabled && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDeleteOrder(e, o.id); }}
+                          className="text-red-400 hover:text-red-500 transition-colors"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -1406,10 +1426,6 @@ export default function Orders() {
                           </div>
                         )}
 
-                        <div className="flex justify-between text-base font-black italic pt-2 border-t border-black/5 dark:border-white/5">
-                          <span className="text-blue-600 uppercase">Balance</span>
-                          <span className={selectedTotals.balance > 0 ? 'text-red-500' : 'text-emerald-500'}>₱{selectedTotals.balance.toLocaleString()}</span>
-                        </div>
                       </div>
 
                       <div className="w-full py-4 rounded-2xl text-[11px] font-black uppercase text-center tracking-[0.2em] shadow-inner bg-black/5 dark:bg-white/5">

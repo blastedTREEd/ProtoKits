@@ -122,6 +122,7 @@ export default function ProjectCard({
   onBasketAction, 
   onOrderNow,
   type = 'blueprint',
+  fallbackTitle,
   showManagementActions = false,
   onModify,
   onDelete,
@@ -174,7 +175,7 @@ export default function ProjectCard({
     const trimmed = projectNameLocal.trim();
     if (isVault && project?.vaultId && trimmed !== (project?.projectName || '')) {
       try {
-        await updateProjectInVault(project.vaultId, { projectName: trimmed || 'Unnamed Project' });
+        await updateProjectInVault(project.vaultId, { projectName: trimmed });
       } catch (err) {
         console.error('SG LOG: Failed to update project name:', err);
       }
@@ -282,6 +283,10 @@ export default function ProjectCard({
 
   const isBlueprint = type === 'blueprint';
   const canAddToBasket = project?.canAddToBasket !== false;
+  const isUnnamedProjectName = (value) => {
+    const normalized = String(value || '').trim().toLowerCase();
+    return !normalized || normalized === 'unnamed project';
+  };
   
   const handleToggleProduction = async (e) => {
     e.stopPropagation();
@@ -298,7 +303,10 @@ export default function ProjectCard({
   };
 
   const displayImage = isBlueprint ? project.image : null;
-  const projectTitle = isVault ? projectNameLocal : project.projectName;
+  const displayProjectTitle = isUnnamedProjectName(isVault ? projectNameLocal : project.projectName)
+    ? (fallbackTitle || 'PROJECT #')
+    : (isVault ? projectNameLocal : project.projectName);
+  const projectTitle = displayProjectTitle;
   
   // Dynamic design services from Firestore rates — filter for active maps with status: true
   const availableDesignServices = useMemo(() => {
@@ -535,28 +543,32 @@ export default function ProjectCard({
                     {/* Box 1: Production Days */}
                     <div className={`rounded-xl flex flex-col items-center justify-center gap-1 ${isDarkMode ? 'bg-white/5' : 'bg-black/[0.03]'}`}>
                       <Clock size={20} className="text-blue-500" strokeWidth={2.5} />
-                      <span className="text-[13px] font-black italic text-blue-600 dark:text-blue-400 leading-none">{days || '—'}</span>
-                      <span className="text-[9px] font-black uppercase tracking-widest leading-none">{days === 1 ? 'Day' : 'Days'}</span>
+                      <span className="text-[14px] font-black italic text-blue-600 dark:text-blue-400 leading-none">{days || '—'}</span>
+                      <span className="text-[11px] font-black uppercase tracking-widest leading-none">{days === 1 ? 'Day' : 'Days'}</span>
                     </div>
                     {/* Box 2: Spools */}
                     <div className={`rounded-xl flex flex-col items-center justify-center gap-1 ${isDarkMode ? 'bg-white/5' : 'bg-black/[0.03]'}`}>
                       <Spool size={20} className="text-amber-500" strokeWidth={2.5} />
-                      <span className="text-[13px] font-black italic text-amber-600 dark:text-amber-400 leading-none">
+                      <span className="text-[14px] font-black italic text-amber-600 dark:text-amber-400 leading-none">
                         {spoolCount || '—'}
                       </span>
 
-                      <span className="text-[9px] font-black uppercase tracking-widest leading-none">
+                      <span className="text-[11px] font-black uppercase tracking-widest leading-none">
                         {spoolCount === 1 ? 'Spool' : 'Spools'}
                       </span>
                     </div>
                     {/* Box 3: Build Plates / Models / Parts */}
                     <div className={`rounded-xl flex flex-col items-center justify-center gap-1 ${isDarkMode ? 'bg-white/5' : 'bg-black/[0.03]'}`}>
-                      <Layers size={20} className="text-emerald-500" strokeWidth={2.5} />
-                      <span className="text-[13px] font-black italic text-emerald-600 dark:text-emerald-400 leading-none">
+                      {isSTL ? (
+                        <Box size={20} className="text-emerald-500" strokeWidth={2.5} />
+                      ) : (
+                        <Layers size={20} className="text-emerald-500" strokeWidth={2.5} />
+                      )}
+                      <span className="text-[14px] font-black italic text-emerald-600 dark:text-emerald-400 leading-none">
                         {plateCount || '—'}
                       </span>
 
-                      <span className="text-[9px] font-black uppercase tracking-widest leading-none text-center">
+                      <span className="text-[11px] font-black uppercase tracking-widest leading-none text-center">
                         {itemLabel}
                       </span>
                     </div>
@@ -569,7 +581,7 @@ export default function ProjectCard({
                       ) : (
                         <Link2 size={16} strokeWidth={2.5} />
                       )}
-                      <span className={`text-[12px] font-black uppercase tracking-widest leading-none ${
+                      <span className={`text-[14px] font-black uppercase tracking-widest leading-none ${
                         fileLinkIsValid ? 'text-emerald-500' : fileLinkHasValue ? 'text-red-500' : 'opacity-30'
                       }`}>
                         {fileLinkIsValid ? 'Linked' : fileLinkHasValue ? 'Invalid' : 'No Link'}
@@ -617,18 +629,18 @@ export default function ProjectCard({
 
             {/* CONTENT AREA */}
             <div className="px-1 text-center flex-1 flex flex-col">
-              <h3 className="text-[12px] font-bold uppercase tracking-tighter leading-tight mb-1 line-clamp-2 h-[2.5em] group-hover:text-blue-600 transition-colors">
+              <h3 className="text-[13px] font-bold uppercase tracking-tighter leading-tight mb-1 line-clamp-2 h-[2.5em] group-hover:text-blue-600 transition-colors">
                 {projectTitle}
               </h3>
               
               <div className="mt-auto">
                 <div className="flex items-center justify-between gap-2 pb-1">
                   <div className="flex flex-col items-start">
-                    <div className="text-[12px] font-black uppercase tracking-widest mb-1 select-none leading-none inline-block text-black dark:text-white">
+                    <div className="text-[13px] font-black uppercase tracking-widest mb-1 select-none leading-none inline-block text-black dark:text-white">
                       {methodLabel}
                     </div>
                     <div className="flex flex-row items-baseline gap-1.5">
-                        <span className="text-[13px] font-black italic tracking-tighter text-blue-600 leading-none">
+                        <span className="text-[14px] font-black italic tracking-tighter text-blue-600 leading-none">
                           ₱{lowestPrice.toLocaleString()}
                         </span>
                     </div>
@@ -764,11 +776,11 @@ export default function ProjectCard({
                                 className="text-[20px] font-black uppercase italic leading-tight line-clamp-2 break-words cursor-pointer hover:text-blue-500 transition-colors"
                                 onClick={(e) => { e.stopPropagation(); setIsEditingName(true); }}
                               >
-                                {projectNameLocal || 'Unnamed Project'}
+                                {displayProjectTitle}
                               </h2>
                             )
                           ) : (
-                            <h2 className="text-[20px] font-black uppercase italic leading-tight line-clamp-2 break-words">{project.projectName || 'Unnamed Project'}</h2>
+                            <h2 className="text-[20px] font-black uppercase italic leading-tight line-clamp-2 break-words">{displayProjectTitle}</h2>
                           )}
                         </div>
                       </div>
