@@ -177,7 +177,7 @@ export default function GarageCalendar({ project, className = '' }) {
         {/* Day Headers */}
         <div className="grid grid-cols-7 gap-1">
           {DAY_LABELS.map(label => (
-            <div key={label} className="text-center text-[8px] font-black uppercase tracking-widest opacity-30 py-1">
+            <div key={label} className="text-center text-[12px] font-black uppercase tracking-widest opacity-30 py-1">
               {label}
             </div>
           ))}
@@ -216,7 +216,7 @@ export default function GarageCalendar({ project, className = '' }) {
                   cell.isToday ? 'ring-2 ring-blue-600 ring-offset-1 ring-offset-transparent' : ''
                 }`}
               >
-                <span className={`text-[11px] font-bold ${textClass}`}>
+                <span className={`text-[16px] font-bold ${textClass}`}>
                   {cell.day}
                 </span>
                 {cell.isToday && (
@@ -231,16 +231,16 @@ export default function GarageCalendar({ project, className = '' }) {
         <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 pt-2">
           <div className="flex items-center gap-1.5">
             <div className="w-2.5 h-2.5 rounded-sm bg-emerald-500/30" />
-            <span className="text-[8px] font-black uppercase tracking-widest opacity-40">Available</span>
+            <span className="text-[12px] font-black uppercase tracking-widest opacity-40">Available</span>
           </div>
           <div className="flex items-center gap-1.5">
             <div className="w-2.5 h-2.5 rounded-sm bg-red-500/30" />
-            <span className="text-[8px] font-black uppercase tracking-widest opacity-40">Occupied</span>
+            <span className="text-[12px] font-black uppercase tracking-widest opacity-40">Occupied</span>
           </div>
           {projectDays > 0 && (
             <div className="flex items-center gap-1.5">
               <div className="w-2.5 h-2.5 rounded-sm bg-blue-500/30 ring-1 ring-blue-500/40" />
-              <span className="text-[8px] font-black uppercase tracking-widest opacity-40">Your Project</span>
+              <span className="text-[12px] font-black uppercase tracking-widest opacity-40">Your Project</span>
             </div>
           )}
         </div>
