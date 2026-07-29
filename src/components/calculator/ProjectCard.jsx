@@ -793,7 +793,7 @@ export default function ProjectCard({
                     {/* Configuration Details */}
                     <div className="space-y-4">
                       <div className="flex items-center gap-4 px-2">
-                        <span className="text-[12px] font-black uppercase tracking-[0.4em] opacity-30">Configuration Details</span>
+                        <span className="text-[14px] font-black uppercase tracking-[0.4em] opacity-30">Project Details</span>
                         <div className="h-px flex-1 bg-[var(--color-border)]" />
                       </div>
 
@@ -805,11 +805,11 @@ export default function ProjectCard({
                                 <Layers size={18} strokeWidth={3} />
                               </div>
                               <div className="text-left">
-                                <h4 className="text-[13px] font-black uppercase italic leading-none">{item.itemName || `Item ${idx+1}`}</h4>
+                                <h4 className="text-[14px] font-black uppercase italic leading-none">{item.itemName || `Item ${idx+1}`}</h4>
                                 <div className="flex items-center gap-2 mt-1 opacity-40">
-                                  <span className="text-[13px] font-bold uppercase">{item.normalizedMaterial?.name || item.material?.material?.name || 'Material'}</span>
+                                  <span className="text-[14px] font-bold uppercase">{item.normalizedMaterial?.name || item.material?.material?.name || 'Material'}</span>
                                   <span className="w-1 h-1 rounded-full bg-current opacity-30" />
-                                  <span className="text-[13px] font-bold uppercase">{item.normalizedWeight || item.sliced?.weight || 0}g</span>
+                                  <span className="text-[14px] font-bold uppercase">{item.normalizedWeight || item.sliced?.weight || 0}g</span>
                                 </div>
                               </div>
                             </div>

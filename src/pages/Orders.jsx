@@ -1005,9 +1005,9 @@ export default function Orders() {
         )}
 
         {selectedOrder && (
-          <div className="fixed inset-0 z-[400] flex items-center justify-center p-4 backdrop-blur-md bg-black/60" onClick={() => setSelectedOrder(null)}>
-            <div className="bg-white dark:bg-[#0a0a0a] w-full max-w-7xl rounded-[2.5rem] p-8 shadow-2xl relative overflow-y-auto max-h-[90vh] text-neutral-900 dark:text-white" onClick={(e) => e.stopPropagation()}>
-              <button onClick={() => setSelectedOrder(null)} className="absolute top-6 right-6 opacity-30 hover:opacity-100"><X size={24}/></button>
+          <div className="fixed inset-0 z-[400] flex items-stretch justify-stretch p-0 sm:landscape:items-center sm:landscape:justify-center sm:landscape:p-4 lg:items-center lg:justify-center lg:p-4 backdrop-blur-md bg-black/60" onClick={() => setSelectedOrder(null)}>
+            <div className="bg-white dark:bg-[#0a0a0a] w-full h-[100dvh] max-h-[100dvh] sm:landscape:h-auto sm:landscape:max-h-[90vh] lg:h-auto lg:max-h-[90vh] sm:landscape:max-w-7xl lg:max-w-7xl rounded-none sm:landscape:rounded-[2.5rem] lg:rounded-[2.5rem] p-5 sm:p-6 sm:landscape:p-8 lg:p-8 shadow-2xl relative overflow-y-auto no-scrollbar text-neutral-900 dark:text-white" onClick={(e) => e.stopPropagation()}>
+              <button onClick={() => setSelectedOrder(null)} className="absolute top-4 right-4 sm:landscape:top-6 sm:landscape:right-6 lg:top-6 lg:right-6 opacity-30 hover:opacity-100"><X size={24}/></button>
               
               <div className="flex items-center gap-4 mb-8">
                 <div className="p-3 bg-blue-600/10 rounded-2xl text-blue-600"><Package size={24} /></div>
