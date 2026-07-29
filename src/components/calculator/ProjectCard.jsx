@@ -382,6 +382,17 @@ export default function ProjectCard({
         ? 'Item'
         : 'Items';
 
+  const getStlDimensionsLabel = (item) => {
+    const unit = item.unit || item.config?.unit || 'mm';
+    const length = item.length ?? item.config?.length ?? item.dimensions?.length ?? item.dimensions?.l ?? item.baseMM_length;
+    const width = item.width ?? item.config?.width ?? item.dimensions?.width ?? item.dimensions?.w ?? item.baseMM_width;
+    const height = item.height ?? item.config?.height ?? item.dimensions?.height ?? item.dimensions?.h ?? item.baseMM_height;
+    const dims = [length, width, height].map(value => Number(value) || 0);
+
+    if (dims.every(value => value <= 0)) return 'No Dimensions';
+    return `${dims.map(value => value.toLocaleString()).join(' x ')} ${unit}`;
+  };
+
   const shelfItem = useMemo(() => (shelf || []).find(item => item.id === (project.id || project.vaultId)), [shelf, project.id, project.vaultId]);
   const isReserved = !!shelfItem;
 
@@ -822,25 +833,35 @@ export default function ProjectCard({
 
                       <div className="grid grid-cols-1 gap-3">
                         {details.map((item, idx) => (
-                          <div key={idx} className="bg-black/5 dark:bg-white/5 p-5 rounded-2xl border border-[var(--color-border)] flex items-center justify-between group hover:border-blue-500/30 transition-colors">
-                            <div className="flex items-center gap-4">
+                          <div key={idx} className="bg-black/5 dark:bg-white/5 p-5 rounded-2xl border border-[var(--color-border)] flex items-center justify-between gap-4 group hover:border-blue-500/30 transition-colors">
+                            <div className="flex min-w-0 items-center gap-4">
                               <div className="w-12 h-12 rounded-xl bg-blue-600/10 flex items-center justify-center text-blue-600 group-hover:scale-110 transition-transform">
                                 <Layers size={18} strokeWidth={3} />
                               </div>
-                              <div className="text-left">
+                              <div className="min-w-0 text-left">
                                 <h4 className="text-[14px] font-black uppercase italic leading-none">{item.itemName || `Item ${idx+1}`}</h4>
                                 <div className="flex items-center gap-2 mt-1 opacity-40">
-                                  <span className="text-[14px] font-bold uppercase">{item.normalizedMaterial?.name || item.material?.material?.name || 'Material'}</span>
-                                  <span className="w-1 h-1 rounded-full bg-current opacity-30" />
-                                  <span className="text-[14px] font-bold uppercase">{item.normalizedWeight || item.sliced?.weight || 0}g</span>
+                                  <span className="truncate text-[14px] font-bold uppercase">{item.normalizedMaterial?.name || item.material?.material?.name || 'Material'}</span>
+                                  {!isSTL && (
+                                    <>
+                                      <span className="h-1 w-1 shrink-0 rounded-full bg-current opacity-30" />
+                                      <span className="shrink-0 text-[14px] font-bold uppercase">{item.normalizedWeight || item.sliced?.weight || 0}g</span>
+                                    </>
+                                  )}
                                 </div>
                               </div>
                             </div>
-                            <div className="text-right">
-                              <div className="flex items-center gap-1.5 text-[16px] font-black italic text-blue-600">
-                                <Clock size={18} strokeWidth={3} />
-                                {Math.floor((item.normalizedTime || item.sliced?.time || 0) / 60)}h {(item.normalizedTime || item.sliced?.time || 0) % 60}m
-                              </div>
+                            <div className="shrink-0 text-right">
+                              {isSTL ? (
+                                <div className="max-w-[150px] text-[13px] font-black uppercase leading-tight text-blue-600 sm:max-w-none sm:text-[14px]">
+                                  {getStlDimensionsLabel(item)}
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1.5 text-[16px] font-black italic text-blue-600">
+                                  <Clock size={18} strokeWidth={3} />
+                                  {Math.floor((item.normalizedTime || item.sliced?.time || 0) / 60)}h {(item.normalizedTime || item.sliced?.time || 0) % 60}m
+                                </div>
+                              )}
                             </div>
                           </div>
                         ))}
