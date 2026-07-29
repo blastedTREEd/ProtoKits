@@ -1334,7 +1334,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                           </div>
                       )}
                       <h2 className="text-[16px] sm:text-4xl md:text-2xl lg:text-4xl font-black italic uppercase tracking-tighter leading-[0.9]">{kit.name}</h2>
-                      <div className="flex flex-wrap items-center gap-2 text-[12px] md:text-[14px] lg:text-[12px] font-black uppercase tracking-[0.2em] opacity-90">
+                      <div className="flex flex-wrap items-center gap-2 text-[14px]  font-black uppercase tracking-[0.2em] opacity-90">
                         {metaTags.map((tag, index) => (
                           <React.Fragment key={`${tag}-${index}`}>
                             {index > 0 && <span className="w-1.5 h-1.5 rounded-full bg-blue-600" />}

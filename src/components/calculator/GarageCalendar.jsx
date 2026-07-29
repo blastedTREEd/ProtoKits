@@ -140,11 +140,11 @@ export default function GarageCalendar({ project, className = '' }) {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="p-2 bg-blue-600 rounded-xl shadow-lg shadow-blue-600/20">
-              <Calendar size={16} className="text-white" />
+              <Calendar size={16} strokeWidth={3} className="text-white" />
             </div>
             <div>
-              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] opacity-40">Garage Calendar</h3>
-              <p className="text-[9px] font-bold opacity-30 leading-tight">Production Availability</p>
+              <h3 className="text-[14px] font-black uppercase tracking-[0.2em] opacity-40">Garage Calendar</h3>
+              <p className="text-[14px] uppercase font-bold opacity-30 leading-tight">Production Availability</p>
             </div>
           </div>
         </div>
@@ -159,9 +159,9 @@ export default function GarageCalendar({ project, className = '' }) {
                 : 'bg-black/5 hover:bg-black/10 text-neutral-900'
             }`}
           >
-            <ChevronLeft size={16} />
+            <ChevronLeft size={16} strokeWidth={3} />
           </button>
-          <span className="text-[12px] font-black uppercase tracking-widest">{monthLabel}</span>
+          <span className="text-[14px] font-black uppercase tracking-widest">{monthLabel}</span>
           <button
             onClick={nextMonth}
             className={`p-2 rounded-xl transition-all active:scale-90 ${
@@ -170,21 +170,21 @@ export default function GarageCalendar({ project, className = '' }) {
                 : 'bg-black/5 hover:bg-black/10 text-neutral-900'
             }`}
           >
-            <ChevronRight size={16} />
+            <ChevronRight size={16} strokeWidth={3} />
           </button>
         </div>
 
         {/* Day Headers */}
         <div className="grid grid-cols-7 gap-1">
           {DAY_LABELS.map(label => (
-            <div key={label} className="text-center text-[12px] font-black uppercase tracking-widest opacity-30 py-1">
+            <div key={label} className="text-center text-[14px] font-black uppercase tracking-widest opacity-30 py-1">
               {label}
             </div>
           ))}
         </div>
 
         {/* Calendar Grid */}
-        <div className="grid grid-cols-7 gap-1">
+        <div className="grid grid-cols-7 gap-3">
           {cells.map(cell => {
             if (cell.day === null) {
               return <div key={cell.key} className="aspect-square" />;
@@ -205,23 +205,18 @@ export default function GarageCalendar({ project, className = '' }) {
               bgClass = isDarkMode ? 'bg-red-500/15' : 'bg-red-500/10';
               textClass = 'text-red-500 dark:text-red-400';
             } else {
-              bgClass = isDarkMode ? 'bg-emerald-500/10' : 'bg-emerald-500/8';
+              bgClass = isDarkMode ? 'bg-emerald-500/10' : 'bg-emerald-500/10';
               textClass = 'text-emerald-600 dark:text-emerald-400';
             }
 
             return (
               <div
                 key={cell.key}
-                className={`aspect-square rounded-lg flex items-center justify-center transition-all relative ${bgClass} ${ringClass} ${
-                  cell.isToday ? 'ring-2 ring-blue-600 ring-offset-1 ring-offset-transparent' : ''
-                }`}
+                className={`aspect-square rounded-lg flex items-center justify-center transition-all relative ${bgClass} ${ringClass}`}
               >
                 <span className={`text-[16px] font-bold ${textClass}`}>
                   {cell.day}
                 </span>
-                {cell.isToday && (
-                  <div className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-blue-600" />
-                )}
               </div>
             );
           })}
@@ -230,17 +225,17 @@ export default function GarageCalendar({ project, className = '' }) {
         {/* Legend */}
         <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 pt-2">
           <div className="flex items-center gap-1.5">
-            <div className="w-2.5 h-2.5 rounded-sm bg-emerald-500/30" />
-            <span className="text-[12px] font-black uppercase tracking-widest opacity-40">Available</span>
+            <div className="w-2.5 h-2.5 rounded-sm bg-emerald-500" />
+            <span className="text-[12px] font-black uppercase tracking-widest">Available</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-2.5 h-2.5 rounded-sm bg-red-500/30" />
-            <span className="text-[12px] font-black uppercase tracking-widest opacity-40">Occupied</span>
+            <div className="w-2.5 h-2.5 rounded-sm bg-red-500" />
+            <span className="text-[12px] font-black uppercase tracking-widest">Occupied</span>
           </div>
           {projectDays > 0 && (
             <div className="flex items-center gap-1.5">
-              <div className="w-2.5 h-2.5 rounded-sm bg-blue-500/30 ring-1 ring-blue-500/40" />
-              <span className="text-[12px] font-black uppercase tracking-widest opacity-40">Your Project</span>
+              <div className="w-2.5 h-2.5 rounded-sm bg-blue-500 ring-1 ring-blue-500/40" />
+              <span className="text-[12px] font-black uppercase tracking-widest">Your Project</span>
             </div>
           )}
         </div>

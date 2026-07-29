@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { 
-  Box, Clock, Sparkles, Zap, Plus, Lock, Edit3, Trash2, PackagePlus, PackageMinus,
+  Box, Clock, Zap, Plus, Lock, Edit3, Trash2, PackagePlus, PackageMinus,
   X, Weight, Droplet, Layers, AlertTriangle, Link2, ExternalLink, ChevronRight, ChevronLeft, Calendar,
   ShoppingBasket, Play, Pause, FileText, ShieldCheck, CheckCircle2, XCircle, Spool, Save, Paintbrush,
   Settings, Pencil
@@ -8,6 +8,7 @@ import {
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
 import GarageCalendar from './GarageCalendar';
+import { LiaGoogleDrive } from 'react-icons/lia';
 
 const Gallery = ({ galleryImages, galleryIndex, setGalleryIndex, handleTouchStart, handleTouchEnd, className, thumbnailsContainerRef }) => {
     useEffect(() => {
@@ -322,8 +323,9 @@ export default function ProjectCard({
   }, [handlingFee, installmentFee, transferFee, serviceCost, project]);
   
   const methodLabel = isBlueprint ? (project.method?.name || 'Blueprint') : project.method?.name;
+  const fileTypeLabel = is3MF ? '3MF' : isSTL ? 'STL' : (methodLabel || 'FILE').toUpperCase();
+  const costLabel = is3MF ? 'Project Cost' : isSTL ? 'Estimated Cost' : 'Project Cost';
   const showDisclaimer = !project.isFinalized && isSTL;
-  const isVerifiedPrice = is3MF || project.isFinalized;
 
   const days = project.totals?.days || 0;
 
@@ -586,22 +588,13 @@ export default function ProjectCard({
               <div className="mt-auto">
                 <div className="flex items-center justify-between gap-2 pb-1">
                   <div className="flex flex-col items-start">
-                    <div className={`px-1.5 py-0.5 rounded-md text-[12px] font-black uppercase tracking-widest border mb-1 select-none leading-none inline-block ${
-                      isBlueprint 
-                        ? 'bg-emerald-600/15 text-emerald-500 border-emerald-600/25' 
-                        : 'bg-blue-600/15 text-blue-500 border-blue-600/25'
-                    }`}>
+                    <div className="text-[12px] font-black uppercase tracking-widest mb-1 select-none leading-none inline-block text-black dark:text-white">
                       {methodLabel}
                     </div>
                     <div className="flex flex-row items-baseline gap-1.5">
                         <span className="text-[13px] font-black italic tracking-tighter text-blue-600 leading-none">
                           ₱{lowestPrice.toLocaleString()}
                         </span>
-                        {lowestPrice !== (project.projectData?.displayPrice || displayPrice) && (
-                          <span className="text-[12px] font-black opacity-30 italic tracking-tighter leading-none line-through">
-                            ₱{(project.projectData?.displayPrice || displayPrice).toLocaleString()}
-                          </span>
-                        )}
                     </div>
                   </div>
 
@@ -709,8 +702,8 @@ export default function ProjectCard({
                     {/* Header */}
                     <div className="flex items-center justify-between gap-4 w-full">
                       <div className="flex items-center gap-4 flex-1 min-w-0">
-                        <div className="h-10 w-10 rounded-xl border border-black/5 bg-black/[0.03] dark:border-white/10 dark:bg-white/[0.04] text-blue-600 flex items-center justify-center shrink-0">
-                          <Box size={18} strokeWidth={2.4} />
+                        <div className="w-11 h-11 rounded-full bg-[var(--color-primary)] text-white shadow-lg shadow-[var(--color-primary)]/25 flex items-center justify-center shrink-0">
+                          <span className="text-[14px] font-black italic uppercase tracking-tighter leading-none">{fileTypeLabel}</span>
                         </div>
                         <div className="text-left flex-1 min-w-0">
                           {isVault ? (
@@ -732,18 +725,15 @@ export default function ProjectCard({
                               />
                             ) : (
                               <h2 
-                                className="text-[13px] font-black uppercase italic leading-none truncate cursor-pointer hover:text-blue-500 transition-colors"
+                                className="text-[20px] font-black uppercase italic leading-tight line-clamp-2 break-words cursor-pointer hover:text-blue-500 transition-colors"
                                 onClick={(e) => { e.stopPropagation(); setIsEditingName(true); }}
                               >
                                 {projectNameLocal || 'Unnamed Project'}
                               </h2>
                             )
                           ) : (
-                            <h2 className="text-xl sm:text-4xl font-black uppercase italic leading-none">{project.projectName || 'Unnamed Project'}</h2>
+                            <h2 className="text-xl sm:text-4xl font-black uppercase italic leading-tight line-clamp-2 break-words">{project.projectName || 'Unnamed Project'}</h2>
                           )}
-                          <span className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-500 mt-2 block">
-                            {project.method?.name} Estimation
-                          </span>
                         </div>
                       </div>
 
@@ -777,42 +767,25 @@ export default function ProjectCard({
                     {/* Stats */}
                     <div className="grid grid-cols-2 gap-3">
                       <div className="bg-white dark:bg-white/5 p-5 rounded-2xl border border-[var(--color-border)] shadow-sm">
-                        <span className="text-[9px] font-black uppercase tracking-[0.2em] opacity-30 block mb-1">
-                          {lowestPrice === (project.projectData?.displayPrice || displayPrice) ? 'Grand Total' : 'Estimated Base'}
+                        <span className="text-[12px] font-black uppercase tracking-[0.2em] block mb-1">
+                          {costLabel}
                         </span>
                         <div className="flex flex-col">
                           <div className="flex items-baseline gap-1 text-blue-600">
                             <span className="text-xs font-black opacity-30">₱</span>
                             <span className="text-2xl font-black italic tracking-tighter">{lowestPrice.toLocaleString()}</span>
                           </div>
-                          {lowestPrice !== (project.projectData?.displayPrice || displayPrice) && (
-                            <div className="flex items-baseline gap-1 opacity-30 mt-[-4px]">
-                              <span className="text-[10px] font-black">₱</span>
-                              <span className="text-sm font-black italic tracking-tighter line-through">{(project.projectData?.displayPrice || displayPrice).toLocaleString()}</span>
-                            </div>
-                          )}
                         </div>
                       </div>
                       <div className="bg-white dark:bg-white/5 p-5 rounded-2xl border border-[var(--color-border)] shadow-sm">
-                        <span className="text-[9px] font-black uppercase tracking-[0.2em] opacity-30 block mb-1">Downpayment</span>
+                        <span className="text-[12px] font-black uppercase tracking-[0.2em] block mb-1">Downpayment</span>
                         <div className="flex items-baseline gap-1 text-amber-600">
                           <span className="text-xs font-black opacity-30">₱</span>
                           <span className="text-2xl font-black italic tracking-tighter">{downpayment.toLocaleString()}</span>
                         </div>
                       </div>
                     </div>
-
-                    {isVerifiedPrice ? (
-                      <div className="bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-2xl flex gap-3">
-                        <Sparkles size={18} className="text-emerald-500 shrink-0" />
-                        <div className="text-left">
-                          <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600 mb-1 leading-none">Verified Pricing</p>
-                          <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-500 leading-tight">
-                            This project has been finalized. Pricing is accurate and ready for checkout.
-                          </p>
-                        </div>
-                      </div>
-                    ) : showDisclaimer && (
+                    {showDisclaimer && (
                       <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-2xl flex gap-3">
                         <AlertTriangle size={18} className="text-amber-500 shrink-0" />
                         <div className="text-left">
@@ -827,7 +800,7 @@ export default function ProjectCard({
                     {/* Configuration Details */}
                     <div className="space-y-4">
                       <div className="flex items-center gap-4 px-2">
-                        <span className="text-[10px] font-black uppercase tracking-[0.4em] opacity-30">Configuration Details</span>
+                        <span className="text-[12px] font-black uppercase tracking-[0.4em] opacity-30">Configuration Details</span>
                         <div className="h-px flex-1 bg-[var(--color-border)]" />
                       </div>
 
@@ -835,21 +808,21 @@ export default function ProjectCard({
                         {details.map((item, idx) => (
                           <div key={idx} className="bg-black/5 dark:bg-white/5 p-5 rounded-2xl border border-[var(--color-border)] flex items-center justify-between group hover:border-blue-500/30 transition-colors">
                             <div className="flex items-center gap-4">
-                              <div className="w-10 h-10 rounded-xl bg-blue-600/10 flex items-center justify-center text-blue-600 group-hover:scale-110 transition-transform">
-                                <Layers size={16} strokeWidth={3} />
+                              <div className="w-14 h-14 rounded-xl bg-blue-600/10 flex items-center justify-center text-blue-600 group-hover:scale-110 transition-transform">
+                                <Layers size={18} strokeWidth={3} />
                               </div>
                               <div className="text-left">
-                                <h4 className="text-[12px] font-black uppercase italic leading-none">{item.itemName || `Item ${idx+1}`}</h4>
-                                <div className="flex items-center gap-2 mt-2 opacity-40">
-                                  <span className="text-[10px] font-bold uppercase">{item.normalizedMaterial?.name || item.material?.material?.name || 'Material'}</span>
+                                <h4 className="text-[14px] font-black uppercase italic leading-none">{item.itemName || `Item ${idx+1}`}</h4>
+                                <div className="flex items-center gap-2 mt-1 opacity-40">
+                                  <span className="text-[14px] font-bold uppercase">{item.normalizedMaterial?.name || item.material?.material?.name || 'Material'}</span>
                                   <span className="w-1 h-1 rounded-full bg-current opacity-30" />
-                                  <span className="text-[10px] font-bold uppercase">{item.normalizedWeight || item.sliced?.weight || 0}g</span>
+                                  <span className="text-[14px] font-bold uppercase">{item.normalizedWeight || item.sliced?.weight || 0}g</span>
                                 </div>
                               </div>
                             </div>
                             <div className="text-right">
-                              <div className="flex items-center gap-1.5 text-[12px] font-black italic text-blue-600">
-                                <Clock size={12} strokeWidth={3} />
+                              <div className="flex items-center gap-1.5 text-[16px] font-black italic text-blue-600">
+                                <Clock size={18} strokeWidth={3} />
                                 {Math.floor((item.normalizedTime || item.sliced?.time || 0) / 60)}h {(item.normalizedTime || item.sliced?.time || 0) % 60}m
                               </div>
                             </div>
@@ -864,16 +837,16 @@ export default function ProjectCard({
                       {isVault && (
                         <div className="space-y-3">
                           <div className="flex items-center gap-4 px-2">
-                            <span className="text-[10px] font-black uppercase tracking-[0.4em] opacity-30">File Link</span>
+                            <span className="text-[12px] font-black uppercase tracking-[0.4em] opacity-30">File Link</span>
                             <div className="h-px flex-1 bg-[var(--color-border)]" />
                           </div>
                           <div className="bg-white dark:bg-white/5 p-4 rounded-2xl border border-[var(--color-border)] space-y-4">
                             <div className="flex items-start gap-3">
-                              <div className="w-10 h-10 rounded-xl bg-blue-600/10 flex items-center justify-center text-blue-600 shrink-0 mt-0.5">
-                                <FileText size={18} strokeWidth={2.5} />
+                              <div className="w-14 h-14 rounded-xl bg-blue-600/10 flex items-center justify-center text-blue-600 shrink-0 mt-0.5">
+                                <LiaGoogleDrive size={24} strokeWidth={3} />
                               </div>
                               <div className="flex-1 space-y-2">
-                                <label className="text-[9px] font-black uppercase tracking-widest opacity-40 block">Google Drive File Link</label>
+                                <label className="text-[14px] font-black uppercase tracking-widest opacity-40 block">Google Drive File Link</label>
                                 <input
                                   type="url"
                                   value={fileLink}
@@ -881,7 +854,7 @@ export default function ProjectCard({
                                   onBlur={(e) => handleFileLinkSave(e.target.value)}
                                   onClick={(e) => e.stopPropagation()}
                                   placeholder="https://drive.google.com/..."
-                                  className={`w-full px-4 py-3 bg-[var(--color-bg)] border rounded-xl text-[12px] font-bold outline-none focus:ring-1 transition-all placeholder:opacity-30 ${
+                                  className={`w-full px-4 py-3 bg-[var(--color-bg)] border rounded-xl text-[14px] font-bold outline-none focus:ring-1 transition-all placeholder:opacity-30 ${
                                     fileLinkHasValue && !fileLinkIsValid
                                       ? 'border-red-400 focus:border-red-500 focus:ring-red-500/20'
                                       : fileLinkIsValid
@@ -890,11 +863,11 @@ export default function ProjectCard({
                                   }`}
                                 />
                                 {fileLinkHasValue && !fileLinkIsValid ? (
-                                  <p className="text-[9px] font-bold text-red-500 leading-tight">
-                                    Only Google Drive links are accepted (drive.google.com)
+                                  <p className="text-[14px] font-bold text-red-500 uppercase leading-tight">
+                                    Only valid google drive link is accepted.
                                   </p>
                                 ) : (
-                                  <p className="text-[9px] font-bold opacity-30 leading-tight">
+                                  <p className="text-[14px] font-bold leading-tight">
                                     Upload your STL / 3MF files to Google Drive and paste the share link here.
                                   </p>
                                 )}
@@ -926,7 +899,7 @@ export default function ProjectCard({
                                 </div>
                               </div>
                               <div className="flex-1">
-                                <p className={`text-[11px] font-bold leading-tight transition-colors ${
+                                <p className={`text-[14px] font-bold leading-tight transition-colors ${
                                   licenseAcknowledged ? 'text-emerald-700 dark:text-emerald-400' : 'opacity-60'
                                 }`}>
                                   I confirm that I have the right to use and print this 3D model. I accept full responsibility for any licensing or intellectual property concerns related to this file.
@@ -937,16 +910,6 @@ export default function ProjectCard({
                             )}
                           </div>
 
-                          {!vaultReadyForBasket && (
-                            <div className="flex items-center gap-2 justify-center py-1">
-                              <AlertTriangle size={12} className="text-amber-500" />
-                              <p className="text-[9px] font-black uppercase tracking-widest text-amber-500 animate-pulse">
-                                {fileLinkHasValue && !fileLinkIsValid 
-                                  ? 'Valid Google Drive link required' 
-                                  : 'GDrive link & license acknowledgment required to add to basket'}
-                              </p>
-                            </div>
-                          )}
                         </div>
                       )}
 
@@ -955,7 +918,7 @@ export default function ProjectCard({
                         <a href={project.gdriveLink} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between p-4 rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all group">
                           <div className="flex items-center gap-3">
                             <Link2 size={16} strokeWidth={3} />
-                            <span className="text-[10px] font-black uppercase tracking-widest">View Design Files</span>
+                            <span className="text-[18px] font-black uppercase tracking-widest">View Design Files</span>
                           </div>
                           <ExternalLink size={14} className="opacity-40 group-hover:opacity-100 transition-opacity" />
                         </a>
