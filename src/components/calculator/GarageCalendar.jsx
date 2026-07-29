@@ -137,14 +137,14 @@ export default function GarageCalendar({ project, className = '' }) {
     <div className={`w-full h-full flex flex-col items-center justify-center p-4 sm:p-6 lg:p-8 ${className}`}>
       <div className="w-full max-w-md space-y-4">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mb-10">
           <div className="flex items-center gap-2">
             <div className="p-2 bg-blue-600 rounded-xl shadow-lg shadow-blue-600/20">
               <Calendar size={16} strokeWidth={3} className="text-white" />
             </div>
             <div>
-              <h3 className="text-[14px] font-black uppercase tracking-[0.2em] opacity-40">Garage Calendar</h3>
-              <p className="text-[14px] uppercase font-bold opacity-30 leading-tight">Production Availability</p>
+              <h3 className="text-[16px] font-black uppercase tracking-[0.2em]">Garage Calendar</h3>
+              <p className="text-[16px] uppercase font-bold leading-tight">Production Availability</p>
             </div>
           </div>
         </div>
@@ -177,7 +177,7 @@ export default function GarageCalendar({ project, className = '' }) {
         {/* Day Headers */}
         <div className="grid grid-cols-7 gap-1">
           {DAY_LABELS.map(label => (
-            <div key={label} className="text-center text-[14px] font-black uppercase tracking-widest opacity-30 py-1">
+            <div key={label} className="text-center text-[14px] font-black uppercase tracking-widest py-1">
               {label}
             </div>
           ))}
@@ -196,7 +196,7 @@ export default function GarageCalendar({ project, className = '' }) {
 
             if (cell.isPast) {
               bgClass = isDarkMode ? 'bg-white/[0.02]' : 'bg-black/[0.02]';
-              textClass = 'opacity-20';
+              textClass = 'opacity-50';
             } else if (cell.isProjected) {
               bgClass = 'bg-blue-500/20';
               textClass = 'text-blue-600 dark:text-blue-400 font-black';

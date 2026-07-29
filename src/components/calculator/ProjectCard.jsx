@@ -720,7 +720,7 @@ export default function ProjectCard({
                                 }}
                                 onClick={(e) => e.stopPropagation()}
                                 placeholder="Rename Project"
-                                className="bg-transparent border-b border-dashed border-neutral-300 dark:border-white/20 focus:border-blue-500 focus:outline-none text-[13px] font-black uppercase italic leading-none w-full py-1 text-[var(--color-text-main)] placeholder:opacity-20 transition-colors"
+                                className="bg-transparent border-b border-dashed border-neutral-300 dark:border-white/20 focus:border-blue-500 focus:outline-none text-[20px] font-black uppercase italic leading-none w-full py-1 text-[var(--color-text-main)] placeholder:opacity-20 transition-colors"
                                 autoFocus
                               />
                             ) : (
@@ -732,7 +732,7 @@ export default function ProjectCard({
                               </h2>
                             )
                           ) : (
-                            <h2 className="text-xl sm:text-4xl font-black uppercase italic leading-tight line-clamp-2 break-words">{project.projectName || 'Unnamed Project'}</h2>
+                            <h2 className="text-[20px] font-black uppercase italic leading-tight line-clamp-2 break-words">{project.projectName || 'Unnamed Project'}</h2>
                           )}
                         </div>
                       </div>
@@ -756,9 +756,9 @@ export default function ProjectCard({
                           title={isEditingName ? 'Save Name' : 'Edit Name'}
                         >
                           {isEditingName ? (
-                            <Save size={16} strokeWidth={2.5} />
+                            <Save size={18} strokeWidth={2.5} />
                           ) : (
-                            <Pencil size={16} strokeWidth={2.5} />
+                            <Pencil size={18} strokeWidth={2.5} />
                           )}
                         </button>
                       )}
@@ -771,16 +771,16 @@ export default function ProjectCard({
                           {costLabel}
                         </span>
                         <div className="flex flex-col">
-                          <div className="flex items-baseline gap-1 text-blue-600">
-                            <span className="text-xs font-black opacity-30">₱</span>
-                            <span className="text-2xl font-black italic tracking-tighter">{lowestPrice.toLocaleString()}</span>
+                          <div className="flex items-baseline text-blue-600">
+                            <span className="text-xl font-black">₱</span>
+                            <span className="text-2xl italic font-black tracking-tighter">{lowestPrice.toLocaleString()}</span>
                           </div>
                         </div>
                       </div>
                       <div className="bg-white dark:bg-white/5 p-5 rounded-2xl border border-[var(--color-border)] shadow-sm">
                         <span className="text-[12px] font-black uppercase tracking-[0.2em] block mb-1">Downpayment</span>
-                        <div className="flex items-baseline gap-1 text-amber-600">
-                          <span className="text-xs font-black opacity-30">₱</span>
+                        <div className="flex items-baseline text-amber-600">
+                          <span className="text-xl font-black">₱</span>
                           <span className="text-2xl font-black italic tracking-tighter">{downpayment.toLocaleString()}</span>
                         </div>
                       </div>
@@ -841,37 +841,35 @@ export default function ProjectCard({
                             <div className="h-px flex-1 bg-[var(--color-border)]" />
                           </div>
                           <div className="bg-white dark:bg-white/5 p-4 rounded-2xl border border-[var(--color-border)] space-y-4">
-                            <div className="flex items-start gap-3">
-                              <div className="w-14 h-14 rounded-xl bg-blue-600/10 flex items-center justify-center text-blue-600 shrink-0 mt-0.5">
-                                <LiaGoogleDrive size={24} strokeWidth={3} />
-                              </div>
-                              <div className="flex-1 space-y-2">
-                                <label className="text-[14px] font-black uppercase tracking-widest opacity-40 block">Google Drive File Link</label>
-                                <input
-                                  type="url"
-                                  value={fileLink}
-                                  onChange={(e) => setFileLink(e.target.value)}
-                                  onBlur={(e) => handleFileLinkSave(e.target.value)}
-                                  onClick={(e) => e.stopPropagation()}
-                                  placeholder="https://drive.google.com/..."
-                                  className={`w-full px-4 py-3 bg-[var(--color-bg)] border rounded-xl text-[14px] font-bold outline-none focus:ring-1 transition-all placeholder:opacity-30 ${
-                                    fileLinkHasValue && !fileLinkIsValid
-                                      ? 'border-red-400 focus:border-red-500 focus:ring-red-500/20'
-                                      : fileLinkIsValid
-                                      ? 'border-emerald-400 focus:border-emerald-500 focus:ring-emerald-500/20'
-                                      : 'border-[var(--color-border)] focus:border-blue-500 focus:ring-blue-500/20'
-                                  }`}
-                                />
-                                {fileLinkHasValue && !fileLinkIsValid ? (
-                                  <p className="text-[14px] font-bold text-red-500 uppercase leading-tight">
-                                    Only valid google drive link is accepted.
-                                  </p>
-                                ) : (
-                                  <p className="text-[14px] font-bold leading-tight">
-                                    Upload your STL / 3MF files to Google Drive and paste the share link here.
-                                  </p>
-                                )}
-                              </div>
+                            <div className="space-y-2">
+                              <label className="flex items-center gap-2 text-[14px] font-black uppercase tracking-widest">
+                                <LiaGoogleDrive size={22} strokeWidth={1} className="text-blue-600 opacity-100" />
+                                <span>Google Drive File Link</span>
+                              </label>
+                              <input
+                                type="url"
+                                value={fileLink}
+                                onChange={(e) => setFileLink(e.target.value)}
+                                onBlur={(e) => handleFileLinkSave(e.target.value)}
+                                onClick={(e) => e.stopPropagation()}
+                                placeholder="https://drive.google.com/..."
+                                className={`w-full px-4 py-3 bg-[var(--color-bg)] border rounded-xl text-[14px] font-bold outline-none focus:ring-1 transition-all placeholder:opacity-30 ${
+                                  fileLinkHasValue && !fileLinkIsValid
+                                    ? 'border-red-400 focus:border-red-500 focus:ring-red-500/20'
+                                    : fileLinkIsValid
+                                    ? 'border-emerald-400 focus:border-emerald-500 focus:ring-emerald-500/20'
+                                    : 'border-[var(--color-border)] focus:border-blue-500 focus:ring-blue-500/20'
+                                }`}
+                              />
+                              {fileLinkHasValue && !fileLinkIsValid ? (
+                                <p className="text-[14px] font-bold text-red-500 uppercase leading-tight">
+                                  Only valid google drive link is accepted.
+                                </p>
+                              ) : (
+                                <p className="text-[14px] font-bold leading-tight">
+                                  Upload your STL / 3MF files to Google Drive and paste the share link here.
+                                </p>
+                              )}
                             </div>
 
                             {fileLinkIsValid && (
@@ -928,17 +926,17 @@ export default function ProjectCard({
                       {isVault && fileLinkIsValid && (
                         <a href={fileLink} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between p-4 rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all group">
                           <div className="flex items-center gap-3">
-                            <Link2 size={16} strokeWidth={3} />
-                            <span className="text-[10px] font-black uppercase tracking-widest">View Design Files</span>
+                            <Link2 size={18} strokeWidth={3} />
+                            <span className="text-[14px] font-black uppercase tracking-widest">View Design Files</span>
                           </div>
                           <ExternalLink size={14} className="opacity-40 group-hover:opacity-100 transition-opacity" />
                         </a>
                       )}
                       
                       {project.createdAt && (
-                        <div className="flex items-center justify-center gap-2 opacity-20 py-2">
-                          <Calendar size={12} />
-                          <span className="text-[9px] font-black uppercase tracking-widest">
+                        <div className="flex items-center justify-center gap-2 py-2">
+                          <Calendar size={18} strokeWidth={3}/>
+                          <span className="text-[12px] font-black uppercase tracking-widest">
                             Created {new Date(project.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
                           </span>
                         </div>
