@@ -251,8 +251,6 @@ export default function PrintsCalculator({
 
   const STEP_CONFIG = {
     0: { title: "Select", accent: "Case" },
-    // 1: { title: "Select", accent: "Printer" },
-    // 1: { title: "Select", accent: "Filament" },
     1: { title: "Enter", accent: "Details" },
     2: { title: "Add", accent: "Extras" },
     3: { title: "Project", accent: "Cost" }
@@ -291,7 +289,7 @@ const handleStepBack = () => {
     <div className="w-full min-h-full prints-calculator-container animate-in fade-in zoom-in-95 duration-500 px-3 sm:px-5 pb-0 text-[var(--color-text-main)]">
       <style>{`
         .prints-calculator-body :where(p, span, label, button, input, textarea, select, h2, h3, h4, h5, h6) {
-          font-size: 12px;
+          font-size: 14px;
         }
         .prints-calculator-body :where(input, .print-dimension-type) {
           font-weight: 900;
@@ -394,7 +392,6 @@ const handleStepBack = () => {
             projectDetails={calculatorData.projectDetails || []} 
             projectCase={calculatorData.method?.name} 
             onProceed={() => navigateToStep(3)} 
-            // onBack={() => isEditMode ? setActiveStep(3) : window.history.back()}
             onBack={handleStepBack}
           />
         )}
