@@ -64,6 +64,25 @@ const mergeKitsStable = (currentKits = [], incomingKits = []) => {
 
 const docsToArray = (snap) => snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
+export const DEFAULT_PRINT_METHODS = [
+  {
+    id: '3mf',
+    name: '3MF',
+    tagline: 'Plate-ready',
+    accuracy: 'COST',
+    description: 'Use sliced 3MF project data for a cleaner, more accurate project cost.',
+    requirements: ['Print time', 'Filament weight', 'Material']
+  },
+  {
+    id: 'stl',
+    name: 'STL',
+    tagline: 'Estimate',
+    accuracy: 'ESTIMATE',
+    description: 'Estimate print cost from model size, material, settings, and quantity.',
+    requirements: ['Dimensions', 'Material', 'Settings']
+  }
+];
+
 const createKitTargetId = (name, line = '', scale = '', brand = '') => {
   const parts = [];
   const b = (brand || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
@@ -84,7 +103,7 @@ export const useStore = create(
       rates: {},
       kits: [],
       stories: [],
-      methods: [],
+      methods: DEFAULT_PRINT_METHODS,
       printers: [],
       feeders: [],
       filamentInventory: [],
@@ -532,18 +551,25 @@ export const useStore = create(
       },
 
       loadPrintResources: () => {
+        if ((get().methods || []).length === 0) {
+          set({ methods: DEFAULT_PRINT_METHODS });
+        }
         if (get().unsubPrintResources) return;
 
         const unsubMethods = onSnapshot(collection(db, "methods"), (snap) => {
+          const methods = snap.docs.map((d) => ({
+            id: d.id,
+            ...d.data(),
+            requirements: Object.values(d.data().requirements || {})
+          }));
           set({
-            methods: snap.docs.map((d) => ({
-              id: d.id,
-              ...d.data(),
-              requirements: Object.values(d.data().requirements || {})
-            }))
+            methods: methods.length > 0 ? methods : DEFAULT_PRINT_METHODS
           });
         }, (err) => {
           console.error("SG LOG: Methods subscription error:", err);
+          if ((get().methods || []).length === 0) {
+            set({ methods: DEFAULT_PRINT_METHODS });
+          }
         });
 
         const unsubPrinters = onSnapshot(collection(db, "printers"), (snap) => {

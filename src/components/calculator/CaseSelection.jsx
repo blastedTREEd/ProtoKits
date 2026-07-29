@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { useStore } from '../../store/useStore';
+import { DEFAULT_PRINT_METHODS, useStore } from '../../store/useStore';
 
 export default function CaseSelection({ onSelect, selectedCase = null }) {
   const [expandedId, setExpandedId] = useState(() => selectedCase?.id || null);
 
-  const cases = useStore((state) => state.methods);
+  const storeMethods = useStore((state) => state.methods);
+  const cases = storeMethods?.length ? storeMethods : DEFAULT_PRINT_METHODS;
   const handleToggle = (id) => {
     setExpandedId(expandedId === id ? null : id);
   };
@@ -86,7 +87,7 @@ export default function CaseSelection({ onSelect, selectedCase = null }) {
                     </span>
                     
                     <div className="flex flex-wrap gap-x-3 gap-y-1">
-                      {item.requirements.map((req, idx) => (
+                      {(item.requirements || []).map((req, idx) => (
                         <span key={idx} className={`text-[10px] font-black uppercase tracking-widest transition-colors ${
                           isSelected 
                             ? 'text-[var(--color-primary)]' 

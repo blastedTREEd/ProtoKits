@@ -9,6 +9,8 @@ import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
 import GarageCalendar from './GarageCalendar';
 import { LiaGoogleDrive } from 'react-icons/lia';
+import { TbHexagon3D } from 'react-icons/tb';
+import { LuRotate3D } from 'react-icons/lu';
 
 const Gallery = ({ galleryImages, galleryIndex, setGalleryIndex, handleTouchStart, handleTouchEnd, className, thumbnailsContainerRef }) => {
     useEffect(() => {
@@ -533,7 +535,7 @@ export default function ProjectCard({
                       ) : (
                         <Link2 size={16} strokeWidth={2.5} />
                       )}
-                      <span className={`text-[9px] font-black uppercase tracking-widest leading-none ${
+                      <span className={`text-[12px] font-black uppercase tracking-widest leading-none ${
                         fileLinkIsValid ? 'text-emerald-500' : fileLinkHasValue ? 'text-red-500' : 'opacity-30'
                       }`}>
                         {fileLinkIsValid ? 'Linked' : fileLinkHasValue ? 'Invalid' : 'No Link'}
@@ -767,9 +769,12 @@ export default function ProjectCard({
                     {/* Stats */}
                     <div className="grid grid-cols-2 gap-3">
                       <div className="bg-white dark:bg-white/5 p-5 rounded-2xl border border-[var(--color-border)] shadow-sm">
-                        <span className="text-[12px] font-black uppercase tracking-[0.2em] block mb-1">
-                          {costLabel}
-                        </span>
+                        <div className="flex items-center gap-2 mb-1">
+                          {showDisclaimer && <AlertTriangle size={14} className="text-amber-500 shrink-0" strokeWidth={2.5} />}
+                          <span className="text-[12px] font-black uppercase tracking-[0.2em] block">
+                            {costLabel}
+                          </span>
+                        </div>
                         <div className="flex flex-col">
                           <div className="flex items-baseline text-blue-600">
                             <span className="text-xl font-black">₱</span>
@@ -785,18 +790,6 @@ export default function ProjectCard({
                         </div>
                       </div>
                     </div>
-                    {showDisclaimer && (
-                      <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-2xl flex gap-3">
-                        <AlertTriangle size={18} className="text-amber-500 shrink-0" />
-                        <div className="text-left">
-                          <p className="text-[10px] font-black uppercase tracking-widest text-amber-600 mb-1 leading-none">Price Disclaimer</p>
-                          <p className="text-[11px] font-bold text-amber-700 dark:text-amber-500 leading-tight">
-                            Estimation based on user inputs. Subject to verification.
-                          </p>
-                        </div>
-                      </div>
-                    )}
-
                     {/* Configuration Details */}
                     <div className="space-y-4">
                       <div className="flex items-center gap-4 px-2">
@@ -808,15 +801,15 @@ export default function ProjectCard({
                         {details.map((item, idx) => (
                           <div key={idx} className="bg-black/5 dark:bg-white/5 p-5 rounded-2xl border border-[var(--color-border)] flex items-center justify-between group hover:border-blue-500/30 transition-colors">
                             <div className="flex items-center gap-4">
-                              <div className="w-14 h-14 rounded-xl bg-blue-600/10 flex items-center justify-center text-blue-600 group-hover:scale-110 transition-transform">
+                              <div className="w-12 h-12 rounded-xl bg-blue-600/10 flex items-center justify-center text-blue-600 group-hover:scale-110 transition-transform">
                                 <Layers size={18} strokeWidth={3} />
                               </div>
                               <div className="text-left">
-                                <h4 className="text-[14px] font-black uppercase italic leading-none">{item.itemName || `Item ${idx+1}`}</h4>
+                                <h4 className="text-[13px] font-black uppercase italic leading-none">{item.itemName || `Item ${idx+1}`}</h4>
                                 <div className="flex items-center gap-2 mt-1 opacity-40">
-                                  <span className="text-[14px] font-bold uppercase">{item.normalizedMaterial?.name || item.material?.material?.name || 'Material'}</span>
+                                  <span className="text-[13px] font-bold uppercase">{item.normalizedMaterial?.name || item.material?.material?.name || 'Material'}</span>
                                   <span className="w-1 h-1 rounded-full bg-current opacity-30" />
-                                  <span className="text-[14px] font-bold uppercase">{item.normalizedWeight || item.sliced?.weight || 0}g</span>
+                                  <span className="text-[13px] font-bold uppercase">{item.normalizedWeight || item.sliced?.weight || 0}g</span>
                                 </div>
                               </div>
                             </div>
@@ -842,7 +835,7 @@ export default function ProjectCard({
                           </div>
                           <div className="bg-white dark:bg-white/5 p-4 rounded-2xl border border-[var(--color-border)] space-y-4">
                             <div className="space-y-2">
-                              <label className="flex items-center gap-2 text-[14px] font-black uppercase tracking-widest">
+                              <label className="flex items-center gap-2 text-[13px] font-black uppercase tracking-widest">
                                 <LiaGoogleDrive size={22} strokeWidth={1} className="text-blue-600 opacity-100" />
                                 <span>Google Drive File Link</span>
                               </label>
@@ -853,7 +846,7 @@ export default function ProjectCard({
                                 onBlur={(e) => handleFileLinkSave(e.target.value)}
                                 onClick={(e) => e.stopPropagation()}
                                 placeholder="https://drive.google.com/..."
-                                className={`w-full px-4 py-3 bg-[var(--color-bg)] border rounded-xl text-[14px] font-bold outline-none focus:ring-1 transition-all placeholder:opacity-30 ${
+                                className={`w-full px-4 py-3 bg-[var(--color-bg)] border rounded-xl text-[14px] font-bold outline-none focus:ring-1 transition-all placeholder:opacity-90 ${
                                   fileLinkHasValue && !fileLinkIsValid
                                     ? 'border-red-400 focus:border-red-500 focus:ring-red-500/20'
                                     : fileLinkIsValid
@@ -862,8 +855,8 @@ export default function ProjectCard({
                                 }`}
                               />
                               {fileLinkHasValue && !fileLinkIsValid ? (
-                                <p className="text-[14px] font-bold text-red-500 uppercase leading-tight">
-                                  Only valid google drive link is accepted.
+                                <p className="text-[14px] font-bold text-red-500 leading-tight">
+                                  Only valid Google Drive URL is accepted.
                                 </p>
                               ) : (
                                 <p className="text-[14px] font-bold leading-tight">
@@ -946,7 +939,7 @@ export default function ProjectCard({
                       {!is3MF && availableDesignServices.length > 0 && (
                         <div className="space-y-3">
                           <div className="flex items-center gap-4 px-2">
-                            <span className="text-[10px] font-black uppercase tracking-[0.4em] opacity-30">3D Designing Services</span>
+                            <span className="text-[12px] font-black uppercase tracking-[0.4em] opacity-30">3D Designing Services</span>
                             <div className="h-px flex-1 bg-[var(--color-border)]" />
                           </div>
                           <div className="grid grid-cols-1 gap-2">
@@ -971,14 +964,14 @@ export default function ProjectCard({
                                   }`}
                                 >
                                   <div className="flex items-center gap-3">
-                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
+                                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${
                                       isSelected ? 'bg-purple-500 text-white' : 'bg-purple-600/10 text-purple-600'
                                     }`}>
-                                      <Paintbrush size={18} strokeWidth={2.5} />
+                                      <LuRotate3D size={22} strokeWidth={2.5} />
                                     </div>
-                                    <div className="text-left">
-                                      <h4 className="text-[12px] font-black uppercase leading-none">{service.label}</h4>
-                                      <span className="text-[10px] font-bold opacity-40 mt-1 block">Base Price: ₱{service.basePrice.toLocaleString()}</span>
+                                    <div className="text-left gap-1">
+                                      <h4 className="text-[14px] font-black uppercase leading-none">{service.label}</h4>
+                                      <span className="text-[14px] font-bold opacity-40 block">Base Price: ₱{service.basePrice.toLocaleString()}</span>
                                     </div>
                                   </div>
                                   <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
@@ -992,7 +985,7 @@ export default function ProjectCard({
                           </div>
                           {selectedDesignService && (
                             <div className="bg-amber-500/10 border border-amber-500/20 p-3 rounded-xl flex gap-2 items-start">
-                              <AlertTriangle size={14} className="text-amber-500 shrink-0 mt-0.5" />
+                              <AlertTriangle size={16} strokeWidth={2} className="text-amber-500 shrink-0 mt-0.5" />
                               <p className="text-[10px] font-bold text-amber-700 dark:text-amber-400 leading-tight">
                                 Price is not yet final. Service complexity level will be adjusted by the admin upon order review.
                               </p>
