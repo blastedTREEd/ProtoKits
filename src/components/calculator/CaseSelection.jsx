@@ -88,13 +88,20 @@ export default function CaseSelection({ onSelect, selectedCase = null }) {
                     
                     <div className="flex flex-wrap gap-x-3 gap-y-1">
                       {(item.requirements || []).map((req, idx) => (
-                        <span key={idx} className={`text-[10px] font-black uppercase tracking-widest transition-colors ${
-                          isSelected 
-                            ? 'text-[var(--color-primary)]' 
-                            : 'text-[var(--color-text-main)]/40'
-                        }`}>
-                          {req}
-                        </span>
+                        <React.Fragment key={idx}>
+                          {idx > 0 && (
+                            <span className={`w-1 h-1 rounded-full self-center ${
+                              isSelected ? 'bg-[var(--color-primary)]' : 'bg-[var(--color-text-main)]/30'
+                            }`} />
+                          )}
+                          <span className={`text-[10px] font-black uppercase tracking-widest transition-colors ${
+                            isSelected 
+                              ? 'text-[var(--color-primary)]' 
+                              : 'text-[var(--color-text-main)]/40'
+                          }`}>
+                            {req}
+                          </span>
+                        </React.Fragment>
                       ))}
                     </div>
                   </div>

@@ -66,22 +66,49 @@ const docsToArray = (snap) => snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
 export const DEFAULT_PRINT_METHODS = [
   {
-    id: '3mf',
-    name: '3MF',
-    tagline: 'Plate-ready',
-    accuracy: 'COST',
-    description: 'Use sliced 3MF project data for a cleaner, more accurate project cost.',
-    requirements: ['Print time', 'Filament weight', 'Material']
-  },
-  {
     id: 'stl',
     name: 'STL',
     tagline: 'Estimate',
     accuracy: 'ESTIMATE',
     description: 'Estimate print cost from model size, material, settings, and quantity.',
     requirements: ['Dimensions', 'Material', 'Settings']
+  },
+  {
+    id: '3mf',
+    name: '3MF',
+    tagline: 'Plate-ready',
+    accuracy: 'COST',
+    description: 'Use sliced 3MF project data for a cleaner, more accurate project cost.',
+    requirements: ['Print time', 'Filament weight', 'Material']
   }
 ];
+
+const PRINT_METHOD_ORDER = {
+  estimation: 0,
+  stl: 0,
+  generation: 1,
+  '3mf': 1
+};
+
+const getRequirementValues = (requirements = {}) => (
+  Object.entries(requirements)
+    .sort(([keyA], [keyB]) => {
+      const numA = Number(String(keyA).match(/\d+/)?.[0] || Number.MAX_SAFE_INTEGER);
+      const numB = Number(String(keyB).match(/\d+/)?.[0] || Number.MAX_SAFE_INTEGER);
+      return numA - numB || String(keyA).localeCompare(String(keyB));
+    })
+    .map(([, value]) => value)
+);
+
+const sortPrintMethods = (methods = []) => (
+  [...methods].sort((a, b) => {
+    const aKey = String(a?.id || a?.name || '').toLowerCase();
+    const bKey = String(b?.id || b?.name || '').toLowerCase();
+    const aOrder = PRINT_METHOD_ORDER[aKey] ?? Number.MAX_SAFE_INTEGER;
+    const bOrder = PRINT_METHOD_ORDER[bKey] ?? Number.MAX_SAFE_INTEGER;
+    return aOrder - bOrder || aKey.localeCompare(bKey);
+  })
+);
 
 const createKitTargetId = (name, line = '', scale = '', brand = '') => {
   const parts = [];
@@ -103,7 +130,7 @@ export const useStore = create(
       rates: {},
       kits: [],
       stories: [],
-      methods: DEFAULT_PRINT_METHODS,
+      methods: sortPrintMethods(DEFAULT_PRINT_METHODS),
       printers: [],
       feeders: [],
       filamentInventory: [],
@@ -552,7 +579,7 @@ export const useStore = create(
 
       loadPrintResources: () => {
         if ((get().methods || []).length === 0) {
-          set({ methods: DEFAULT_PRINT_METHODS });
+          set({ methods: sortPrintMethods(DEFAULT_PRINT_METHODS) });
         }
         if (get().unsubPrintResources) return;
 
@@ -560,15 +587,15 @@ export const useStore = create(
           const methods = snap.docs.map((d) => ({
             id: d.id,
             ...d.data(),
-            requirements: Object.values(d.data().requirements || {})
+            requirements: getRequirementValues(d.data().requirements || {})
           }));
           set({
-            methods: methods.length > 0 ? methods : DEFAULT_PRINT_METHODS
+            methods: methods.length > 0 ? sortPrintMethods(methods) : sortPrintMethods(DEFAULT_PRINT_METHODS)
           });
         }, (err) => {
           console.error("SG LOG: Methods subscription error:", err);
           if ((get().methods || []).length === 0) {
-            set({ methods: DEFAULT_PRINT_METHODS });
+            set({ methods: sortPrintMethods(DEFAULT_PRINT_METHODS) });
           }
         });
 

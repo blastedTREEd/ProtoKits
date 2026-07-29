@@ -286,10 +286,10 @@ const handleStepBack = () => {
 };
 
   return (
-    <div className="w-full min-h-full prints-calculator-container animate-in fade-in zoom-in-95 duration-500 px-3 sm:px-5 pb-0 text-[var(--color-text-main)]">
+    <div className="w-full min-h-full prints-calculator-container animate-in fade-in zoom-in-95 duration-500 px-3 sm:px-5 pb-0 text-[var(--color-text-main)] [--print-font-size:12px] sm:[--print-font-size:14px] md:[--print-font-size:12px]">
       <style>{`
         .prints-calculator-body :where(p, span, label, button, input, textarea, select, h2, h3, h4, h5, h6) {
-          font-size: 14px;
+          font-size: var(--print-font-size);
         }
         .prints-calculator-body :where(input, .print-dimension-type) {
           font-weight: 900;
