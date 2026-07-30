@@ -31,6 +31,7 @@ export default function Navbar({ isCompact: scrolledCompact }) {
     basket, 
     shelf,
     orders,
+    shippingSettings,
     fetchInitialData, 
     user, 
     isProfileIncomplete,
@@ -346,6 +347,14 @@ const navLinks = [
   { to: "/prints", icon: <Printer />, label: "PRINTS" },
   ...(user ? [{ to: "/orders", icon: <ClipboardList />, label: "ORDERS" }] : [])
 ];
+const maintenanceMode = shippingSettings?.paymentSettings?.maintenanceMode === true;
+const maintenanceInvalidTypes = shippingSettings?.paymentSettings?.maintenanceInvalidTypes || {};
+const isMaintenanceInvalidPath = (path) => {
+  if (!maintenanceMode) return false;
+  if (path === '/kits') return maintenanceInvalidTypes.kit !== false;
+  if (path === '/prints') return maintenanceInvalidTypes.prints !== false;
+  return false;
+};
 
 const specs = {
   h: isMobile ? "56px" : "60px",
@@ -373,6 +382,7 @@ const getPageTitle = () => {
 };
 
 const pageTitle = getPageTitle();
+const isCurrentPageMaintenanceInvalid = isMaintenanceInvalidPath(location.pathname);
 const profilePanelStyle = isProfileFullscreen
   ? {
       top: specs.h,
@@ -396,6 +406,10 @@ return (
         <linearGradient id="garage-blue-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stopColor="#0866FF" />
           <stop offset="100%" stopColor="#00CFFF" />
+        </linearGradient>
+        <linearGradient id="garage-red-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#FF304F" />
+          <stop offset="100%" stopColor="#FF7A1A" />
         </linearGradient>
       </defs>
     </svg>
@@ -426,7 +440,12 @@ return (
             <div className={`transition-all duration-500 z-[140] ${specs.contentML}`}>
               <h1 className="flex flex-col uppercase font-black tracking-tighter leading-[0.85] select-none">
                 <span style={{ fontSize: specs.brandSize }} className="text-neutral-900 dark:text-white">{pageTitle.line1}</span>
-                <span style={{ fontSize: specs.brandSize }} className="text-garage-blue">{pageTitle.line2}</span>
+                <span
+                  style={{ fontSize: specs.brandSize }}
+                  className={isCurrentPageMaintenanceInvalid ? 'bg-gradient-to-br from-[#FF304F] to-[#FF7A1A] bg-clip-text text-transparent' : 'text-garage-blue'}
+                >
+                  {pageTitle.line2}
+                </span>
               </h1>
             </div>
           </div>
@@ -465,15 +484,30 @@ return (
             <Home size={specs.utilIcon} className={location.pathname === '/' ? 'text-blue-500' : 'text-neutral-400 dark:text-neutral-400 group-hover:text-blue-500'} />
             <span className={`text-[11px] md:text-[14px] font-bold uppercase tracking-tighter ${location.pathname === '/' ? 'bg-gradient-to-br from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent' : 'text-neutral-400 dark:text-neutral-400 group-hover:bg-gradient-to-br group-hover:from-[#0866FF] group-hover:to-[#00CFFF] group-hover:bg-clip-text group-hover:text-transparent'}`}>HOME</span>
           </Link>
-          {navLinks.map((link) => (
-            <Link key={link.to} to={link.to} onClick={(e) => handleNavClick(link.to, e)} className="relative flex flex-col md:flex-row items-center justify-center gap-1 font-bold transition-colors group">
-              {React.cloneElement(link.icon, { 
-                size: specs.utilIcon, 
-                className: `transition-colors ${location.pathname === link.to ? 'text-blue-500' : 'text-neutral-400 dark:text-neutral-400 group-hover:text-blue-500'}`
-              })}
-              <span className={`text-[11px] md:text-[14px] font-bold uppercase tracking-tighter ${location.pathname === link.to ? 'bg-gradient-to-br from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent' : 'text-neutral-400 dark:text-neutral-400 group-hover:bg-gradient-to-br group-hover:from-[#0866FF] group-hover:to-[#00CFFF] group-hover:bg-clip-text group-hover:text-transparent'}`}>{link.label}</span>
-            </Link>
-          ))}
+          {navLinks.map((link) => {
+            const isActive = location.pathname === link.to;
+            const isMaintenanceInvalidLink = isMaintenanceInvalidPath(link.to);
+            const iconClass = isActive
+              ? 'text-blue-500'
+              : 'text-neutral-400 dark:text-neutral-400 group-hover:text-blue-500';
+            const labelClass = isActive
+              ? 'bg-gradient-to-br from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent'
+              : 'text-neutral-400 dark:text-neutral-400 group-hover:bg-gradient-to-br group-hover:from-[#0866FF] group-hover:to-[#00CFFF] group-hover:bg-clip-text group-hover:text-transparent';
+            return (
+              <Link key={link.to} to={link.to} onClick={(e) => handleNavClick(link.to, e)} className="relative flex flex-col md:flex-row items-center justify-center gap-1 font-bold transition-colors group">
+                <span className="relative inline-flex items-center justify-center">
+                  {React.cloneElement(link.icon, { 
+                    size: specs.utilIcon, 
+                    className: `transition-colors ${iconClass}`
+                  })}
+                  {isMaintenanceInvalidLink && (
+                    <X size={12} strokeWidth={4} className="absolute -right-1 -top-1 text-[#FF304F] drop-shadow-sm" />
+                  )}
+                </span>
+                <span className={`text-[11px] md:text-[14px] font-bold uppercase tracking-tighter ${labelClass}`}>{link.label}</span>
+              </Link>
+            );
+          })}
         </div>
 
         <div className="flex items-center justify-end z-[120] ml-auto gap-2 lg:gap-4">
@@ -766,9 +800,18 @@ return (
               </button>
               {navLinks.map((link) => {
                 const isActive = location.pathname === link.to;
+                const isMaintenanceInvalidLink = isMaintenanceInvalidPath(link.to);
+                const buttonClass = isActive
+                  ? 'bg-gradient-to-br from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent'
+                  : 'text-neutral-600 dark:text-neutral-400 hover:bg-gradient-to-br hover:from-[#0866FF] hover:to-[#00CFFF] hover:bg-clip-text hover:text-transparent';
                 return (
-                  <button key={link.to} onClick={(e) => handleNavClick(link.to, e)} className={`flex flex-col items-center justify-center gap-1 transition-colors ${isActive ? 'bg-gradient-to-br from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent' : 'text-neutral-600 dark:text-neutral-400'}`}>
-                    {React.cloneElement(link.icon, { size: 20, className: isActive ? 'text-blue-500' : '' })}
+                  <button key={link.to} onClick={(e) => handleNavClick(link.to, e)} className={`group flex flex-col items-center justify-center gap-1 transition-colors ${buttonClass}`}>
+                    <span className="relative inline-flex items-center justify-center">
+                      {React.cloneElement(link.icon, { size: 20, className: isActive ? 'text-blue-500' : '' })}
+                      {isMaintenanceInvalidLink && (
+                        <X size={10} strokeWidth={4} className="absolute -right-1 -top-1 text-[#FF304F] drop-shadow-sm" />
+                      )}
+                    </span>
                     <span className="text-[10px] font-black uppercase tracking-tighter">{link.label}</span>
                   </button>
                 );

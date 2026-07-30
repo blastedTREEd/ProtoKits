@@ -37,7 +37,11 @@ export default function PaymentSettingsModal({ isOpen, onClose }) {
       cashInFee: Number(savedSettings.cashInFee ?? 0),
       transferFee: Number(savedSettings.transferFee ?? 0),
       exclusiveDiscountPercent: Number(savedSettings.exclusiveDiscountPercent ?? 100),
-      maintenanceMode: savedSettings.maintenanceMode ?? (savedSettings.showPayNow === false)
+      maintenanceMode: savedSettings.maintenanceMode ?? (savedSettings.showPayNow === false),
+      maintenanceInvalidTypes: {
+        kit: savedSettings.maintenanceInvalidTypes?.kit ?? true,
+        prints: savedSettings.maintenanceInvalidTypes?.prints ?? true
+      }
     };
   };
 
@@ -134,7 +138,11 @@ export default function PaymentSettingsModal({ isOpen, onClose }) {
         installmentFee: Math.max(0, Number(paymentSettings.installmentFee) || 0),
         cashInFee: Math.max(0, Number(paymentSettings.cashInFee) || 0),
         transferFee: Math.max(0, Number(paymentSettings.transferFee) || 0),
-        exclusiveDiscountPercent: Math.min(100, Math.max(0, Number(paymentSettings.exclusiveDiscountPercent) || 0))
+        exclusiveDiscountPercent: Math.min(100, Math.max(0, Number(paymentSettings.exclusiveDiscountPercent) || 0)),
+        maintenanceInvalidTypes: {
+          kit: paymentSettings.maintenanceInvalidTypes?.kit !== false,
+          prints: paymentSettings.maintenanceInvalidTypes?.prints !== false
+        }
       };
 
       // I-purge ang deleted methods mula sa normalizedPaymentSettings bago i-save
@@ -174,8 +182,6 @@ export default function PaymentSettingsModal({ isOpen, onClose }) {
       alert("Failed to update payment settings.");
     }
   };
-
-  const modalKey = JSON.stringify(shippingSettings?.paymentSettings);
 
   return (
     <AnimatePresence>

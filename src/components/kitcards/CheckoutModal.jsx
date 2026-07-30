@@ -42,8 +42,14 @@ function resolveImage(idOrUrl, imagesArray) {
 
 const toCheckoutNumber = (value) => Number(value || 0);
 
+const isProjectCheckoutItem = (item) => (
+  item?.type === 'project' ||
+  Boolean(item?.projectData) ||
+  String(item?.basketId || '').startsWith('checkout_project_')
+);
+
 const getCheckoutItemBasePrice = (item, kit, fees = {}) => {
-  if (item.type === 'project') {
+  if (isProjectCheckoutItem(item)) {
     return toCheckoutNumber(item.projectData?.sellPrice || item.sellPrice || item.price);
   }
 
@@ -440,7 +446,8 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   const { 
     user, reserveStockForCheckout, createOrder, isAdmin, isAdminView,
     removeFromBasket, kits, shelf, uploadReceipt, rates, updateUserProfile,
-    adminsList, fetchAdmins, assignStockToOrder, adminData, garageInfo, setLoginModalOpen
+    adminsList, fetchAdmins, assignStockToOrder, adminData, garageInfo, setLoginModalOpen,
+    updateOrderDetails
   } = useStore();
 
   const [checkoutStep, setCheckoutStep] = useState(1);
@@ -742,7 +749,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
 
   const hasPreOrders = useMemo(() => {
     return checkoutItems.some(item => {
-      if (item.type === 'project') return false;
+      if (isProjectCheckoutItem(item)) return false;
       const itemStatus = (item.status || '').toUpperCase();
       const kit = (kits || []).find(k => k.id === item.id);
       const stockStatus = (kit?.stocks?.[item.stockKey]?.status || '').toUpperCase();
@@ -751,8 +758,20 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   }, [checkoutItems, kits]);
 
   const hasProjects = useMemo(() => {
-    return checkoutItems.some(item => item.type === 'project');
+    return checkoutItems.some(isProjectCheckoutItem);
   }, [checkoutItems]);
+
+  const hasKitItems = useMemo(() => {
+    return checkoutItems.some(item => !isProjectCheckoutItem(item));
+  }, [checkoutItems]);
+
+  const isOrderInvalidForMaintenance = useMemo(() => {
+    if (!isMaintenance) return false;
+    const invalidTypes = storeAdmin?.paymentSettings?.maintenanceInvalidTypes || {};
+    const invalidKits = invalidTypes.kit !== false;
+    const invalidPrints = invalidTypes.prints !== false;
+    return (hasKitItems && invalidKits) || (hasProjects && invalidPrints);
+  }, [isMaintenance, storeAdmin, hasKitItems, hasProjects]);
 
   // Detect if selected suboption is a "Cash On" variant (COD/COP/custom)
   const isCashOnSuboption = useMemo(() => {
@@ -774,12 +793,12 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
 
   const totalAppliedHandlingFee = useMemo(() => orderFees.handling, [orderFees]);
   const projectInstallmentFee = useMemo(() => {
-    return hasProjects ? (checkoutItems.find(item => item.type === 'project')?.appliedInstallmentFee || 0) : 0;
+    return hasProjects ? (checkoutItems.find(isProjectCheckoutItem)?.appliedInstallmentFee || 0) : 0;
   }, [checkoutItems, hasProjects]);
 
   const kitInstallmentFeesTotal = useMemo(() => {
     return checkoutItems
-      .filter(item => item.type !== 'project')
+      .filter(item => !isProjectCheckoutItem(item))
       .reduce((sum, item) => sum + (item.appliedInstallmentFee || 0) * (item.quantity || 1), 0);
   }, [checkoutItems]);
 
@@ -845,14 +864,14 @@ const baseTotal = useMemo(() => {
 
   const minInitialPayment = useMemo(() => {
     const hasStlWithDesignService = checkoutItems.some(item => 
-      item.type === 'project' && 
+      isProjectCheckoutItem(item) && 
       item.projectData?.method?.name?.toUpperCase() === 'STL' && 
       item.projectData?.selectedDesignService
     );
 
     if (hasStlWithDesignService) {
       const sum = checkoutItems.reduce((acc, item) => {
-        if (item.type === 'project' && item.projectData?.method?.name?.toUpperCase() === 'STL' && item.projectData?.selectedDesignService) {
+        if (isProjectCheckoutItem(item) && item.projectData?.method?.name?.toUpperCase() === 'STL' && item.projectData?.selectedDesignService) {
           const serviceId = item.projectData.selectedDesignService;
           const dsRates = rates?.['design-services'] || {};
           const basePrice = Number(dsRates[serviceId]?.basePrice) || 0;
@@ -1531,7 +1550,7 @@ const handleFinalizeOrder = async () => {
         await updateUserProfile(user.uid, buildProfileUpdates());
       }
       
-      await Promise.all(checkoutItems.filter(item => item.type !== 'project').map(async (item) => {
+      await Promise.all(checkoutItems.filter(item => !isProjectCheckoutItem(item)).map(async (item) => {
         const kitRef = doc(db, "kits", item.id);
         const kitSnap = await getDoc(kitRef);
         if (!kitSnap.exists()) throw new Error(`Kit ${item.id} no longer exists.`);
@@ -1557,11 +1576,11 @@ const handleFinalizeOrder = async () => {
       
       const orderId = `#SG-${Math.floor(Math.random() * 9000) + 1000}`;
       const isPreOrder = checkoutItems.some(item => {
-        if (item.type === 'project') return false; // Projects are custom/MTO, not standard stock pre-orders
+        if (isProjectCheckoutItem(item)) return false; // Projects are custom/MTO, not standard stock pre-orders
         const kit = (kits || []).find(k => k.id === item.id);
         return kit?.stocks?.[item.stockKey]?.status === 'PRE-ORDER';
       });
-      const hasProjects = checkoutItems.some(item => item.type === 'project');
+      const hasProjects = checkoutItems.some(isProjectCheckoutItem);
       const initialStatus = isPreOrder ? 'Waiting' : 'Reserved';
       const balanceDueDeadline = isPreOrder
         ? new Date(Date.now() + (14 * 24 * 60 * 60 * 1000)).toISOString()
@@ -1569,7 +1588,7 @@ const handleFinalizeOrder = async () => {
       
       const createdTime = new Date().toISOString();
       const expirationDate = new Date(createdTime);
-      if (isMaintenance) {
+      if (isOrderInvalidForMaintenance) {
         expirationDate.setHours(expirationDate.getHours() + 1);
       } else {
         expirationDate.setDate(expirationDate.getDate() + 1);
@@ -1580,7 +1599,7 @@ const handleFinalizeOrder = async () => {
         orderId,
         userId: user?.uid || null,
         buyerName: checkoutName,
-        isMaintenanceOrder: isMaintenance || false,
+        isMaintenanceOrder: isOrderInvalidForMaintenance || false,
         items: checkoutItems.map(item => ({
           id: item.id,
           name: `${item.brand || ''} ${item.specs?.line || ''} ${item.name}`.trim(),
@@ -1598,9 +1617,9 @@ const handleFinalizeOrder = async () => {
           freeShippingSuboption: item.freeShippingSuboption || 'All',
           // FIX: Prevents undefined crash on projects since they don't use shelf stock keys
           stockKey: item.stockKey || null, 
-          type: item.type || 'kit',
-          projectData: item.type === 'project' ? (item.projectData || null) : null,
-          productionJobs: item.type === 'project' ? (item.projectData?.productionJobs || item.projectData?.projectDetails?.flatMap(detail => detail.productionJobs || []) || []) : []
+          type: isProjectCheckoutItem(item) ? 'project' : 'kit',
+          projectData: isProjectCheckoutItem(item) ? (item.projectData || null) : null,
+          productionJobs: isProjectCheckoutItem(item) ? (item.projectData?.productionJobs || item.projectData?.projectDetails?.flatMap(detail => detail.productionJobs || []) || []) : []
         })),
         status: initialStatus,
         isPreOrder,
@@ -1660,7 +1679,7 @@ const handleFinalizeOrder = async () => {
         minDownpayment: checkoutItems.reduce((acc, item) => acc + Number(item.minDownpayment ?? item.projectData?.minDownpayment ?? 0), 0),
         balanceDueDeadline,
         projectProgress: hasProjects ? checkoutItems.flatMap(item => {
-          if (item.type !== 'project') return [];
+          if (!isProjectCheckoutItem(item)) return [];
           const jobs = item.projectData?.productionJobs || item.projectData?.projectDetails?.flatMap(detail => detail.productionJobs || []) || [];
           return jobs.map((job, idx) => ({
             id: job.id || `${item.basketId || item.id}-bp-${idx + 1}`,
@@ -1688,7 +1707,7 @@ const handleFinalizeOrder = async () => {
       
       if (assignStockToOrder) {
         for (const item of checkoutItems) {
-          if (item.type === 'project') continue;
+          if (isProjectCheckoutItem(item)) continue;
           await assignStockToOrder(item.id, item.stockKey, orderId, { 
             isManualOrder: false,
             orderDocId: docId 
@@ -1749,7 +1768,7 @@ const handleFinalizeOrder = async () => {
 
   const availablePaymentPlans = useMemo(() => {
     const hasStlWithDesignService = checkoutItems.some(item => 
-      item.type === 'project' && 
+      isProjectCheckoutItem(item) && 
       item.projectData?.method?.name?.toUpperCase() === 'STL' && 
       item.projectData?.selectedDesignService
     );
@@ -1769,7 +1788,7 @@ const handleFinalizeOrder = async () => {
       // PERO hindi available kung:
       // - on-hand lang at may Cash On suboption (COD/COP)
       // - ang selected suboption ay may free shipping promo
-      const hasKits = checkoutItems.some(item => item.type !== 'project');
+      const hasKits = checkoutItems.some(item => !isProjectCheckoutItem(item));
       const isCashOnOnhand = hasKits && !hasPreOrders && isCashOnSuboption;
       if (hasKits && !isCashOnOnhand && !isFreeShippingApplied) {
         plans.push('reservation');
@@ -1880,7 +1899,15 @@ const handleFinalizeOrder = async () => {
   if (!isOpen) return null;
 
 
-  const handleCloseModal = () => {
+  const handleCloseModal = async () => {
+    if (checkoutStep === 2 && createdOrderIds.length > 0) {
+      const cancellationTimerStartedAt = new Date().toISOString();
+      try {
+        await Promise.all(createdOrderIds.map(orderId => updateOrderDetails(orderId, { cancellationTimerStartedAt })));
+      } catch (err) {
+        console.error("SG LOG: Failed to start cancellation timer:", err);
+      }
+    }
     onClose();
     if (checkoutStep === 2) navigate('/orders');
     setCheckoutStep(1);
@@ -2796,7 +2823,7 @@ const handleFinalizeOrder = async () => {
                 <h2 className="text-xl md:text-2xl font-black italic uppercase tracking-tighter">Order Reserved</h2>
                 {checkoutData.paymentMethod !== 'Cash' && (
                   <p className="text-[10px] md:text-[11px] font-bold opacity-40 uppercase tracking-widest mt-1">
-                      <CountdownTimer createdAt={orderCreatedAt} isMaintenance={isMaintenance} />
+                      <CountdownTimer createdAt={orderCreatedAt} isMaintenance={isOrderInvalidForMaintenance} />
                   </p>
                 )}
              </div>
@@ -2809,7 +2836,7 @@ const handleFinalizeOrder = async () => {
                   <div className="space-y-2">
                     <h3 className="text-lg font-black uppercase tracking-wider">Cash Payment Selected</h3>
                     <p className="text-sm font-bold text-neutral-600 dark:text-neutral-300 leading-relaxed max-w-md">
-                      {isMaintenance ? (
+                      {isOrderInvalidForMaintenance ? (
                         "The garage is still in maintenance mode, this order is invalid"
                       ) : (
                         "Your order is being prepared, we will notify you when it's ready for pickup."
@@ -2839,7 +2866,7 @@ const handleFinalizeOrder = async () => {
                          )}
                       </div>
                       <div className="p-6 md:p-8 bg-black/5 dark:bg-white/5 rounded-[2rem] md:rounded-[2.5rem] border border-black/5 dark:border-white/10 flex flex-col items-center min-h-[300px] md:min-h-[340px] justify-center">
-                         {isMaintenance ? (
+                         {isOrderInvalidForMaintenance ? (
                            <div className="space-y-4 w-full flex flex-col items-center text-center">
                               <p className="text-[9px] font-black uppercase opacity-60 mb-2">Invalid Order</p>
                               <img src={garageInfo?.logoURL || "https://graph.facebook.com/SnorlaxGarage/picture?type=large"} alt="Brand Logo" className="w-48 h-48 md:w-56 md:h-56 object-contain rounded-2xl bg-white p-2 shadow-sm" />

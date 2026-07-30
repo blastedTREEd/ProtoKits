@@ -1,11 +1,11 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
 import { 
   ClipboardList, Plus, MapPin, Package, PackageOpen, ShieldCheck, X, CheckCircle2, 
   ChevronRight, Clock, Store, Truck, Tag, Trash2, AlertCircle,
-  Camera, Upload, QrCode, ArrowRight, Eye, RefreshCw, Download, ListTodo
+  Camera, Upload, QrCode, ArrowRight, Eye, RefreshCw, Download, ListTodo, Flag
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -26,30 +26,62 @@ function resolveImage(idOrUrl, imagesArray) {
   return match?.url || '';
 }
 
+function toOrderDate(ts) {
+  if (!ts) return null;
+  if (ts.seconds) return new Date(ts.seconds * 1000);
+  const date = new Date(ts);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatOrderDateLabel(ts) {
+  const date = toOrderDate(ts);
+  if (!date) return null;
+  return date.toLocaleDateString('en-PH', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
 function ChangeView({ center }) {
   const map = useMap();
   useEffect(() => { if (center && center[0] && center[1]) map.setView(center, 16); }, [center, map]);
   return null;
 }
 
-function ReservationTimer({ createdAt, expiresAt, onExpire }) {
+function ReservationTimer({ createdAt, expiresAt, onExpire, compact = false, durationMs, variant = 'warning' }) {
   const [timeLeft, setTimeLeft] = useState('');
+  const hasExpiredRef = useRef(false);
   useEffect(() => {
     const calculateTime = () => {
       if (!createdAt) return;
       const start = createdAt.seconds ? createdAt.seconds * 1000 : new Date(createdAt).getTime();
-      const end = expiresAt 
+      const end = durationMs
+        ? start + durationMs
+        : expiresAt
         ? (expiresAt.seconds ? expiresAt.seconds * 1000 : new Date(expiresAt).getTime())
         : (start + (60 * 60 * 1000));
       const now = new Date().getTime();
       const diff = end - now;
-      if (diff <= 0) { setTimeLeft('EXPIRED'); if (onExpire) onExpire(); return; }
+      if (diff <= 0) {
+        setTimeLeft(compact ? '00:00' : 'EXPIRED');
+        if (!hasExpiredRef.current) {
+          hasExpiredRef.current = true;
+          if (onExpire) onExpire();
+        }
+        return;
+      }
       
       const hours = Math.floor(diff / (1000 * 60 * 60));
       const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
       const secs = Math.floor((diff % (1000 * 60)) / 1000);
       
-      if (hours > 0) {
+      if (compact) {
+        const totalMins = Math.floor(diff / (1000 * 60));
+        setTimeLeft(`${totalMins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
+      } else if (hours > 0) {
         setTimeLeft(`${hours}h ${mins}m ${secs}s`);
       } else {
         setTimeLeft(`${mins}:${secs.toString().padStart(2, '0')}`);
@@ -58,36 +90,66 @@ function ReservationTimer({ createdAt, expiresAt, onExpire }) {
     calculateTime();
     const interval = setInterval(calculateTime, 1000);
     return () => clearInterval(interval);
-  }, [createdAt, expiresAt, onExpire]);
+  }, [createdAt, expiresAt, onExpire, compact, durationMs]);
+  if (compact) {
+    const isInvalid = variant === 'invalid';
+    return (
+      <span className={`inline-flex items-center gap-1 text-[12px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider border leading-none whitespace-nowrap ${
+        isInvalid
+          ? 'bg-red-500/15 text-red-500 border-red-500/20'
+          : 'bg-amber-500/15 text-amber-600 border-amber-500/20'
+      }`}>
+        {isInvalid ? <Flag size={12} className="fill-current" /> : <Clock size={12} />}
+        {timeLeft}
+      </span>
+    );
+  }
   return <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-500/10 text-amber-500 rounded-full"><Clock size={12} /><span className="text-[10px] font-black tracking-widest">{timeLeft}</span></div>;
 }
 
-function DeletionTimer({ completedAt, onExpire }) {
+const CANCELLED_ORDER_DELETE_WINDOW_MS = 10 * 60 * 1000;
+
+function DeletionTimer({ completedAt, onExpire, onDelete }) {
   const [timeLeft, setTimeLeft] = useState('');
+  const [fallbackStart] = useState(() => Date.now());
+  const hasExpiredRef = useRef(false);
   useEffect(() => {
     const calculateTime = () => {
-      if (!completedAt) return;
-      const start = completedAt.seconds ? completedAt.seconds * 1000 : new Date(completedAt).getTime();
-      const end = start + 60000; // 1 minute
+      const timestampStart = completedAt?.seconds ? completedAt.seconds * 1000 : new Date(completedAt).getTime();
+      const hasValidTimestamp = !Number.isNaN(timestampStart);
+      const timestampEnd = timestampStart + CANCELLED_ORDER_DELETE_WINDOW_MS;
+      const start = hasValidTimestamp && timestampEnd > Date.now() ? timestampStart : fallbackStart;
+      const end = start + CANCELLED_ORDER_DELETE_WINDOW_MS;
       const now = Date.now();
       const diff = end - now;
       if (diff <= 0) {
-        setTimeLeft('Deleting...');
-        if (onExpire) onExpire();
+        setTimeLeft('00:00');
+        if (!hasExpiredRef.current) {
+          hasExpiredRef.current = true;
+          if (onExpire) onExpire();
+        }
         return;
       }
-      const secs = Math.ceil(diff / 1000);
-      setTimeLeft(`Deleting in ${secs}s`);
+      const totalSecs = Math.ceil(diff / 1000);
+      const mins = Math.floor(totalSecs / 60);
+      const secs = totalSecs % 60;
+      setTimeLeft(`${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
     };
     calculateTime();
     const interval = setInterval(calculateTime, 1000);
     return () => clearInterval(interval);
-  }, [completedAt, onExpire]);
+  }, [completedAt, fallbackStart, onExpire]);
   
   return (
-    <span className="text-[9px] font-black px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-600 uppercase tracking-wider border border-amber-500/20 animate-pulse whitespace-nowrap">
+    <button
+      type="button"
+      onClick={onDelete}
+      className="inline-flex items-center gap-1 text-[12px] font-black px-2 py-0.5 rounded-md bg-red-500/15 text-red-500 uppercase tracking-wider border border-red-500/20 leading-none animate-pulse whitespace-nowrap"
+      title="Delete order"
+    >
+      <Trash2 size={12} />
       {timeLeft}
-    </span>
+    </button>
   );
 }
 
@@ -225,6 +287,8 @@ export default function Orders() {
     handlingFee: 0, 
     transferFee: 0 
   });
+  const isMaintenance = shippingSettings?.paymentSettings?.maintenanceMode === true;
+  const isKitInvalidDuringMaintenance = isMaintenance && shippingSettings?.paymentSettings?.maintenanceInvalidTypes?.kit !== false;
 
   useEffect(() => {
     loadPrintResources();
@@ -240,12 +304,10 @@ export default function Orders() {
     const now = Date.now();
     orders.forEach(async (o) => {
       if (o.status === 'Reserved' && !o.receipt) {
-        const createdAt = o.createdAt;
-        if (createdAt) {
-          const start = createdAt.seconds ? createdAt.seconds * 1000 : new Date(createdAt).getTime();
-          const end = o.expiresAt 
-            ? (o.expiresAt.seconds ? o.expiresAt.seconds * 1000 : new Date(o.expiresAt).getTime())
-            : (start + (60 * 60 * 1000));
+        const timerStartedAt = o.cancellationTimerStartedAt;
+        if (timerStartedAt) {
+          const start = timerStartedAt.seconds ? timerStartedAt.seconds * 1000 : new Date(timerStartedAt).getTime();
+          const end = start + (60 * 60 * 1000);
           if (now >= end) {
             console.log(`SG LOG: Silently cancelling expired order ${o.orderId} in background`);
             try {
@@ -321,6 +383,31 @@ export default function Orders() {
     return Math.max(0, priceToUse + sFee + hFee + tFee - discount - paid);
   }, []);
 
+  const getTargetTabForOrder = useCallback((order, patch = {}) => {
+    if (!order) return null;
+    const nextOrder = { ...order, ...patch };
+    const status = nextOrder.status;
+    const method = String(nextOrder.shippingMethod || '').toUpperCase();
+    const isLBC = method.includes('LBC');
+    const balance = calculateBalance(nextOrder);
+
+    if (status === 'Cancelled') return 'cancelled';
+    if (status === 'Completed') return 'completed';
+    if (status === 'Waiting') return 'to_follow';
+    if (['Shipped', 'Dispatched', 'In Transit'].includes(status)) return 'to_receive';
+    if (['Reserved', 'Validating'].includes(status)) return isAdminMode ? 'to_validate' : 'to_pay';
+    if (status === 'Arrived' && !isLBC && balance > 0) return isAdminMode ? 'to_validate' : 'to_pay';
+    if ((isLBC || balance <= 0) && ['Preparing', 'Ready for Pickup', 'Ready for Meetup', 'Arrived', 'To Ship'].includes(status)) return 'to_ship';
+    if (['Preparing', 'Ready for Pickup', 'Ready for Meetup', 'To Ship'].includes(status)) return 'to_ship';
+
+    return null;
+  }, [calculateBalance, isAdminMode]);
+
+  const moveOrderToTargetTab = useCallback((order, patch = {}) => {
+    const targetTab = getTargetTabForOrder(order, patch);
+    if (targetTab) setActiveTab(targetTab);
+  }, [getTargetTabForOrder]);
+
   const availableStocks = useMemo(() => {
     if (!manualOrderData.selectedKitId || !kits) return [];
     const kit = kits.find(k => k.id === manualOrderData.selectedKitId);
@@ -343,7 +430,23 @@ export default function Orders() {
     };
     reader.readAsDataURL(file);
   };
-  const handleConfirmReceipt = async (order) => { if (!previewUrl) return; setIsUploading(true); try { await uploadReceipt(order.id, previewUrl); alert("Uploaded!"); if (selectedOrder?.id === order.id) setSelectedOrder(prev => ({ ...prev, receipt: previewUrl, status: 'Validating' })); setPreviewUrl(null); } catch (e) { console.error(e); alert("Failed."); } finally { setIsUploading(false); } };
+  const handleConfirmReceipt = async (order) => {
+    if (!previewUrl) return;
+    setIsUploading(true);
+    try {
+      const patch = { receipt: previewUrl, status: 'Validating' };
+      await uploadReceipt(order.id, previewUrl);
+      alert("Uploaded!");
+      moveOrderToTargetTab(order, patch);
+      if (selectedOrder?.id === order.id) setSelectedOrder(prev => ({ ...prev, ...patch }));
+      setPreviewUrl(null);
+    } catch (e) {
+      console.error(e);
+      alert("Failed.");
+    } finally {
+      setIsUploading(false);
+    }
+  };
   const handleSaveShippingDetails = async () => {
     if (!selectedOrder) return;
     if (selectedShippingFlags.needsTracking && !String(trackingRef || '').trim()) {
@@ -359,6 +462,7 @@ export default function Orders() {
     await updateOrderDetails(selectedOrder.id, patch);
     await updateOrderStatus(selectedOrder.id, 'In Transit');
     alert("Saved!");
+    moveOrderToTargetTab(selectedOrder, { ...patch, status: 'In Transit' });
     setSelectedOrder(prev => ({ ...prev, ...patch, status: 'In Transit' }));
   };
 
@@ -456,6 +560,7 @@ export default function Orders() {
       try {
         await updateOrderStatus(selectedOrder.id, nextStatus);
         alert(`Order marked as ${nextStatus}!`);
+        moveOrderToTargetTab(selectedOrder, { status: nextStatus });
         setSelectedOrder(prev => ({ ...prev, status: nextStatus }));
       } catch (e) {
         console.error(e);
@@ -470,6 +575,7 @@ export default function Orders() {
       try {
         await updateOrderStatus(selectedOrder.id, 'In Transit');
         alert("Order marked as In Transit!");
+        moveOrderToTargetTab(selectedOrder, { status: 'In Transit' });
         setSelectedOrder(prev => ({ ...prev, status: 'In Transit' }));
       } catch (e) {
         console.error(e);
@@ -485,9 +591,10 @@ export default function Orders() {
     if (selectedOrder.isMaintenanceOrder) {
       try {
         const orderId = selectedOrder.id;
+        moveOrderToTargetTab(selectedOrder, { status: 'Completed' });
         setSelectedOrder(null);
         await updateOrderStatus(orderId, 'Completed');
-        setToastMessage("Invalid order moved to Completed. It will be deleted in 1 minute.");
+        setToastMessage("Invalid order moved to Completed. It will be deleted in 10 minutes.");
         
         setTimeout(async () => {
           try {
@@ -496,7 +603,7 @@ export default function Orders() {
           } catch (err) {
             console.error("SG LOG: Delayed delete failed:", err);
           }
-        }, 60000);
+        }, CANCELLED_ORDER_DELETE_WINDOW_MS);
       } catch (e) {
         console.error(e);
         setToastMessage("Failed to complete invalid order.");
@@ -511,6 +618,7 @@ export default function Orders() {
       try {
         await updateOrderStatus(selectedOrder.id, 'Completed');
         alert(isAdminMode ? "Order marked as Completed!" : "Order receipt confirmed!");
+        moveOrderToTargetTab(selectedOrder, { status: 'Completed' });
         setSelectedOrder(prev => ({ ...prev, status: 'Completed' }));
       } catch (e) {
         console.error(e);
@@ -533,7 +641,7 @@ export default function Orders() {
     
     const createdTime = new Date().toISOString();
     const expirationDate = new Date(createdTime);
-    if (isMaintenance) {
+    if (isKitInvalidDuringMaintenance) {
       expirationDate.setHours(expirationDate.getHours() + 1);
     } else {
       expirationDate.setDate(expirationDate.getDate() + 1);
@@ -548,7 +656,7 @@ export default function Orders() {
       status: "Reserved", 
       isPreOrder: stock.status === 'PRE-ORDER', 
       isManualOrder: true, 
-      isMaintenanceOrder: isMaintenance || false,
+      isMaintenanceOrder: isKitInvalidDuringMaintenance || false,
       shippingMethod: shippingMethod === 'Seller Meetup' ? `Meetup: ${meetupLocation}` : shippingMethod, 
       shippingFee: Number(shippingFee) || 0, 
       handlingFee: Number(handlingFee) || 0, 
@@ -566,7 +674,16 @@ export default function Orders() {
     setShowManualOrderModal(false); 
     setManualOrderData({ buyerUid: '', newBuyerName: '', selectedKitId: '', selectedStockKey: '', buyerPaid: 0, shippingMethod: 'LBC COP/COD', meetupLocation: '', shippingFee: 0, handlingFee: 0, transferFee: 0 }); 
   };
-  const handleRequestBalance = async (orderId) => { if (window.confirm("Request balance?")) { await updateOrderDetails(orderId, { status: 'Arrived', receipt: null }); if (selectedOrder?.id === orderId) setSelectedOrder(prev => ({ ...prev, status: 'Arrived', receipt: null })); } };
+  const handleRequestBalance = async (orderId) => {
+    if (window.confirm("Request balance?")) {
+      const patch = { status: 'Arrived', receipt: null };
+      await updateOrderDetails(orderId, patch);
+      if (selectedOrder?.id === orderId) {
+        moveOrderToTargetTab(selectedOrder, patch);
+        setSelectedOrder(prev => ({ ...prev, ...patch }));
+      }
+    }
+  };
   const handleConfirmPayment = async (order) => {
     const isSecondPaymentPending = order.items?.some(item => 
       item.type === 'project' && 
@@ -591,6 +708,7 @@ export default function Orders() {
       }
       const newStatus = order.shippingMethod?.toUpperCase().includes('LBC') ? 'To Ship' : 'Preparing';
       await updateOrderStatus(order.id, newStatus);
+      moveOrderToTargetTab(order, { status: newStatus, buyerPaid: (Number(order.buyerPaid) || 0) + amount, ...extraFields });
       if (selectedOrder?.id === order.id) {
         setSelectedOrder(prev => ({
           ...prev,
@@ -601,9 +719,20 @@ export default function Orders() {
       }
     }
   };
-  const handleCancelOrder = async (orderId) => { if (window.confirm("Cancel order?")) { await cancelOrder(orderId); setSelectedOrder(null); } };
+  const handleCancelOrder = async (orderId) => {
+    if (window.confirm("Cancel order?")) {
+      if (selectedOrder?.id === orderId) {
+        moveOrderToTargetTab(selectedOrder, { status: 'Cancelled' });
+      }
+      await cancelOrder(orderId);
+      setSelectedOrder(null);
+    }
+  };
   const handleSilentCancelOrder = useCallback(async (orderId) => {
     try {
+      if (selectedOrder?.id === orderId) {
+        moveOrderToTargetTab(selectedOrder, { status: 'Cancelled' });
+      }
       await cancelOrder(orderId);
       if (selectedOrder?.id === orderId) {
         setSelectedOrder(null);
@@ -611,7 +740,18 @@ export default function Orders() {
     } catch (err) {
       console.error("SG LOG: Silent cancel error:", err);
     }
-  }, [cancelOrder, selectedOrder]);
+  }, [cancelOrder, moveOrderToTargetTab, selectedOrder]);
+  const handleDeleteOrderNow = useCallback(async (orderId) => {
+    try {
+      await deleteOrder(orderId);
+      if (selectedOrder?.id === orderId) {
+        setSelectedOrder(null);
+      }
+    } catch (err) {
+      console.error("SG LOG: Delete order error:", err);
+      setToastMessage("Failed to delete order.");
+    }
+  }, [deleteOrder, selectedOrder, setToastMessage]);
   const handleDeleteOrder = async (e, orderId) => { e.stopPropagation(); if (window.confirm("DELETE record?")) { await deleteOrder(orderId); if (selectedOrder?.id === orderId) setSelectedOrder(null); } };
   const getShippingFlags = (order) => {
     const method = String(order?.shippingMethod || '').toUpperCase();
@@ -726,6 +866,11 @@ export default function Orders() {
   const selectedShippingFlags = selectedOrder ? getShippingFlags(selectedOrder) : {};
   const selectedLogistics = selectedOrder ? getBuyerAddressDetails(selectedOrder) : {};
   const selectedTotals = selectedOrder ? getOrderTotals(selectedOrder) : {};
+  const selectedOrderCancelledLabel = selectedOrder?.status === 'Cancelled'
+    ? formatOrderDateLabel(selectedOrder.cancelledAt || selectedOrder.expiresAt)
+    : null;
+  const selectedOrderDateLabel = selectedOrderCancelledLabel || formatOrderDateLabel(selectedOrder?.createdAt) || selectedOrder?.date;
+  const selectedOrderDatePrefix = selectedOrderCancelledLabel ? 'Cancelled' : 'Created';
 
   const hasStlWithDesignService = selectedOrder?.items?.some(item => 
     item.type === 'project' && 
@@ -737,7 +882,6 @@ export default function Orders() {
   const canCustomerCancel = Boolean(selectedOrder && !isAdminMode && !selectedOrder.receipt && selectedOrder.status !== 'Cancelled');
   const canAdminCancel = Boolean(selectedOrder && isAdminMode && selectedOrder.status !== 'Cancelled');
   const showPaymentQr = Boolean(selectedOrder && !isAdminMode && selectedTotals.balance > 0 && !selectedOrder.receipt);
-  const isMaintenance = shippingSettings?.paymentSettings?.maintenanceMode === true;
   // isMaintenanceOrder is stored on the order itself — stays true even after maintenance is lifted
   const isOrderFromMaintenance = Boolean(selectedOrder?.isMaintenanceOrder);
   const brandLogoUrl = garageInfo?.logoURL || "https://graph.facebook.com/SnorlaxGarage/picture?type=large";
@@ -781,23 +925,23 @@ export default function Orders() {
                   .reduce((sum, item) => sum + (Number(item.quantity) || 1), 0);
                 const includedCount = kitCount || orderItems.reduce((sum, item) => sum + (Number(item.quantity) || 1), 0);
 
-                // Helper: Firestore Timestamp or ISO string → Date
-                const tsToDate = (ts) => {
-                  if (!ts) return null;
-                  if (ts.seconds) return new Date(ts.seconds * 1000);
-                  const d = new Date(ts);
-                  return isNaN(d) ? null : d;
-                };
-                const fmtDate = (ts) => {
-                  const d = tsToDate(ts);
-                  if (!d) return null;
-                  return d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-                };
-
-                const createdLabel  = fmtDate(o.createdAt);
+                const createdLabel  = formatOrderDateLabel(o.createdAt);
                 const cancelledLabel = o.status === 'Cancelled'
-                  ? fmtDate(o.cancelledAt || o.expiresAt)
+                  ? formatOrderDateLabel(o.cancelledAt || o.expiresAt)
                   : null;
+                const dateLabel = cancelledLabel || createdLabel;
+                const datePrefix = cancelledLabel ? 'Cancelled' : 'Created';
+                const isValidToPayOrder = activeTab === 'to_pay' && !o.isMaintenanceOrder;
+                const showReceiptStatusTag = isValidToPayOrder && Boolean(o.receipt);
+                const showCancelTimerTag = isValidToPayOrder && !o.receipt && Boolean(o.cancellationTimerStartedAt);
+                const invalidCancellationStart = o.cancellationTimerStartedAt || o.createdAt;
+                const statusTagClass = o.status === 'Cancelled'
+                  ? 'bg-red-500/15 text-red-500 border-red-500/20'
+                  : o.status === 'Completed'
+                    ? 'bg-emerald-500/15 text-emerald-600 border-emerald-500/20'
+                    : ['Shipped', 'Dispatched', 'In Transit'].includes(o.status)
+                      ? 'bg-purple-500/15 text-purple-500 border-purple-500/20'
+                      : 'bg-blue-500/15 text-blue-600 border-blue-500/20';
 
                 return (
                   <div
@@ -874,18 +1018,10 @@ export default function Orders() {
                         </div>
 
                         {/* Row 2: Date */}
-                        {createdLabel && (
+                        {dateLabel && (
                           <div className="min-w-0">
-                            <p className="text-[13px] font-bold uppercase leading-none">
-                              Created {createdLabel}
-                            </p>
-                          </div>
-                        )}
-
-                        {cancelledLabel && (
-                          <div className="flex flex-col gap-0.5">
-                            <p className="text-[12px] font-bold text-red-400">
-                              <span className="opacity-70 mr-1">Cancelled</span>{cancelledLabel}
+                            <p className={`text-[13px] font-bold uppercase leading-none ${cancelledLabel ? 'text-red-400' : ''}`}>
+                              {datePrefix} {dateLabel}
                             </p>
                           </div>
                         )}
@@ -894,9 +1030,6 @@ export default function Orders() {
                       <div className="space-y-1">
                         {/* Row 3: Shipping method */}
                         <div className="flex flex-wrap items-center gap-1.5">
-                          {o.isMaintenanceOrder && ['Completed', 'Cancelled'].includes(o.status) && (
-                            <DeletionTimer completedAt={o.completedAt || o.cancelledAt || o.lastUpdated} />
-                          )}
                           <span className="text-[12px] font-black px-2 py-0.5 rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400 uppercase tracking-wider">
                             {o.shippingMethod || '—'}
                           </span>
@@ -928,11 +1061,49 @@ export default function Orders() {
                     </div>
 
                     {/* Included count + total */}
-                    <div className="shrink-0 flex min-h-20 w-28 items-stretch justify-end gap-2 self-stretch sm:w-36 md:min-h-24">
+                    <div className="shrink-0 flex min-h-20 w-44 items-stretch justify-end gap-2 self-stretch sm:w-48 md:min-h-24">
                       <div className="flex w-full flex-col items-end justify-between gap-2 text-right">
-                        {o.isMaintenanceOrder && (
-                          <span className="inline-block text-[12px] font-black px-2 py-0.5 rounded-md bg-red-500/15 text-red-500 uppercase tracking-wider border border-red-500/20 leading-none">
-                            Invalid Order
+                        {o.isMaintenanceOrder && o.status === 'Cancelled' ? (
+                          <DeletionTimer
+                            completedAt={o.completedAt || o.cancelledAt || o.lastUpdated}
+                            onExpire={() => handleDeleteOrderNow(o.id)}
+                            onDelete={(e) => {
+                              e.stopPropagation();
+                              handleDeleteOrderNow(o.id);
+                            }}
+                          />
+                        ) : o.isMaintenanceOrder ? (
+                          <div className="flex flex-col items-end gap-1">
+                            <span className="inline-block text-[12px] font-black px-2 py-0.5 rounded-md bg-red-500/15 text-red-500 uppercase tracking-wider border border-red-500/20 leading-none whitespace-nowrap">
+                              {o.status}
+                            </span>
+                            <ReservationTimer
+                              compact
+                              variant="invalid"
+                              createdAt={invalidCancellationStart}
+                              durationMs={60 * 60 * 1000}
+                              onExpire={() => handleSilentCancelOrder(o.id)}
+                            />
+                          </div>
+                        ) : showReceiptStatusTag ? (
+                          <span className={`inline-block text-[12px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider border leading-none whitespace-nowrap ${statusTagClass}`}>
+                            {o.status}
+                          </span>
+                        ) : showCancelTimerTag ? (
+                          <div className="flex flex-col items-end gap-1">
+                            <span className={`inline-block text-[12px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider border leading-none whitespace-nowrap ${statusTagClass}`}>
+                              {o.status}
+                            </span>
+                            <ReservationTimer
+                              compact
+                              createdAt={o.cancellationTimerStartedAt}
+                              durationMs={60 * 60 * 1000}
+                              onExpire={() => handleSilentCancelOrder(o.id)}
+                            />
+                          </div>
+                        ) : (
+                          <span className={`inline-block text-[12px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider border leading-none whitespace-nowrap ${statusTagClass}`}>
+                            {o.status}
                           </span>
                         )}
                         <div className="flex flex-col items-end gap-1">
@@ -1034,16 +1205,31 @@ export default function Orders() {
                 <div>
                   <div className="flex items-center gap-3">
                     <h2 className="text-xl font-black uppercase italic tracking-tight">{selectedOrder.orderId}</h2>
-                    {selectedOrder.status === 'Reserved' && !selectedOrder.receipt && (
+                    {selectedOrder.status === 'Reserved' && !selectedOrder.receipt && selectedOrder.cancellationTimerStartedAt && (
                       <div className="px-3 py-1 bg-amber-500/10 text-amber-600 rounded-full text-[10px] font-black uppercase tracking-widest">
-                        <ReservationTimer createdAt={selectedOrder.createdAt} expiresAt={selectedOrder.expiresAt} onExpire={() => handleSilentCancelOrder(selectedOrder.id)} />
+                        <ReservationTimer
+                          createdAt={selectedOrder.cancellationTimerStartedAt}
+                          durationMs={60 * 60 * 1000}
+                          onExpire={() => handleSilentCancelOrder(selectedOrder.id)}
+                        />
                       </div>
                     )}
                     {selectedOrder.isMaintenanceOrder && ['Completed', 'Cancelled'].includes(selectedOrder.status) && (
-                      <DeletionTimer completedAt={selectedOrder.completedAt || selectedOrder.cancelledAt || selectedOrder.lastUpdated} onExpire={() => setSelectedOrder(null)} />
+                      <DeletionTimer
+                        completedAt={selectedOrder.completedAt || selectedOrder.cancelledAt || selectedOrder.lastUpdated}
+                        onExpire={() => handleDeleteOrderNow(selectedOrder.id)}
+                        onDelete={(e) => {
+                          e.stopPropagation();
+                          handleDeleteOrderNow(selectedOrder.id);
+                        }}
+                      />
                     )}
                   </div>
-                  <p className="text-[10px] font-black uppercase opacity-40 tracking-widest">{selectedOrder.date}</p>
+                  {selectedOrderDateLabel && (
+                    <p className={`text-[10px] font-black uppercase tracking-widest ${selectedOrderCancelledLabel ? 'text-red-400 opacity-100' : 'opacity-40'}`}>
+                      {selectedOrderDatePrefix} {selectedOrderDateLabel}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -1608,6 +1794,7 @@ export default function Orders() {
                           try {
                             const patch = { designFinalized: true, receipt: null, status: 'Waiting' };
                             await updateOrderDetails(selectedOrder.id, patch);
+                            moveOrderToTargetTab(selectedOrder, patch);
                             setSelectedOrder(prev => ({ ...prev, ...patch }));
                             alert("Design marked as finalized! Print downpayment requested.");
                           } catch (err) {

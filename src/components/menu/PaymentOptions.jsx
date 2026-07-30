@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CreditCard, Wallet, Plus, Upload, X, BadgeDollarSign, Trash2 } from 'lucide-react';
+import { CreditCard, Wallet, Plus, Upload, X, BadgeDollarSign, Trash2, Package, Printer } from 'lucide-react';
 
 export default function PaymentOptions({
   paymentSettings,
@@ -93,6 +93,31 @@ export default function PaymentOptions({
             <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-300 ${paymentSettings?.maintenanceMode ? 'translate-x-7' : 'translate-x-0'}`} />
           </button>
         </div>
+        {paymentSettings?.maintenanceMode && (
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { id: 'kit', label: 'Kit' },
+              { id: 'prints', label: 'Prints' }
+            ].map(({ id, label }) => {
+              const isActive = paymentSettings?.maintenanceInvalidTypes?.[id] !== false;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => updatePaymentData('maintenanceInvalidTypes', id, !isActive)}
+                  className={`flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-[10px] font-black uppercase tracking-widest transition-all border ${
+                    isActive
+                      ? 'bg-red-500/10 text-red-500 border-red-500/20 shadow-lg shadow-red-500/5'
+                      : 'bg-black/5 dark:bg-white/5 text-neutral-400 border-transparent'
+                  }`}
+                >
+                  {id === 'kit' ? <Package size={14} /> : <Printer size={14} />}
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div className="space-y-4">
