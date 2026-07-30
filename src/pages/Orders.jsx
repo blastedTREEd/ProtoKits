@@ -939,14 +939,7 @@ export default function Orders() {
                   .reduce((sum, item) => sum + (Number(item.quantity) || 1), 0);
                 const includedCount = kitCount || orderItems.reduce((sum, item) => sum + (Number(item.quantity) || 1), 0);
 
-                const createdLabel  = formatOrderDateLabel(o.createdAt);
-                const cancelledLabel = o.status === 'Cancelled'
-                  ? formatOrderDateLabel(o.cancelledAt || o.expiresAt)
-                  : null;
-                const dateLabel = cancelledLabel || createdLabel;
-                const datePrefix = cancelledLabel ? 'Cancelled' : 'Created';
                 const isValidToPayOrder = activeTab === 'to_pay' && !o.isMaintenanceOrder;
-                const showReceiptStatusTag = isValidToPayOrder && Boolean(o.receipt);
                 const showCancelTimerTag = isValidToPayOrder && !o.receipt && Boolean(o.cancellationTimerStartedAt);
                 const invalidCancellationStart = o.cancellationTimerStartedAt || o.createdAt;
                 const statusTagClass = o.status === 'Cancelled'
@@ -956,6 +949,39 @@ export default function Orders() {
                     : ['Shipped', 'Dispatched', 'In Transit'].includes(o.status)
                       ? 'bg-purple-500/15 text-purple-500 border-purple-500/20'
                       : 'bg-blue-500/15 text-blue-600 border-blue-500/20';
+                const shippingMethodLabel = String(o.shippingMethod || '')
+                  .replace(/\s*\([^)]*\)/g, '')
+                  .split(':')[0]
+                  .trim() || 'N/A';
+                const orderStatusIndicator = o.isMaintenanceOrder && o.status === 'Cancelled' ? (
+                  <DeletionTimer
+                    completedAt={o.completedAt || o.cancelledAt || o.lastUpdated}
+                    onExpire={() => handleDeleteOrderNow(o.id)}
+                    onDelete={(e) => {
+                      e.stopPropagation();
+                      handleDeleteOrderNow(o.id);
+                    }}
+                  />
+                ) : o.isMaintenanceOrder && !o.receipt ? (
+                  <ReservationTimer
+                    compact
+                    variant="invalid"
+                    createdAt={invalidCancellationStart}
+                    durationMs={60 * 60 * 1000}
+                    onExpire={() => handleSilentCancelOrder(o.id)}
+                  />
+                ) : showCancelTimerTag ? (
+                  <ReservationTimer
+                    compact
+                    createdAt={o.cancellationTimerStartedAt}
+                    durationMs={60 * 60 * 1000}
+                    onExpire={() => handleSilentCancelOrder(o.id)}
+                  />
+                ) : (
+                  <span className={`inline-block text-[12px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider border leading-none whitespace-nowrap ${statusTagClass}`}>
+                    {o.status}
+                  </span>
+                );
 
                 return (
                   <div
@@ -1024,45 +1050,40 @@ export default function Orders() {
                     {/* Main content */}
                     <div className="flex-1 flex min-h-20 min-w-0 flex-col justify-between gap-2 md:min-h-24">
                       <div className="space-y-1">
-                        {/* Row 1: Order ID */}
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-1.5 leading-none">
-                            <span className="font-black text-[16px] text-blue-600 uppercase italic leading-none">{o.orderId}</span>
+                        {/* Row 1: Order ID + status */}
+                        <div className="flex min-w-0 items-start justify-between gap-3">
+                          <div className="min-w-0 leading-none">
+                            <span className="whitespace-nowrap font-black text-[16px] text-blue-600 uppercase italic leading-none">{o.orderId}</span>
                           </div>
                         </div>
 
-                        {/* Row 2: Date */}
-                        {dateLabel && (
-                          <div className="min-w-0">
-                            <p className={`text-[13px] font-bold uppercase leading-none ${cancelledLabel ? 'text-red-400' : ''}`}>
-                              {datePrefix} {dateLabel}
-                            </p>
-                          </div>
-                        )}
                       </div>
 
                       <div className="space-y-1">
                         {/* Row 3: Shipping method */}
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-[12px] font-black px-2 py-0.5 rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400 uppercase tracking-wider">
-                            {o.shippingMethod || '—'}
+                          <span className="inline-flex whitespace-nowrap text-[12px] font-black px-2 py-0.5 rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400 uppercase tracking-wider">
+                            {shippingMethodLabel}
                           </span>
                         </div>
 
-                        {/* Row 4: Payment plan + method */}
+                        {/* Row 4: Payment plan */}
                         <div className="flex flex-wrap items-center gap-1.5">
                           {o.paymentPlan && o.paymentPlan !== 'full' ? (
-                            <span className="text-[12px] font-black px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-500 uppercase tracking-wider">
+                            <span className="inline-flex whitespace-nowrap text-[12px] font-black px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-500 uppercase tracking-wider">
                               {o.paymentPlan === 'partial' ? 'Partial' : o.paymentPlan === 'reservation' ? 'Reservation' : 'Installment'}
                             </span>
                           ) : (
-                            <span className="text-[12px] font-black px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 uppercase tracking-wider">
+                            <span className="inline-flex whitespace-nowrap text-[12px] font-black px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 uppercase tracking-wider">
                               Full Pay
                             </span>
                           )}
-                          {/* Payment Method */}
+                        </div>
+
+                        {/* Row 5: Payment method */}
+                        <div className="flex flex-wrap items-center gap-1.5">
                           {o.paymentMethod && (
-                            <span className={`text-[12px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider ${
+                            <span className={`inline-flex whitespace-nowrap text-[12px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider ${
                               o.paymentMethod === 'GCash' ? 'bg-blue-500/10 text-blue-500' :
                               o.paymentMethod === 'Cash'  ? 'bg-amber-500/10 text-amber-600' :
                               'bg-neutral-500/10 text-neutral-500'
@@ -1075,45 +1096,11 @@ export default function Orders() {
                     </div>
 
                     {/* Included count + total */}
-                    <div className="shrink-0 flex min-h-20 w-44 items-stretch justify-end gap-2 self-stretch sm:w-48 md:min-h-24">
+                    <div className="shrink-0 flex min-h-20 w-24 items-stretch justify-end gap-2 self-stretch sm:w-36 md:min-h-24 md:w-48">
                       <div className="flex w-full flex-col items-end justify-between gap-2 text-right">
-                        {o.isMaintenanceOrder && o.status === 'Cancelled' ? (
-                          <DeletionTimer
-                            completedAt={o.completedAt || o.cancelledAt || o.lastUpdated}
-                            onExpire={() => handleDeleteOrderNow(o.id)}
-                            onDelete={(e) => {
-                              e.stopPropagation();
-                              handleDeleteOrderNow(o.id);
-                            }}
-                          />
-                        ) : o.isMaintenanceOrder && !o.receipt ? (
-                          <div className="flex flex-col items-end gap-1">
-                            <ReservationTimer
-                              compact
-                              variant="invalid"
-                              createdAt={invalidCancellationStart}
-                              durationMs={60 * 60 * 1000}
-                              onExpire={() => handleSilentCancelOrder(o.id)}
-                            />
-                          </div>
-                        ) : showReceiptStatusTag ? (
-                          <span className={`inline-block text-[12px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider border leading-none whitespace-nowrap ${statusTagClass}`}>
-                            {o.status}
-                          </span>
-                        ) : showCancelTimerTag ? (
-                          <div className="flex flex-col items-end gap-1">
-                            <ReservationTimer
-                              compact
-                              createdAt={o.cancellationTimerStartedAt}
-                              durationMs={60 * 60 * 1000}
-                              onExpire={() => handleSilentCancelOrder(o.id)}
-                            />
-                          </div>
-                        ) : (
-                          <span className={`inline-block text-[12px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider border leading-none whitespace-nowrap ${statusTagClass}`}>
-                            {o.status}
-                          </span>
-                        )}
+                        <div className="flex flex-col items-end gap-1">
+                          {orderStatusIndicator}
+                        </div>
                         <div className="flex flex-col items-end gap-1">
                           <p className="rounded-md bg-orange-500/10 px-2 py-0.5 text-[14px] font-black uppercase tracking-widest text-orange-600 dark:text-orange-400 leading-none">
                             {includedCount} {includedCount === 1 ? 'Kit' : 'Kits'}
