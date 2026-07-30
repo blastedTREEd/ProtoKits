@@ -212,7 +212,7 @@ export default function Orders() {
     setIsMultiSelectEnabled(false);
   }, [activeTab]);
 
-  // Auto-deletion ng cancelled orders maliban sa Cash o Installments pagkatapos ng 24 oras
+  // Periodically releases stock for cancelled orders while retaining cancelled records.
   useEffect(() => {
     if (!user) return undefined;
     
@@ -653,6 +653,20 @@ export default function Orders() {
       userId: targetUid, 
       buyerName: buyerUid ? (usersList.find(u => u.uid === buyerUid)?.displayName) : newBuyerName.toUpperCase(), 
       item: `${kit?.specs?.line || ''} ${kit?.name}`.trim(), 
+      kitId: selectedKitId,
+      productId: selectedKitId,
+      selectedStockKey,
+      items: [{
+        id: selectedKitId,
+        name: `${kit?.specs?.line || ''} ${kit?.name}`.trim(),
+        price: stock?.sellPrice || kit?.sellPrice || 0,
+        sellPrice: stock?.sellPrice || kit?.sellPrice || 0,
+        quantity: 1,
+        image: kit?.image || null,
+        images: kit?.images || null,
+        stockKey: selectedStockKey,
+        type: 'kit'
+      }],
       status: "Reserved", 
       isPreOrder: stock.status === 'PRE-ORDER', 
       isManualOrder: true, 
@@ -1091,9 +1105,6 @@ export default function Orders() {
                           </span>
                         ) : showCancelTimerTag ? (
                           <div className="flex flex-col items-end gap-1">
-                            <span className={`inline-block text-[12px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider border leading-none whitespace-nowrap ${statusTagClass}`}>
-                              {o.status}
-                            </span>
                             <ReservationTimer
                               compact
                               createdAt={o.cancellationTimerStartedAt}

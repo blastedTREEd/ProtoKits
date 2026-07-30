@@ -64,6 +64,93 @@ const mergeKitsStable = (currentKits = [], incomingKits = []) => {
 
 const docsToArray = (snap) => snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
+const buildOrderStockTargets = (order = {}) => {
+  const targets = [];
+  const addTarget = (kitId, stockKey) => {
+    if (!kitId || !stockKey) return;
+    const targetKey = `${kitId}:${stockKey}`;
+    if (!targets.some((target) => target.targetKey === targetKey)) {
+      targets.push({ kitId, stockKey, targetKey });
+    }
+  };
+
+  (order.items || []).forEach((item) => {
+    if (item?.type === 'project') return;
+    addTarget(item.id || item.kitId || item.productId, item.stockKey || item.selectedStockKey);
+  });
+
+  addTarget(order.kitId || order.productId, order.selectedStockKey || order.stockKey);
+  return targets;
+};
+
+const releaseStockTarget = async (kitId, stockKey, orderDocId, order = {}) => {
+  const kitRef = doc(db, 'kits', kitId);
+  const kitSnap = await getDoc(kitRef);
+  if (!kitSnap.exists()) return false;
+
+  const stocks = kitSnap.data().stocks || {};
+  const stock = stocks[stockKey];
+  if (!stock) return false;
+
+  const matchesOrder = stock.order?.orderDocId === orderDocId || (order.orderId && stock.order?.orderId === order.orderId);
+  if (!matchesOrder) return false;
+
+  const nextStocks = {
+    ...stocks,
+    [stockKey]: {
+      ...stocks[stockKey],
+      isReserved: false
+    }
+  };
+  delete nextStocks[stockKey].order;
+  delete nextStocks[stockKey].reservationType;
+  delete nextStocks[stockKey].reservedByDealId;
+  nextStocks[stockKey].reservedBy = null;
+  nextStocks[stockKey].reservedAt = null;
+
+  const hasAvailable = Object.values(nextStocks).some((stock) => !stock.order?.orderId && !stock.isReserved);
+  await updateDoc(kitRef, {
+    [`stocks.${stockKey}.isReserved`]: false,
+    [`stocks.${stockKey}.reservedAt`]: null,
+    [`stocks.${stockKey}.reservedBy`]: null,
+    [`stocks.${stockKey}.reservationType`]: deleteField(),
+    [`stocks.${stockKey}.reservedByDealId`]: deleteField(),
+    [`stocks.${stockKey}.order`]: deleteField(),
+    hasAvailableStock: hasAvailable,
+    lastUpdated: serverTimestamp()
+  });
+  return true;
+};
+
+const releaseOrderStocks = async (orderDocId, order = {}, fallbackKits = []) => {
+  const released = new Set();
+
+  for (const target of buildOrderStockTargets(order)) {
+    if (await releaseStockTarget(target.kitId, target.stockKey, orderDocId, order)) {
+      released.add(target.targetKey);
+    }
+  }
+
+  let kitsToScan = fallbackKits;
+  if (!kitsToScan?.length) {
+    const snap = await getDocs(collection(db, 'kits'));
+    kitsToScan = docsToArray(snap);
+  }
+
+  for (const kit of kitsToScan || []) {
+    for (const [key, stock] of Object.entries(kit.stocks || {})) {
+      const matchesOrder = stock.order?.orderDocId === orderDocId || (order.orderId && stock.order?.orderId === order.orderId);
+      const targetKey = `${kit.id}:${key}`;
+      if (matchesOrder && !released.has(targetKey)) {
+        await releaseStockTarget(kit.id, key, orderDocId, order);
+        released.add(targetKey);
+      }
+    }
+  }
+
+  return released.size;
+};
+
 export const DEFAULT_PRINT_METHODS = [
   {
     id: 'stl',
@@ -1611,21 +1698,7 @@ export const useStore = create(
         }
 
         await deleteDoc(doc(db, "orders", orderDocId));
-        // Siguraduhing ma-release ang stocks para iwas locking
-        for (const kit of kits) {
-          for (const [key, stock] of Object.entries(kit.stocks || {})) {
-            if (stock.order?.orderDocId === orderDocId) {
-              await updateDoc(doc(db, 'kits', kit.id), {
-                [`stocks.${key}.isReserved`]: false,
-                [`stocks.${key}.reservedAt`]: null,
-                [`stocks.${key}.reservedBy`]: null,
-                [`stocks.${key}.reservationType`]: deleteField(),
-                [`stocks.${key}.order`]: deleteField(),
-                hasAvailableStock: true
-              });
-            }
-          }
-        }
+        await releaseOrderStocks(orderDocId, order, kits);
       },
 
 
@@ -1941,19 +2014,8 @@ export const useStore = create(
           });
         }
 
-        for (const kit of kits) {
-          for (const [key, stock] of Object.entries(kit.stocks || {})) {
-            if (stock.order?.orderDocId === id) {
-              await updateDoc(doc(db, 'kits', kit.id), {
-                [`stocks.${key}.isReserved`]: false,
-                [`stocks.${key}.reservedAt`]: null,
-                [`stocks.${key}.reservedBy`]: null,
-                [`stocks.${key}.reservationType`]: deleteField(),
-                [`stocks.${key}.order`]: deleteField(),
-                hasAvailableStock: true
-              });
-            }
-          }
+        if (order) {
+          await releaseOrderStocks(id, order, kits);
         }
       },
 
@@ -1962,22 +2024,6 @@ export const useStore = create(
         if (!user) return;
 
         try {
-          const releaseOrderStocks = async (orderDocId) => {
-            for (const kit of kits) {
-              for (const [key, stock] of Object.entries(kit.stocks || {})) {
-                if (stock.order?.orderDocId === orderDocId) {
-                  await updateDoc(doc(db, 'kits', kit.id), {
-                    [`stocks.${key}.isReserved`]: false,
-                    [`stocks.${key}.reservedAt`]: null,
-                    [`stocks.${key}.reservedBy`]: null,
-                    [`stocks.${key}.reservationType`]: deleteField(),
-                    [`stocks.${key}.order`]: deleteField()
-                  });
-                }
-              }
-            }
-          };
-
           const buildStatusQuery = (status) => isAdmin
             ? query(collection(db, "orders"), where("status", "==", status))
             : query(collection(db, "orders"), where("userId", "==", user.uid), where("status", "==", status));
@@ -1987,7 +2033,6 @@ export const useStore = create(
             getDocs(buildStatusQuery("Completed"))
           ]);
           const now = Date.now();
-          const twentyFourHours = 24 * 60 * 60 * 1000;
           const seen = new Set();
           const docs = [...cancelledSnap.docs, ...completedSnap.docs].filter(orderDoc => {
             if (seen.has(orderDoc.id)) return false;
@@ -1997,7 +2042,12 @@ export const useStore = create(
 
           for (const orderDoc of docs) {
             const o = { id: orderDoc.id, ...orderDoc.data() };
-            if (o.isMaintenanceOrder && ['Completed', 'Cancelled'].includes(o.status)) {
+            if (o.isMaintenanceOrder && o.status === 'Cancelled') {
+              await releaseOrderStocks(o.id, o, kits);
+              continue;
+            }
+
+            if (o.isMaintenanceOrder && o.status === 'Completed') {
               const completedTime = o.completedAt 
                 ? (o.completedAt.seconds ? o.completedAt.seconds * 1000 : new Date(o.completedAt).getTime())
                 : o.cancelledAt
@@ -2011,29 +2061,13 @@ export const useStore = create(
               if (completedTime && (now - completedTime >= 60000)) {
                 console.log(`SG LOG: Auto-deleting invalid ${o.status} order ${o.orderId || o.id}`);
                 await deleteDoc(doc(db, "orders", o.id));
-                await releaseOrderStocks(o.id);
+                await releaseOrderStocks(o.id, o, kits);
               }
               continue;
             }
 
             if (o.status !== 'Cancelled') continue;
-
-            const isCash = o.paymentMethod === 'Cash';
-            const isInstallment = o.paymentPlan && o.paymentPlan !== 'full';
-
-            if (!isCash && !isInstallment) {
-              const cancelledTime = o.cancelledAt
-                ? (o.cancelledAt.seconds ? o.cancelledAt.seconds * 1000 : new Date(o.cancelledAt).getTime())
-                : o.lastUpdated
-                  ? (o.lastUpdated.seconds ? o.lastUpdated.seconds * 1000 : new Date(o.lastUpdated).getTime())
-                  : o.createdAt
-                    ? (o.createdAt.seconds ? o.createdAt.seconds * 1000 : new Date(o.createdAt).getTime())
-                    : null;
-              if (cancelledTime && (now - cancelledTime >= twentyFourHours)) {
-                console.log(`SG LOG: Auto-deleting expired cancelled order ${o.orderId || o.id}`);
-                await get().deleteOrder(o.id);
-              }
-            }
+            await releaseOrderStocks(o.id, o, kits);
           }
         } catch (err) {
           console.error("SG LOG: Error cleaning up cancelled orders:", err);

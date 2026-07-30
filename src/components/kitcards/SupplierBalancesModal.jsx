@@ -413,7 +413,10 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
 
                   {/* Items in this group */}
                   <div className="grid gap-4">
-                    {group.items.map((item, idx) => (
+                    {group.items.map((item, idx) => {
+                      const isOnHand = item.status?.toLowerCase() === 'onhand';
+
+                      return (
                       <div
                         key={`${item.kitId}-${item.key}-${idx}`}
                         className={`flex items-center gap-4 rounded-3xl border p-4 transition-all hover:scale-[1.01] ${getItemCardStyles(item)}`}
@@ -537,15 +540,17 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
                           </p>
                           </div>
                           <div className="mt-2 flex flex-wrap justify-end gap-1">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                markArrived(item);
-                              }}
-                              className="rounded-lg bg-emerald-500 px-2 py-1 text-[11px] font-black uppercase text-white hover:bg-emerald-600 transition-all"
-                            >
-                              Arrived
-                            </button>
+                            {!isOnHand && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  markArrived(item);
+                                }}
+                                className="rounded-lg bg-emerald-500 px-2 py-1 text-[11px] font-black uppercase text-white hover:bg-emerald-600 transition-all"
+                              >
+                                Arrived
+                              </button>
+                            )}
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -555,19 +560,22 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
                             >
                               Paid
                             </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                cancelStock(item);
-                              }}
-                              className="rounded-lg bg-red-500/10 px-2 py-1 text-[11px] font-black uppercase text-red-500 hover:bg-red-500 hover:text-white transition-all"
-                            >
-                              Cancel
-                            </button>
+                            {!isOnHand && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  cancelStock(item);
+                                }}
+                                className="rounded-lg bg-red-500/10 px-2 py-1 text-[11px] font-black uppercase text-red-500 hover:bg-red-500 hover:text-white transition-all"
+                              >
+                                Cancel
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               ))}

@@ -366,48 +366,6 @@ function ChangeView({ center }) {
   return null;
 }
 
-function CountdownTimer({ createdAt, isMaintenance }) {
-  const [timeLeftStr, setTimeLeftStr] = useState('');
-
-  useEffect(() => {
-    const calculateTime = () => {
-      const start = createdAt ? new Date(createdAt).getTime() : new Date().getTime();
-      let end;
-      if (isMaintenance) {
-        end = start + (60 * 60 * 1000); // 1 hour
-      } else {
-        const nextDay = new Date(start);
-        nextDay.setDate(nextDay.getDate() + 1);
-        nextDay.setHours(20, 0, 0, 0);
-        end = nextDay.getTime();
-      }
-      
-      const now = new Date().getTime();
-      const diff = end - now;
-      
-      if (diff <= 0) {
-        setTimeLeftStr('Time expired');
-        return;
-      }
-      
-      const hours = Math.floor(diff / (1000 * 60 * 60));
-      const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-      const secs = Math.floor((diff % (1000 * 60)) / 1000);
-      
-      if (hours > 0) {
-        setTimeLeftStr(`Settle payment within ${hours}h ${mins}m ${secs}s`);
-      } else {
-        setTimeLeftStr(`Settle payment within ${mins}:${secs.toString().padStart(2, '0')}`);
-      }
-    };
-
-    calculateTime();
-    const timer = setInterval(calculateTime, 1000);
-    return () => clearInterval(timer);
-  }, [createdAt, isMaintenance]);
-
-  return <span>{timeLeftStr}</span>;
-}
 const compressImage = (base64Str, maxWidth = 1024, maxHeight = 1024, quality = 0.7) => {
   return new Promise((resolve) => {
     const img = new Image();
@@ -455,7 +413,6 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [createdOrderIds, setCreatedOrderIds] = useState([]);
-  const [orderCreatedAt, setOrderCreatedAt] = useState(null);
   const [agreedToPolicy, setAgreedToPolicy] = useState(false);
   const [isCheckoutLoginPending, setIsCheckoutLoginPending] = useState(false);
 
@@ -1716,8 +1673,6 @@ const handleFinalizeOrder = async () => {
       }
       
       setCreatedOrderIds([docId]);
-      setOrderCreatedAt(createdTime);
-
       for (const item of checkoutItems) {
         if (item.basketId) await removeFromBasket(item.basketId);
       }
@@ -2821,11 +2776,6 @@ const handleFinalizeOrder = async () => {
              <div className="text-center mb-6">
                 <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-500 mx-auto mb-2"><CheckCircle2 size={28} /></div>
                 <h2 className="text-xl md:text-2xl font-black italic uppercase tracking-tighter">Order Reserved</h2>
-                {checkoutData.paymentMethod !== 'Cash' && (
-                  <p className="text-[10px] md:text-[11px] font-bold opacity-40 uppercase tracking-widest mt-1">
-                      <CountdownTimer createdAt={orderCreatedAt} isMaintenance={isOrderInvalidForMaintenance} />
-                  </p>
-                )}
              </div>
 
              {checkoutData.paymentMethod === 'Cash' ? (
