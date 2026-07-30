@@ -4,7 +4,7 @@ import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
 import { 
   ClipboardList, Plus, MapPin, Package, PackageOpen, ShieldCheck, X, CheckCircle2, 
-  ChevronRight, Clock, Store, Truck, Tag, Trash2, AlertCircle,
+  ChevronRight, ChevronDown, Clock, Store, Truck, Tag, Trash2, AlertCircle,
   Camera, Upload, QrCode, ArrowRight, Eye, RefreshCw, Download, ListTodo, Flag
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
@@ -206,6 +206,7 @@ export default function Orders() {
   const [hasPreviewedReceipt, setHasPreviewedReceipt] = useState(false);
   const [selectedOrders, setSelectedOrders] = useState([]);
   const [isMultiSelectEnabled, setIsMultiSelectEnabled] = useState(false);
+  const [expandedOrderItems, setExpandedOrderItems] = useState({});
 
   useEffect(() => {
     setSelectedOrders([]);
@@ -934,11 +935,6 @@ export default function Orders() {
                 const isSelected = selectedOrders.includes(o.id);
                 const balance = calculateBalance(o);
                 const orderItems = Array.isArray(o.items) && o.items.length > 0 ? o.items : [o];
-                const kitCount = orderItems
-                  .filter(item => item.type !== 'project')
-                  .reduce((sum, item) => sum + (Number(item.quantity) || 1), 0);
-                const includedCount = kitCount || orderItems.reduce((sum, item) => sum + (Number(item.quantity) || 1), 0);
-
                 const isValidToPayOrder = activeTab === 'to_pay' && !o.isMaintenanceOrder;
                 const showCancelTimerTag = isValidToPayOrder && !o.receipt && Boolean(o.cancellationTimerStartedAt);
                 const invalidCancellationStart = o.cancellationTimerStartedAt || o.createdAt;
@@ -982,6 +978,46 @@ export default function Orders() {
                     {o.status}
                   </span>
                 );
+                const pricedItems = orderItems.map((item) => {
+                  const matchedKit = kits.find(k => k.id === item.id || k.id === o.kitId || k.id === o.productId || k.name === o.item || k.name === item.name);
+                  const stockSellPrice = Number(matchedKit?.stocks?.[item.stockKey]?.sellPrice || 0);
+                  const itemSellPrice = Number(item.sellPrice || item.price || item.displayPrice || item.projectData?.sellPrice || 0);
+                  const kitSellPrice = Number(matchedKit?.sellPrice || 0);
+                  return {
+                    item,
+                    kit: matchedKit,
+                    sellPrice: Math.max(stockSellPrice, itemSellPrice, kitSellPrice),
+                  };
+                });
+                const itemRows = pricedItems.map(({ item, kit }, index) => {
+                  if (item.type === 'project') {
+                    const projectName = item.projectData?.name || item.name || `Project ${index + 1}`;
+                    return {
+                      id: item.basketId || item.id || `project-${index}`,
+                      image: item.projectData?.image || item.image || '',
+                      name: projectName,
+                      meta: 'PROJECT',
+                      quantity: Number(item.quantity) || 1
+                    };
+                  }
+                  const grade = item.specs?.line || kit?.specs?.line || '';
+                  const stock = kit?.stocks?.[item.stockKey];
+                  const status = String(item.status || stock?.status || '').toLowerCase().includes('pre') ? 'PRE-ORDER' : 'ONHAND';
+                  const rawName = item.name || kit?.name || o.item || `Kit ${index + 1}`;
+                  const name = grade && rawName.toLowerCase().startsWith(grade.toLowerCase())
+                    ? rawName.slice(grade.length).trim() || rawName
+                    : rawName;
+                  return {
+                    id: item.stockKey || item.basketId || item.id || `kit-${index}`,
+                    image: resolveImage(item.image || kit?.image, item.images || kit?.images),
+                    name,
+                    meta: [grade, status].filter(Boolean).join(' / '),
+                    quantity: Number(item.quantity) || 1
+                  };
+                });
+                const isItemsExpanded = Boolean(expandedOrderItems[o.id]);
+                const visibleItemRows = isItemsExpanded ? itemRows : itemRows.slice(0, 1);
+                const hiddenItemCount = Math.max(0, itemRows.length - visibleItemRows.length);
 
                 return (
                   <div
@@ -993,82 +1029,88 @@ export default function Orders() {
                         setSelectedOrder(o);
                       }
                     }}
-                    className={`p-3 rounded-2xl border-2 cursor-pointer flex gap-4 items-center transition-all duration-200 ${
+                    className={`p-3 rounded-2xl border-2 cursor-pointer flex flex-col gap-3 transition-all duration-200 ${
                       isSelected
                         ? 'border-blue-500 shadow-lg shadow-blue-500/10'
                         : 'border-black/5 dark:border-white/5 hover:border-black/15 dark:hover:border-white/15'
                     } bg-white dark:bg-neutral-900`}
                   >
 
-                    {/* Thumbnail */}
-                    {(() => {
-                      const pricedItems = orderItems.map((item) => {
-                        const matchedKit = kits.find(k => k.id === item.id || k.id === o.kitId || k.id === o.productId || k.name === o.item || k.name === item.name);
-                        const stockSellPrice = Number(matchedKit?.stocks?.[item.stockKey]?.sellPrice || 0);
-                        const itemSellPrice = Number(item.sellPrice || item.price || item.displayPrice || item.projectData?.sellPrice || 0);
-                        const kitSellPrice = Number(matchedKit?.sellPrice || 0);
-                        return {
-                          item,
-                          kit: matchedKit,
-                          sellPrice: Math.max(stockSellPrice, itemSellPrice, kitSellPrice),
-                        };
-                      });
-                      const selected = (
-                        pricedItems
-                          .filter(({ item }) => item.type !== 'project')
-                          .sort((a, b) => b.sellPrice - a.sellPrice)[0]
-                      ) || pricedItems[0] || { item: o, kit: null };
-                      const thumbnailItem = selected.item;
-                      const kit = selected.kit;
-                      const displayImage = thumbnailItem.type === 'project'
-                        ? (thumbnailItem.projectData?.image || thumbnailItem.image)
-                        : resolveImage(thumbnailItem.image || kit?.image, thumbnailItem.images || kit?.images);
-                      const displayName = thumbnailItem.name || kit?.name || o.item || o.orderId || 'Order item';
-
-                      return (
-                        <div className="shrink-0 flex items-center justify-center">
-                          {displayImage ? (
-                            <img
-                              src={displayImage}
-                              alt={displayName}
-                              loading="lazy"
-                              className="w-20 h-20 sm:w-28 md:w-40 lg:w-64 xl:w-72 md:h-24 object-cover object-[center_25%] rounded-xl border border-neutral-100 dark:border-neutral-800 transition-opacity duration-500"
-                              onLoad={(e) => e.target.classList.remove('opacity-0')}
-                              onError={(e) => {
-                                e.target.style.display = 'none';
-                                e.target.nextSibling.style.display = 'flex';
-                              }}
-                            />
-                          ) : null}
-                          <div className="w-20 h-20 sm:w-28 md:w-40 lg:w-64 xl:w-72 md:h-24 rounded-xl border border-neutral-100 dark:border-neutral-800 bg-neutral-200 dark:bg-neutral-800 flex items-center justify-center" style={{ display: displayImage ? 'none' : 'flex' }}>
-                            <PackageOpen size={32} className="opacity-20" />
-                          </div>
-                        </div>
-                      );
-                    })()}
-
-                    {/* Main content */}
-                    <div className="flex-1 flex min-h-20 min-w-0 flex-col justify-between gap-2 md:min-h-24">
-                      <div className="space-y-1">
-                        {/* Row 1: Order ID + status */}
-                        <div className="flex min-w-0 items-start justify-between gap-3">
-                          <div className="min-w-0 leading-none">
-                            <span className="whitespace-nowrap font-black text-[16px] text-blue-600 uppercase italic leading-none">{o.orderId}</span>
-                          </div>
-                        </div>
-
+                    {/* Row 1: Order ID + status */}
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="whitespace-nowrap font-black text-[16px] text-blue-600 uppercase italic leading-none">
+                        {o.orderId}
+                      </span>
+                      <div className="flex shrink-0 items-start gap-2 text-right">
+                        {orderStatusIndicator}
+                        {isAdminMode && activeTab === 'cancelled' && !isMultiSelectEnabled && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDeleteOrder(e, o.id); }}
+                            className="text-red-400 hover:text-red-500 transition-colors"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        )}
                       </div>
+                    </div>
 
-                      <div className="space-y-1">
-                        {/* Row 3: Shipping method */}
-                        <div className="flex flex-wrap items-center gap-1.5">
+                    {/* Row 2: Included items */}
+                    <div className="space-y-2">
+                      {visibleItemRows.map((row, rowIndex) => (
+                        <div key={`${o.id}-item-${row.id}-${rowIndex}`} className="grid grid-cols-[5rem_minmax(0,1fr)] gap-3 md:grid-cols-[10rem_minmax(0,1fr)] lg:grid-cols-[18rem_minmax(0,1fr)]">
+                          <div className="shrink-0 flex items-center justify-center">
+                            {row.image ? (
+                              <img
+                                src={row.image}
+                                alt={row.name}
+                                loading="lazy"
+                                className="w-20 h-20 md:w-40 lg:w-64 xl:w-72 md:h-24 object-cover object-[center_25%] rounded-xl border border-neutral-100 dark:border-neutral-800 transition-opacity duration-500"
+                                onLoad={(e) => e.target.classList.remove('opacity-0')}
+                                onError={(e) => {
+                                  e.target.style.display = 'none';
+                                  e.target.nextSibling.style.display = 'flex';
+                                }}
+                              />
+                            ) : null}
+                            <div className="w-20 h-20 md:w-40 lg:w-64 xl:w-72 md:h-24 rounded-xl border border-neutral-100 dark:border-neutral-800 bg-neutral-200 dark:bg-neutral-800 flex items-center justify-center" style={{ display: row.image ? 'none' : 'flex' }}>
+                              <PackageOpen size={32} className="opacity-20" />
+                            </div>
+                          </div>
+                          <div className="min-w-0 pt-1">
+                            <p className="truncate text-[12px] font-black uppercase tracking-tight text-neutral-900 dark:text-white">
+                              {row.name}
+                            </p>
+                            <p className="mt-1 truncate text-[10px] font-black uppercase tracking-widest opacity-45">
+                              {row.meta}
+                            </p>
+                            <p className="mt-1 text-[10px] font-black uppercase tracking-widest opacity-45">
+                              x{row.quantity}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                      {itemRows.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExpandedOrderItems(prev => ({ ...prev, [o.id]: !prev[o.id] }));
+                          }}
+                          className="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-blue-600"
+                        >
+                          <ChevronDown size={14} className={`transition-transform ${isItemsExpanded ? 'rotate-180' : ''}`} />
+                          {isItemsExpanded ? 'Hide items' : `Show ${hiddenItemCount} more`}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Row 3: Payment badges + total */}
+                    <div className="flex items-end justify-between gap-3">
+                      {isAdminMode ? (
+                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                           <span className="inline-flex whitespace-nowrap text-[12px] font-black px-2 py-0.5 rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400 uppercase tracking-wider">
                             {shippingMethodLabel}
                           </span>
-                        </div>
-
-                        {/* Row 4: Payment plan */}
-                        <div className="flex flex-wrap items-center gap-1.5">
                           {o.paymentPlan && o.paymentPlan !== 'full' ? (
                             <span className="inline-flex whitespace-nowrap text-[12px] font-black px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-500 uppercase tracking-wider">
                               {o.paymentPlan === 'partial' ? 'Partial' : o.paymentPlan === 'reservation' ? 'Reservation' : 'Installment'}
@@ -1078,10 +1120,6 @@ export default function Orders() {
                               Full Pay
                             </span>
                           )}
-                        </div>
-
-                        {/* Row 5: Payment method */}
-                        <div className="flex flex-wrap items-center gap-1.5">
                           {o.paymentMethod && (
                             <span className={`inline-flex whitespace-nowrap text-[12px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider ${
                               o.paymentMethod === 'GCash' ? 'bg-blue-500/10 text-blue-500' :
@@ -1092,35 +1130,17 @@ export default function Orders() {
                             </span>
                           )}
                         </div>
-                      </div>
-                    </div>
-
-                    {/* Included count + total */}
-                    <div className="shrink-0 flex min-h-20 w-24 items-stretch justify-end gap-2 self-stretch sm:w-36 md:min-h-24 md:w-48">
-                      <div className="flex w-full flex-col items-end justify-between gap-2 text-right">
-                        <div className="flex flex-col items-end gap-1">
-                          {orderStatusIndicator}
-                        </div>
-                        <div className="flex flex-col items-end gap-1">
-                          <p className="rounded-md bg-orange-500/10 px-2 py-0.5 text-[14px] font-black uppercase tracking-widest text-orange-600 dark:text-orange-400 leading-none">
-                            {includedCount} {includedCount === 1 ? 'Kit' : 'Kits'}
-                          </p>
-                          <div className="flex items-baseline justify-end gap-2 leading-none">
-                            <span className="text-[14px] font-black uppercase tracking-widest">Total</span>
-                            <span className="font-black text-[16px] text-neutral-900 dark:text-white">
-                              ₱{balance.toLocaleString()}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      {isAdminMode && activeTab === 'cancelled' && !isMultiSelectEnabled && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleDeleteOrder(e, o.id); }}
-                          className="text-red-400 hover:text-red-500 transition-colors"
-                        >
-                          <Trash2 size={15} />
-                        </button>
+                      ) : (
+                        <div />
                       )}
+                      <div className="shrink-0 text-right">
+                        <div className="flex items-baseline justify-end gap-2 leading-none">
+                          <span className="text-[12px] font-black uppercase tracking-widest">Total</span>
+                          <span className="font-black text-[15px] text-neutral-900 dark:text-white">
+                            ₱{balance.toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 );
