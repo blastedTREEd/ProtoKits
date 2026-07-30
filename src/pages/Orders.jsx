@@ -94,12 +94,12 @@ function ReservationTimer({ createdAt, expiresAt, onExpire, compact = false, dur
   if (compact) {
     const isInvalid = variant === 'invalid';
     return (
-      <span className={`inline-flex items-center gap-1 text-[12px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider border leading-none whitespace-nowrap ${
+      <span className={`inline-flex items-center gap-1 text-[14px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider border leading-none whitespace-nowrap ${
         isInvalid
           ? 'bg-red-500/15 text-red-500 border-red-500/20'
           : 'bg-amber-500/15 text-amber-600 border-amber-500/20'
       }`}>
-        {isInvalid ? <Flag size={12} className="fill-current" /> : <Clock size={12} />}
+        {isInvalid ? <Flag size={14} className="fill-current" /> : <Clock size={14} />}
         {timeLeft}
       </span>
     );
@@ -974,7 +974,7 @@ export default function Orders() {
                     onExpire={() => handleSilentCancelOrder(o.id)}
                   />
                 ) : (
-                  <span className={`inline-block text-[12px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider border leading-none whitespace-nowrap ${statusTagClass}`}>
+                  <span className={`inline-block text-[13px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider border leading-none whitespace-nowrap ${statusTagClass}`}>
                     {o.status}
                   </span>
                 );
@@ -1077,37 +1077,38 @@ export default function Orders() {
                             </div>
                           </div>
                           <div className="min-w-0 pt-1">
-                            <p className="truncate text-[12px] font-black uppercase tracking-tight text-neutral-900 dark:text-white">
+                            <p className="truncate text-[14px] font-black uppercase tracking-tight text-neutral-900 dark:text-white">
                               {row.name}
                             </p>
-                            <p className="mt-1 truncate text-[10px] font-black uppercase tracking-widest opacity-45">
+                            <p className="mt-1 truncate text-[13px] font-black uppercase tracking-widest opacity-45">
                               {row.meta}
                             </p>
-                            <p className="mt-1 text-[10px] font-black uppercase tracking-widest opacity-45">
+                            <p className="mt-1 text-[12px] font-black uppercase tracking-widest opacity-45">
                               x{row.quantity}
                             </p>
                           </div>
                         </div>
                       ))}
-                      {itemRows.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setExpandedOrderItems(prev => ({ ...prev, [o.id]: !prev[o.id] }));
-                          }}
-                          className="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-blue-600"
-                        >
-                          <ChevronDown size={14} className={`transition-transform ${isItemsExpanded ? 'rotate-180' : ''}`} />
-                          {isItemsExpanded ? 'Hide items' : `Show ${hiddenItemCount} more`}
-                        </button>
-                      )}
                     </div>
 
-                    {/* Row 3: Payment badges + total */}
+                    {/* Row 3: Show more + payment badges + total */}
                     <div className="flex items-end justify-between gap-3">
-                      {isAdminMode ? (
-                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                        {itemRows.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setExpandedOrderItems(prev => ({ ...prev, [o.id]: !prev[o.id] }));
+                            }}
+                            className="inline-flex items-center gap-1 whitespace-nowrap text-[12px] font-black uppercase tracking-widest text-blue-600"
+                          >
+                            <ChevronDown size={14} className={`transition-transform ${isItemsExpanded ? 'rotate-180' : ''}`} />
+                            {isItemsExpanded ? 'Hide items' : `Show ${hiddenItemCount} more`}
+                          </button>
+                        )}
+                        {isAdminMode && (
+                          <>
                           <span className="inline-flex whitespace-nowrap text-[12px] font-black px-2 py-0.5 rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400 uppercase tracking-wider">
                             {shippingMethodLabel}
                           </span>
@@ -1129,13 +1130,12 @@ export default function Orders() {
                               {o.paymentMethod}
                             </span>
                           )}
-                        </div>
-                      ) : (
-                        <div />
-                      )}
+                          </>
+                        )}
+                      </div>
                       <div className="shrink-0 text-right">
                         <div className="flex items-baseline justify-end gap-2 leading-none">
-                          <span className="text-[12px] font-black uppercase tracking-widest">Total</span>
+                          <span className="text-[13px] font-black uppercase tracking-widest">Total</span>
                           <span className="font-black text-[15px] text-neutral-900 dark:text-white">
                             ₱{balance.toLocaleString()}
                           </span>
