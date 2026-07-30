@@ -2732,6 +2732,7 @@ const handleFinalizeOrder = async () => {
                       </div>
                   </div>
                     {(() => {
+                      const isPaymentUnavailable = isOrderInvalidForMaintenance;
                       const isDisabled = !isGuestPreview && (
                         isFinalizing || 
                         !checkoutData.shippingMethod || 
@@ -2741,13 +2742,14 @@ const handleFinalizeOrder = async () => {
                         (checkoutData.paymentPlan !== 'full' && Number(checkoutData.initialPayment) >= totalToSettle) ||
                         (checkoutData.paymentPlan !== 'full' && !agreedToPolicy)
                       );
+                      const buttonDisabled = isDisabled;
                       return (
                         <motion.button 
                           onClick={isGuestPreview ? handleGoogleLogin : handleFinalizeOrder} 
-                          disabled={isDisabled} 
-                          animate={isDisabled ? { scale: 0.96, opacity: 0.5 } : { scale: 1.0, opacity: 1 }}
-                          whileHover={isDisabled ? {} : { scale: 1.03, y: -2 }}
-                          whileTap={isDisabled ? {} : { scale: 0.95, y: 1 }}
+                          disabled={buttonDisabled} 
+                          animate={buttonDisabled ? { scale: 0.96, opacity: 0.5 } : { scale: 1.0, opacity: 1 }}
+                          whileHover={buttonDisabled ? {} : { scale: 1.03, y: -2 }}
+                          whileTap={buttonDisabled ? {} : { scale: 0.95, y: 1 }}
                           transition={{ type: "spring", stiffness: 400, damping: 25 }}
                           className="w-full py-5 rounded-2xl bg-white text-blue-600 font-black uppercase text-xs tracking-[0.2em] shadow-xl flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed"
                         >
@@ -2756,6 +2758,8 @@ const handleFinalizeOrder = async () => {
                               <Loader2 className="animate-spin" size={18} />
                               <span>Reserving...</span>
                             </>
+                          ) : isPaymentUnavailable ? (
+                            'Payment Unavailable'
                           ) : isGuestPreview ? (
                             <>
                               <FcIcons.FcGoogle size={18} />
@@ -2778,7 +2782,7 @@ const handleFinalizeOrder = async () => {
                 <h2 className="text-xl md:text-2xl font-black italic uppercase tracking-tighter">Order Reserved</h2>
              </div>
 
-             {checkoutData.paymentMethod === 'Cash' ? (
+             {checkoutData.paymentMethod === 'Cash' && !isOrderInvalidForMaintenance ? (
                 <div className="max-w-xl mx-auto w-full p-8 bg-black/5 dark:bg-white/5 rounded-[2.5rem] border border-black/5 dark:border-white/10 flex flex-col items-center text-center gap-6 animate-in fade-in duration-300">
                   <div className="p-4 bg-blue-600/10 text-blue-600 rounded-full">
                     <Store size={40} />
@@ -2816,20 +2820,20 @@ const handleFinalizeOrder = async () => {
                          )}
                       </div>
                       <div className="p-6 md:p-8 bg-black/5 dark:bg-white/5 rounded-[2rem] md:rounded-[2.5rem] border border-black/5 dark:border-white/10 flex flex-col items-center min-h-[300px] md:min-h-[340px] justify-center">
-                         {isOrderInvalidForMaintenance ? (
-                           <div className="space-y-4 w-full flex flex-col items-center text-center">
-                              <p className="text-[9px] font-black uppercase opacity-60 mb-2">Invalid Order</p>
-                              <img src={garageInfo?.logoURL || "https://graph.facebook.com/SnorlaxGarage/picture?type=large"} alt="Brand Logo" className="w-48 h-48 md:w-56 md:h-56 object-contain rounded-2xl bg-white p-2 shadow-sm" />
+                          {isOrderInvalidForMaintenance ? (
+                            <div className="space-y-4 w-full flex flex-col items-center">
+                              <p className="text-[9px] font-black uppercase opacity-60 mb-4 md:mb-6">Payment placeholder</p>
+                              <img src={garageInfo?.logoURL || "https://graph.facebook.com/SnorlaxGarage/picture?type=large"} alt="Payment placeholder" className="w-48 h-48 md:w-56 md:h-56 object-contain rounded-2xl bg-white p-2 shadow-sm" />
                               <motion.a 
                                 whileTap={{ scale: 0.98 }}
                                 href={garageInfo?.logoURL || "https://graph.facebook.com/SnorlaxGarage/picture?type=large"} 
                                 download="SG-Logo.png"
                                 className="flex items-center justify-center gap-2 w-full max-w-[200px] md:max-w-[224px] py-2.5 md:py-3 bg-blue-600/10 text-blue-600 rounded-xl text-[10px] md:text-[11px] font-black uppercase hover:bg-blue-600/20 transition-all cursor-pointer"
                               >
-                                <Download size={14} /> Download Logo
+                                <Download size={14} /> Download Placeholder
                               </motion.a>
-                           </div>
-                         ) : (
+                            </div>
+                          ) : (
                              <>
                               {(() => {
                                 const pm = checkoutData.paymentMethod;

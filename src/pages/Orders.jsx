@@ -434,7 +434,7 @@ export default function Orders() {
     if (!previewUrl) return;
     setIsUploading(true);
     try {
-      const patch = { receipt: previewUrl, status: 'Validating' };
+      const patch = { receipt: previewUrl, status: 'Validating', cancellationTimerStartedAt: null };
       await uploadReceipt(order.id, previewUrl);
       alert("Uploaded!");
       moveOrderToTargetTab(order, patch);
@@ -1086,11 +1086,8 @@ export default function Orders() {
                               handleDeleteOrderNow(o.id);
                             }}
                           />
-                        ) : o.isMaintenanceOrder ? (
+                        ) : o.isMaintenanceOrder && !o.receipt ? (
                           <div className="flex flex-col items-end gap-1">
-                            <span className="inline-block text-[12px] font-black px-2 py-0.5 rounded-md bg-red-500/15 text-red-500 uppercase tracking-wider border border-red-500/20 leading-none whitespace-nowrap">
-                              {o.status}
-                            </span>
                             <ReservationTimer
                               compact
                               variant="invalid"
@@ -1654,7 +1651,7 @@ export default function Orders() {
 
                 {/* PAYMENT MEDIA SECTION */}
                 <div className="space-y-3">
-                  {selectedOrder.paymentMethod === 'Cash' ? (
+                  {selectedOrder.paymentMethod === 'Cash' && !isOrderFromMaintenance ? (
                     <div className="p-6 bg-blue-500/5 rounded-3xl border border-blue-500/10 flex flex-col items-center text-center gap-3 w-full animate-in fade-in duration-300">
                       <Store className="text-blue-500 animate-pulse" size={32} />
                       <h4 className="text-[10px] font-black uppercase tracking-widest text-blue-600">Cash Payment</h4>
@@ -1667,11 +1664,11 @@ export default function Orders() {
                       </p>
                     </div>
                   ) : (
-                    <div className={`grid gap-4 ${showQrContainer ? 'grid-cols-2' : 'grid-cols-1'}`}>
-                      {showQrContainer && (
+                    <div className={`grid gap-4 ${showQrContainer || isOrderFromMaintenance ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                      {isOrderFromMaintenance ? (
                         <div className="p-4 bg-amber-500/5 rounded-3xl border border-amber-500/10 flex flex-col items-center gap-3">
-                          <h4 className="text-[9px] font-black uppercase tracking-widest text-amber-600">
-                            {isOrderFromMaintenance ? 'Invalid Order' : 'Payment QR'}
+                          <h4 className="text-[9px] font-black uppercase tracking-widest text-red-500">
+                            Invalid Order Placeholder
                           </h4>
                           <button
                             type="button"
@@ -1681,11 +1678,34 @@ export default function Orders() {
                               setIsPreviewExpanded(true);
                             }}
                           >
-                            <img src={qrImageSrc} className="object-contain" alt={isOrderFromMaintenance ? 'Brand Logo' : `${selectedOrder?.paymentMethod} QR`} />
+                            <img src={qrImageSrc} className="object-contain" alt="Payment placeholder" />
                           </button>
                           <a 
                             href={qrImageSrc} 
-                            download={isOrderFromMaintenance ? 'SG-Logo.png' : `${selectedOrder?.paymentMethod}-QR.png`}
+                            download="SG-Logo.png"
+                            className="w-full py-2 bg-amber-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest text-center transition-all hover:bg-amber-700 flex items-center justify-center gap-1"
+                          >
+                            <Download size={12} /> Download
+                          </a>
+                        </div>
+                      ) : showQrContainer && (
+                        <div className="p-4 bg-amber-500/5 rounded-3xl border border-amber-500/10 flex flex-col items-center gap-3">
+                          <h4 className="text-[9px] font-black uppercase tracking-widest text-amber-600">
+                            Payment QR
+                          </h4>
+                          <button
+                            type="button"
+                            className="w-24 h-24 bg-white p-2 border rounded-2xl hover:opacity-80 transition-opacity flex items-center justify-center"
+                            onClick={() => {
+                              setActivePreviewUrl(qrImageSrc);
+                              setIsPreviewExpanded(true);
+                            }}
+                          >
+                            <img src={qrImageSrc} className="object-contain" alt={`${selectedOrder?.paymentMethod} QR`} />
+                          </button>
+                          <a 
+                            href={qrImageSrc} 
+                            download={`${selectedOrder?.paymentMethod}-QR.png`}
                             className="w-full py-2 bg-amber-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest text-center transition-all hover:bg-amber-700 flex items-center justify-center gap-1"
                           >
                             <Download size={12} /> Download

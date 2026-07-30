@@ -486,7 +486,6 @@ return (
           </Link>
           {navLinks.map((link) => {
             const isActive = location.pathname === link.to;
-            const isMaintenanceInvalidLink = isMaintenanceInvalidPath(link.to);
             const iconClass = isActive
               ? 'text-blue-500'
               : 'text-neutral-400 dark:text-neutral-400 group-hover:text-blue-500';
@@ -500,9 +499,6 @@ return (
                     size: specs.utilIcon, 
                     className: `transition-colors ${iconClass}`
                   })}
-                  {isMaintenanceInvalidLink && (
-                    <X size={12} strokeWidth={4} className="absolute -right-1 -top-1 text-[#FF304F] drop-shadow-sm" />
-                  )}
                 </span>
                 <span className={`text-[11px] md:text-[14px] font-bold uppercase tracking-tighter ${labelClass}`}>{link.label}</span>
               </Link>
@@ -800,7 +796,6 @@ return (
               </button>
               {navLinks.map((link) => {
                 const isActive = location.pathname === link.to;
-                const isMaintenanceInvalidLink = isMaintenanceInvalidPath(link.to);
                 const buttonClass = isActive
                   ? 'bg-gradient-to-br from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent'
                   : 'text-neutral-600 dark:text-neutral-400 hover:bg-gradient-to-br hover:from-[#0866FF] hover:to-[#00CFFF] hover:bg-clip-text hover:text-transparent';
@@ -808,9 +803,6 @@ return (
                   <button key={link.to} onClick={(e) => handleNavClick(link.to, e)} className={`group flex flex-col items-center justify-center gap-1 transition-colors ${buttonClass}`}>
                     <span className="relative inline-flex items-center justify-center">
                       {React.cloneElement(link.icon, { size: 20, className: isActive ? 'text-blue-500' : '' })}
-                      {isMaintenanceInvalidLink && (
-                        <X size={10} strokeWidth={4} className="absolute -right-1 -top-1 text-[#FF304F] drop-shadow-sm" />
-                      )}
                     </span>
                     <span className="text-[10px] font-black uppercase tracking-tighter">{link.label}</span>
                   </button>

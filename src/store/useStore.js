@@ -1987,6 +1987,7 @@ export const useStore = create(
           await updateDoc(doc(db, "orders", id), {
             receipt: receiptUrl,
             status: 'Validating',
+            cancellationTimerStartedAt: deleteField(),
             lastUpdated: serverTimestamp()
           });
         }
