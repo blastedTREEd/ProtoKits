@@ -19,6 +19,7 @@ const Prints = lazy(() => import('./pages/Prints'));
 const Blueprints = lazy(() => import('./pages/Blueprints'));
 const AboutUs = lazy(() => import('./pages/AboutUs'));
 const Basket = lazy(() => import('./pages/Basket'));
+const Checkout = lazy(() => import('./pages/Checkout'));
 const NotifyList = lazy(() => import('./pages/NotifyList'));
 const Orders = lazy(() => import('./pages/Orders'));
 const UsersDashboard = lazy(() => import('./pages/UsersDashboard'));
@@ -38,6 +39,7 @@ const getPageLoadingLabel = (pathname, { isAdminView = false } = {}) => {
   if (pathname === '/shelf') return 'Loading Collection';
   if (pathname === '/basket' && isAdminView) return 'Loading Collection';
   if (pathname === '/basket') return 'Loading Basket';
+  if (pathname === '/checkout') return 'Loading Checkout';
   return 'Loading SnorlaxGarage';
 };
 
@@ -247,6 +249,7 @@ const RouterContent = () => {
             <Route path="/about-us" element={<AboutUs />} />
             <Route path="/orders" element={<Orders />} />
             <Route path="/basket" element={<Basket />} />
+            <Route path="/checkout" element={<Checkout />} />
             <Route 
               path="/shelf" 
               element={

@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Package, Gift, Plus, Trash2, Box, Sparkles, Clock, Pencil, Search, Loader2, X, Wallet, AlertCircle, TrendingUp, Filter, Zap, ArrowUpWideNarrow, ArrowDownWideNarrow, SortAsc, SortDesc, ListOrdered, ChevronDown, Image as ImageIcon, Settings } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
@@ -9,7 +10,6 @@ import AddKitCard from '../components/kitcards/AddKitCard';
 import AddKitModal from '../components/kitcards/AddKitModal';
 import AddDealModal from '../components/kitcards/AddDealModal';
 import DealDetailsModal from '../components/kitcards/DealDetailsModal';
-import CheckoutModal from '../components/kitcards/CheckoutModal';
 import SupplierBalancesModal from '../components/kitcards/SupplierBalancesModal';
 import SalesDashboardModal from '../components/kitcards/SalesDashboardModal';
 import LoginPromptModal from '../components/menu/LoginPromptModal';
@@ -126,13 +126,17 @@ export default function Kits() {
   const [selectedDeal, setSelectedDeal] = useState(null);
   const [dealToEdit, setDealToEdit] = useState(null);
   const [kitToEdit, setKitToEdit] = useState(null);
-  const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false); 
   const [isSupplierBalancesModalOpen, setIsSupplierBalancesModalOpen] = useState(false);
   const [isSalesDashboardModalOpen, setIsSalesDashboardModalOpen] = useState(false);
   const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
   const [itemsForCheckout, setItemsForCheckout] = useState([]); 
   const [showSearchBar, setShowSearchBar] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
+  const navigate = useNavigate();
+
+  const openCheckoutPage = (items, isGuestPreview = !user) => {
+    navigate('/checkout', { state: { items, isGuestPreview } });
+  };
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -515,7 +519,7 @@ export default function Kits() {
     setItemsForCheckout(items);
     setSelectedDeal(null);
     if (!user) { setIsLoginPromptOpen(true); return; }
-    setIsCheckoutModalOpen(true);
+    openCheckoutPage(items, false);
   };
 
   const handleDealCardClick = (deal) => {
@@ -558,8 +562,8 @@ export default function Kits() {
     // Authenticated flow: Open checkout modal directly (without adding to basket)
     console.log("User authenticated, opening checkout modal");
     if (!(isAdmin && isAdminView)) {
-        console.log("Setting setIsCheckoutModalOpen to true");
-        setIsCheckoutModalOpen(true);
+        console.log("Navigating to checkout page");
+        openCheckoutPage([itemData], false);
     }
   };
   
@@ -833,10 +837,9 @@ export default function Kits() {
               setIsAddDealModalOpen(true);
             }}
           />
-          <CheckoutModal isOpen={isCheckoutModalOpen} onClose={() => setIsCheckoutModalOpen(false)} items={itemsForCheckout} isGuestPreview={!user} />
           <SupplierBalancesModal isOpen={isSupplierBalancesModalOpen} onClose={() => setIsSupplierBalancesModalOpen(false)} />
           <SalesDashboardModal isOpen={isSalesDashboardModalOpen} onClose={() => setIsSalesDashboardModalOpen(false)} />
-          <LoginPromptModal isOpen={isLoginPromptOpen} onClose={() => setIsLoginPromptOpen(false)} onLogin={() => { setLoginModalOpen(true); setIsLoginPromptOpen(false); }} onContinue={() => { setIsLoginPromptOpen(false); setIsCheckoutModalOpen(true); }} continueLabel="Check Price & Shipping" />
+          <LoginPromptModal isOpen={isLoginPromptOpen} onClose={() => setIsLoginPromptOpen(false)} onLogin={() => { setLoginModalOpen(true); setIsLoginPromptOpen(false); }} onContinue={() => { setIsLoginPromptOpen(false); openCheckoutPage(itemsForCheckout, true); }} continueLabel="Check Price & Shipping" />
 
       </div>
     </PageTemplate>

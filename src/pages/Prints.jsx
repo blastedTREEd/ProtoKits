@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import PageTemplate from './PageTemplate';
 import PrintsCalculator from '../components/calculator/PrintsCalculator';
 import ProjectCard from '../components/calculator/ProjectCard';
 import { useStore } from '../store/useStore';
-import CheckoutModal from '../components/kitcards/CheckoutModal';
 import LoginPromptModal from '../components/menu/LoginPromptModal';
 import { Droplet, Calculator, Search, Box, Plus, X, HandCoins, Lock, Zap } from 'lucide-react';
 import FilamentManagerModal from '../components/calculator/FilamentManagerModal';
@@ -19,6 +19,7 @@ const isPrintListing = (project) => (
 );
 
 export default function Prints({ isDarkMode }) {
+  const navigate = useNavigate();
   const [viewMode, setViewMode] = useState('idle');
   const [modifyingProject, setModifyingProject] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
@@ -67,9 +68,12 @@ export default function Prints({ isDarkMode }) {
   const [showRatesModal, setShowRatesModal] = useState(false);
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [editingPrintProject, setEditingPrintProject] = useState(null);
-  const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
   const [itemsForCheckout, setItemsForCheckout] = useState([]);
+
+  const openCheckoutPage = (items, isGuestPreview = !user) => {
+    navigate('/checkout', { state: { items, isGuestPreview } });
+  };
 
   const shadow = isDarkMode 
     ? 'shadow-[0_8px_30px_rgba(0,0,0,0.5)]' 
@@ -248,13 +252,14 @@ export default function Prints({ isDarkMode }) {
   };
 
   const handleOrderNow = (project) => {
-    setItemsForCheckout([buildCheckoutProjectItem(project)]);
+    const checkoutItems = [buildCheckoutProjectItem(project)];
+    setItemsForCheckout(checkoutItems);
     if (!user) {
       setIsLoginPromptOpen(true);
       return;
     }
     if (!(isAdmin && isAdminView)) {
-      setIsCheckoutModalOpen(true);
+      openCheckoutPage(checkoutItems, false);
     }
   };
 
@@ -433,8 +438,7 @@ export default function Prints({ isDarkMode }) {
       {showFilamentModal && <FilamentManagerModal onClose={() => setShowFilamentModal(false)} />}
       {showRatesModal && <RatesManagerModal onClose={() => setShowRatesModal(false)} />}
       {showPrintModal && <AddPrintModal onClose={closePrintModal} initialProject={editingPrintProject} />}
-      <CheckoutModal isOpen={isCheckoutModalOpen} onClose={() => setIsCheckoutModalOpen(false)} items={itemsForCheckout} isGuestPreview={!user} />
-      <LoginPromptModal isOpen={isLoginPromptOpen} onClose={() => setIsLoginPromptOpen(false)} onLogin={() => { setLoginModalOpen(true); setIsLoginPromptOpen(false); }} onContinue={() => { setIsLoginPromptOpen(false); setIsCheckoutModalOpen(true); }} continueLabel="Check Price & Shipping" />
+      <LoginPromptModal isOpen={isLoginPromptOpen} onClose={() => setIsLoginPromptOpen(false)} onLogin={() => { setLoginModalOpen(true); setIsLoginPromptOpen(false); }} onContinue={() => { setIsLoginPromptOpen(false); openCheckoutPage(itemsForCheckout, true); }} continueLabel="Check Price & Shipping" />
     </PageTemplate>
   );
 }

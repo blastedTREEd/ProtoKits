@@ -3,7 +3,6 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Trash2, ShoppingBag, ShelvingUnit, ShoppingBasket, PackageOpen, PackagePlus, Plus, Minus } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import PageTemplate from './PageTemplate';
-import CheckoutModal from '../components/kitcards/CheckoutModal';
 import LoginPromptModal from '../components/menu/LoginPromptModal';
 import LoadingState from '../components/common/LoadingState';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
@@ -101,9 +100,12 @@ export default function Basket({ isDarkMode }) {
   }, [getEffectiveItemPrice, handlingFee, installmentFee, transferFee, kits]);
 
   const [manualSelectedIds, setManualSelectedIds] = useState([]); 
-  const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [isLoginPromptOpen, setLoginPromptOpen] = useState(false);
   const [itemsForCheckout, setItemsForCheckout] = useState([]);
+
+  const openCheckoutPage = (items, isGuestPreview = !user) => {
+    navigate('/checkout', { state: { items, isGuestPreview } });
+  };
 
   const activeSelection = useMemo(() => {
     const currentBasketIds = activeBasket.map(i => i.basketId);
@@ -725,7 +727,7 @@ export default function Basket({ isDarkMode }) {
                                   quantity: item.qty
                                 }));
                                 setItemsForCheckout(checkoutItems);
-                                setIsCheckoutModalOpen(true);
+                                openCheckoutPage(checkoutItems, !user);
                               }}
                               className="px-10 py-3.5 rounded-full font-black uppercase tracking-widest text-xs transition-all bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:scale-105"
                             >
@@ -740,8 +742,7 @@ export default function Basket({ isDarkMode }) {
           </div>
         )}
       </div>
-      <CheckoutModal isOpen={isCheckoutModalOpen} onClose={() => setIsCheckoutModalOpen(false)} items={itemsForCheckout} isGuestPreview={!user} />
-      <LoginPromptModal isOpen={isLoginPromptOpen} onClose={() => setLoginPromptOpen(false)} onLogin={() => { setLoginModalOpen(true); setLoginPromptOpen(false); }} onContinue={() => { setLoginPromptOpen(false); setIsCheckoutModalOpen(true); }} continueLabel="Check Price & Shipping" />
+      <LoginPromptModal isOpen={isLoginPromptOpen} onClose={() => setLoginPromptOpen(false)} onLogin={() => { setLoginModalOpen(true); setLoginPromptOpen(false); }} onContinue={() => { setLoginPromptOpen(false); openCheckoutPage(itemsForCheckout, true); }} continueLabel="Check Price & Shipping" />
     </PageTemplate>
   );
 }

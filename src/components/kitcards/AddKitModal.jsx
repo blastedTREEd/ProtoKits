@@ -2884,8 +2884,17 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                   if (method) {
                                                     const methodConfig = shippingMethods?.[method];
                                                     if (methodConfig?.suboptions) {
-                                                      const subKeys = Object.keys(methodConfig.suboptions);
-                                                      subKey = subKeys.find(k => k === 'standard-delivery' || k.includes('standard') || k.includes('delivery')) || subKeys[0] || 'standard-delivery';
+                                                      const subEntries = Object.entries(methodConfig.suboptions);
+                                                      const normalize = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                                                      const findSubKey = (predicate) => subEntries.find(([key, config]) => predicate(normalize(key), normalize(config?.label)))?.[0];
+                                                      subKey =
+                                                        findSubKey((key, label) => key === 'standarddelivery' || key === 'standard' || label === 'standarddelivery') ||
+                                                        findSubKey((key, label) => key === 'delivery' || (label.includes('standard') && label.includes('delivery'))) ||
+                                                        findSubKey((key, label) => key === 'cop' || key.includes('cashonpickup') || label.includes('cashonpickup')) ||
+                                                        findSubKey((key, label) => key === 'seller' || key.includes('sellerbooking') || label.includes('sellerbooking')) ||
+                                                        findSubKey((key, label) => key !== 'cod' && !key.includes('cashondelivery') && !label.includes('cashondelivery')) ||
+                                                        subEntries[0]?.[0] ||
+                                                        'standard-delivery';
                                                     } else {
                                                       subKey = 'standard-delivery';
                                                     }

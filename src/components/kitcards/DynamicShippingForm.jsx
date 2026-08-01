@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect } from 'react';
 import { 
-  User, Phone, Home, Building2, Map, Hash, Navigation, MapPin, Sparkles
+  User, Phone, Home, Building2, Map, Hash, Navigation, MapPin, Sparkles, MapPinSearch
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-leaflet';
 import { motion } from 'framer-motion';
+
+const MAP_MAX_PIN_ZOOM = 19;
 
 function ChangeView({ center }) {
   const map = useMap();
@@ -24,6 +26,30 @@ function MapClickHandler({ onMovePin }) {
     }
   });
   return null;
+}
+
+function MapRecenterButton({ center }) {
+  const map = useMap();
+  const recenter = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const maxZoom = map.getMaxZoom();
+    map.setView(center, Number.isFinite(maxZoom) ? maxZoom : MAP_MAX_PIN_ZOOM, { animate: true });
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={recenter}
+      onMouseDown={(event) => event.stopPropagation()}
+      onDoubleClick={(event) => event.stopPropagation()}
+      className="absolute right-3 top-3 z-[1000] flex h-10 w-10 items-center justify-center rounded-xl border border-black/10 bg-white text-blue-600 shadow-lg transition hover:scale-105 hover:bg-blue-600 hover:text-white dark:border-white/10 dark:bg-neutral-950"
+      title="Back to pin"
+      aria-label="Back to pin"
+    >
+      <MapPinSearch size={18} />
+    </button>
+  );
 }
 
 export default function DynamicShippingForm({
@@ -166,7 +192,7 @@ export default function DynamicShippingForm({
     });
   };
 
-  const inputClass = `w-full pl-10 pr-4 py-2.5 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-600/50 bg-black/5 dark:bg-white/5 text-neutral-900 dark:text-white`;
+  const inputClass = `w-full pl-10 pr-4 py-2.5 rounded-xl text-[13px] font-bold focus:outline-none focus:ring-2 focus:ring-blue-600/50 bg-black/5 dark:bg-white/5 text-neutral-900 dark:text-white`;
 
   return (
     <div className="space-y-3 animate-in fade-in duration-300 text-left">
@@ -383,8 +409,8 @@ export default function DynamicShippingForm({
       {isRequired(12) && addressStatus.isEditingAddress && (
         <div className="space-y-2 animate-in fade-in zoom-in-95 duration-300">
           <div className="w-full h-40 rounded-[2rem] overflow-hidden border-2 border-blue-600/30 relative">
-            <MapContainer center={[deliveryData.lat, deliveryData.lng]} zoom={16} style={{ height: '100%', width: '100%' }}>
-              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+            <MapContainer center={[deliveryData.lat, deliveryData.lng]} zoom={14} maxZoom={MAP_MAX_PIN_ZOOM} style={{ height: '100%', width: '100%' }}>
+              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={MAP_MAX_PIN_ZOOM} />
               <Marker
                 position={[deliveryData.lat, deliveryData.lng]}
                 draggable={true}
@@ -396,6 +422,7 @@ export default function DynamicShippingForm({
                 }}
               />
               <ChangeView center={[deliveryData.lat, deliveryData.lng]} />
+              <MapRecenterButton center={[deliveryData.lat, deliveryData.lng]} />
               <MapClickHandler onMovePin={handlePinMove} />
             </MapContainer>
           </div>

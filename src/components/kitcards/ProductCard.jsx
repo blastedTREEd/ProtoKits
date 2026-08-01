@@ -10,7 +10,6 @@ import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
 import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
 import DealDetailsModal from './DealDetailsModal';
-import CheckoutModal from './CheckoutModal';
 
 // Resolves an image ID to its URL from the images array.
 // Backward compatible: if the value is already a URL (base64 or http), returns it directly.
@@ -256,8 +255,6 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
   const [now, setNow] = useState(0);
   const [isDealDetailsOpen, setIsDealDetailsOpen] = useState(false);
   const [dealForDetails, setDealForDetails] = useState(null);
-  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
-  const [checkoutItems, setCheckoutItems] = useState([]);
 
   const handleDealCheckout = (deal) => {
     if (!deal || !deal.kitIds || deal.type === 'mutually_exclusive') return;
@@ -319,11 +316,10 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
       };
     });
 
-    setCheckoutItems(items);
     setIsDealDetailsOpen(false);
     setDealForDetails(null);
     if (!user) { setLoginModalOpen(true); return; }
-    setIsCheckoutOpen(true);
+    navigate('/checkout', { state: { items, isGuestPreview: false } });
   };
 
   const openSelectedDealDetails = () => {
@@ -1255,7 +1251,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
       </div>
 
       {isModalOpen && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-0 lg:p-12 bg-white dark:bg-[#0a0a0a] lg:bg-white/30 lg:dark:bg-black/30 backdrop-blur-md lg:backdrop-blur-sm animate-in fade-in duration-200 overflow-hidden touch-action-none">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-0 lg:p-12 bg-white dark:bg-[#0a0a0a] lg:bg-white/30 lg:dark:bg-black/30 animate-in fade-in duration-200 overflow-hidden touch-action-none">
           <div className={`relative w-full h-full lg:h-[70vh] lg:max-w-7xl flex flex-col lg:rounded-[2.5rem] lg:border lg:shadow-2xl overflow-hidden overscroll-none ${isDarkMode ? 'bg-[var(--color-bg)] border-white/10 text-white' : 'bg-white border-black/5 text-neutral-900'}`}>
             <div className="h-full max-h-full flex flex-col portrait:flex-col landscape:sm:flex-row items-stretch overflow-hidden">
               <div className="sticky top-0 z-[220] w-full h-0 overflow-visible sm:hidden">
@@ -1564,14 +1560,6 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
         />
       )}
 
-      {isCheckoutOpen && (
-        <CheckoutModal 
-          isOpen={isCheckoutOpen} 
-          onClose={() => setIsCheckoutOpen(false)} 
-          items={checkoutItems} 
-          isGuestPreview={!user} 
-        />
-      )}
     </>
   );
 }

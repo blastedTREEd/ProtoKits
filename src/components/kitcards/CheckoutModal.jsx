@@ -4,7 +4,7 @@ import {
   X, ShoppingBag, Package, Clock, Download, CheckCircle2, Camera,
   User, Phone, Home, Building2, Map, Hash, Navigation, MapPin,
   ShieldCheck, Loader2, Settings, Info, Truck, Users, Sparkles,
-  MapPinCheckInside, Store, CircleChevronLeft
+  MapPinCheckInside, Store, CircleChevronLeft, ChevronDown, MapPinSearch
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
 import { useNavigate } from 'react-router-dom';
@@ -69,6 +69,8 @@ const getCheckoutItemBasePrice = (item, kit, fees = {}) => {
 };
 
 const DEFAULT_DELIVERY_COORDS = { lat: 14.5995, lng: 120.9842 };
+const MAP_DEFAULT_ZOOM = 14;
+const MAP_MAX_PIN_ZOOM = 19;
 // Ang mga locally-handled na methods na hindi gumagamit ng delivery address form
 const LOCAL_METHODS = ['Seller Meetup', 'Self-Pickup'];
 
@@ -202,15 +204,21 @@ const isSubMethodEnabled = (methodConfig, subKey) => {
 // Kuhanin ang handling discount setting — resolved subKey para tamang suboption ang ma-lookup
 const getHandlingDiscountSetting = (shippingMethods = {}, method, subKey = null) => {
   const methodConfig = shippingMethods?.[method];
-  if (typeof methodConfig !== 'object' || methodConfig === null) return true; // default: may discount
+  if (typeof methodConfig !== 'object' || methodConfig === null) return false;
+  const hasSuboptions = hasConfiguredSuboptions(methodConfig);
   if (subKey) {
     const rk = resolveSuboptionKey(methodConfig, subKey);
     const subConfig = methodConfig.suboptions?.[rk];
     if (subConfig?.handlingDiscount !== undefined) return subConfig.handlingDiscount;
-    return true; // default: may discount
+    return false;
   }
-  return methodConfig.handlingDiscount !== undefined ? methodConfig.handlingDiscount : true;
+  if (hasSuboptions) return false;
+  return methodConfig.handlingDiscount === true;
 };
+
+const hasConfiguredSuboptions = (methodConfig) => (
+  Object.keys(methodConfig?.suboptions || {}).length > 0
+);
 
 // I-convert ang suboption key sa display value gamit ang label mula sa config
 // Para sa free shipping matching, ginagamit natin ang label ng suboption
@@ -311,6 +319,13 @@ const isFreeShippingActive = (item = {}, stock = null) => {
 
 const normalizePromoValue = (value) => String(value ?? '').trim().toLowerCase();
 const promoValuesMatch = (a, b) => normalizePromoValue(a) === normalizePromoValue(b);
+const normalizeFreeShippingPromoSuboption = (suboption) => {
+  const normalized = String(suboption ?? '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (normalized === 'cod' || normalized.includes('cashondelivery')) {
+    return 'standard-delivery';
+  }
+  return suboption;
+};
 
 const isItemShippingEligibleForFreeShipping = (item, method, suboptionVal) => {
   if (!isFreeShippingActive(item, null)) return false;
@@ -319,7 +334,7 @@ const isItemShippingEligibleForFreeShipping = (item, method, suboptionVal) => {
   if (promoMethod === 'All') return true;
   if (!promoValuesMatch(promoMethod, method)) return false;
   
-  const promoSub = item.freeShippingSuboption || 'All';
+  const promoSub = normalizeFreeShippingPromoSuboption(item.freeShippingSuboption || 'All');
   if (promoSub === 'All') return true;
   const suboptionCandidates = Array.isArray(suboptionVal) ? suboptionVal : [suboptionVal];
   return suboptionCandidates.some(candidate => promoValuesMatch(candidate, promoSub));
@@ -328,17 +343,23 @@ const isItemShippingEligibleForFreeShipping = (item, method, suboptionVal) => {
 const getSuboptionCandidatesFromKey = (shippingMethods, method, subKey) => {
   if (!subKey) return ['All'];
   const label = shippingMethods?.[method]?.suboptions?.[subKey]?.label;
+  const normalizedKey = String(subKey || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const normalizedLabel = String(label || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   
   // Legacy compatibility mappings
   let legacyVals = [];
-  if (subKey === 'standard-delivery') {
-    legacyVals = ['cop', 'seller', 'delivery', 'COP', 'Standard Delivery'];
-  } else if (subKey === 'cop' || subKey === 'COP') {
-    legacyVals = ['standard-delivery', 'Standard Delivery'];
-  } else if (subKey === 'seller' || subKey === 'Seller-Booking' || subKey === 'self' || subKey === 'Self-Booking') {
-    legacyVals = ['standard-delivery', 'Standard Delivery'];
-  } else if (subKey === 'delivery' || subKey === 'Standard Delivery') {
-    legacyVals = ['standard-delivery', 'Standard Delivery'];
+  if (normalizedKey === 'standarddelivery' || normalizedLabel.includes('standarddelivery')) {
+    legacyVals = ['cop', 'seller', 'delivery', 'cash-on-pickup', 'seller-booking', 'standard', 'COP', 'Cash On Pickup', 'Seller Booking', 'Standard Delivery'];
+  } else if (normalizedKey === 'cop' || normalizedKey.includes('cashonpickup') || normalizedLabel.includes('cashonpickup') || normalizedLabel.includes('pickup')) {
+    legacyVals = ['standard-delivery', 'standard', 'Standard Delivery', 'COP', 'Cash On Pickup'];
+  } else if (normalizedKey === 'seller' || normalizedKey.includes('sellerbooking') || normalizedKey === 'self' || normalizedKey.includes('selfbooking') || normalizedLabel.includes('sellerbooking') || normalizedLabel.includes('selfbooking')) {
+    legacyVals = ['standard-delivery', 'standard', 'Standard Delivery', 'Seller Booking', 'Self Booking'];
+  } else if (
+    normalizedKey === 'delivery' ||
+    normalizedKey.includes('standarddelivery') ||
+    (normalizedLabel.includes('delivery') && !normalizedLabel.includes('cashondelivery') && normalizedKey !== 'cod')
+  ) {
+    legacyVals = ['standard-delivery', 'standard', 'Standard Delivery'];
   }
   
   return Array.from(new Set([
@@ -361,9 +382,113 @@ const itemHasFreeShippingForSubKey = (item, method, subKey, shippingMethods) => 
 function ChangeView({ center }) {
   const map = useMap();
   useEffect(() => {
-    map.setView(center, 16);
+    map.setView(center, MAP_DEFAULT_ZOOM);
   }, [center, map]);
   return null;
+}
+
+function MapRecenterButton({ center }) {
+  const map = useMap();
+  const recenter = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const maxZoom = map.getMaxZoom();
+    map.setView(center, Number.isFinite(maxZoom) ? maxZoom : MAP_MAX_PIN_ZOOM, { animate: true });
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={recenter}
+      onMouseDown={(event) => event.stopPropagation()}
+      onDoubleClick={(event) => event.stopPropagation()}
+      className="absolute right-3 top-3 z-[1000] flex h-10 w-10 items-center justify-center rounded-xl border border-black/10 bg-white text-blue-600 shadow-lg transition hover:scale-105 hover:bg-blue-600 hover:text-white dark:border-white/10 dark:bg-neutral-950"
+      title="Back to pin"
+      aria-label="Back to pin"
+    >
+      <MapPinSearch size={18} />
+    </button>
+  );
+}
+
+function CheckoutDropdown({ label, value, placeholder, options = [], onChange, disabled = false, showSelectedBadge = false }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
+  const selectedOption = options.find(option => String(option.value) === String(value));
+  const hasOptions = options.length > 0;
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const handlePointerDown = (event) => {
+      if (!dropdownRef.current?.contains(event.target)) setIsOpen(false);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [isOpen]);
+
+  const shellClass = "border-black/10 bg-white text-neutral-900 dark:border-white/10 dark:bg-neutral-950 dark:text-white";
+  const popoverClass = "border-black/10 bg-white text-neutral-900 dark:border-white/10 dark:bg-neutral-950 dark:text-white";
+
+  return (
+    <div ref={dropdownRef} className="relative space-y-2">
+      <span className="text-[12px] font-black uppercase tracking-widest opacity-40">{label}</span>
+      <button
+        type="button"
+        onClick={() => !disabled && hasOptions && setIsOpen(prev => !prev)}
+        disabled={disabled || !hasOptions}
+        className={`flex h-12 w-full items-center justify-between rounded-2xl border px-4 text-left text-[13px] font-black uppercase tracking-wide transition-all ${
+          isOpen ? 'border-blue-600 ring-2 ring-blue-600/15' : ''
+        } ${disabled || !hasOptions ? 'cursor-not-allowed opacity-50' : 'hover:border-blue-600/40'} ${shellClass}`}
+      >
+        <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
+          <span className={selectedOption ? 'min-w-0 truncate' : 'min-w-0 truncate opacity-45'}>
+            {selectedOption?.label || placeholder}
+          </span>
+          {showSelectedBadge && selectedOption?.badge && (
+            <span className="shrink-0 text-[12px] font-black text-emerald-500">
+              {selectedOption.badge}
+            </span>
+          )}
+        </span>
+        <ChevronDown size={16} className={`shrink-0 opacity-55 transition-transform ${isOpen ? 'rotate-180 text-blue-600 opacity-100' : ''}`} />
+      </button>
+
+      {isOpen && !disabled && hasOptions && (
+        <div className={`absolute left-0 top-full z-[650] mt-2 max-h-72 w-full overflow-y-auto rounded-[1.5rem] border p-2 shadow-2xl ${popoverClass}`}>
+          {options.map(option => {
+            const isSelected = String(option.value) === String(value);
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => {
+                  onChange(option.value);
+                  setIsOpen(false);
+                }}
+                className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-3 text-left text-[13px] font-black uppercase tracking-wide transition-all ${
+                  isSelected ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'hover:bg-blue-600/10'
+                }`}
+              >
+                <span className="min-w-0">
+                  <span className="block truncate">{option.label}</span>
+                  {option.description && (
+                    <span className={`mt-0.5 block truncate text-[12px] font-bold tracking-widest ${isSelected ? 'text-white/70' : 'opacity-40'}`}>
+                      {option.description}
+                    </span>
+                  )}
+                </span>
+                {option.badge && (
+                  <span className={`shrink-0 text-[12px] font-black ${isSelected ? 'text-emerald-200' : 'text-emerald-500'}`}>
+                    {option.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 const compressImage = (base64Str, maxWidth = 1024, maxHeight = 1024, quality = 0.7) => {
@@ -398,13 +523,14 @@ const compressImage = (base64Str, maxWidth = 1024, maxHeight = 1024, quality = 0
 };
 
 
-export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPreview = false }) {
+export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPreview = false, variant = 'modal' }) {
   const navigate = useNavigate();
+  const isPage = variant === 'page';
   const { isDarkMode } = useTheme();
   const { 
     user, reserveStockForCheckout, createOrder, isAdmin, isAdminView,
     removeFromBasket, kits, shelf, uploadReceipt, rates, updateUserProfile,
-    adminsList, fetchAdmins, assignStockToOrder, adminData, garageInfo, setLoginModalOpen,
+    adminsList, fetchAdmins, assignStockToOrder, adminData, garageInfo, setLoginModalOpen, orders,
     updateOrderDetails
   } = useStore();
 
@@ -480,6 +606,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     isPinConfirmed: false,
     isEditingAddress: false
   });
+  const [detailsEditSnapshot, setDetailsEditSnapshot] = useState(null);
 
   const mapRef = useRef(null);
 
@@ -1105,21 +1232,121 @@ const baseTotal = useMemo(() => {
       });
   }, [isAdminCheckoutConfigReady, enabledShippingMethods, pickupPoints, storeAdmin, checkoutItems, isMethodFreeShipping]);
 
+  const preferredShippingMethod = useMemo(() => {
+    const userOrders = (orders || [])
+      .filter(order => !user?.uid || order.userId === user.uid)
+      .slice()
+      .sort((a, b) => {
+        const getTime = (value) => value?.seconds ? value.seconds * 1000 : new Date(value || 0).getTime();
+        return getTime(b.createdAt) - getTime(a.createdAt);
+      });
+
+    for (const order of userOrders) {
+      const method = String(order.shippingMethod || '')
+        .replace(/\s*\([^)]*\)/g, '')
+        .split(':')[0]
+        .trim();
+      if (method && shippingOptions.includes(method)) return method;
+    }
+
+    if (shippingOptions.includes('Self-Pickup')) return 'Self-Pickup';
+    return shippingOptions[0] || '';
+  }, [orders, shippingOptions, user?.uid]);
+
+  const getRankedSuboptions = useCallback((method, methodConfig = null) => {
+    const config = methodConfig || enabledShippingMethods?.[method] || storeAdmin?.shippingMethods?.[method];
+    const suboptions = Object.entries(config?.suboptions || {}).filter(([subKey, subVal]) => {
+      const hasFreePromo = checkoutItems.some(item =>
+        itemHasFreeShippingForSubKey(item, method, subKey, storeAdmin?.shippingMethods)
+      );
+      if (subVal.active === false && !hasFreePromo) return false;
+      if (subVal.isSelfBooking && pickupPoints.length === 0) return false;
+      return true;
+    });
+
+    return suboptions
+      .map(([subKey, subVal]) => {
+        const isFree = isMethodFreeShipping(method, subKey);
+        const hasDiscount = getHandlingDiscountSetting(storeAdmin?.shippingMethods, method, subKey);
+        let priority = 3;
+        if (isFree) priority = 1;
+        else if (hasDiscount) priority = 2;
+        return { subKey, subVal, isFree, hasDiscount, priority };
+      })
+      .sort((a, b) => a.priority - b.priority);
+  }, [checkoutItems, enabledShippingMethods, isMethodFreeShipping, pickupPoints.length, storeAdmin?.shippingMethods]);
+
+  const getBestSuboptionKey = useCallback((method, methodConfig = null) => {
+    return getRankedSuboptions(method, methodConfig)[0]?.subKey || '';
+  }, [getRankedSuboptions]);
+
+  const getCourierShippingBadge = useCallback((method) => {
+    if (isMethodFreeShipping(method)) return 'FREE SHIPPING';
+    if (getHandlingDiscountSetting(storeAdmin?.shippingMethods, method)) {
+      return totalAppliedHandlingFee > 0 ? `₱${totalAppliedHandlingFee.toLocaleString()} OFF` : '';
+    }
+
+    const rankedSuboptions = getRankedSuboptions(method);
+    const bestSuboption = rankedSuboptions[0];
+    if (bestSuboption?.isFree) return 'FREE SHIPPING';
+    if (bestSuboption?.hasDiscount) {
+      return totalAppliedHandlingFee > 0 ? `₱${totalAppliedHandlingFee.toLocaleString()} OFF` : '';
+    }
+
+    if (['SPX Express', 'LBC', 'Lalamove'].includes(method)) {
+      const methodConfig = enabledShippingMethods?.[method] || storeAdmin?.shippingMethods?.[method];
+      const subKeys = method === 'LBC' ? ['cop', 'cod']
+        : method === 'Lalamove' ? ['self', 'seller']
+        : ['delivery', 'cod'];
+      const availableSubKeys = subKeys.filter(subKey => {
+        if (method === 'Lalamove' && subKey === 'self' && pickupPoints.length === 0) return false;
+        const hasFreePromo = checkoutItems.some(item =>
+          itemHasFreeShippingForSubKey(item, method, subKey, storeAdmin?.shippingMethods)
+        );
+        return isSubMethodEnabled(methodConfig, subKey) || hasFreePromo;
+      });
+
+      const rankedKeys = availableSubKeys
+        .map(subKey => ({
+          subKey,
+          isFree: isMethodFreeShipping(method, subKey),
+          hasDiscount: getHandlingDiscountSetting(storeAdmin?.shippingMethods, method, subKey)
+        }))
+        .map(option => ({
+          ...option,
+          priority: option.isFree ? 1 : option.hasDiscount ? 2 : 3
+        }))
+        .sort((a, b) => a.priority - b.priority);
+      const bestLegacySuboption = rankedKeys[0];
+
+      if (bestLegacySuboption?.isFree) return 'FREE SHIPPING';
+      if (bestLegacySuboption?.hasDiscount) {
+        return totalAppliedHandlingFee > 0 ? `₱${totalAppliedHandlingFee.toLocaleString()} OFF` : '';
+      }
+    }
+
+    return '';
+  }, [checkoutItems, enabledShippingMethods, getRankedSuboptions, isMethodFreeShipping, pickupPoints.length, storeAdmin?.shippingMethods, totalAppliedHandlingFee]);
+
   const buildShippingData = useCallback((m, sourceData) => {
-    const methodConfig = storeAdmin?.shippingMethods?.[m];
+    const methodConfig = enabledShippingMethods?.[m] || storeAdmin?.shippingMethods?.[m];
     
     // Find best suboption
-    let bestSubKey = '';
-    if (methodConfig?.hasSuboptions && methodConfig.suboptions) {
-      const suboptions = Object.entries(methodConfig.suboptions).filter(([subKey, subVal]) => {
-        const hasFreePromo = checkoutItems.some(item => 
-          itemHasFreeShippingForSubKey(item, m, subKey, storeAdmin?.shippingMethods)
-        );
-        return subVal.active !== false || hasFreePromo;
-      });
-      
-      if (suboptions.length > 0) {
-        const rated = suboptions.map(([subKey]) => {
+    let bestSubKey = getBestSuboptionKey(m, methodConfig);
+    if (!bestSubKey && ['SPX Express', 'LBC', 'Lalamove'].includes(m)) {
+      const subKeys = m === 'LBC' ? ['cop', 'cod']
+        : m === 'Lalamove' ? ['self', 'seller']
+        : ['delivery', 'cod'];
+
+      const rated = subKeys
+        .filter(subKey => {
+          if (m === 'Lalamove' && subKey === 'self' && pickupPoints.length === 0) return false;
+          const hasFreePromo = checkoutItems.some(item => 
+            itemHasFreeShippingForSubKey(item, m, subKey, storeAdmin?.shippingMethods)
+          );
+          return isSubMethodEnabled(methodConfig, subKey) || hasFreePromo;
+        })
+        .map(subKey => {
           const isFree = isMethodFreeShipping(m, subKey);
           const hasDiscount = getHandlingDiscountSetting(storeAdmin?.shippingMethods, m, subKey);
           let priority = 3;
@@ -1127,7 +1354,8 @@ const baseTotal = useMemo(() => {
           else if (hasDiscount) priority = 2;
           return { subKey, priority };
         });
-        
+
+      if (rated.length > 0) {
         rated.sort((a, b) => a.priority - b.priority);
         bestSubKey = rated[0].subKey;
       }
@@ -1165,7 +1393,7 @@ const baseTotal = useMemo(() => {
       pickupSchedule: '',
       shippingSchedule: ''
     };
-  }, [storeAdmin, checkoutItems, isMethodFreeShipping, pickupPoints]);
+  }, [enabledShippingMethods, getBestSuboptionKey, storeAdmin, checkoutItems, isMethodFreeShipping, pickupPoints]);
 
   const handleShippingChange = useCallback((m) => {
     let newCheckoutData;
@@ -1385,6 +1613,26 @@ const baseTotal = useMemo(() => {
     return isDetailsFormValid;
   }, [isNoDetailsMode, addressStatus.isEditingAddress, addressStatus.isPinConfirmed, isDetailsFormValid, requiredFields]);
 
+  const currentDetailsEditSnapshot = useMemo(() => JSON.stringify({
+    deliveryData,
+    lbcBranch: checkoutData.lbcBranch || '',
+    isPinConfirmed: addressStatus.isPinConfirmed
+  }), [deliveryData, checkoutData.lbcBranch, addressStatus.isPinConfirmed]);
+
+  const hasDetailsDraftChanged = useMemo(() => (
+    detailsEditSnapshot ? currentDetailsEditSnapshot !== detailsEditSnapshot : true
+  ), [currentDetailsEditSnapshot, detailsEditSnapshot]);
+
+  const beginDetailsEdit = useCallback(() => {
+    setDetailsEditSnapshot(currentDetailsEditSnapshot);
+    setAddressStatus(prev => ({ ...prev, isEditingAddress: true }));
+  }, [currentDetailsEditSnapshot]);
+
+  const cancelDetailsEdit = useCallback(() => {
+    setDetailsEditSnapshot(null);
+    setAddressStatus(prev => ({ ...prev, isEditingAddress: false }));
+  }, []);
+
   const buildProfileUpdates = useCallback(() => {
     if (isLocalPlaceMethod) {
       return {
@@ -1441,6 +1689,7 @@ const baseTotal = useMemo(() => {
           isPinConfirmed: true,
           isEditingAddress: false
       }));
+      setDetailsEditSnapshot(null);
     } catch (err) {
       console.error(err);
       alert("Failed to save receiver details.");
@@ -1800,7 +2049,9 @@ const handleFinalizeOrder = async () => {
       const timer = setTimeout(() => {
 
 
-        // No auto-preselection of shipping method per user request.
+        if (!checkoutData.shippingMethod && preferredShippingMethod) {
+          handleShippingChange(preferredShippingMethod);
+        }
 
 
         // ... existing payment plan/method logic
@@ -1833,7 +2084,7 @@ const handleFinalizeOrder = async () => {
       }, 0);
       return () => clearTimeout(timer);
     }
-  }, [isOpen, shippingOptions, availablePaymentPlans, availablePaymentMethods, checkoutData.shippingMethod, checkoutData.paymentPlan, checkoutData.paymentMethod, minInitialPayment, handleShippingChange, updateCheckoutData, checkoutItems, enabledShippingMethods, storeAdmin, pickupPoints, isMethodFreeShipping]);
+  }, [isOpen, shippingOptions, preferredShippingMethod, availablePaymentPlans, availablePaymentMethods, checkoutData.shippingMethod, checkoutData.paymentPlan, checkoutData.paymentMethod, minInitialPayment, handleShippingChange, updateCheckoutData, checkoutItems, enabledShippingMethods, storeAdmin, pickupPoints, isMethodFreeShipping]);
 
 
 
@@ -1851,7 +2102,7 @@ const handleFinalizeOrder = async () => {
     return discount > 0 ? `₱${discount.toLocaleString()} OFF` : '';
   }, [isMethodFreeShipping, getPotentialDiscount]);
 
-  if (!isOpen) return null;
+  if (!isOpen && !isPage) return null;
 
 
   const handleCloseModal = async () => {
@@ -1863,8 +2114,13 @@ const handleFinalizeOrder = async () => {
         console.error("SG LOG: Failed to start cancellation timer:", err);
       }
     }
-    onClose();
-    if (checkoutStep === 2) navigate('/orders');
+    if (isPage) {
+      if (checkoutStep === 2) navigate('/orders');
+      else navigate(-1);
+    } else {
+      onClose();
+      if (checkoutStep === 2) navigate('/orders');
+    }
     setCheckoutStep(1);
     setPreviewUrl(null);
     setCreatedOrderIds([]);
@@ -1872,16 +2128,422 @@ const handleFinalizeOrder = async () => {
     setIsFinalizing(false);
   };
 
+  const renderPageCheckoutStep = () => {
+    const activeMethodConfig = checkoutData.shippingMethod
+      ? (enabledShippingMethods?.[checkoutData.shippingMethod] || storeAdmin?.shippingMethods?.[checkoutData.shippingMethod])
+      : null;
+    const activeSubKey = checkoutData.selectedSuboption || checkoutData.customSuboption || '';
+    const methodSuboptions = activeMethodConfig?.suboptions
+      ? Object.entries(activeMethodConfig.suboptions)
+          .filter(([subKey, subVal]) => {
+            const hasFreePromo = checkoutItems.some(item => itemHasFreeShippingForSubKey(item, checkoutData.shippingMethod, subKey, storeAdmin?.shippingMethods));
+            return subVal.active !== false || hasFreePromo;
+          })
+          .sort(([subKeyA], [subKeyB]) => {
+            const getPriority = (subKey) => {
+              if (isMethodFreeShipping(checkoutData.shippingMethod, subKey)) return 1;
+              if (getHandlingDiscountSetting(storeAdmin?.shippingMethods, checkoutData.shippingMethod, subKey)) return 2;
+              return 3;
+            };
+            return getPriority(subKeyA) - getPriority(subKeyB);
+          })
+      : [];
+    const showLocationSelect = usesPickupPoint || usesMeetupLocation;
+    const locationOptions = usesMeetupLocation
+      ? (storeAdmin?.pickupDetails?.meetup?.places || []).filter(p => p.isActive !== false)
+      : pickupPoints;
+    const selectedLocationIndex = usesMeetupLocation ? checkoutData.meetupLocationIndex : checkoutData.pickupLocationIndex;
+    const locationDiscountBadge = showLocationSelect && checkoutData.shippingMethod && !hasConfiguredSuboptions(activeMethodConfig)
+      ? getShippingDiscountLabel(checkoutData.shippingMethod)
+      : '';
+    const courierDropdownOptions = shippingOptions.map(method => ({
+      value: method,
+      label: method,
+      badge: getCourierShippingBadge(method)
+    }));
+    const suboptionDropdownOptions = methodSuboptions.map(([subKey, subVal]) => ({
+      value: subKey,
+      label: subVal.label || subKey,
+      badge: getShippingDiscountLabel(checkoutData.shippingMethod, subKey)
+    }));
+    const locationDropdownOptions = locationOptions.map((place, idx) => ({
+      value: idx,
+      label: getCheckoutPlaceLabel(place, usesMeetupLocation ? `Meetup Place ${idx + 1}` : `Pickup Point ${idx + 1}`),
+      description: getCheckoutPlaceAddress(place, { includeHouseNo: false }),
+      badge: locationDiscountBadge
+    }));
+    const shouldShowSuboptionDropdown = checkoutData.shippingMethod && methodSuboptions.length > 0;
+    const shouldShowLocationDropdown = showLocationSelect && locationOptions.length > 0;
+    const shippingControlCount = 1 + (shouldShowSuboptionDropdown ? 1 : 0) + (shouldShowLocationDropdown ? 1 : 0);
+    const shippingGridClass = shippingControlCount >= 3
+      ? 'md:grid-cols-3'
+      : shippingControlCount === 2
+        ? 'md:grid-cols-2'
+        : 'md:grid-cols-1';
+    const detailsTitle = !checkoutData.shippingMethod
+      ? "Receiver's Details"
+      : !LOCAL_METHODS.includes(checkoutData.shippingMethod)
+        ? "Receiver's Details"
+        : usesMeetupLocation
+          ? 'Meetup Information'
+          : 'Pickup Information';
+
+    const handleSuboptionChange = (subKey) => {
+      const subConfig = activeMethodConfig?.suboptions?.[subKey] || {};
+      const hasPickup = checkUsesPickupPoint(checkoutData.shippingMethod, activeMethodConfig, subKey);
+      const hasMeetup = checkUsesMeetupLocation(checkoutData.shippingMethod, activeMethodConfig, subKey);
+      const pickupLoc = hasPickup && pickupPoints.length > 0 ? getCheckoutPlaceLabel(pickupPoints[0], 'Pickup Point 1') : '';
+      const meetupPlaces = (storeAdmin?.pickupDetails?.meetup?.places || []).filter(p => p.isActive !== false);
+      const meetupLoc = hasMeetup && meetupPlaces.length > 0 ? getCheckoutPlaceLabel(meetupPlaces[0], 'Meetup Place 1') : '';
+
+      updateCheckoutData(prev => ({
+        ...prev,
+        selectedSuboption: subKey,
+        customSuboption: subKey,
+        pickupLocation: pickupLoc,
+        pickupLocationIndex: hasPickup && pickupPoints.length > 0 ? 0 : null,
+        meetupLocation: meetupLoc,
+        meetupLocationIndex: hasMeetup && meetupPlaces.length > 0 ? 0 : null
+      }));
+
+      const isNoAddress = subConfig.isPickupRequired || subConfig.isSelfBooking || subConfig.requiredFields?.includes(14) || subConfig.requiredFields?.includes(15);
+      setAddressStatus(prev => ({ ...prev, isEditingAddress: !isNoAddress }));
+    };
+
+    const handleLocationChange = (indexValue) => {
+      const idx = Number(indexValue);
+      const place = locationOptions[idx];
+      const fallback = usesMeetupLocation ? `Meetup Place ${idx + 1}` : `Pickup Point ${idx + 1}`;
+      const placeLabel = getCheckoutPlaceLabel(place, fallback);
+      updateCheckoutData(prev => ({
+        ...prev,
+        ...(usesMeetupLocation
+          ? { meetupLocation: placeLabel, meetupLocationIndex: idx }
+          : { pickupLocation: placeLabel, pickupLocationIndex: idx })
+      }));
+    };
+
+    const itemRows = checkoutItems.map((item, idx) => {
+      const kit = kits.find(k => k.id === item.id || k.id === item.productId || k.name === item.name);
+      const displayImage = isProjectCheckoutItem(item)
+        ? (item.projectData?.image || item.image)
+        : resolveImage(item.image || kit?.image, item.images || kit?.images);
+      const displayGrade = item.grade || item.specs?.line || kit?.specs?.line || '';
+      const displayBrand = item.brand || kit?.brand || '';
+      const rawName = (item.name || item.item || item.projectData?.projectName || `Item ${idx + 1}`).replace(/\s*\(Pre-Order\)\s*$/i, '');
+      const quantity = Number(item.quantity) || 1;
+      const unitPrice = Number(item.price || item.sellPrice || item.projectData?.displayPrice || item.projectData?.sellPrice || 0) + Number(item.appliedInstallmentFee || 0);
+      return { id: item.basketId || item.stockKey || item.id || idx, image: displayImage, name: rawName, meta: [displayGrade, displayBrand, isProjectCheckoutItem(item) ? 'PROJECT' : item.status].filter(Boolean).join(' / '), quantity, unitPrice };
+    });
+
+    const isPaymentUnavailable = isOrderInvalidForMaintenance;
+    const isDisabled = !isGuestPreview && (
+      isFinalizing ||
+      !checkoutData.shippingMethod ||
+      (!isNoDetailsMode && !isFormValid) ||
+      !checkoutData.paymentPlan ||
+      !checkoutData.paymentMethod ||
+      (checkoutData.paymentPlan !== 'full' && Number(checkoutData.initialPayment) >= totalToSettle) ||
+      (checkoutData.paymentPlan !== 'full' && !agreedToPolicy)
+    );
+
+    return (
+      <div className="space-y-8 pb-24">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(360px,420px)]">
+          <div className="space-y-6">
+            <section className="text-left">
+              <h2 className="mb-4 text-[12px] font-black uppercase tracking-widest opacity-45">Shipping Method</h2>
+              <div className={`grid grid-cols-1 gap-3 ${shippingGridClass}`}>
+                <CheckoutDropdown
+                  label="Courier"
+                  value={checkoutData.shippingMethod || ''}
+                  placeholder="Select courier"
+                  options={courierDropdownOptions}
+                  onChange={handleShippingChange}
+                  disabled={!isAdminCheckoutConfigReady}
+                />
+
+                {shouldShowSuboptionDropdown && (
+                  <CheckoutDropdown
+                    label="Suboption"
+                    value={activeSubKey}
+                    placeholder="Select option"
+                    options={suboptionDropdownOptions}
+                    onChange={handleSuboptionChange}
+                    showSelectedBadge
+                  />
+                )}
+
+                {shouldShowLocationDropdown && (
+                  <CheckoutDropdown
+                    label="Location"
+                    value={Number.isInteger(selectedLocationIndex) ? selectedLocationIndex : ''}
+                    placeholder="Select location"
+                    options={locationDropdownOptions}
+                    onChange={handleLocationChange}
+                    showSelectedBadge={Boolean(locationDiscountBadge)}
+                  />
+                )}
+              </div>
+            </section>
+
+            <section className="text-left">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <h2 className="text-[12px] font-black uppercase tracking-widest opacity-45">{detailsTitle}</h2>
+                {checkoutData.shippingMethod && hasConfiguredInputFields && !addressStatus.isEditingAddress && (
+                  <button onClick={beginDetailsEdit} className="rounded-xl bg-blue-600/10 px-3 py-2 text-[12px] font-black uppercase tracking-widest text-blue-600">
+                    Edit
+                  </button>
+                )}
+              </div>
+
+              {!checkoutData.shippingMethod ? (
+                <div className="flex min-h-48 flex-col items-center justify-center rounded-2xl border border-dashed border-black/10 bg-black/[0.02] p-8 text-center opacity-40 dark:border-white/10 dark:bg-white/[0.02]">
+                  <Package size={42} />
+                  <p className="mt-3 text-[11px] font-black uppercase tracking-widest">Select a shipping method to continue</p>
+                </div>
+              ) : addressStatus.isEditingAddress && !isNoDetailsMode ? (
+                <div className="rounded-2xl border border-black/5 bg-black/[0.02] p-4 dark:border-white/5 dark:bg-white/[0.02]">
+                  <DynamicShippingForm
+                    requiredFields={detailsInputFields}
+                    deliveryData={deliveryData}
+                    updateDeliveryData={updateDeliveryData}
+                    checkoutData={checkoutData}
+                    updateCheckoutData={updateCheckoutData}
+                    validationState={validationState}
+                    setValidationState={setValidationState}
+                    addressStatus={addressStatus}
+                    setAddressStatus={setAddressStatus}
+                    courierName={courierName}
+                    isDarkMode={isDarkMode}
+                  />
+                  <button
+                    disabled={hasDetailsDraftChanged && !isDetailsFormValid}
+                    onClick={hasDetailsDraftChanged ? handleConfirmDetails : cancelDetailsEdit}
+                    className={`mt-4 w-full rounded-xl py-4 text-[13px] font-black uppercase tracking-widest text-white transition ${
+                      hasDetailsDraftChanged
+                        ? (!isDetailsFormValid ? 'cursor-not-allowed bg-emerald-600 opacity-50' : 'bg-emerald-600 hover:bg-emerald-700')
+                        : 'bg-neutral-500 hover:bg-neutral-600'
+                    }`}
+                  >
+                    {hasDetailsDraftChanged ? 'Confirm Details' : 'Cancel'}
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  {requiredFields.includes(1) && (
+                    <div className="rounded-2xl bg-black/[0.03] p-4 dark:bg-white/[0.04]">
+                      <p className="text-[12px] font-black uppercase tracking-widest opacity-40">Recipient</p>
+                      <p className="mt-1 text-[13px] font-black uppercase text-blue-600">{deliveryData.receiverName || user?.displayName || 'No name provided'}</p>
+                    </div>
+                  )}
+                  {requiredFields.includes(2) && (
+                    <div className="rounded-2xl bg-black/[0.03] p-4 dark:bg-white/[0.04]">
+                      <p className="text-[12px] font-black uppercase tracking-widest opacity-40">Mobile No.</p>
+                      <p className="mt-1 text-[13px] font-black uppercase text-blue-600">{deliveryData.phoneNumber || user?.mobileNo || 'No mobile provided'}</p>
+                    </div>
+                  )}
+                  {(isLocalPlaceMethod || showLocationSelect) && (
+                    <div className="rounded-2xl bg-black/[0.03] p-4 dark:bg-white/[0.04] md:col-span-2">
+                      <p className="text-[12px] font-black uppercase tracking-widest opacity-40">{usesMeetupLocation ? 'Meetup Location' : 'Pickup Location'}</p>
+                      <p className="mt-1 text-[13px] font-black uppercase text-blue-600">
+                        {getCheckoutPlaceLabel(selectedLocalPlaceDetails, usesMeetupLocation ? 'Meetup Place' : 'Pickup Point')}
+                      </p>
+                      {getCheckoutPlaceAddress(selectedLocalPlaceDetails) && (
+                        <p className="mt-1 text-[13px] font-bold uppercase opacity-55">{getCheckoutPlaceAddress(selectedLocalPlaceDetails)}</p>
+                      )}
+                    </div>
+                  )}
+                  {!isLocalPlaceMethod && !showLocationSelect && (
+                    <div className="rounded-2xl bg-black/[0.03] p-4 dark:bg-white/[0.04] md:col-span-2">
+                      <p className="text-[12px] font-black uppercase tracking-widest opacity-40">Delivery Address</p>
+                      <p className="mt-1 text-[13px] font-black uppercase text-blue-600">{formatPlaceAddress(deliveryData) || 'No address confirmed'}</p>
+                    </div>
+                  )}
+                  {(isLocalPlaceMethod || showLocationSelect) && selectedLocalPlaceCoord && (
+                    <div className="space-y-2 md:col-span-2">
+                      <p className="text-[12px] font-black uppercase tracking-widest opacity-40">
+                        {usesMeetupLocation ? 'Meetup Map Pin' : 'Pickup Map'}
+                      </p>
+                      <div className="h-64 w-full overflow-hidden rounded-2xl border border-black/5 bg-black/[0.03] dark:border-white/5 dark:bg-white/[0.04]">
+                        <MapContainer
+                          center={selectedLocalPlaceCoord}
+                          zoom={MAP_DEFAULT_ZOOM}
+                          maxZoom={MAP_MAX_PIN_ZOOM}
+                          style={{ height: '100%', width: '100%' }}
+                          dragging={true}
+                          scrollWheelZoom={true}
+                          doubleClickZoom={true}
+                          touchZoom={true}
+                          zoomControl={true}
+                        >
+                          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={MAP_MAX_PIN_ZOOM} />
+                          {usesMeetupLocation && <Marker position={selectedLocalPlaceCoord} />}
+                          <ChangeView center={selectedLocalPlaceCoord} />
+                          <MapRecenterButton center={selectedLocalPlaceCoord} />
+                        </MapContainer>
+                      </div>
+                    </div>
+                  )}
+                  {!isLocalPlaceMethod && !showLocationSelect && requiredFields.includes(12) && (
+                    <div className="space-y-2 md:col-span-2">
+                      <p className="text-[12px] font-black uppercase tracking-widest opacity-40">Drop-Off Pin</p>
+                      <div className="h-64 w-full overflow-hidden rounded-2xl border border-black/5 bg-black/[0.03] dark:border-white/5 dark:bg-white/[0.04]">
+                        <MapContainer
+                          center={[deliveryData.lat, deliveryData.lng]}
+                          zoom={MAP_DEFAULT_ZOOM}
+                          maxZoom={MAP_MAX_PIN_ZOOM}
+                          style={{ height: '100%', width: '100%' }}
+                          dragging={false}
+                          scrollWheelZoom={false}
+                          doubleClickZoom={false}
+                          touchZoom={false}
+                          zoomControl={false}
+                        >
+                          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={MAP_MAX_PIN_ZOOM} />
+                          <Marker position={[deliveryData.lat, deliveryData.lng]} />
+                          <ChangeView center={[deliveryData.lat, deliveryData.lng]} />
+                          <MapRecenterButton center={[deliveryData.lat, deliveryData.lng]} />
+                        </MapContainer>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+
+            <section className="text-left">
+              <h2 className="mb-4 text-[12px] font-black uppercase tracking-widest opacity-45">Items Breakdown</h2>
+              <div className="space-y-3">
+                {itemRows.map((row, idx) => (
+                  <div key={`${row.id}-${idx}`} className="grid grid-cols-[5rem_minmax(0,1fr)_auto] gap-3 rounded-2xl border border-black/5 bg-white p-3 dark:border-white/5 dark:bg-neutral-900 md:grid-cols-[10rem_minmax(0,1fr)_auto] lg:grid-cols-[18rem_minmax(0,1fr)_auto]">
+                    <div className="flex items-center justify-center">
+                      {row.image ? (
+                        <img src={row.image} alt={row.name} loading="lazy" className="h-20 w-20 rounded-xl border border-neutral-100 object-cover object-[center_25%] dark:border-neutral-800 md:h-24 md:w-40 lg:w-64 xl:w-72" />
+                      ) : (
+                        <div className="flex h-20 w-20 items-center justify-center rounded-xl border border-neutral-100 bg-neutral-200 dark:border-neutral-800 dark:bg-neutral-800 md:h-24 md:w-40 lg:w-64 xl:w-72">
+                          <Package size={32} className="opacity-20" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="min-w-0 pt-1">
+                      <p className="truncate text-[14px] font-black uppercase tracking-tight">{row.name}</p>
+                      <p className="mt-1 truncate text-[12px] font-black uppercase tracking-widest opacity-45">{row.meta || 'KIT'}</p>
+                      <p className="mt-1 text-[12px] font-black uppercase tracking-widest opacity-45">x{row.quantity}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[13px] font-black uppercase tracking-widest opacity-45">Unit</p>
+                      <p className="text-[13px] font-black">₱{row.unitPrice.toLocaleString()}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+
+          <aside className="space-y-5 lg:sticky lg:top-24 lg:self-start">
+            <section className="rounded-[2rem] bg-blue-600 p-5 text-left text-white shadow-2xl lg:max-h-[calc(100dvh-7rem)] lg:overflow-y-auto">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <h2 className="text-[14px] font-black uppercase tracking-widest opacity-70">Totals</h2>
+                <button
+                  type="button"
+                  onClick={handleCloseModal}
+                  className="hidden rounded-xl p-2 text-white/65 transition hover:bg-white/10 hover:text-white md:flex"
+                  aria-label="Close checkout"
+                >
+                  <X size={22} />
+                </button>
+              </div>
+              <div className="space-y-3 text-[14px] font-bold">
+                <div className="flex justify-between"><span>Subtotal (Items)</span><span>₱{(baseTotal - orderFees.handling - orderFees.transfer).toLocaleString()}</span></div>
+                <div className="flex justify-between"><span>Service Charge</span><span>₱{(orderFees.handling + orderFees.transfer).toLocaleString()}</span></div>
+                <div className="flex justify-between text-emerald-200"><span>Garage Discount</span><span>-₱{garageDiscount.toLocaleString()}</span></div>
+                <div className="flex justify-between"><span>Shipping Fee</span><span>Not Included</span></div>
+                <div className="flex justify-between border-t border-white/15 pt-4 text-xl font-black italic"><span>Total</span><span>₱{totalToSettle.toLocaleString()}</span></div>
+                {isInstallmentPlan && (
+                  <div className="flex justify-between text-[13px] font-black text-emerald-200"><span>Due Now</span><span>₱{amountDueNow.toLocaleString()}</span></div>
+                )}
+              </div>
+
+              <div className="mt-6 space-y-4">
+                <div>
+                  <p className="mb-2 text-[12px] font-black uppercase tracking-widest opacity-60">Payment Plan</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {availablePaymentPlans.map(plan => {
+                      const label = plan === 'full' ? 'Full' : plan === 'partial' ? 'Partial' : 'Reservation';
+                      const isSelected = checkoutData.paymentPlan === plan;
+                      return (
+                        <button key={plan} onClick={() => { setAgreedToPolicy(false); updateCheckoutData(prev => ({ ...prev, paymentPlan: plan, initialPayment: plan === 'full' ? 0 : minInitialPayment })); }} className={`rounded-xl border py-3 text-[13px] font-black uppercase ${isSelected ? 'border-white bg-white text-blue-600' : 'border-white/80 text-white'}`}>
+                          {label}{plan === 'full' && totalAppliedInstallmentFee > 0 ? ` ₱${totalAppliedInstallmentFee} OFF` : ''}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {(checkoutData.paymentPlan === 'partial' || checkoutData.paymentPlan === 'reservation') && (
+                  <div className="space-y-2">
+                    <p className="text-[12px] font-black uppercase tracking-widest opacity-60">Downpayment</p>
+                    <input
+                      type="number"
+                      value={checkoutData.initialPayment || ''}
+                      onChange={(e) => updateCheckoutData(prev => ({ ...prev, initialPayment: Number(e.target.value) }))}
+                      onBlur={(e) => {
+                        const val = Number(e.target.value) || 0;
+                        updateCheckoutData(prev => ({ ...prev, initialPayment: Math.min(Math.max(Math.ceil(val / 10) * 10, minInitialPayment), totalToSettle) }));
+                      }}
+                      className="w-full rounded-xl border border-white/50 bg-white/10 px-4 py-3 text-[13px] font-black text-white outline-none placeholder:text-white/30"
+                    />
+                    <label className="flex items-start gap-3 rounded-xl border border-white/15 bg-white/5 p-3 text-[13px] font-bold leading-relaxed">
+                      <input type="checkbox" checked={agreedToPolicy} onChange={(e) => setAgreedToPolicy(e.target.checked)} className="mt-1" />
+                      <span>I agree with the payment and reservation policy.</span>
+                    </label>
+                  </div>
+                )}
+
+                <div>
+                  <p className="mb-2 text-[12px] font-black uppercase tracking-widest opacity-60">Payment Method</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {availablePaymentMethods.map(method => {
+                      const methodConfig = getPaymentMethodConfig(storeAdmin?.paymentSettings?.methods, method);
+                      const hasDiscount = methodConfig.transferDiscount && totalAppliedTransferFee > 0;
+                      const isSelected = checkoutData.paymentMethod?.toLowerCase() === method.toLowerCase();
+                      return (
+                        <button key={method} onClick={() => updateCheckoutData(prev => ({ ...prev, paymentMethod: method }))} className={`rounded-xl border px-3 py-3 text-[13px] font-black uppercase ${isSelected ? 'border-white bg-white text-blue-600' : 'border-white/80 text-white'}`}>
+                          {method}{hasDiscount ? ` ₱${totalAppliedTransferFee} OFF` : ''}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <button
+                  onClick={isGuestPreview ? handleGoogleLogin : handleFinalizeOrder}
+                  disabled={isDisabled}
+                  className="w-full rounded-2xl bg-white py-5 text-[13px] font-black uppercase tracking-[0.2em] text-blue-600 shadow-xl disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isFinalizing ? 'Reserving...' : isPaymentUnavailable ? 'Payment Unavailable' : isGuestPreview ? 'Login with Google' : 'Pay Now'}
+                </button>
+              </div>
+            </section>
+          </aside>
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div className="fixed inset-0 z-[500] flex items-start md:items-center justify-center md:p-4 bg-black/60 backdrop-blur-md font-sans text-neutral-900 dark:text-white">
-      <div className="bg-white/90 dark:bg-[#0a0a0a]/90 backdrop-blur-xl w-full h-full md:h-auto md:max-w-5xl rounded-none md:rounded-[2.5rem] border border-black/5 dark:border-white/10 p-5 md:p-6 shadow-2xl relative overflow-y-auto md:max-h-[95vh] custom-scrollbar">
+    <div className={isPage ? "w-full min-h-[calc(100dvh-60px)] font-sans text-neutral-900 dark:text-white" : "fixed inset-0 z-[500] flex items-start md:items-center justify-center md:p-4 bg-black/60 font-sans text-neutral-900 dark:text-white"}>
+      <div className={isPage ? "w-full min-h-[calc(100dvh-60px)] px-4 py-6 sm:px-6 md:px-8 lg:px-10 relative custom-scrollbar" : "bg-white/90 dark:bg-[#0a0a0a]/90 backdrop-blur-xl w-full h-full md:h-auto md:max-w-5xl rounded-none md:rounded-[2.5rem] border border-black/5 dark:border-white/10 p-5 md:p-6 shadow-2xl relative overflow-y-auto md:max-h-[95vh] custom-scrollbar"}>
         <div className="sticky top-0 z-[520] w-full h-0 overflow-visible md:hidden">
           <div className="absolute top-0 -right-2 flex justify-end items-center">
             <motion.button whileTap={{ scale: 0.9 }} onClick={handleCloseModal} className="p-2 rounded-full backdrop-blur-md bg-black/10 dark:bg-white/10 text-neutral-900 dark:text-white border border-black/5 dark:border-white/10 shadow-lg"><X size={20} /></motion.button>
           </div>
         </div>
-        <motion.button whileTap={{ scale: 0.9 }} onClick={handleCloseModal} className="hidden md:block absolute top-6 right-6 p-4 -m-4 opacity-30 hover:opacity-100 z-50"><X size={24}/></motion.button>
-        {checkoutStep === 1 && (
+        {!isPage && (
+          <motion.button whileTap={{ scale: 0.9 }} onClick={handleCloseModal} className="hidden md:block absolute top-6 right-6 p-4 -m-4 opacity-30 hover:opacity-100 z-50"><X size={24}/></motion.button>
+        )}
+        {checkoutStep === 1 && (isPage ? renderPageCheckoutStep() : (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 md:gap-6">
               <div className="lg:col-span-4 space-y-4 text-left">
                 <h4 className="text-[11px] font-black uppercase tracking-widest opacity-40 mb-3">Shipping Method</h4>
@@ -2298,7 +2960,8 @@ const handleFinalizeOrder = async () => {
                                     <MapContainer
                                         ref={mapRef}
                                         center={selectedLocalPlaceCoord}
-                                        zoom={16}
+                                        zoom={MAP_DEFAULT_ZOOM}
+                                        maxZoom={MAP_MAX_PIN_ZOOM}
                                         style={{ height: '100%', width: '100%' }}
                                         dragging={true}
                                         scrollWheelZoom={true}
@@ -2306,9 +2969,10 @@ const handleFinalizeOrder = async () => {
                                         touchZoom={true}
                                         zoomControl={true}
                                     >
-                                      <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                                      <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={MAP_MAX_PIN_ZOOM} />
                                       {usesMeetupLocation && <Marker position={selectedLocalPlaceCoord} />}
                                       <ChangeView center={selectedLocalPlaceCoord} />
+                                      <MapRecenterButton center={selectedLocalPlaceCoord} />
                                     </MapContainer>
                                 </div>
                               </div>
@@ -2368,7 +3032,7 @@ const handleFinalizeOrder = async () => {
                             {!addressStatus.isEditingAddress ? (
                               <div className="p-5 rounded-[2.5rem] bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5 space-y-5 relative group text-left">
                                 {hasConfiguredInputFields && (
-                                  <button onClick={() => setAddressStatus(prev => ({...prev, isEditingAddress: true}))} className="absolute top-5 right-5 p-2.5 rounded-xl bg-blue-600/10 text-blue-600 hover:bg-blue-600 hover:text-white transition-all"><Settings size={16} /></button>
+                                  <button onClick={beginDetailsEdit} className="absolute top-5 right-5 p-2.5 rounded-xl bg-blue-600/10 text-blue-600 hover:bg-blue-600 hover:text-white transition-all"><Settings size={16} /></button>
                                 )}
                                 
                                 {requiredFields.includes(1) && (
@@ -2417,10 +3081,11 @@ const handleFinalizeOrder = async () => {
                                       {checkoutData.shippingMethod === 'Seller Meetup' ? 'Meetup Map Pin' : 'Pickup Map'}
                                     </p>
                                     <div className="w-full h-40 rounded-[2rem] overflow-hidden border-2 border-blue-600/20 relative">
-                                      <MapContainer center={selectedLocalPlaceCoord} zoom={16} style={{ height: '100%', width: '100%' }} dragging={true} scrollWheelZoom={true} doubleClickZoom={true} touchZoom={true} zoomControl={true}>
-                                        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                                      <MapContainer center={selectedLocalPlaceCoord} zoom={MAP_DEFAULT_ZOOM} maxZoom={MAP_MAX_PIN_ZOOM} style={{ height: '100%', width: '100%' }} dragging={true} scrollWheelZoom={true} doubleClickZoom={true} touchZoom={true} zoomControl={true}>
+                                        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={MAP_MAX_PIN_ZOOM} />
                                         {usesMeetupLocation && <Marker position={selectedLocalPlaceCoord} />}
                                         <ChangeView center={selectedLocalPlaceCoord} />
+                                        <MapRecenterButton center={selectedLocalPlaceCoord} />
                                       </MapContainer>
                                     </div>
                                   </div>
@@ -2456,10 +3121,11 @@ const handleFinalizeOrder = async () => {
                                   <div className="space-y-2">
                                     <p className="text-[8px] font-black uppercase opacity-30 tracking-[0.2em]">Drop-Off Pin</p>
                                     <div className="w-full h-40 rounded-[2rem] overflow-hidden border-2 border-blue-600/20 relative">
-                                      <MapContainer center={[deliveryData.lat, deliveryData.lng]} zoom={16} style={{ height: '100%', width: '100%' }} dragging={false} scrollWheelZoom={false} doubleClickZoom={false} touchZoom={false} zoomControl={false}>
-                                        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                                      <MapContainer center={[deliveryData.lat, deliveryData.lng]} zoom={MAP_DEFAULT_ZOOM} maxZoom={MAP_MAX_PIN_ZOOM} style={{ height: '100%', width: '100%' }} dragging={false} scrollWheelZoom={false} doubleClickZoom={false} touchZoom={false} zoomControl={false}>
+                                        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={MAP_MAX_PIN_ZOOM} />
                                         <Marker position={[deliveryData.lat, deliveryData.lng]} />
                                         <ChangeView center={[deliveryData.lat, deliveryData.lng]} />
+                                        <MapRecenterButton center={[deliveryData.lat, deliveryData.lng]} />
                                       </MapContainer>
                                     </div>
                                   </div>
@@ -2481,11 +3147,15 @@ const handleFinalizeOrder = async () => {
                                   isDarkMode={isDarkMode}
                                 />
                                 <button 
-                                  disabled={!isDetailsFormValid}
-                                  onClick={handleConfirmDetails} 
-                                  className={`w-full py-4 rounded-2xl bg-emerald-600 text-white font-black uppercase text-xs tracking-widest transition-all ${!isDetailsFormValid ? 'opacity-50 cursor-not-allowed' : 'hover:bg-emerald-700'}`}
+                                  disabled={hasDetailsDraftChanged && !isDetailsFormValid}
+                                  onClick={hasDetailsDraftChanged ? handleConfirmDetails : cancelDetailsEdit} 
+                                  className={`w-full py-4 rounded-2xl text-white font-black uppercase text-xs tracking-widest transition-all ${
+                                    hasDetailsDraftChanged
+                                      ? (!isDetailsFormValid ? 'opacity-50 cursor-not-allowed bg-emerald-600' : 'bg-emerald-600 hover:bg-emerald-700')
+                                      : 'bg-neutral-500 hover:bg-neutral-600'
+                                  }`}
                                 >
-                                  Confirm Details
+                                  {hasDetailsDraftChanged ? 'Confirm Details' : 'Cancel'}
                                 </button>
                               </div>
                             )}
@@ -2774,7 +3444,7 @@ const handleFinalizeOrder = async () => {
                 </div>
               </div>
             </div>
-        )}
+        ))}
         {checkoutStep === 2 && (
           <div className="max-w-4xl mx-auto py-2 md:py-4 animate-in zoom-in-95 duration-500">
              <div className="text-center mb-6">

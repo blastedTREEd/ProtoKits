@@ -307,9 +307,9 @@ export const useStore = create(
         const { isAdmin, isAdminView } = get();
         return {
           stories: pathname === '/' || pathname === '',
-          kits: pathname.startsWith('/kits'),
+          kits: pathname.startsWith('/kits') || pathname === '/checkout',
           deals: pathname.startsWith('/kits'),
-          orders: pathname === '/orders',
+          orders: pathname === '/orders' || pathname === '/checkout',
           basket: pathname === '/basket' || pathname === '/shelf',
           shelf: (pathname === '/shelf' && isAdmin) || (pathname === '/basket' && isAdmin && isAdminView),
           prints: pathname === '/prints' || pathname === '/blueprints'

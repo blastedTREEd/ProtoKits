@@ -62,13 +62,12 @@ export default function ShippingOptions({
   const getHandlingDiscount = (method, methodVal, subKey = null) => {
     const methodObj = typeof methodVal === 'object' && methodVal !== null ? methodVal : {};
     if (!subKey) {
-      return methodObj.handlingDiscount !== undefined ? methodObj.handlingDiscount : true;
+      return methodObj.handlingDiscount === true;
     }
     // Una i-check ang .suboptions[subKey].handlingDiscount
     const subConfig = methodObj.suboptions?.[subKey];
     if (subConfig?.handlingDiscount !== undefined) return subConfig.handlingDiscount;
-    // Default: true (may discount)
-    return true;
+    return false;
   };
 
   // --- CRUD Handlers ---
@@ -86,14 +85,14 @@ export default function ShippingOptions({
         active: true,
         requiredFields: [1, 2, 5, 6, 7, 9, 10, 11, 12], // default fields
         courierName: '',
-        handlingDiscount: true,
+        handlingDiscount: false,
         suboptions: {
           'standard-delivery': {
             active: true,
             label: 'Standard Delivery',
             requiredFields: [1, 2, 5, 6, 7, 9, 10, 11, 12],
             courierName: '',
-            handlingDiscount: true,
+            handlingDiscount: false,
             isSelfBooking: false,
             isPickupRequired: false,
             hasSchedule: false
@@ -135,7 +134,7 @@ export default function ShippingOptions({
             label: label,
             requiredFields: [1, 2, 5, 6, 7, 9, 10, 11, 12], // default fields
             courierName: '',
-            handlingDiscount: true,
+            handlingDiscount: false,
             isSelfBooking: false,    // Customer ang mag-bubook ng sarili nilang courier
             isPickupRequired: false, // Kailangan mag-select ng pickup point
             hasSchedule: false       // Ipakita ang schedule picker
