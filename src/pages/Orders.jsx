@@ -94,7 +94,7 @@ function ReservationTimer({ createdAt, expiresAt, onExpire, compact = false, dur
 
 const CANCELLED_ORDER_DELETE_WINDOW_MS = 10 * 60 * 1000;
 
-function DeletionTimer({ completedAt, onExpire, onDelete }) {
+function DeletionTimer({ completedAt, onExpire, onDelete, children }) {
   const [timeLeft, setTimeLeft] = useState('');
   const [fallbackStart] = useState(() => Date.now());
   const hasExpiredRef = useRef(false);
@@ -125,6 +125,10 @@ function DeletionTimer({ completedAt, onExpire, onDelete }) {
     return () => clearInterval(interval);
   }, [completedAt, fallbackStart, onExpire]);
   
+  if (typeof children === 'function') {
+    return children(timeLeft);
+  }
+
   return (
     <button
       type="button"
@@ -955,16 +959,6 @@ export default function Orders() {
               <h2 className="text-xl md:text-2xl font-black uppercase italic tracking-tight text-blue-600 dark:text-blue-500">
                 {selectedOrder.orderId}
               </h2>
-            {selectedOrder.isMaintenanceOrder && ['Completed', 'Cancelled'].includes(selectedOrder.status) && (
-              <DeletionTimer
-                completedAt={selectedOrder.completedAt || selectedOrder.cancelledAt || selectedOrder.lastUpdated}
-                onExpire={() => handleDeleteOrderNow(selectedOrder.id)}
-                onDelete={(e) => {
-                  e.stopPropagation();
-                  handleDeleteOrderNow(selectedOrder.id);
-                }}
-              />
-            )}
           </div>
           <div className="flex items-center gap-4">
             {isReservedTimerActive ? (
@@ -985,6 +979,21 @@ export default function Orders() {
                   </div>
                 )}
               </ReservationTimer>
+            ) : selectedOrder.isMaintenanceOrder && ['Completed', 'Cancelled'].includes(selectedOrder.status) ? (
+              <DeletionTimer
+                completedAt={selectedOrder.completedAt || selectedOrder.cancelledAt || selectedOrder.lastUpdated}
+                onExpire={() => handleDeleteOrderNow(selectedOrder.id)}
+              >
+                {(timeLeft) => (
+                  <div className={`px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest leading-none border flex items-center gap-1.5 ${
+                    selectedOrder.status === 'Completed' ? 'bg-emerald-500/15 text-emerald-600 border-emerald-500/20' : 
+                    'bg-red-500/15 text-red-500 border-red-500/20'
+                  }`}>
+                    <span>{getDisplayStatus(selectedOrder)}</span>
+                    {timeLeft && <span className="opacity-90">({timeLeft})</span>}
+                  </div>
+                )}
+              </DeletionTimer>
             ) : (
               <div className={`px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest leading-none border flex items-center gap-1.5 ${
                 isOrderInvalid
@@ -1013,12 +1022,12 @@ export default function Orders() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8 pb-8 border-b border-black/5 dark:border-white/5">
           {/* Left Column: Shipping Info */}
           <div className="space-y-4 text-left">
-            <h3 className="text-xs font-black uppercase tracking-widest opacity-40 mb-2">Shipping Details</h3>
+            <h3 className="text-[13px] font-black uppercase tracking-widest mb-2">Shipping Details</h3>
             
             {/* Receiver Name */}
             <div className="flex flex-col">
-              <span className="text-[10px] font-black uppercase opacity-40 mb-0.5 tracking-wider">Receiver Name</span>
-              <span className="text-base font-black uppercase text-neutral-900 dark:text-white">
+              <span className="text-[13px] font-black uppercase mb-0.5 tracking-wider">Receiver Name</span>
+              <span className="text-[14px] font-black uppercase text-blue-600">
                 {selectedLogistics.receiverName || 'No Receiver Name'}
               </span>
             </div>
@@ -1026,14 +1035,14 @@ export default function Orders() {
             {/* Mobile & Email */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="flex flex-col">
-                <span className="text-[10px] font-black uppercase opacity-40 mb-0.5 tracking-wider">Mobile No.</span>
-                <span className="text-sm font-black text-neutral-950 dark:text-neutral-200">
+                <span className="text-[13px] font-black uppercase mb-0.5 tracking-wider">Mobile No.</span>
+                <span className="text-[14px] font-black text-blue-600">
                   {selectedLogistics.phoneNumber || 'N/A'}
                 </span>
               </div>
               <div className="flex flex-col">
-                <span className="text-[10px] font-black uppercase opacity-40 mb-0.5 tracking-wider">Email Address</span>
-                <span className="text-sm font-black text-neutral-950 dark:text-neutral-200 break-all">
+                <span className="text-[13px] font-black uppercase mb-0.5 tracking-wider">Email Address</span>
+                <span className="text-[14px] font-black text-blue-600 break-all">
                   {selectedLogistics.email || 'N/A'}
                 </span>
               </div>
@@ -1041,8 +1050,8 @@ export default function Orders() {
 
             {/* Complete Address */}
             <div className="flex flex-col">
-              <span className="text-[10px] font-black uppercase opacity-40 mb-0.5 tracking-wider">Complete Address</span>
-              <span className="text-sm font-bold opacity-80 leading-relaxed text-neutral-950 dark:text-neutral-200">
+              <span className="text-[13px] font-black uppercase mb-0.5 tracking-wider">Complete Address</span>
+              <span className="text-[14px] font-bold leading-relaxed text-blue-600">
                 {selectedLogistics.display}
                 {selectedOrder.receiverDetails?.city && (
                   <span className="block mt-0.5">
@@ -1055,7 +1064,7 @@ export default function Orders() {
             {/* Tracking / Inputs */}
             {showTrackingSection && (
               <div className="pt-2 border-t border-black/5 dark:border-white/5 flex flex-col">
-                <span className="text-[10px] font-black uppercase opacity-40 mb-2 tracking-wider">Logistics & Tracking Info</span>
+                <span className="text-[13px] font-black uppercase mb-2 tracking-wider">Logistics & Tracking Info</span>
                 {/* Admin: Tracking input when no tracking saved yet */}
                 {isAdminMode && selectedOrder.status !== 'Cancelled' && !selectedOrder.trackingNo ? (
                   <div className="space-y-3">
@@ -1084,7 +1093,7 @@ export default function Orders() {
                     )}
                     <button 
                       onClick={handleSaveShippingDetails}
-                      className="w-full py-3 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-blue-600/20 active:scale-95 transition-all"
+                      className="w-full py-3 bg-blue-600 text-white rounded-xl text-[12px] font-black uppercase tracking-widest shadow-lg shadow-blue-600/20 active:scale-95 transition-all"
                     >
                       Save Tracking & Mark In Transit
                     </button>
@@ -1098,7 +1107,7 @@ export default function Orders() {
                         href={selectedOrder.customerTrackingLink}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-xs font-black text-blue-600 hover:underline break-all block"
+                        className="text-[14px] font-black text-blue-600 hover:underline break-all block"
                       >
                         {selectedOrder.customerTrackingLink}
                       </a>
@@ -1112,7 +1121,7 @@ export default function Orders() {
                     />
                     <button 
                       onClick={handleSaveCustomerTrackingLink}
-                      className="w-full py-3 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-blue-600/20 active:scale-95 transition-all"
+                      className="w-full py-3 bg-blue-600 text-white rounded-xl text-[12px] font-black uppercase tracking-widest shadow-lg shadow-blue-600/20 active:scale-95 transition-all"
                     >
                       {selectedOrder.customerTrackingLink ? 'Update Tracking URL' : 'Save Tracking URL'}
                     </button>
@@ -1127,12 +1136,12 @@ export default function Orders() {
                           href={selectedOrder.trackingNo}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-xs font-black text-blue-600 hover:underline break-all block"
+                          className="text-[14px] font-black text-blue-600 hover:underline break-all block"
                         >
                           {selectedOrder.trackingNo}
                         </a>
                       ) : (
-                        <p className="text-xs font-black uppercase text-blue-600 dark:text-blue-500">
+                        <p className="text-[14px] font-black uppercase text-blue-600 dark:text-blue-500">
                           {selectedOrder.trackingNo}
                         </p>
                       )
@@ -1141,17 +1150,17 @@ export default function Orders() {
                         href={selectedOrder.customerTrackingLink}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-xs font-black text-blue-600 hover:underline break-all block"
+                        className="text-[14px] font-black text-blue-600 hover:underline break-all block"
                       >
                         {selectedOrder.customerTrackingLink}
                       </a>
                     ) : (
-                      <p className="text-xs font-black uppercase text-blue-600 dark:text-blue-500">
+                      <p className="text-[14px] font-black uppercase text-blue-600 dark:text-blue-500">
                         {selectedOrder.status === 'Cancelled' ? 'N/A' : selectedShippingFlags.isLalamoveSelf ? 'Pending Customer Booking' : 'Pending'}
                       </p>
                     )}
-                    {selectedShippingFlags.needsAdminShipping && <p className="text-[10px] font-bold opacity-60">Shipping Fee: ₱{selectedTotals.shippingFee.toLocaleString()}</p>}
-                    {selectedOrder.claimantBalance && <p className="text-[10px] font-bold opacity-60">Claimant Balance: ₱{Number(selectedOrder.claimantBalance || 0).toLocaleString()}</p>}
+                    {selectedShippingFlags.needsAdminShipping && <p className="text-[14px] font-bold">Shipping Fee: ₱{selectedTotals.shippingFee.toLocaleString()}</p>}
+                    {selectedOrder.claimantBalance && <p className="text-[14px] font-bold">Claimant Balance: ₱{Number(selectedOrder.claimantBalance || 0).toLocaleString()}</p>}
                   </div>
                 )}
               </div>
@@ -1160,7 +1169,7 @@ export default function Orders() {
 
           {/* Right Column: Map */}
           <div className="flex flex-col h-full justify-between">
-            <h3 className="text-xs font-black uppercase tracking-widest opacity-40 mb-2 text-left">Location Map</h3>
+            <h3 className="text-[13px] font-black uppercase tracking-widest mb-2 text-left">Location Map</h3>
             {mapLat && mapLng ? (
               <div className="overflow-hidden rounded-3xl border border-black/5 dark:border-white/5 h-[280px] w-full relative z-10">
                 <MapContainer 
@@ -1189,7 +1198,7 @@ export default function Orders() {
 
         {/* Second Section: Items Breakdown */}
         <div className="mb-8 pb-8 border-b border-black/5 dark:border-white/5">
-          <h3 className="text-xs font-black uppercase tracking-widest opacity-40 mb-4 text-left">Items Breakdown</h3>
+          <h3 className="text-[13px] font-black uppercase tracking-widest mb-4 text-left">Items Breakdown</h3>
           <div className="space-y-4">
             {detailItems.map((item, idx) => {
               const kit = kits.find(k => k.id === item.id || k.id === item.productId || k.name === item.name);
@@ -1313,7 +1322,7 @@ export default function Orders() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start mb-8 pb-8">
           {/* Left Side: Payments (QR, Receipt, Balance Receipt) */}
           <div className="space-y-4 text-left">
-            <h3 className="text-xs font-black uppercase tracking-widest opacity-40 mb-2">Payment Details</h3>
+            <h3 className="text-[13px] font-black uppercase tracking-widest mb-2">Payment Details</h3>
             
             {selectedOrder.paymentMethod === 'Cash' && !isOrderFromMaintenance ? (
               <div className="p-6 bg-blue-500/5 rounded-3xl border border-blue-500/10 flex flex-col items-center text-center gap-3 w-full animate-in fade-in duration-300">
@@ -1350,7 +1359,7 @@ export default function Orders() {
                         download={`${selectedOrder?.paymentMethod}-QR.png`}
                         className="w-full py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[12px] font-black uppercase tracking-widest text-center transition-all flex items-center justify-center gap-1"
                       >
-                        <Download size={10} /> QR Code
+                        <Download size={12} /> QR Code
                       </a>
                     )}
                   </div>
@@ -1392,8 +1401,8 @@ export default function Orders() {
                   )}
 
                   {isFirstReceiptValidated && (
-                    <div className="flex items-center gap-1 text-[9px] font-black uppercase text-emerald-600 tracking-wider">
-                      <CheckCircle2 size={11} className="text-emerald-500 animate-in zoom-in duration-300" />
+                    <div className="flex items-center gap-1 text-[12px] font-black uppercase text-emerald-600 tracking-wider">
+                      <CheckCircle2 size={12} className="text-emerald-500 animate-in zoom-in duration-300" />
                       Validated
                     </div>
                   )}
@@ -1401,7 +1410,7 @@ export default function Orders() {
                   {!isAdminMode && !selectedOrder.receipt && ['Reserved', 'Waiting', 'Arrived', 'Validating'].includes(selectedOrder.status) && (
                     <label className="w-full cursor-pointer">
                       <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileSelect(e, false)} disabled={isUploading} />
-                      <div className="w-full py-1.5 bg-blue-600/10 text-blue-600 rounded-lg text-[9px] font-black uppercase tracking-widest text-center hover:bg-blue-600/20 transition-all">
+                      <div className="w-full py-1.5 bg-blue-600/10 text-blue-600 rounded-lg text-[12px] font-black uppercase tracking-widest text-center hover:bg-blue-600/20 transition-all">
                         Upload
                       </div>
                     </label>
@@ -1411,7 +1420,7 @@ export default function Orders() {
                     <button 
                       onClick={() => handleConfirmReceipt(selectedOrder)} 
                       disabled={isUploading}
-                      className="w-full py-1.5 bg-emerald-600 text-white rounded-lg text-[9px] font-black uppercase tracking-widest shadow-md active:scale-95 transition-all mt-1"
+                      className="w-full py-1.5 bg-emerald-600 text-white rounded-lg text-[12px] font-black uppercase tracking-widest shadow-md active:scale-95 transition-all mt-1"
                     >
                       {isUploading ? 'Sending...' : 'Submit'}
                     </button>
@@ -1445,8 +1454,8 @@ export default function Orders() {
                     )}
 
                     {isBalValidated && (
-                      <div className="flex items-center gap-1 text-[9px] font-black uppercase text-emerald-600 tracking-wider">
-                        <CheckCircle2 size={11} className="text-emerald-500 animate-in zoom-in duration-300" />
+                      <div className="flex items-center gap-1 text-[12px] font-black uppercase text-emerald-600 tracking-wider">
+                        <CheckCircle2 size={12} className="text-emerald-500 animate-in zoom-in duration-300" />
                         Validated
                       </div>
                     )}
@@ -1454,7 +1463,7 @@ export default function Orders() {
                     {!isAdminMode && !selectedOrder.balanceReceipt && ['Reserved', 'Waiting', 'Arrived', 'Validating', 'Preparing', 'To Ship', 'Shipped', 'Dispatched', 'In Transit', 'Ready for Pickup'].includes(selectedOrder.status) && (
                       <label className="w-full cursor-pointer">
                         <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileSelect(e, true)} disabled={isUploading} />
-                        <div className="w-full py-1.5 bg-purple-600/10 text-purple-600 rounded-lg text-[9px] font-black uppercase tracking-widest text-center hover:bg-purple-600/20 transition-all">
+                        <div className="w-full py-1.5 bg-purple-600/10 text-purple-600 rounded-lg text-[12px] font-black uppercase tracking-widest text-center hover:bg-purple-600/20 transition-all">
                           Upload
                         </div>
                       </label>
@@ -1464,7 +1473,7 @@ export default function Orders() {
                       <button 
                         onClick={() => handleConfirmBalanceReceipt(selectedOrder)} 
                         disabled={isUploading}
-                        className="w-full py-1.5 bg-emerald-600 text-white rounded-lg text-[9px] font-black uppercase tracking-widest shadow-md active:scale-95 transition-all mt-1"
+                        className="w-full py-1.5 bg-emerald-600 text-white rounded-lg text-[12px] font-black uppercase tracking-widest shadow-md active:scale-95 transition-all mt-1"
                       >
                         {isUploading ? 'Sending...' : 'Submit'}
                       </button>
@@ -1477,28 +1486,28 @@ export default function Orders() {
 
           {/* Right Side: Totals */}
           <div className="space-y-3 bg-black/[0.01] dark:bg-white/[0.01] p-6 rounded-3xl border border-black/5 dark:border-white/5 text-left">
-            <h3 className="text-xs font-black uppercase tracking-widest opacity-40 mb-2">Order Totals</h3>
+            <h3 className="text-[13px] font-black uppercase tracking-widest mb-2">Order Totals</h3>
             
             {/* First row: Items Total */}
-            <div className="flex justify-between items-center text-xs font-bold opacity-80">
+            <div className="flex justify-between items-center text-[14px] font-bold">
               <span>Items Total</span>
               <span>₱{itemsSubtotal.toLocaleString()}</span>
             </div>
 
             {/* Second row: Garage Discount */}
-            <div className="flex justify-between items-center text-xs font-bold text-emerald-600 dark:text-emerald-500">
+            <div className="flex justify-between items-center text-[14px] font-bold text-emerald-600 dark:text-emerald-500">
               <span>Garage Discount</span>
               <span>-₱{selectedTotals.discount.toLocaleString()}</span>
             </div>
 
             {/* Second row: Shipping Fee */}
-            <div className="flex justify-between items-center text-xs font-bold opacity-80">
+            <div className="flex justify-between items-center text-[14px] font-bold">
               <span>Shipping Fee</span>
               <span>₱{selectedTotals.shippingFee.toLocaleString()}</span>
             </div>
 
             {/* Third row: Total */}
-            <div className="flex justify-between items-center text-sm font-black border-t border-black/5 dark:border-white/5 pt-3">
+            <div className="flex justify-between items-center text-[14px] font-black border-t border-black/5 dark:border-white/5 pt-3">
               <span className="flex items-center gap-1.5">
                 Total Cost 
                 {isFirstReceiptValidated && (
@@ -1512,7 +1521,7 @@ export default function Orders() {
             {isBalanceApplicable && isReservationOrPartial ? (
               <>
                 {/* Downpayment amount — blue when unpaid, default when paid */}
-                <div className={`flex justify-between items-center text-xs font-bold border-t border-black/5 dark:border-white/5 pt-3 ${!selectedOrder.receipt ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                <div className={`flex justify-between items-center text-[14px] font-bold border-t border-black/5 dark:border-white/5 pt-3 ${!selectedOrder.receipt ? 'text-blue-600 dark:text-blue-400' : ''}`}>
                   <span className="flex items-center gap-1.5">
                     Downpayment 
                     {isFirstReceiptValidated && (
@@ -1522,7 +1531,7 @@ export default function Orders() {
                   <span>₱{Number(selectedOrder.paymentDueNow || 0).toLocaleString()}</span>
                 </div>
                 {/* Remaining Balance — blue when downpayment paid but balance unpaid, default otherwise */}
-                <div className={`flex justify-between items-center text-xs font-bold ${selectedOrder.receipt && !selectedOrder.balanceReceipt ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                <div className={`flex justify-between items-center text-[14px] font-bold ${selectedOrder.receipt && !selectedOrder.balanceReceipt ? 'text-blue-600 dark:text-blue-400' : ''}`}>
                   <span className="flex items-center gap-1.5">
                     Remaining Balance 
                     {isBalValidated && (
@@ -1533,7 +1542,7 @@ export default function Orders() {
                 </div>
               </>
             ) : isBalanceApplicable ? (
-              <div className="flex justify-between items-center text-sm font-black border-t border-black/5 dark:border-white/5 pt-3 text-amber-600 dark:text-amber-500">
+              <div className="flex justify-between items-center text-[14px] font-black border-t border-black/5 dark:border-white/5 pt-3 text-amber-600 dark:text-amber-500">
                 <span>Balance Due</span>
                 <span>₱{selectedTotals.balance.toLocaleString()}</span>
               </div>
