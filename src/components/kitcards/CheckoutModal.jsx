@@ -709,6 +709,34 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     }
   }, [isOpen, fetchAdmins]);
 
+  // Block browser back button kapag nasa payment step (step 2) na —
+  // i-redirect sa /orders imbes na bumalik sa checkout form
+  useEffect(() => {
+    if (checkoutStep !== 2) return;
+
+    const handlePopState = (e) => {
+      // Kapag nag-back ang user habang nasa payment step, i-redirect sa orders
+      // at i-cleanup ang checkout state
+      e.preventDefault();
+      setCheckoutStep(1);
+      setPreviewUrl(null);
+      setActivePreviewUrl(null);
+      setPaymentSubmitted(false);
+      setCreatedOrderIds([]);
+      setIsUploading(false);
+      setIsFinalizing(false);
+      if (isPage) {
+        navigate('/orders', { replace: true });
+      } else {
+        onClose();
+        navigate('/orders');
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [checkoutStep, navigate, isPage, onClose]);
+
   const { shippingSettings } = useStore();
 
   const storeAdmin = useMemo(() => {
@@ -1936,6 +1964,9 @@ const handleFinalizeOrder = async () => {
         onClose(); 
         navigate('/orders'); 
       } else { 
+        // Push history state para ma-trap ang browser back button sa payment step
+        // — hindi dapat makabalik ang user sa checkout form pagkatapos mag-finalize
+        window.history.pushState({ checkoutPayment: true }, '');
         setCheckoutStep(2); 
       }
     } catch (err) { 
