@@ -946,7 +946,7 @@ export default function Orders() {
     const isFirstReceiptValidated = isReservationOrPartial ? isDpValidated : isFullValidated;
     const isBalValidated = selectedOrder.balanceReceipt && selectedOrder.status !== 'Validating';
 
-    const isOrderInvalid = Boolean(selectedOrder.isMaintenanceOrder && !selectedOrder.receipt);
+    const isOrderInvalid = Boolean(selectedOrder.isMaintenanceOrder);
     const isReservedTimerActive = selectedOrder.status === 'Reserved' && !selectedOrder.receipt && Boolean(selectedOrder.cancellationTimerStartedAt || isOrderInvalid);
 
     return (
@@ -986,9 +986,9 @@ export default function Orders() {
               >
                 {(timeLeft) => (
                   <div className={`px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest leading-none border flex items-center gap-1.5 ${
-                    selectedOrder.status === 'Completed' ? 'bg-emerald-500/15 text-emerald-600 border-emerald-500/20' : 
-                    'bg-red-500/15 text-red-500 border-red-500/20'
+                    'bg-red-600 text-white border-red-600 shadow-lg shadow-red-600/20'
                   }`}>
+                    <Flag size={13} className="fill-current" />
                     <span>{getDisplayStatus(selectedOrder)}</span>
                     {timeLeft && <span className="opacity-90">({timeLeft})</span>}
                   </div>
@@ -1707,7 +1707,7 @@ export default function Orders() {
                 const isSelected = selectedOrders.includes(o.id);
                 const orderItems = Array.isArray(o.items) && o.items.length > 0 ? o.items : [o];
                 const { total: orderGrandTotal } = getOrderTotals(o);
-                const isCardInvalid = Boolean(o.isMaintenanceOrder && !o.receipt);
+                const isCardInvalid = Boolean(o.isMaintenanceOrder);
                 const isCardReservedTimerActive = o.status === 'Reserved' && !o.receipt && Boolean(o.cancellationTimerStartedAt || isCardInvalid);
 
                 const statusTagClass = o.status === 'Cancelled'
@@ -1721,15 +1721,19 @@ export default function Orders() {
                   .replace(/\s*\([^)]*\)/g, '')
                   .split(':')[0]
                   .trim() || 'N/A';
-                const orderStatusIndicator = o.isMaintenanceOrder && o.status === 'Cancelled' ? (
+                const orderStatusIndicator = o.isMaintenanceOrder && ['Completed', 'Cancelled'].includes(o.status) ? (
                   <DeletionTimer
                     completedAt={o.completedAt || o.cancelledAt || o.lastUpdated}
                     onExpire={() => handleDeleteOrderNow(o.id)}
-                    onDelete={(e) => {
-                      e.stopPropagation();
-                      handleDeleteOrderNow(o.id);
-                    }}
-                  />
+                  >
+                    {(timeLeft) => (
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-red-600 bg-red-600 px-3 py-1 text-[11px] font-black uppercase leading-none tracking-widest text-white shadow-md shadow-red-600/20 whitespace-nowrap">
+                        <Flag size={12} className="fill-current" />
+                        <span>{getDisplayStatus(o)}</span>
+                        {timeLeft && <span className="opacity-90">({timeLeft})</span>}
+                      </span>
+                    )}
+                  </DeletionTimer>
                 ) : isCardReservedTimerActive ? (
                   <ReservationTimer
                     createdAt={o.cancellationTimerStartedAt || o.createdAt}
@@ -1755,6 +1759,7 @@ export default function Orders() {
                       : statusTagClass
                   }`}>
                     {isCardInvalid && <Flag size={12} className="fill-current" />}
+                    <Flag size={12} className="fill-current" />
                     <span>{getDisplayStatus(o)}</span>
                   </span>
                 );

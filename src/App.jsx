@@ -319,8 +319,6 @@ export default function App() {
         if (result) {
           console.log("DEBUG: Redirect result success:", result.user);
           setToastMessage("Login Success!");
-        } else {
-          console.log("DEBUG: Walang redirect result.");
         }
       } catch (error) {
         console.error("DEBUG: Redirect login error:", error);

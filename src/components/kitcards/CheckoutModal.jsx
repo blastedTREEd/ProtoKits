@@ -1,10 +1,10 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion'; // eslint-disable-line no-unused-vars
 import { 
-  X, ShoppingBag, Package, Clock, Download, CheckCircle2, Camera,
+  X, ShoppingBag, Package, Clock, Download, CheckCircle2,
   User, Phone, Home, Building2, Map, Hash, Navigation, MapPin,
   ShieldCheck, Loader2, Settings, Info, Truck, Users, Sparkles,
-  MapPinCheckInside, Store, CircleChevronLeft, ChevronDown, MapPinSearch
+  MapPinCheckInside, Store, CircleChevronLeft, ChevronDown, MapPinSearch, Eye, Upload
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
 import { useNavigate } from 'react-router-dom';
@@ -538,6 +538,8 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   const [isUploading, setIsUploading] = useState(false);
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [previewUrl, setPreviewUrl] = useState(null);
+  const [activePreviewUrl, setActivePreviewUrl] = useState(null);
+  const [paymentSubmitted, setPaymentSubmitted] = useState(false);
   const [createdOrderIds, setCreatedOrderIds] = useState([]);
   const [agreedToPolicy, setAgreedToPolicy] = useState(false);
   const [isCheckoutLoginPending, setIsCheckoutLoginPending] = useState(false);
@@ -870,10 +872,14 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
 
 
   const orderFees = useMemo(() => {
-    const handling = Number(storeAdmin?.paymentSettings?.handlingFee ?? storeAdmin?.pickupDetails?.handlingFee ?? 0);
-    const transfer = Number(storeAdmin?.paymentSettings?.transferFee ?? 0);
+    const fallbackHandling = Math.max(0, ...(items || []).map(item => Number(item.appliedHandlingFee || 0)));
+    const fallbackTransfer = Math.max(0, ...(items || []).map(item => Number(item.appliedTransferFee || 0)));
+    const configuredHandling = Number(storeAdmin?.paymentSettings?.handlingFee ?? storeAdmin?.pickupDetails?.handlingFee ?? 0);
+    const configuredTransfer = Number(storeAdmin?.paymentSettings?.transferFee ?? 0);
+    const handling = Math.max(configuredHandling, fallbackHandling);
+    const transfer = Math.max(configuredTransfer, fallbackTransfer);
     return { handling, transfer };
-  }, [storeAdmin]);
+  }, [items, storeAdmin]);
 
   const totalAppliedHandlingFee = useMemo(() => orderFees.handling, [orderFees]);
   const projectInstallmentFee = useMemo(() => {
@@ -1926,7 +1932,7 @@ const handleFinalizeOrder = async () => {
         if (item.basketId) await removeFromBasket(item.basketId);
       }
 
-      if (isAdmin && isAdminView) { 
+      if (!isPage && isAdmin && isAdminView) { 
         onClose(); 
         navigate('/orders'); 
       } else { 
@@ -1961,8 +1967,9 @@ const handleFinalizeOrder = async () => {
     setIsUploading(true);
     try {
       await uploadReceipt(createdOrderIds, previewUrl);
-      onClose();
-      navigate('/orders');
+      setPaymentSubmitted(true);
+      setPreviewUrl(null);
+      setIsUploading(false);
     } catch (err) {
       console.error(err);
       alert("Failed to upload receipt.");
@@ -2043,6 +2050,15 @@ const handleFinalizeOrder = async () => {
     }).map(key => key.toLowerCase() === 'cash' ? 'Cash' : key);
   }, [storeAdmin, checkoutData.shippingMethod, hasPreOrders, hasProjects, checkoutData.paymentPlan]);
 
+  const paymentPreviewUrl = useMemo(() => {
+    if (checkoutStep !== 2) return '';
+    if (checkoutData.paymentMethod === 'Cash' && !isOrderInvalidForMaintenance) return '';
+    if (isOrderInvalidForMaintenance) {
+      return garageInfo?.logoURL || "https://graph.facebook.com/SnorlaxGarage/picture?type=large";
+    }
+    return getPaymentMethodConfig(storeAdmin?.paymentSettings?.methods, checkoutData.paymentMethod).qr || '';
+  }, [checkoutStep, checkoutData.paymentMethod, garageInfo?.logoURL, isOrderInvalidForMaintenance, storeAdmin?.paymentSettings?.methods]);
+
   // Preselect defaults when options become available
   useEffect(() => {
     if (isOpen) {
@@ -2106,7 +2122,7 @@ const handleFinalizeOrder = async () => {
 
 
   const handleCloseModal = async () => {
-    if (checkoutStep === 2 && createdOrderIds.length > 0) {
+    if (checkoutStep === 2 && createdOrderIds.length > 0 && !paymentSubmitted) {
       const cancellationTimerStartedAt = new Date().toISOString();
       try {
         await Promise.all(createdOrderIds.map(orderId => updateOrderDetails(orderId, { cancellationTimerStartedAt })));
@@ -2123,9 +2139,127 @@ const handleFinalizeOrder = async () => {
     }
     setCheckoutStep(1);
     setPreviewUrl(null);
+    setActivePreviewUrl(null);
+    setPaymentSubmitted(false);
     setCreatedOrderIds([]);
     setIsUploading(false);
     setIsFinalizing(false);
+  };
+
+  const renderCheckoutPaymentStep = () => {
+    const isCashPayment = checkoutData.paymentMethod === 'Cash' && !isOrderInvalidForMaintenance;
+    const paymentLabel = isOrderInvalidForMaintenance
+      ? 'Payment Placeholder'
+      : isCashPayment
+        ? 'Cash Payment'
+        : checkoutData.paymentMethod;
+    const displayPaymentImage = previewUrl || paymentPreviewUrl;
+    const displayPaymentLabel = previewUrl ? 'Receipt Preview' : paymentLabel;
+
+    if (paymentSubmitted) {
+      return (
+        <div className="fixed inset-0 z-[700] flex items-center justify-center bg-black/95 p-4 text-white animate-in fade-in duration-300">
+          <button
+            type="button"
+            onClick={handleCloseModal}
+            className="absolute right-8 top-8 z-10 text-white/50 transition hover:text-white"
+            aria-label="Close payment page"
+          >
+            <X size={40} />
+          </button>
+          <div className="flex w-full max-w-md flex-col items-center gap-6 text-center">
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-400">
+              <CheckCircle2 size={38} />
+            </div>
+            <div className="space-y-3">
+              <h2 className="text-2xl font-black italic uppercase tracking-tight">Thank You</h2>
+              <p className="text-sm font-black uppercase leading-relaxed tracking-widest text-white/50">
+                Please wait while we validate your payment.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleCloseModal}
+              className="rounded-xl bg-blue-600 px-10 py-4 text-[12px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-950/30 transition hover:bg-blue-500"
+            >
+              View Orders
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="fixed inset-0 z-[700] flex items-center justify-center bg-black/95 p-4 text-white animate-in fade-in duration-300">
+        <button
+          type="button"
+          onClick={handleCloseModal}
+          className="absolute right-8 top-8 z-10 text-white/50 transition hover:text-white"
+          aria-label="Close payment page"
+        >
+          <X size={40} />
+        </button>
+        <div className="flex flex-col items-center gap-6">
+          {isCashPayment ? (
+            <div className="flex max-w-[80vw] flex-col items-center gap-4 rounded-3xl bg-white p-8 text-neutral-900 shadow-2xl">
+              <div className="flex h-24 w-24 items-center justify-center rounded-3xl bg-blue-600/10 text-blue-600">
+                <Store size={48} />
+              </div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">{paymentLabel}</p>
+            </div>
+          ) : displayPaymentImage ? (
+            <div className="flex max-w-[80vw] flex-col items-center gap-4 rounded-3xl bg-white p-6 shadow-2xl">
+              <img
+                src={displayPaymentImage}
+                className={`h-[60vw] max-h-[320px] w-[60vw] max-w-[320px] ${previewUrl ? 'object-cover' : 'object-contain'}`}
+                alt={previewUrl ? 'Receipt Preview' : 'Payment QR Code'}
+              />
+              <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">{displayPaymentLabel}</p>
+            </div>
+          ) : (
+            <div className="flex max-w-sm flex-col items-center gap-4 rounded-3xl bg-white p-8 text-center text-neutral-900 shadow-2xl">
+              <Info size={44} className="text-red-500" />
+              <p className="text-[12px] font-black uppercase tracking-widest text-red-500">QR not available</p>
+              <p className="text-[12px] font-bold uppercase tracking-widest text-neutral-400">Please contact admin.</p>
+            </div>
+          )}
+
+          {amountDueNow > 0 && (
+            <div className="flex flex-col items-center gap-1">
+              <p className="text-[12px] font-black uppercase tracking-widest text-white/40">Amount to Pay</p>
+              <p className="text-3xl font-black tracking-tight text-white">₱{amountDueNow.toLocaleString()}</p>
+            </div>
+          )}
+
+          {!isCashPayment && (
+            !previewUrl ? (
+              <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-blue-500 bg-blue-600 px-10 py-4 text-[12px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-950/30 transition hover:bg-blue-500">
+                <input type="file" className="hidden" accept="image/*" onChange={handleFileSelect} disabled={isUploading} />
+                <Upload size={16} />
+                Upload Receipt
+              </label>
+            ) : (
+              <div className="flex max-w-sm flex-col items-center gap-3">
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                  <motion.button
+                    whileTap={{ scale: 0.98 }}
+                    onClick={handleConfirmReceipt}
+                    disabled={isUploading}
+                    className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-8 py-4 text-[12px] font-black uppercase tracking-widest text-white shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {isUploading ? 'Uploading...' : 'Submit Receipt'}
+                  </motion.button>
+                  <label className="inline-flex cursor-pointer items-center justify-center rounded-xl border border-white/20 bg-white/10 px-8 py-4 text-[12px] font-black uppercase tracking-widest text-white transition hover:bg-white/15">
+                    <input type="file" className="hidden" accept="image/*" onChange={handleFileSelect} disabled={isUploading} />
+                    Upload
+                  </label>
+                </div>
+              </div>
+            )
+          )}
+        </div>
+      </div>
+    );
   };
 
   const renderPageCheckoutStep = () => {
@@ -2187,6 +2321,12 @@ const handleFinalizeOrder = async () => {
         : usesMeetupLocation
           ? 'Meetup Information'
           : 'Pickup Information';
+    const isBranchPickup = requiredFields.includes(13);
+    const branchDestinationLine = [
+      deliveryData.city,
+      deliveryData.province,
+      deliveryData.zipCode
+    ].filter(Boolean).join(', ');
 
     const handleSuboptionChange = (subKey) => {
       const subConfig = activeMethodConfig?.suboptions?.[subKey] || {};
@@ -2354,7 +2494,18 @@ const handleFinalizeOrder = async () => {
                       )}
                     </div>
                   )}
-                  {!isLocalPlaceMethod && !showLocationSelect && (
+                  {isBranchPickup && (
+                    <div className="rounded-2xl bg-black/[0.03] p-4 dark:bg-white/[0.04] md:col-span-2">
+                      <p className="text-[12px] font-black uppercase tracking-widest opacity-40">{courierName} Branch</p>
+                      <p className="mt-1 text-[13px] font-black uppercase text-blue-600">
+                        {checkoutData.lbcBranch || 'No branch provided'}
+                      </p>
+                      {branchDestinationLine && (
+                        <p className="mt-1 text-[13px] font-bold uppercase opacity-55">{branchDestinationLine}</p>
+                      )}
+                    </div>
+                  )}
+                  {!isLocalPlaceMethod && !showLocationSelect && !isBranchPickup && (
                     <div className="rounded-2xl bg-black/[0.03] p-4 dark:bg-white/[0.04] md:col-span-2">
                       <p className="text-[12px] font-black uppercase tracking-widest opacity-40">Delivery Address</p>
                       <p className="mt-1 text-[13px] font-black uppercase text-blue-600">{formatPlaceAddress(deliveryData) || 'No address confirmed'}</p>
@@ -3102,10 +3253,15 @@ const handleFinalizeOrder = async () => {
                                   <div className="space-y-1">
                                     <p className="text-[8px] font-black uppercase opacity-30 tracking-[0.2em]">{courierName} Branch</p>
                                     <p className="text-sm font-black uppercase italic text-blue-600">{checkoutData.lbcBranch}</p>
+                                    {branchDestinationLine && (
+                                      <p className="text-[11px] font-black uppercase text-neutral-500 dark:text-neutral-300 leading-tight">
+                                        {branchDestinationLine}
+                                      </p>
+                                    )}
                                   </div>
                                 )}
 
-                                {!isLocalPlaceMethod && (requiredFields.includes(5) || requiredFields.includes(6) || requiredFields.includes(7) || requiredFields.includes(8) || requiredFields.includes(4) || requiredFields.includes(9) || requiredFields.includes(10) || requiredFields.includes(11)) && (
+                                {!isLocalPlaceMethod && !isBranchPickup && (requiredFields.includes(5) || requiredFields.includes(6) || requiredFields.includes(7) || requiredFields.includes(8) || requiredFields.includes(4) || requiredFields.includes(9) || requiredFields.includes(10) || requiredFields.includes(11)) && (
                                   <div className="space-y-1">
                                     <p className="text-[8px] font-black uppercase opacity-30 tracking-[0.2em]">Delivery Address</p>
                                     <div className="space-y-0.5">
@@ -3445,7 +3601,8 @@ const handleFinalizeOrder = async () => {
               </div>
             </div>
         ))}
-        {checkoutStep === 2 && (
+        {checkoutStep === 2 && renderCheckoutPaymentStep()}
+        {false && checkoutStep === 2 && (
           <div className="max-w-4xl mx-auto py-2 md:py-4 animate-in zoom-in-95 duration-500">
              <div className="text-center mb-6">
                 <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-500 mx-auto mb-2"><CheckCircle2 size={28} /></div>
@@ -3489,51 +3646,50 @@ const handleFinalizeOrder = async () => {
                            <p className="text-[8px] md:text-[9px] font-bold opacity-60 mt-2">Remaining balance will be due upon pickup/delivery.</p>
                          )}
                       </div>
-                      <div className="p-6 md:p-8 bg-black/5 dark:bg-white/5 rounded-[2rem] md:rounded-[2.5rem] border border-black/5 dark:border-white/10 flex flex-col items-center min-h-[300px] md:min-h-[340px] justify-center">
-                          {isOrderInvalidForMaintenance ? (
-                            <div className="space-y-4 w-full flex flex-col items-center">
-                              <p className="text-[9px] font-black uppercase opacity-60 mb-4 md:mb-6">Payment placeholder</p>
-                              <img src={garageInfo?.logoURL || "https://graph.facebook.com/SnorlaxGarage/picture?type=large"} alt="Payment placeholder" className="w-48 h-48 md:w-56 md:h-56 object-contain rounded-2xl bg-white p-2 shadow-sm" />
-                              <motion.a 
-                                whileTap={{ scale: 0.98 }}
-                                href={garageInfo?.logoURL || "https://graph.facebook.com/SnorlaxGarage/picture?type=large"} 
-                                download="SG-Logo.png"
-                                className="flex items-center justify-center gap-2 w-full max-w-[200px] md:max-w-[224px] py-2.5 md:py-3 bg-blue-600/10 text-blue-600 rounded-xl text-[10px] md:text-[11px] font-black uppercase hover:bg-blue-600/20 transition-all cursor-pointer"
-                              >
-                                <Download size={14} /> Download Placeholder
-                              </motion.a>
-                            </div>
-                          ) : (
-                             <>
-                              {(() => {
-                                const pm = checkoutData.paymentMethod;
-                                const methodQr = getPaymentMethodConfig(storeAdmin?.paymentSettings?.methods, pm).qr;
-                                return (
-                                  <>
-                                    <p className="text-[9px] font-black uppercase opacity-60 mb-4 md:mb-6">Scan to Pay via {pm}</p>
-                                    {methodQr ? (
-                                      <div className="space-y-4 w-full flex flex-col items-center">
-                                         <img src={methodQr} alt={`${pm} QR`} className="w-48 h-48 md:w-56 md:h-56 object-contain rounded-2xl bg-white p-2 shadow-sm" />
-                                         <motion.a 
-                                            whileTap={{ scale: 0.98 }}
-                                            href={methodQr} 
-                                            download={`${pm}-QR.png`}
-                                            className="flex items-center justify-center gap-2 w-full max-w-[200px] md:max-w-[224px] py-2.5 md:py-3 bg-blue-600/10 text-blue-600 rounded-xl text-[10px] md:text-[11px] font-black uppercase hover:bg-blue-600/20 transition-all cursor-pointer"
-                                          >
-                                            <Download size={14} /> Download QR
-                                          </motion.a>
-                                      </div>
-                                    ) : (
-                                      <div className="p-4 rounded-xl bg-red-500/10 text-red-500 text-[10px] font-black uppercase text-center">
-                                        QR not available. Please contact admin.
-                                      </div>
-                                    )}
-                                  </>
-                                );
-                              })()}
-                            </>
-                         )}
-                      </div>
+                      {(() => {
+                        const pm = checkoutData.paymentMethod;
+                        const methodQr = paymentPreviewUrl;
+                        const qrLabel = isOrderInvalidForMaintenance ? 'Payment Placeholder' : 'Payment QR';
+                        const qrDownloadName = isOrderInvalidForMaintenance ? 'SG-Logo.png' : `${pm}-QR.png`;
+
+                        return (
+                          <div className="space-y-3 text-left">
+                            <h3 className="text-[13px] font-black uppercase tracking-widest">Payment Details</h3>
+                            {methodQr ? (
+                              <div className="flex flex-col items-center gap-2 rounded-2xl border border-amber-500/10 bg-amber-500/5 p-4">
+                                <h4 className="text-center text-[12px] font-black uppercase leading-tight tracking-widest text-amber-600">
+                                  {qrLabel}
+                                  {!isOrderInvalidForMaintenance && pm && (
+                                    <span className="mt-0.5 block text-[12px] font-black opacity-100">{pm}</span>
+                                  )}
+                                </h4>
+                                <button
+                                  type="button"
+                                  className="group relative flex h-20 w-20 shrink-0 items-center justify-center rounded-xl border border-black/5 bg-white p-2 transition-opacity hover:opacity-80"
+                                  onClick={() => setActivePreviewUrl(methodQr)}
+                                >
+                                  <img src={methodQr} alt={`${pm || 'Payment'} QR`} className="h-full w-full object-contain" />
+                                  <span className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/20 opacity-0 transition-opacity group-hover:opacity-100">
+                                    <Eye size={14} className="text-white" />
+                                  </span>
+                                </button>
+                                <motion.a
+                                  whileTap={{ scale: 0.98 }}
+                                  href={methodQr}
+                                  download={qrDownloadName}
+                                  className="flex w-full items-center justify-center gap-1 rounded-lg bg-amber-600 py-1.5 text-[12px] font-black uppercase tracking-widest text-white transition-all hover:bg-amber-700"
+                                >
+                                  <Download size={12} /> {isOrderInvalidForMaintenance ? 'Placeholder' : 'QR Code'}
+                                </motion.a>
+                              </div>
+                            ) : (
+                              <div className="rounded-xl bg-red-500/10 p-4 text-center text-[13px] font-black uppercase text-red-500">
+                                QR not available. Please contact admin.
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                    </div>
                    <div className="h-full">
                       <div className="h-full flex flex-col">
@@ -3542,7 +3698,7 @@ const handleFinalizeOrder = async () => {
                                <input type="file" className="hidden" accept="image/*" onChange={handleFileSelect} disabled={isUploading} />
                                <div className="w-full h-full min-h-[400px] md:min-h-[460px] rounded-[2rem] md:rounded-[2.5rem] border-2 border-dashed border-blue-600/30 flex flex-col items-center justify-center gap-4 group-hover:bg-blue-600/5 transition-all bg-black/5 dark:bg-white/5">
                                   <div className="p-5 md:p-6 rounded-full bg-blue-600/10 text-blue-600 transition-transform group-hover:scale-110">
-                                    <Camera size={40} md:size={48} />
+                                    <Upload size={40} />
                                   </div>
                                   <div className="text-center space-y-1"> 
                                     <span className="text-[11px] md:text-xs font-black uppercase tracking-[0.2em] text-blue-600 block">Upload Receipt Screenshot</span>
@@ -3565,6 +3721,63 @@ const handleFinalizeOrder = async () => {
                    </div>
                 </div>
              )}
+          </div>
+        )}
+        {false && activePreviewUrl && (
+          <div
+            className="fixed inset-0 z-[700] flex items-center justify-center bg-black/95 p-4 animate-in fade-in duration-300"
+            onClick={() => setActivePreviewUrl(null)}
+          >
+            <button
+              type="button"
+              onClick={() => setActivePreviewUrl(null)}
+              className="absolute top-8 right-8 z-10 text-white/50 transition hover:text-white"
+              aria-label="Close preview"
+            >
+              <X size={40} />
+            </button>
+            <div className="flex flex-col items-center gap-6" onClick={(event) => event.stopPropagation()}>
+              <div className="flex max-w-[80vw] flex-col items-center gap-4 rounded-3xl bg-white p-6 shadow-2xl">
+                <img
+                  src={activePreviewUrl}
+                  className="h-[60vw] max-h-[320px] w-[60vw] max-w-[320px] object-contain"
+                  alt="Payment QR Code"
+                />
+                {checkoutData.paymentMethod && (
+                  <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">
+                    {isOrderInvalidForMaintenance ? 'Payment Placeholder' : checkoutData.paymentMethod}
+                  </p>
+                )}
+              </div>
+              {amountDueNow > 0 && (
+                <div className="flex flex-col items-center gap-1">
+                  <p className="text-[12px] font-black uppercase tracking-widest text-white/40">Amount to Pay</p>
+                  <p className="text-3xl font-black tracking-tight text-white">₱{amountDueNow.toLocaleString()}</p>
+                </div>
+              )}
+              {!previewUrl ? (
+                <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-blue-500 bg-blue-600 px-10 py-4 text-[12px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-950/30 transition hover:bg-blue-500">
+                  <input type="file" className="hidden" accept="image/*" onChange={handleFileSelect} disabled={isUploading} />
+                  <Upload size={16} />
+                  Upload Receipt
+                </label>
+              ) : (
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                  <motion.button
+                    whileTap={{ scale: 0.98 }}
+                    onClick={handleConfirmReceipt}
+                    disabled={isUploading}
+                    className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-8 py-4 text-[12px] font-black uppercase tracking-widest text-white shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {isUploading ? 'Uploading...' : 'Confirm Upload'}
+                  </motion.button>
+                  <label className="inline-flex cursor-pointer items-center justify-center rounded-xl border border-white/20 bg-white/10 px-8 py-4 text-[12px] font-black uppercase tracking-widest text-white transition hover:bg-white/15">
+                    <input type="file" className="hidden" accept="image/*" onChange={handleFileSelect} disabled={isUploading} />
+                    Change Receipt
+                  </label>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

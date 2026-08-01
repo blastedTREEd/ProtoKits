@@ -32,7 +32,6 @@ export default function Navbar({ isCompact: scrolledCompact }) {
     shelf,
     orders,
     shippingSettings,
-    fetchInitialData, 
     user, 
     isProfileIncomplete,
     isBanned, 
@@ -176,16 +175,13 @@ useEffect(() => {
     window.addEventListener('hideNavbar', handleForceHide);
     window.addEventListener('showNavbar', handleForceShow);
     window.addEventListener('openLoginPrompt', handleOpenLoginPrompt);
-
-    if (!garageInfo && fetchInitialData) fetchInitialData();
-
     return () => {
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('hideNavbar', handleForceHide);
       window.removeEventListener('showNavbar', handleForceShow);
       window.removeEventListener('openLoginPrompt', handleOpenLoginPrompt);
     };
-  }, [garageInfo, fetchInitialData]);
+  }, []);
 useEffect(() => {
   let ticking = false;
 

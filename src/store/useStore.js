@@ -307,9 +307,9 @@ export const useStore = create(
         const { isAdmin, isAdminView } = get();
         return {
           stories: pathname === '/' || pathname === '',
-          kits: pathname.startsWith('/kits') || pathname === '/checkout',
+          kits: pathname.startsWith('/kits'),
           deals: pathname.startsWith('/kits'),
-          orders: pathname === '/orders' || pathname === '/checkout',
+          orders: pathname === '/orders',
           basket: pathname === '/basket' || pathname === '/shelf',
           shelf: (pathname === '/shelf' && isAdmin) || (pathname === '/basket' && isAdmin && isAdminView),
           prints: pathname === '/prints' || pathname === '/blueprints'
@@ -489,16 +489,42 @@ export const useStore = create(
 
       fetchInitialData: () => {
         const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
+        const priorityLoadTimeouts = [];
         set({ _activePath: pathname });
         set({ _backgroundListenersStarted: false });
 
         // Phase 1: Auth check & profile loading
         const unsubAuth = auth.onAuthStateChanged(async (u) => {
+          // Cleanup previous priority and background listeners to prevent leaks/duplicates
+          const prevPrioUnsubs = get()._prioUnsubs || [];
+          prevPrioUnsubs.forEach(unsub => unsub && unsub());
+          
+          const prevBgUnsubs = get()._bgUnsubs || [];
+          prevBgUnsubs.forEach(unsub => unsub && unsub());
+
+          set({ 
+            _prioUnsubs: [], 
+            _bgUnsubs: [], 
+            _backgroundListenersStarted: false,
+            isLoading: true,
+            _loadedDatasets: { userProfile: false, stories: false, kits: false, deals: false, orders: false, basket: false, shelf: false, prints: false }
+          });
+
           await get().syncUserAccount(u, () => {
             get().markLoaded('userProfile');
 
             // Phase 2: Start priority fetching ONLY for the current active page
             const currentReq = get()._getPageRequirements(get()._activePath);
+            Object.entries(currentReq).forEach(([key, isRequired]) => {
+              if (!isRequired || get()._loadedDatasets[key]) return;
+              const timeoutId = setTimeout(() => {
+                if (!get()._loadedDatasets[key]) {
+                  console.warn(`SG LOG: ${key} listener is slow; rendering page while Firestore reconnects.`);
+                  get().markLoaded(key);
+                }
+              }, 8000);
+              priorityLoadTimeouts.push(timeoutId);
+            });
 
             // 1. Home priority -> Stories
             if (currentReq.stories) {
@@ -623,6 +649,7 @@ export const useStore = create(
           const prioUnsubs = get()._prioUnsubs || [];
           prioUnsubs.forEach(unsub => unsub && unsub());
           set({ _prioUnsubs: [] });
+          priorityLoadTimeouts.forEach(timeoutId => clearTimeout(timeoutId));
 
           const bgUnsubs = get()._bgUnsubs || [];
           bgUnsubs.forEach(unsub => unsub && unsub());

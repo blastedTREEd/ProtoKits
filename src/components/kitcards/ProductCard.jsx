@@ -417,7 +417,9 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
   }, [stockList]);
 
   const visibleStocks = useMemo(() => {
-    return publicReleasableStocks.filter(s => getPublicStatus(s).isPublic);
+    return publicReleasableStocks
+      .filter(s => getPublicStatus(s).isPublic)
+      .sort((a, b) => Number(a.sellPrice || 0) - Number(b.sellPrice || 0));
   }, [publicReleasableStocks, getPublicStatus]);
 
   const groupedVariants = useMemo(() => {
@@ -441,6 +443,10 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
         groups[key] = { key, label, items: [], isOnHand, eta: s.eta, tag: 'availability' };
       }
       groups[key].items.push(s);
+    });
+
+    Object.values(groups).forEach(group => {
+      group.items.sort((a, b) => Number(a.sellPrice || 0) - Number(b.sellPrice || 0));
     });
     
     return Object.values(groups).sort((a, b) => {

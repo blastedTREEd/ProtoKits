@@ -3,7 +3,7 @@ import { useStore } from '../../store/useStore';
 
 export default function KitSkeleton() {
   const { garageInfo } = useStore();
-  const logoUrl = garageInfo?.logoURL || "https://via.placeholder.com/150";
+  const logoUrl = garageInfo?.logoURL || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='150'%3E%3Crect width='150' height='150' fill='%23334155'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='central' text-anchor='middle' fill='%2394a3b8' font-size='14' font-family='sans-serif'%3ESG%3C/text%3E%3C/svg%3E";
 
   return (
     <div className={`group rounded-3xl border p-3 flex flex-col bg-white dark:bg-[#121212] border-black/5 dark:border-white/5 shadow-lg`}>

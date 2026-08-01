@@ -81,9 +81,7 @@ export default function AccountSettingsModal({ isOpen, onClose }) {
   const [formData, setFormData] = useState(initialFormData);
 
   useEffect(() => {
-    console.log("AccountSettingsModal isOpen changed:", isOpen);
     if (!isOpen) {
-      console.log("Resetting state...");
       setShowFacebook(false); // Reset to Google
       if (timeoutTimerRef.current) clearTimeout(timeoutTimerRef.current);
       if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
