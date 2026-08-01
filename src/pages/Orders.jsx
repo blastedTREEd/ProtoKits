@@ -201,6 +201,7 @@ export default function Orders() {
   const [activeTab, setActiveTab] = useState('to_pay');
   const [isUploading, setIsUploading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState(null);
+  const [balancePreviewUrl, setBalancePreviewUrl] = useState(null);
   const [activePreviewUrl, setActivePreviewUrl] = useState(null);
   const [isPreviewExpanded, setIsPreviewExpanded] = useState(false);
   const [hasPreviewedReceipt, setHasPreviewedReceipt] = useState(false);
@@ -416,17 +417,25 @@ export default function Orders() {
     return Object.entries(kit.stocks).filter(([, s]) => s && !s.order?.orderId && !s.isReserved).map(([key, s]) => ({ key, ...s }));
   }, [manualOrderData.selectedKitId, kits]);
 
-  const handleFileSelect = (e) => {
+  const handleFileSelect = (e, isBalance = false) => {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onloadend = async () => {
       try {
         const compressed = await compressImage(reader.result);
-        setPreviewUrl(compressed);
+        if (isBalance) {
+          setBalancePreviewUrl(compressed);
+        } else {
+          setPreviewUrl(compressed);
+        }
       } catch (err) {
         console.error("SG DEBUG: Compression failed, using original", err);
-        setPreviewUrl(reader.result);
+        if (isBalance) {
+          setBalancePreviewUrl(reader.result);
+        } else {
+          setPreviewUrl(reader.result);
+        }
       }
     };
     reader.readAsDataURL(file);
@@ -441,6 +450,23 @@ export default function Orders() {
       moveOrderToTargetTab(order, patch);
       if (selectedOrder?.id === order.id) setSelectedOrder(prev => ({ ...prev, ...patch }));
       setPreviewUrl(null);
+    } catch (e) {
+      console.error(e);
+      alert("Failed.");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+  const handleConfirmBalanceReceipt = async (order) => {
+    if (!balancePreviewUrl) return;
+    setIsUploading(true);
+    try {
+      const patch = { balanceReceipt: balancePreviewUrl, status: 'Validating' };
+      await updateOrderDetails(order.id, patch);
+      alert("Balance receipt uploaded!");
+      moveOrderToTargetTab(order, patch);
+      if (selectedOrder?.id === order.id) setSelectedOrder(prev => ({ ...prev, ...patch }));
+      setBalancePreviewUrl(null);
     } catch (e) {
       console.error(e);
       alert("Failed.");
@@ -828,11 +854,12 @@ export default function Orders() {
     return {
       receiverName: rd.receiverName || order?.buyerName || '',
       phoneNumber: rd.phoneNumber || '',
+      email: rd.email || order?.buyerEmail || '',
       display: location || 'No details',
       schedule: order?.preferredSchedule || '',
       landmark: rd.landmark || '',
-      lat: rd.lat,
-      lng: rd.lng,
+      lat: rd.lat || order?.pickupDetails?.lat || null,
+      lng: rd.lng || order?.pickupDetails?.lng || null,
       lbcBranch: rd.lbcBranch
     };
   };
@@ -904,27 +931,699 @@ export default function Orders() {
   const qrImageSrc = isOrderFromMaintenance ? brandLogoUrl : selectedMethodQr;
   const showQrContainer = showPaymentQr && (selectedOrder?.paymentMethod !== 'Cash' || isOrderFromMaintenance) && qrImageSrc;
 
-  return (
-    <PageTemplate isDarkMode={isDarkMode}>
-      <div className="min-h-screen flex flex-col bg-neutral-50 dark:bg-[#0a0a0a] font-sans">
-        <div className="sticky top-[60px] z-[90] h-[60px] w-full bg-neutral-50 dark:bg-[#0a0a0a] border-b border-black/5 dark:border-white/5">
-          <div className="max-w-7xl mx-auto px-4 md:px-8 h-full flex items-center justify-between gap-4">
-            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-2">
-              {tabData.map((tab) => (
-                <button key={tab.id} onClick={() => { setActiveTab(tab.id); setSelectedOrder(null); }} className={`whitespace-nowrap px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest border transition-all ${activeTab === tab.id ? 'bg-blue-600 text-white border-blue-600 shadow-lg' : 'bg-transparent text-neutral-500 dark:text-neutral-300 border-black/10 dark:border-white/10 hover:border-blue-500/50'}`}>
-                  {tab.label} ({tab.orders.length})
-                </button>
-              ))}
+  const renderOrderDetailView = () => {
+    if (!selectedOrder) return null;
+    
+    const detailItems = Array.isArray(selectedOrder.items) && selectedOrder.items.length > 0
+      ? selectedOrder.items
+      : [{
+          ...selectedOrder,
+          name: selectedOrder.item || selectedOrder.name || 'Unknown Item',
+          price: selectedOrder.price || 0,
+          quantity: selectedOrder.quantity || 1,
+          image: selectedOrder.image || '',
+          images: selectedOrder.images || null,
+          appliedInstallmentFee: selectedOrder.appliedInstallmentFee || 0
+        }];
+
+    const mapLat = selectedLogistics.lat || selectedOrder.pickupDetails?.lat;
+    const mapLng = selectedLogistics.lng || selectedOrder.pickupDetails?.lng;
+    const itemsSubtotal = detailItems.reduce((acc, item) => {
+      const sellPrice = Number(item.sellPrice || item.price || 0);
+      const installmentFee = Number(item.appliedInstallmentFee || 0);
+      const qty = Number(item.quantity || 1);
+      return acc + (sellPrice + installmentFee) * qty;
+    }, 0) || selectedTotals.itemTotal || Number(selectedOrder.totalPrice || selectedOrder.price || 0);
+    const isBalanceApplicable = ['reservation', 'partial', 'pre-order'].includes(selectedOrder.paymentPlan) || selectedOrder.isPreOrder || selectedTotals.balance > 0;
+
+    return (
+      <div className="w-full min-h-screen text-neutral-900 dark:text-white bg-white dark:bg-[#0a0a0a]">
+        
+        {/* Sticky Header / First Row */}
+        <div className="sticky top-[60px] bg-white/95 dark:bg-[#0a0a0a]/95 backdrop-blur-md z-[80] border-b border-black/5 dark:border-white/5 shadow-sm">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-8 py-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <h2 className="text-xl md:text-2xl font-black uppercase italic tracking-tight text-blue-600 dark:text-blue-500">
+                {selectedOrder.orderId}
+              </h2>
+            {selectedOrder.status === 'Reserved' && !selectedOrder.receipt && selectedOrder.cancellationTimerStartedAt && (
+              <div className="px-3 py-1 bg-amber-500/10 text-amber-600 rounded-full text-[10px] font-black uppercase tracking-widest">
+                <ReservationTimer
+                  createdAt={selectedOrder.cancellationTimerStartedAt}
+                  durationMs={60 * 60 * 1000}
+                  onExpire={() => handleSilentCancelOrder(selectedOrder.id)}
+                />
+              </div>
+            )}
+            {selectedOrder.isMaintenanceOrder && ['Completed', 'Cancelled'].includes(selectedOrder.status) && (
+              <DeletionTimer
+                completedAt={selectedOrder.completedAt || selectedOrder.cancelledAt || selectedOrder.lastUpdated}
+                onExpire={() => handleDeleteOrderNow(selectedOrder.id)}
+                onDelete={(e) => {
+                  e.stopPropagation();
+                  handleDeleteOrderNow(selectedOrder.id);
+                }}
+              />
+            )}
+          </div>
+          <div className="flex items-center gap-4">
+            <div className={`px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest leading-none border ${
+              selectedOrder.status === 'Completed' ? 'bg-emerald-500/15 text-emerald-600 border-emerald-500/20' : 
+              selectedOrder.status === 'Cancelled' ? 'bg-red-500/15 text-red-500 border-red-500/20' : 
+              'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-600/20'
+            }`}>
+              {getDisplayStatus(selectedOrder)}
             </div>
+            <button 
+              onClick={() => setSelectedOrder(null)} 
+              className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full opacity-60 hover:opacity-100 transition-all active:scale-95 text-neutral-500 dark:text-neutral-400"
+            >
+              <X size={24} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+        {/* Content Body Container */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-8 py-8 space-y-8 pb-24">
+          {/* Shipping Details & Map */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8 pb-8 border-b border-black/5 dark:border-white/5">
+          {/* Left Column: Shipping Info */}
+          <div className="space-y-4 text-left">
+            <h3 className="text-xs font-black uppercase tracking-widest opacity-40 mb-2">Shipping Details</h3>
+            
+            {/* Receiver Name */}
+            <div className="flex flex-col">
+              <span className="text-[10px] font-black uppercase opacity-40 mb-0.5 tracking-wider">Receiver Name</span>
+              <span className="text-base font-black uppercase text-neutral-900 dark:text-white">
+                {selectedLogistics.receiverName || 'No Receiver Name'}
+              </span>
+            </div>
+
+            {/* Mobile & Email */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="flex flex-col">
+                <span className="text-[10px] font-black uppercase opacity-40 mb-0.5 tracking-wider">Mobile No.</span>
+                <span className="text-sm font-black text-neutral-950 dark:text-neutral-200">
+                  {selectedLogistics.phoneNumber || 'N/A'}
+                </span>
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[10px] font-black uppercase opacity-40 mb-0.5 tracking-wider">Email Address</span>
+                <span className="text-sm font-black text-neutral-950 dark:text-neutral-200 break-all">
+                  {selectedLogistics.email || 'N/A'}
+                </span>
+              </div>
+            </div>
+
+            {/* Complete Address */}
+            <div className="flex flex-col">
+              <span className="text-[10px] font-black uppercase opacity-40 mb-0.5 tracking-wider">Complete Address</span>
+              <span className="text-sm font-bold opacity-80 leading-relaxed text-neutral-950 dark:text-neutral-200">
+                {selectedLogistics.display}
+                {selectedOrder.receiverDetails?.city && (
+                  <span className="block mt-0.5">
+                    {selectedOrder.receiverDetails.city}, {selectedOrder.receiverDetails.province} {selectedOrder.receiverDetails.zipCode}
+                  </span>
+                )}
+              </span>
+            </div>
+
+            {/* Tracking / Inputs */}
+            <div className="pt-2 border-t border-black/5 dark:border-white/5 flex flex-col">
+              <span className="text-[10px] font-black uppercase opacity-40 mb-2 tracking-wider">Logistics & Tracking Info</span>
+              {/* Admin: Tracking input when no tracking saved yet */}
+              {isAdminMode && selectedOrder.status !== 'Cancelled' && !selectedOrder.trackingNo ? (
+                <div className="space-y-3">
+                  <input 
+                    className="w-full p-3 rounded-xl border bg-white dark:bg-[#121212] border-black/10 dark:border-white/10 text-xs font-black uppercase"
+                    value={trackingRef}
+                    onChange={(e) => setTrackingRef(e.target.value.toUpperCase())}
+                    placeholder={selectedShippingFlags.isLbc ? 'LBC TRACKING NO.' : 'TRACKING NO. / COURIER URL'}
+                  />
+                  {selectedShippingFlags.needsAdminShipping && (
+                    <input 
+                      type="number"
+                      className="w-full p-3 rounded-xl border bg-white dark:bg-[#121212] border-black/10 dark:border-white/10 text-xs font-black"
+                      value={shippingFeeInput}
+                      onChange={(e) => setShippingFeeInput(e.target.value)}
+                      placeholder="SHIPPING FEE"
+                    />
+                  )}
+                  {selectedShippingFlags.isLbc && (
+                    <input 
+                      className="w-full p-3 rounded-xl border bg-white dark:bg-[#121212] border-black/10 dark:border-white/10 text-xs font-black"
+                      value={claimantBalance}
+                      onChange={(e) => setClaimantBalance(e.target.value)}
+                      placeholder="CLAIMANT BALANCE"
+                    />
+                  )}
+                  <button 
+                    onClick={handleSaveShippingDetails}
+                    className="w-full py-3 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-blue-600/20 active:scale-95 transition-all"
+                  >
+                    Save Tracking & Mark In Transit
+                  </button>
+                </div>
+
+              ) : !isAdminMode && selectedShippingFlags.isLalamoveSelf && !['Completed', 'Cancelled'].includes(selectedOrder.status) ? (
+                /* Customer: Self-booking input for Lalamove tracking URL */
+                <div className="space-y-3">
+                  {selectedOrder.customerTrackingLink && (
+                    <a 
+                      href={selectedOrder.customerTrackingLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-black text-blue-600 hover:underline break-all block"
+                    >
+                      {selectedOrder.customerTrackingLink}
+                    </a>
+                  )}
+                  <input 
+                    type="url"
+                    className="w-full p-3 rounded-xl border bg-white dark:bg-[#121212] border-black/10 dark:border-white/10 text-xs font-semibold"
+                    placeholder="https://web.lalamove.com/..."
+                    value={customerTrackingLink}
+                    onChange={(e) => setCustomerTrackingLink(e.target.value)}
+                  />
+                  <button 
+                    onClick={handleSaveCustomerTrackingLink}
+                    className="w-full py-3 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-blue-600/20 active:scale-95 transition-all"
+                  >
+                    {selectedOrder.customerTrackingLink ? 'Update Tracking URL' : 'Save Tracking URL'}
+                  </button>
+                </div>
+
+              ) : (
+                /* Read-only: Display tracking info */
+                <div className="space-y-1">
+                  {selectedOrder.trackingNo ? (
+                    /^https?:\/\//i.test(selectedOrder.trackingNo) ? (
+                      <a 
+                        href={selectedOrder.trackingNo}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs font-black text-blue-600 hover:underline break-all block"
+                      >
+                        {selectedOrder.trackingNo}
+                      </a>
+                    ) : (
+                      <p className="text-xs font-black uppercase text-blue-600 dark:text-blue-500">
+                        {selectedOrder.trackingNo}
+                      </p>
+                    )
+                  ) : selectedOrder.customerTrackingLink ? (
+                    <a 
+                      href={selectedOrder.customerTrackingLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-black text-blue-600 hover:underline break-all block"
+                    >
+                      {selectedOrder.customerTrackingLink}
+                    </a>
+                  ) : (
+                    <p className="text-xs font-black uppercase text-blue-600 dark:text-blue-500">
+                      {selectedOrder.status === 'Cancelled' ? 'N/A' : selectedShippingFlags.isLalamoveSelf ? 'Pending Customer Booking' : 'Pending'}
+                    </p>
+                  )}
+                  {selectedShippingFlags.needsAdminShipping && <p className="text-[10px] font-bold opacity-60">Shipping Fee: ₱{selectedTotals.shippingFee.toLocaleString()}</p>}
+                  {selectedOrder.claimantBalance && <p className="text-[10px] font-bold opacity-60">Claimant Balance: ₱{Number(selectedOrder.claimantBalance || 0).toLocaleString()}</p>}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right Column: Map */}
+          <div className="flex flex-col h-full justify-between">
+            <h3 className="text-xs font-black uppercase tracking-widest opacity-40 mb-2 text-left">Location Map</h3>
+            {mapLat && mapLng ? (
+              <div className="overflow-hidden rounded-3xl border border-black/5 dark:border-white/5 h-[280px] w-full relative z-10">
+                <MapContainer 
+                  center={[mapLat, mapLng]} 
+                  zoom={16} 
+                  scrollWheelZoom={false} 
+                  style={{ height: '100%', width: '100%' }}
+                >
+                  <TileLayer
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
+                  <Marker position={[mapLat, mapLng]} />
+                  <ChangeView center={[mapLat, mapLng]} />
+                </MapContainer>
+              </div>
+            ) : (
+              <div className="h-[280px] rounded-3xl bg-black/[0.02] dark:bg-white/[0.02] border border-black/5 dark:border-white/5 flex flex-col items-center justify-center text-center p-4">
+                <MapPin size={36} className="text-blue-600 opacity-40 mb-2" />
+                <span className="text-xs font-black uppercase opacity-55">No coordinates for map</span>
+                <span className="text-[10px] opacity-40 mt-1">Delivery address will be used manually.</span>
+              </div>
+            )}
           </div>
         </div>
 
+        {/* Second Section: Items Breakdown */}
+        <div className="mb-8 pb-8 border-b border-black/5 dark:border-white/5">
+          <h3 className="text-xs font-black uppercase tracking-widest opacity-40 mb-4 text-left">Items Breakdown</h3>
+          <div className="space-y-4">
+            {detailItems.map((item, idx) => {
+              const kit = kits.find(k => k.id === item.id || k.id === item.productId || k.name === item.name);
+              const displayImage = item.type === 'project'
+                ? (item.projectData?.image || item.image)
+                : resolveImage(item.image || kit?.image, item.images || kit?.images);
 
-        <div className="flex-grow max-w-7xl mx-auto w-full p-4 md:p-8 pb-24 md:pb-8">
-          {isLoading ? (
-            <LoadingState message="Loading orders..." />
-          ) : (
-            <div className="space-y-3">
+              const displayGrade = item.grade || item.specs?.line || kit?.specs?.line || 'LINE';
+              const displayBrand = item.brand || kit?.brand || '';
+              
+              const rawName = (item.name || item.item || '').replace(/\s*\(Pre-Order\)\s*$/i, '');
+              let cleanName = rawName;
+              if (displayBrand && displayBrand.trim()) {
+                const brandRegex = new RegExp(`^${displayBrand.trim()}\\s+`, 'i');
+                cleanName = cleanName.replace(brandRegex, '');
+              }
+              if (displayGrade && displayGrade.trim() && displayGrade !== 'LINE') {
+                const gradeRegex = new RegExp(`^${displayGrade.trim()}\\s+`, 'i');
+                cleanName = cleanName.replace(gradeRegex, '');
+              }
+              cleanName = cleanName.trim() || rawName;
+
+              const sellPrice = Number(item.sellPrice || item.price || 0);
+              const installmentFee = Number(item.appliedInstallmentFee || 0);
+              const unitPrice = sellPrice + installmentFee;
+
+              return (
+                <div key={idx} className="flex flex-col gap-4 p-4 bg-black/[0.01] dark:bg-white/[0.01] rounded-3xl border border-black/5 dark:border-white/5">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-4 min-w-0">
+                      {displayImage ? (
+                        <img 
+                          src={displayImage} 
+                          alt="" 
+                          loading="lazy"
+                          className="w-20 h-20 md:portrait:w-48 md:landscape:w-64 md:h-24 lg:w-64 xl:w-64 aspect-square md:aspect-auto object-cover object-[center_25%] rounded-xl border border-neutral-100 dark:border-neutral-800 shrink-0" 
+                          onError={(e) => {
+                            e.target.style.display = 'none';
+                            if (e.target.nextSibling) e.target.nextSibling.style.display = 'flex';
+                          }}
+                        />
+                      ) : null}
+                      <div 
+                        className="w-20 h-20 md:portrait:w-48 md:landscape:w-64 md:h-24 lg:w-64 xl:w-64 aspect-square md:aspect-auto object-cover object-[center_25%] rounded-xl border border-neutral-100 dark:border-neutral-800 bg-neutral-200 dark:bg-neutral-800 flex items-center justify-center shrink-0"
+                        style={{ display: displayImage ? 'none' : 'flex' }}
+                      >
+                        <Package size={28} className="opacity-20" />
+                      </div>
+                      <div className="min-w-0 text-left">
+                        <p className="text-sm font-black uppercase leading-tight truncate text-neutral-900 dark:text-white">
+                          {cleanName}
+                        </p>
+                        <p className="text-xs font-bold text-neutral-900 dark:text-white mt-1 uppercase">
+                          {displayGrade} {displayBrand ? `/ ${displayBrand}` : ''}
+                        </p>
+                        <p className="text-xs font-black uppercase text-blue-600 dark:text-blue-500 mt-0.5">
+                          x{item.quantity || 1}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="text-right shrink-0">
+                      <span className="text-sm font-black text-neutral-900 dark:text-white">
+                        ₱{unitPrice.toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* 3D Design Service & Complexity Controls */}
+                  {item.projectData?.selectedDesignService && (() => {
+                    const designServices = rates?.['design-services'] || {};
+                    const serviceId = item.projectData.selectedDesignService;
+                    const serviceName = serviceId.split('-').map(w => w.toUpperCase()).join(' ');
+                    const complexityPriceHike = Number(designServices.complexityPriceHike) || 0;
+                    const currentLevel = item.designComplexity || 0;
+                    return (
+                      <div className="p-3 bg-purple-500/5 dark:bg-purple-500/10 rounded-2xl border border-purple-500/20 text-left space-y-2 mt-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[9px] font-black uppercase tracking-widest text-purple-600 dark:text-purple-400">Design Service</span>
+                          <span className="text-xs font-black uppercase text-purple-700 dark:text-purple-300">{serviceName}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[9px] font-black uppercase tracking-widest opacity-40">Complexity Level</span>
+                          {isAdminMode ? (
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateComplexity(idx, currentLevel - 1)}
+                                disabled={currentLevel <= 0}
+                                className="w-6 h-6 rounded-lg bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 flex items-center justify-center font-black text-xs hover:bg-black/10 dark:hover:bg-white/10 disabled:opacity-30 active:scale-95 transition-all"
+                              >
+                                -
+                              </button>
+                              <span className="text-xs font-black w-6 text-center">{currentLevel}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateComplexity(idx, currentLevel + 1)}
+                                className="w-6 h-6 rounded-lg bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 flex items-center justify-center font-black text-xs hover:bg-black/10 dark:hover:bg-white/10 active:scale-95 transition-all"
+                              >
+                                +
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-xs font-black">{currentLevel}</span>
+                          )}
+                        </div>
+                        <div className="flex justify-between text-[9px] font-bold opacity-45">
+                          <span>Complexity Hike ({currentLevel} x ₱{complexityPriceHike}):</span>
+                          <span>₱{(currentLevel * complexityPriceHike).toLocaleString()}</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Totals & Payments side-by-side */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start mb-8 pb-8">
+          {/* Left Side: Payments (QR, Receipt, Balance Receipt) */}
+          <div className="space-y-4 text-left">
+            <h3 className="text-xs font-black uppercase tracking-widest opacity-40 mb-2">Payment Details</h3>
+            
+            {selectedOrder.paymentMethod === 'Cash' && !isOrderFromMaintenance ? (
+              <div className="p-6 bg-blue-500/5 rounded-3xl border border-blue-500/10 flex flex-col items-center text-center gap-3 w-full animate-in fade-in duration-300">
+                <Store className="text-blue-500 animate-pulse" size={32} />
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-blue-600">Cash Payment</h4>
+                <p className="text-xs font-bold opacity-80 max-w-sm">
+                  Your order is being prepared. We will notify you when it's ready.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {/* Payment QR */}
+                {showQrContainer && (
+                  <div className="p-4 bg-amber-500/5 rounded-2xl border border-amber-500/10 flex flex-col items-center gap-2">
+                    <h4 className="text-[9px] font-black uppercase tracking-widest text-amber-600 text-center">Payment QR</h4>
+                    <button
+                      type="button"
+                      className="w-20 h-20 bg-white p-2 border rounded-xl hover:opacity-80 transition-opacity flex items-center justify-center border-black/5"
+                      onClick={() => {
+                        setActivePreviewUrl(qrImageSrc);
+                        setIsPreviewExpanded(true);
+                      }}
+                    >
+                      <img src={qrImageSrc} className="object-contain" alt={`${selectedOrder?.paymentMethod} QR`} />
+                    </button>
+                    <a 
+                      href={qrImageSrc} 
+                      download={`${selectedOrder?.paymentMethod}-QR.png`}
+                      className="w-full py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[9px] font-black uppercase tracking-widest text-center transition-all flex items-center justify-center gap-1"
+                    >
+                      <Download size={10} /> QR Code
+                    </a>
+                  </div>
+                )}
+
+                {/* Payment Receipt */}
+                <div className="p-4 bg-blue-500/5 rounded-2xl border border-blue-500/10 flex flex-col items-center gap-2">
+                  <h4 className="text-[9px] font-black uppercase tracking-widest text-blue-600 text-center">Payment Receipt</h4>
+                  {selectedOrder.receipt || previewUrl ? (
+                    <button
+                      type="button"
+                      className="w-20 h-20 rounded-xl overflow-hidden bg-white border-2 border-blue-600 relative group shrink-0"
+                      onClick={() => {
+                        setActivePreviewUrl(previewUrl || selectedOrder.receipt);
+                        setIsPreviewExpanded(true);
+                        setHasPreviewedReceipt(true);
+                      }}
+                    >
+                      <img src={previewUrl || selectedOrder.receipt} className="w-full h-full object-cover" alt="Receipt" />
+                      <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <Eye size={14} className="text-white" />
+                      </div>
+                    </button>
+                  ) : (
+                    <div className="w-20 h-20 border-2 border-dashed border-blue-600/30 rounded-xl flex flex-col items-center justify-center gap-1 opacity-50 shrink-0">
+                      <Upload size={14} />
+                      <span className="text-[8px] font-black uppercase text-center leading-tight">No Receipt</span>
+                    </div>
+                  )}
+
+                  {!isAdminMode && !selectedOrder.receipt && ['Reserved', 'Waiting', 'Arrived', 'Validating'].includes(selectedOrder.status) && (
+                    <label className="w-full cursor-pointer">
+                      <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileSelect(e, false)} disabled={isUploading} />
+                      <div className="w-full py-1.5 bg-blue-600/10 text-blue-600 rounded-lg text-[9px] font-black uppercase tracking-widest text-center hover:bg-blue-600/20 transition-all">
+                        Upload
+                      </div>
+                    </label>
+                  )}
+                  
+                  {previewUrl && !isAdminMode && (
+                    <button 
+                      onClick={() => handleConfirmReceipt(selectedOrder)} 
+                      disabled={isUploading}
+                      className="w-full py-1.5 bg-emerald-600 text-white rounded-lg text-[9px] font-black uppercase tracking-widest shadow-md active:scale-95 transition-all mt-1"
+                    >
+                      {isUploading ? 'Sending...' : 'Submit'}
+                    </button>
+                  )}
+                </div>
+
+                {/* Balance Payment Receipt */}
+                {(selectedTotals.balance > 0 || selectedOrder.balanceReceipt || balancePreviewUrl) && (
+                  <div className="p-4 bg-purple-500/5 rounded-2xl border border-purple-500/10 flex flex-col items-center gap-2">
+                    <h4 className="text-[9px] font-black uppercase tracking-widest text-purple-600 text-center">Balance Receipt</h4>
+                    {selectedOrder.balanceReceipt || balancePreviewUrl ? (
+                      <button
+                        type="button"
+                        className="w-20 h-20 rounded-xl overflow-hidden bg-white border-2 border-purple-600 relative group shrink-0"
+                        onClick={() => {
+                          setActivePreviewUrl(balancePreviewUrl || selectedOrder.balanceReceipt);
+                          setIsPreviewExpanded(true);
+                          setHasPreviewedReceipt(true);
+                        }}
+                      >
+                        <img src={balancePreviewUrl || selectedOrder.balanceReceipt} className="w-full h-full object-cover" alt="Balance Receipt" />
+                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <Eye size={14} className="text-white" />
+                        </div>
+                      </button>
+                    ) : (
+                      <div className="w-20 h-20 border-2 border-dashed border-purple-600/30 rounded-xl flex flex-col items-center justify-center gap-1 opacity-50 shrink-0">
+                        <Upload size={14} />
+                        <span className="text-[8px] font-black uppercase text-center leading-tight">No Receipt</span>
+                      </div>
+                    )}
+
+                    {!isAdminMode && !selectedOrder.balanceReceipt && ['Reserved', 'Waiting', 'Arrived', 'Validating', 'Preparing', 'To Ship', 'Shipped', 'Dispatched', 'In Transit', 'Ready for Pickup'].includes(selectedOrder.status) && (
+                      <label className="w-full cursor-pointer">
+                        <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileSelect(e, true)} disabled={isUploading} />
+                        <div className="w-full py-1.5 bg-purple-600/10 text-purple-600 rounded-lg text-[9px] font-black uppercase tracking-widest text-center hover:bg-purple-600/20 transition-all">
+                          Upload
+                        </div>
+                      </label>
+                    )}
+
+                    {balancePreviewUrl && !isAdminMode && (
+                      <button 
+                        onClick={() => handleConfirmBalanceReceipt(selectedOrder)} 
+                        disabled={isUploading}
+                        className="w-full py-1.5 bg-emerald-600 text-white rounded-lg text-[9px] font-black uppercase tracking-widest shadow-md active:scale-95 transition-all mt-1"
+                      >
+                        {isUploading ? 'Sending...' : 'Submit'}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Right Side: Totals */}
+          <div className="space-y-3 bg-black/[0.01] dark:bg-white/[0.01] p-6 rounded-3xl border border-black/5 dark:border-white/5 text-left">
+            <h3 className="text-xs font-black uppercase tracking-widest opacity-40 mb-2">Order Totals</h3>
+            
+            {/* First row: Items Total */}
+            <div className="flex justify-between items-center text-xs font-bold opacity-80">
+              <span>Items Total</span>
+              <span>₱{itemsSubtotal.toLocaleString()}</span>
+            </div>
+
+            {/* Second row: Garage Discount */}
+            <div className="flex justify-between items-center text-xs font-bold text-emerald-600 dark:text-emerald-500">
+              <span>Garage Discount</span>
+              <span>-₱{selectedTotals.discount.toLocaleString()}</span>
+            </div>
+
+            {/* Second row: Shipping Fee */}
+            <div className="flex justify-between items-center text-xs font-bold opacity-80">
+              <span>Shipping Fee</span>
+              <span>₱{selectedTotals.shippingFee.toLocaleString()}</span>
+            </div>
+
+            {/* Third row: Total */}
+            <div className="flex justify-between items-center text-sm font-black border-t border-black/5 dark:border-white/5 pt-3">
+              <span>Total Cost</span>
+              <span>₱{selectedTotals.total.toLocaleString()}</span>
+            </div>
+
+            {/* Fourth row: Balance (reservation, pre-order, partial) */}
+            {isBalanceApplicable && (
+              <div className="flex justify-between items-center text-sm font-black border-t border-black/5 dark:border-white/5 pt-3 text-amber-600 dark:text-amber-500">
+                <span>Balance Due</span>
+                <span>₱{selectedTotals.balance.toLocaleString()}</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Action Buttons Panel */}
+        <div className="flex flex-wrap gap-3 justify-end items-center mt-6 pt-6 border-t border-black/5 dark:border-white/5">
+          {isAdminMode && selectedOrder.paymentMethod === 'Cash' && selectedOrder.status === 'Reserved' && (
+            <button 
+              onClick={() => handleConfirmPayment(selectedOrder)} 
+              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg transition-all active:scale-95 flex items-center gap-1.5"
+            >
+              <CheckCircle2 size={14} /> Confirm Cash Payment
+            </button>
+          )}
+
+          {isAdminMode && selectedOrder.paymentMethod !== 'Cash' && (selectedOrder.receipt || selectedOrder.balanceReceipt) && selectedOrder.status === 'Validating' && (
+            <div className="flex flex-col items-end gap-1">
+              <button 
+                onClick={() => handleConfirmPayment(selectedOrder)} 
+                disabled={!hasPreviewedReceipt}
+                className={`px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg transition-all active:scale-95 flex items-center gap-1.5 ${!hasPreviewedReceipt ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
+              >
+                <CheckCircle2 size={14} /> Validate Receipt
+              </button>
+              {!hasPreviewedReceipt && (
+                <p className="text-[8px] font-black text-amber-600 uppercase animate-pulse">Preview receipt first to validate</p>
+              )}
+            </div>
+          )}
+
+          {isAdminMode && (selectedShippingFlags.usesPickupPoint || selectedShippingFlags.usesMeetupLocation) && ['Preparing', 'To Ship'].includes(selectedOrder.status) && (
+            <button 
+              onClick={handleMarkReadyForPickup}
+              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 shadow-lg"
+            >
+              {selectedShippingFlags.usesMeetupLocation ? 'Mark Ready for Meetup' : 'Mark Ready for Pickup'}
+            </button>
+          )}
+
+          {isAdminMode && selectedShippingFlags.isPickupPointCourier && selectedOrder.status === 'Ready for Pickup' && (
+            <button 
+              onClick={handleMarkDispatched}
+              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 shadow-lg"
+            >
+              Mark Dispatched
+            </button>
+          )}
+
+          {isAdminMode && (
+            ['Shipped', 'Dispatched', 'In Transit'].includes(selectedOrder.status) ||
+            (isReadyForPickupStatus(selectedOrder.status) && !selectedShippingFlags.isPickupPointCourier)
+          ) && (
+            <button 
+              onClick={handleMarkCompleted}
+              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 shadow-lg"
+            >
+              Mark Completed
+            </button>
+          )}
+
+          {isAdminMode && hasStlWithDesignService && selectedOrder.status === 'Preparing' && !selectedOrder.designFinalized && (
+            <button 
+              onClick={async () => {
+                if (window.confirm("Mark design as finalized and request print downpayment? This will set status to 'Waiting' and request the customer for the second downpayment.")) {
+                  try {
+                    const patch = { designFinalized: true, receipt: null, status: 'Waiting' };
+                    await updateOrderDetails(selectedOrder.id, patch);
+                    moveOrderToTargetTab(selectedOrder, patch);
+                    setSelectedOrder(prev => ({ ...prev, ...patch }));
+                    alert("Design marked as finalized! Print downpayment requested.");
+                  } catch (err) {
+                    console.error("SG LOG: Failed to finalize design:", err);
+                    alert("Failed to finalize design.");
+                  }
+                }
+              }}
+              className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 shadow-lg"
+            >
+              Finalize Design & Request Print Dp
+            </button>
+          )}
+
+          {isAdminMode && selectedOrder.isPreOrder && selectedOrder.status === 'Reserved' && (
+            <button 
+              onClick={() => handleRequestBalance(selectedOrder.id)}
+              className="px-5 py-2.5 bg-amber-50 hover:bg-amber-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 shadow-md"
+            >
+              Request Balance
+            </button>
+          )}
+
+          {!isAdminMode && ['Shipped', 'Dispatched', 'In Transit', 'Ready for Pickup', 'Ready for Meetup'].includes(selectedOrder.status) && (
+            <button 
+              onClick={handleMarkCompleted}
+              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 shadow-lg shadow-emerald-600/20"
+            >
+              Confirm Order Received
+            </button>
+          )}
+
+          {(canAdminCancel || canCustomerCancel) && (
+            <button 
+              onClick={() => handleCancelOrder(selectedOrder.id)}
+              className="px-5 py-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+            >
+              Cancel Order
+            </button>
+          )}
+
+          {isAdminMode && selectedOrder.status === 'Cancelled' && (
+            <button 
+              onClick={() => { deleteOrder(selectedOrder.id); setSelectedOrder(null); }}
+              className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 shadow-lg"
+            >
+              Delete Order
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+  };
+
+  return (
+    <PageTemplate isDarkMode={isDarkMode}>
+      <div className="min-h-screen flex flex-col bg-neutral-50 dark:bg-[#0a0a0a] font-sans">
+        {!selectedOrder && (
+          <div className="sticky top-[60px] z-[90] h-[60px] w-full bg-neutral-50 dark:bg-[#0a0a0a] border-b border-black/5 dark:border-white/5">
+            <div className="max-w-7xl mx-auto px-4 md:px-8 h-full flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-2">
+                {tabData.map((tab) => (
+                  <button key={tab.id} onClick={() => { setActiveTab(tab.id); setSelectedOrder(null); }} className={`whitespace-nowrap px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest border transition-all ${activeTab === tab.id ? 'bg-blue-600 text-white border-blue-600 shadow-lg' : 'bg-transparent text-neutral-500 dark:text-neutral-300 border-black/10 dark:border-white/10 hover:border-blue-500/50'}`}>
+                    {tab.label} ({tab.orders.length})
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+
+        {selectedOrder ? (
+          <div className="w-full flex-grow bg-white dark:bg-[#0a0a0a]">
+            {renderOrderDetailView()}
+          </div>
+        ) : (
+          <div className="flex-grow max-w-7xl mx-auto w-full p-4 md:p-8 pb-24 md:pb-8">
+            {isLoading ? (
+              <LoadingState message="Loading orders..." />
+            ) : (
+              <div className="space-y-3">
               {visibleOrders.length === 0 && (
                 <div className="text-center py-20 opacity-40">
                   <ClipboardList size={56} className="mx-auto mb-4" />
@@ -1148,9 +1847,10 @@ export default function Orders() {
             </div>
           )}
         </div>
+      )}
 
         {/* ── STICKY FOOTER ── */}
-        {isAdminMode && !isLoading && (
+        {isAdminMode && !isLoading && !selectedOrder && (
           <div className="sticky bottom-0 z-[88] w-full h-[60px] bg-white/80 dark:bg-[#0a0a0a]/80 backdrop-blur-xl border-t border-black/5 dark:border-white/5 shadow-[0_-4px_24px_rgba(0,0,0,0.06)]">
             <div className="max-w-7xl mx-auto px-4 md:px-8 h-full flex items-center justify-between gap-4">
 
@@ -1205,686 +1905,6 @@ export default function Orders() {
                 >
                   <Plus size={14} /> Manual
                 </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {selectedOrder && (
-          <div className="fixed inset-0 z-[400] flex items-stretch justify-stretch p-0 sm:landscape:items-center sm:landscape:justify-center sm:landscape:p-4 lg:items-center lg:justify-center lg:p-4 backdrop-blur-md bg-black/60" onClick={() => setSelectedOrder(null)}>
-            <div className="bg-white dark:bg-[#0a0a0a] w-full h-[100dvh] max-h-[100dvh] sm:landscape:h-auto sm:landscape:max-h-[90vh] lg:h-auto lg:max-h-[90vh] sm:landscape:max-w-7xl lg:max-w-7xl rounded-none sm:landscape:rounded-[2.5rem] lg:rounded-[2.5rem] p-5 sm:p-6 sm:landscape:p-8 lg:p-8 shadow-2xl relative overflow-y-auto no-scrollbar text-neutral-900 dark:text-white" onClick={(e) => e.stopPropagation()}>
-              <button onClick={() => setSelectedOrder(null)} className="absolute top-4 right-4 sm:landscape:top-6 sm:landscape:right-6 lg:top-6 lg:right-6 opacity-30 hover:opacity-100"><X size={24}/></button>
-              
-              <div className="flex items-center gap-4 mb-8">
-                <div className="p-3 bg-blue-600/10 rounded-2xl text-blue-600"><Package size={24} /></div>
-                <div>
-                  <div className="flex items-center gap-3">
-                    <h2 className="text-xl font-black uppercase italic tracking-tight">{selectedOrder.orderId}</h2>
-                    {selectedOrder.status === 'Reserved' && !selectedOrder.receipt && selectedOrder.cancellationTimerStartedAt && (
-                      <div className="px-3 py-1 bg-amber-500/10 text-amber-600 rounded-full text-[10px] font-black uppercase tracking-widest">
-                        <ReservationTimer
-                          createdAt={selectedOrder.cancellationTimerStartedAt}
-                          durationMs={60 * 60 * 1000}
-                          onExpire={() => handleSilentCancelOrder(selectedOrder.id)}
-                        />
-                      </div>
-                    )}
-                    {selectedOrder.isMaintenanceOrder && ['Completed', 'Cancelled'].includes(selectedOrder.status) && (
-                      <DeletionTimer
-                        completedAt={selectedOrder.completedAt || selectedOrder.cancelledAt || selectedOrder.lastUpdated}
-                        onExpire={() => handleDeleteOrderNow(selectedOrder.id)}
-                        onDelete={(e) => {
-                          e.stopPropagation();
-                          handleDeleteOrderNow(selectedOrder.id);
-                        }}
-                      />
-                    )}
-                  </div>
-                  {selectedOrderDateLabel && (
-                    <p className={`text-[10px] font-black uppercase tracking-widest ${selectedOrderCancelledLabel ? 'text-red-400 opacity-100' : 'opacity-40'}`}>
-                      {selectedOrderDatePrefix} {selectedOrderDateLabel}
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* COLUMN 1: LOGISTICS */}
-                <div className="space-y-6">
-                  <div>
-                    <h4 className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-3">Shipping Details</h4>
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-3 px-4 py-3 bg-black/5 dark:bg-white/5 rounded-2xl border">
-                        <Truck size={18} className="text-blue-600" />
-                        <div>
-                          <p className="text-[8px] font-black uppercase opacity-40 mb-1">Method</p>
-                          <span className="text-xs font-black uppercase">{selectedOrder.shippingMethod}</span>
-                        </div>
-                      </div>
-
-                      {/* Pickup Point for local pickup, self-booking, and pickup-point courier orders */}
-                      {!isAdminMode && selectedShippingFlags.usesPickupPoint && (
-                        <>
-                          {['Ready for Pickup', 'In Transit', 'Dispatched', 'Completed'].includes(selectedOrder.status) ? (
-                            <>
-                              {selectedOrder.pickupDetails ? (
-                                <div className="space-y-3 text-left p-4 bg-blue-500/5 dark:bg-blue-500/10 rounded-2xl border border-blue-500/20">
-                                  <p className="text-[8px] font-black uppercase text-blue-500 tracking-widest leading-none mb-1">Pickup Location (Complete Address)</p>
-                                  <p className="text-xs font-black uppercase">{selectedOrder.pickupDetails.label}</p>
-                                  <p className="text-xs font-bold opacity-70 leading-relaxed">
-                                    {selectedOrder.pickupDetails.address}
-                                  </p>
-                                  {selectedOrder.pickupDetails.lat && selectedOrder.pickupDetails.lng && (
-                                    <div className="mt-2 overflow-hidden rounded-2xl border border-black/5 dark:border-white/5 h-[200px] w-full relative z-10">
-                                      <MapContainer 
-                                        center={[selectedOrder.pickupDetails.lat, selectedOrder.pickupDetails.lng]} 
-                                        zoom={16} 
-                                        scrollWheelZoom={false} 
-                                        style={{ height: '100%', width: '100%' }}
-                                      >
-                                        <TileLayer
-                                          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                                          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                                        />
-                                        <Marker position={[selectedOrder.pickupDetails.lat, selectedOrder.pickupDetails.lng]} />
-                                        <ChangeView center={[selectedOrder.pickupDetails.lat, selectedOrder.pickupDetails.lng]} />
-                                      </MapContainer>
-                                    </div>
-                                  )}
-                                </div>
-                              ) : selectedOrder.pickupLocation ? (
-                                <div className="space-y-3 text-left p-4 bg-blue-500/5 dark:bg-blue-500/10 rounded-2xl border border-blue-500/20">
-                                  <p className="text-[8px] font-black uppercase text-blue-500 tracking-widest leading-none mb-1">Pickup Location</p>
-                                  <p className="text-xs font-black uppercase">{selectedOrder.pickupLocation}</p>
-                                </div>
-                              ) : null}
-                            </>
-                          ) : (
-                            <div className="p-4 bg-amber-500/5 dark:bg-amber-500/10 border border-amber-500/20 rounded-2xl text-left">
-                              <p className="text-[8px] font-black uppercase text-amber-500 tracking-widest leading-none mb-1">Pickup Information</p>
-                              <p className="text-xs font-bold opacity-75 leading-relaxed">
-                                Waiting for seller to prepare items. The complete pickup address and map will be visible here once marked ready.
-                              </p>
-                            </div>
-                          )}
-                        </>
-                      )}
-
-                      <div className="space-y-3 text-left p-4 bg-black/5 dark:bg-white/5 rounded-2xl border">
-                        <p className="text-[8px] font-black uppercase opacity-40 leading-none mb-1">
-                          {(selectedShippingFlags.usesPickupPoint || selectedShippingFlags.usesMeetupLocation) ? 'Buyer Contact Details' : 'Receiver Details'}
-                        </p>
-                        <p className="text-xs font-bold text-blue-600 uppercase">{selectedOrder.buyerName}</p>
-                        
-                        {(!selectedShippingFlags.usesPickupPoint && !selectedShippingFlags.usesMeetupLocation) && (
-                          <p className="text-xs font-bold opacity-70 leading-relaxed">
-                            {selectedLogistics.display}
-                            {selectedOrder.receiverDetails?.city && <span className="block">{selectedOrder.receiverDetails.city}, {selectedOrder.receiverDetails.province} {selectedOrder.receiverDetails.zipCode}</span>}
-                          </p>
-                        )}
-                        
-                        {selectedLogistics.phoneNumber && <p className="text-xs font-bold opacity-50">{selectedLogistics.phoneNumber}</p>}
-                        {selectedLogistics.email && <p className="text-xs font-bold opacity-50 break-all">{selectedLogistics.email}</p>}
-                        {selectedLogistics.schedule && (
-                          <div className="pt-2 border-t border-black/5 dark:border-white/5">
-                            <p className="text-[8px] font-black uppercase opacity-40 mb-1">
-                              {selectedShippingFlags.usesMeetupLocation ? 'Preferred Meetup Time' : selectedShippingFlags.usesPickupPoint ? 'Preferred Pickup Schedule' : 'Preferred Schedule'}
-                            </p>
-                            <p className="text-xs font-bold opacity-70">{selectedLogistics.schedule}</p>
-                          </div>
-                        )}
-                      </div>
-
-                      {selectedShippingFlags.usesPickupPoint && (
-                        <div className="space-y-2 text-left p-4 bg-black/5 dark:bg-white/5 rounded-2xl border animate-in slide-in-from-top duration-300">
-                          <p className="text-[8px] font-black uppercase opacity-40">
-                            Preferred Pickup Schedule
-                          </p>
-                          <div className="space-y-3">
-                            <input
-                              type="datetime-local"
-                              className="w-full p-3 rounded-xl border bg-white dark:bg-white/5 text-xs font-black"
-                              value={meetupScheduleInput}
-                              onChange={(e) => setMeetupScheduleInput(e.target.value)}
-                              disabled={isAdminMode || ['Completed', 'Cancelled'].includes(selectedOrder.status)}
-                            />
-                            {!isAdminMode && !['Completed', 'Cancelled'].includes(selectedOrder.status) && (
-                              <button
-                                onClick={handleSavePickupSchedule}
-                                className="w-full py-3 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-blue-600/20 active:scale-95 transition-all"
-                              >
-                                Save Preferred Pickup Schedule
-                              </button>
-                            )}
-                            <p className="text-[10px] font-bold opacity-60">
-                              {meetupScheduleInput ? 'Preferred pickup schedule is saved with this order.' : 'No preferred pickup schedule set yet.'}
-                            </p>
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="space-y-2 text-left p-4 bg-black/5 dark:bg-white/5 rounded-2xl border">
-                        <p className="text-[8px] font-black uppercase opacity-40">
-                          {selectedShippingFlags.usesMeetupLocation ? 'Meetup Time' : 'Tracking'}
-                        </p>
-                        {selectedShippingFlags.usesMeetupLocation ? (
-                          <div className="space-y-3">
-                            <input
-                              type="datetime-local"
-                              className="w-full p-3 rounded-xl border bg-white dark:bg-white/5 text-xs font-black"
-                              value={meetupScheduleInput}
-                              onChange={(e) => setMeetupScheduleInput(e.target.value)}
-                              disabled={isAdminMode || ['Completed', 'Cancelled'].includes(selectedOrder.status)}
-                            />
-                            {!isAdminMode && !['Completed', 'Cancelled'].includes(selectedOrder.status) && (
-                              <button
-                                onClick={handleSaveMeetupSchedule}
-                                className="w-full py-3 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-blue-600/20 active:scale-95 transition-all"
-                              >
-                                Save Preferred Meetup Time
-                              </button>
-                            )}
-                            <p className="text-[10px] font-bold opacity-60">
-                              {meetupScheduleInput ? 'Preferred meetup time is saved with this order.' : 'No preferred meetup time set yet.'}
-                            </p>
-                          </div>
-                        ) : isAdminMode && selectedShippingFlags.needsTracking && selectedOrder.status !== 'Cancelled' ? (
-                          <div className="space-y-3">
-                            <input 
-                              className="w-full p-3 rounded-xl border bg-white dark:bg-white/5 text-xs font-black uppercase"
-                              value={trackingRef}
-                              onChange={(e) => setTrackingRef(e.target.value.toUpperCase())}
-                              placeholder={selectedShippingFlags.isLbc ? 'LBC TRACKING NO.' : 'TRACKING / BOOKING REF'}
-                            />
-                            <input 
-                              type="number"
-                              className="w-full p-3 rounded-xl border bg-white dark:bg-white/5 text-xs font-black"
-                              value={shippingFeeInput}
-                              onChange={(e) => setShippingFeeInput(e.target.value)}
-                              placeholder="SHIPPING FEE"
-                            />
-                            {selectedShippingFlags.isLbc && (
-                              <input 
-                                className="w-full p-3 rounded-xl border bg-white dark:bg-white/5 text-xs font-black"
-                                value={claimantBalance}
-                                onChange={(e) => setClaimantBalance(e.target.value)}
-                                placeholder="CLAIMANT BALANCE"
-                              />
-                            )}
-                            <button 
-                              onClick={handleSaveShippingDetails}
-                              className="w-full py-3 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-blue-600/20 active:scale-95 transition-all"
-                            >
-                              Save Shipping & Mark In Transit
-                            </button>
-                          </div>
-                        ) : (
-                          <>
-                            <p className="text-xs font-black uppercase">
-                              {selectedOrder.trackingNo || (
-                                selectedShippingFlags.isLalamoveSelf 
-                                  ? (selectedOrder.customerTrackingLink ? 'Booked by Customer' : 'Pending Customer Booking')
-                                  : selectedShippingFlags.needsTracking ? 'Pending' : 'Not Required'
-                              )}
-                            </p>
-                            {selectedShippingFlags.needsAdminShipping && <p className="text-[10px] font-bold opacity-60">Shipping Fee: ₱{selectedTotals.shippingFee.toLocaleString()}</p>}
-                            {selectedOrder.claimantBalance && <p className="text-[10px] font-bold opacity-60">Claimant Balance: ₱{Number(selectedOrder.claimantBalance || 0).toLocaleString()}</p>}
-                          </>
-                        )}
-
-                        {/* Customer-provided Lalamove Tracking Link */}
-                        {selectedOrder.customerTrackingLink && (
-                          <div className="mt-2 pt-2 border-t border-black/5 dark:border-white/5">
-                            <p className="text-[8px] font-black uppercase opacity-40">Lalamove Tracking URL</p>
-                            <a 
-                              href={selectedOrder.customerTrackingLink}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs font-black text-blue-600 hover:underline break-all block"
-                            >
-                              {selectedOrder.customerTrackingLink}
-                            </a>
-                          </div>
-                        )}
-
-                        {/* Customer Input for Lalamove Self-Booking Tracking */}
-                        {!isAdminMode && selectedShippingFlags.isLalamoveSelf && selectedOrder.status === 'Ready for Pickup' && (
-                          <div className="space-y-2 mt-2 pt-2 border-t border-black/5 dark:border-white/5">
-                            <label className="text-[8px] font-black uppercase opacity-40">
-                              {selectedOrder.customerTrackingLink ? 'Update Lalamove Tracking URL' : 'Input Lalamove Tracking URL'}
-                            </label>
-                            <input 
-                              type="url"
-                              className="w-full p-2.5 rounded-xl border bg-white dark:bg-white/5 text-xs font-semibold"
-                              placeholder="https://web.lalamove.com/..."
-                              value={customerTrackingLink}
-                              onChange={(e) => setCustomerTrackingLink(e.target.value)}
-                            />
-                            <button 
-                              onClick={handleSaveCustomerTrackingLink}
-                              className="w-full py-2 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 active:scale-95 transition-all shadow-md"
-                            >
-                              Save Tracking URL
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* COLUMN 2: ORDER DETAILS */}
-                <div className="space-y-6">
-                  <div>
-                    <h4 className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-3">Order Details</h4>
-                    <div className="p-6 bg-black/[0.02] dark:bg-white/[0.02] rounded-[2rem] border border-black/5 dark:border-white/5 space-y-4">
-                      {selectedOrder.items ? (
-                        selectedOrder.items.map((item, idx) => {
-                          const kit = kits.find(k => k.id === item.id);
-                          const displayImage = item.type === 'project'
-                            ? (item.projectData?.image || item.image)
-                            : resolveImage(item.image || kit?.image, item.images || kit?.images);
-
-                          return (
-                            <div key={idx} className="space-y-3 bg-black/[0.01] dark:bg-white/[0.01] p-4 rounded-3xl border border-black/5 dark:border-white/5">
-                              <div className="flex items-center gap-4">
-                                {displayImage ? (
-                                  <img src={displayImage} alt="" className="w-16 h-16 rounded-2xl object-cover bg-neutral-200 dark:bg-neutral-800 shrink-0" />
-                                ) : (
-                                  <div className="w-16 h-16 rounded-2xl bg-blue-600/10 flex items-center justify-center text-blue-600 shrink-0">
-                                    <Package size={32} />
-                                  </div>
-                                )}
-                                <div>
-                                  <p className="text-[8px] font-black uppercase opacity-40 mb-1">Item {idx + 1}</p>
-                                  <p className="text-sm font-black uppercase leading-tight">{item.name}</p>
-                                  <p className="text-xs font-bold text-blue-600">₱{Number(item.price).toLocaleString()} <span className="opacity-40">x {item.quantity || 1}</span></p>
-                                </div>
-                              </div>
-                              {/* 3D Design Service & Complexity Controls */}
-                              {item.projectData?.selectedDesignService && (() => {
-                                const designServices = rates?.['design-services'] || {};
-                                const serviceId = item.projectData.selectedDesignService;
-                                const serviceName = serviceId.split('-').map(w => w.toUpperCase()).join(' ');
-                                const complexityPriceHike = Number(designServices.complexityPriceHike) || 0;
-                                const currentLevel = item.designComplexity || 0;
-                                return (
-                                  <div className="mt-2 p-3 bg-purple-500/5 dark:bg-purple-500/10 rounded-2xl border border-purple-500/20 text-left space-y-2">
-                                    <div className="flex items-center justify-between">
-                                      <span className="text-[9px] font-black uppercase tracking-widest text-purple-600 dark:text-purple-400">Design Service</span>
-                                      <span className="text-xs font-black uppercase text-purple-700 dark:text-purple-300">{serviceName}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                      <span className="text-[9px] font-black uppercase tracking-widest opacity-40">Complexity Level</span>
-                                      {isAdminMode ? (
-                                        <div className="flex items-center gap-2">
-                                          <button
-                                            type="button"
-                                            onClick={() => handleUpdateComplexity(idx, currentLevel - 1)}
-                                            disabled={currentLevel <= 0}
-                                            className="w-6 h-6 rounded-lg bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 flex items-center justify-center font-black text-xs hover:bg-black/10 dark:hover:bg-white/10 disabled:opacity-30 active:scale-95 transition-all"
-                                          >
-                                            -
-                                          </button>
-                                          <span className="text-xs font-black w-6 text-center">{currentLevel}</span>
-                                          <button
-                                            type="button"
-                                            onClick={() => handleUpdateComplexity(idx, currentLevel + 1)}
-                                            className="w-6 h-6 rounded-lg bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 flex items-center justify-center font-black text-xs hover:bg-black/10 dark:hover:bg-white/10 active:scale-95 transition-all"
-                                          >
-                                            +
-                                          </button>
-                                        </div>
-                                      ) : (
-                                        <span className="text-xs font-black">{currentLevel}</span>
-                                      )}
-                                    </div>
-                                    <div className="flex justify-between text-[9px] font-bold opacity-40">
-                                      <span>Complexity Hike ({currentLevel} x ₱{complexityPriceHike}):</span>
-                                      <span>₱{(currentLevel * complexityPriceHike).toLocaleString()}</span>
-                                    </div>
-                                  </div>
-                                );
-                              })()}
-                            </div>
-                          );
-                        })
-                      ) : (
-                        (() => {
-                          const fallbackKit = kits.find(k => k.id === selectedOrder.kitId || k.id === selectedOrder.productId || k.name === selectedOrder.item);
-                          const displayImage = resolveImage(selectedOrder.image || fallbackKit?.image, selectedOrder.images || fallbackKit?.images);
-
-                          return (
-                            <div className="flex items-center gap-4">
-                              {displayImage ? (
-                                <img src={displayImage} alt="" className="w-16 h-16 rounded-2xl object-cover bg-neutral-200 dark:bg-neutral-800 shrink-0" />
-                              ) : (
-                                <div className="w-16 h-16 rounded-2xl bg-blue-600/10 flex items-center justify-center text-blue-600 shrink-0">
-                                  <Package size={32} />
-                                </div>
-                              )}
-                              <div>
-                                <p className="text-[8px] font-black uppercase opacity-40 mb-1">Item Ordered</p>
-                                <p className="text-sm font-black uppercase leading-tight">{selectedOrder.item}</p>
-                                <p className="text-xs font-bold text-blue-600">₱{Number(selectedOrder.price).toLocaleString()}</p>
-                              </div>
-                            </div>
-                          );
-                        })()
-                      )}
-                      
-                      <div className="pt-4 border-t border-black/5 dark:border-white/5 space-y-2">
-                        <div className="flex justify-between text-[10px] font-black uppercase opacity-40"><span>Items Subtotal</span><span>₱{(selectedOrder.items ? selectedOrder.items.reduce((s, i) => s + Number(i.price), 0) : Number(selectedOrder.price)).toLocaleString()}</span></div>
-                        {selectedShippingFlags.needsAdminShipping && <div className="flex justify-between text-[10px] font-black uppercase opacity-40"><span>Shipping</span><span>₱{selectedTotals.shippingFee.toLocaleString()}</span></div>}
-                        {isAdminMode && selectedTotals.handlingFee > 0 && <div className="flex justify-between text-[10px] font-black uppercase opacity-40"><span>Handling</span><span>₱{selectedTotals.handlingFee.toLocaleString()}</span></div>}
-                        
-                        {/* Discount Breakdown (Admin view only) */}
-                        {isAdminMode && selectedOrder.discountBreakdown?.handlingFee > 0 && (
-                          <div className="flex justify-between text-[10px] font-black uppercase text-emerald-500">
-                            <span>Handling Discount</span>
-                            <span>-₱{selectedOrder.discountBreakdown.handlingFee.toLocaleString()}</span>
-                          </div>
-                        )}
-                        {isAdminMode && selectedOrder.discountBreakdown?.installmentFee > 0 && (
-                          <div className="flex justify-between text-[10px] font-black uppercase text-emerald-500">
-                            <span>Garage Discount</span>
-                            <span>-₱{selectedOrder.discountBreakdown.installmentFee.toLocaleString()}</span>
-                          </div>
-                        )}
-                        {isAdminMode && selectedOrder.discountBreakdown?.transferFee > 0 && (
-                          <div className="flex justify-between text-[10px] font-black uppercase text-emerald-500">
-                            <span>GCash Preference Discount</span>
-                            <span>-₱{selectedOrder.discountBreakdown.transferFee.toLocaleString()}</span>
-                          </div>
-                        )}
-                        
-                        {/* Fallback for legacy orders without breakdown (Admin view only) */}
-                        {isAdminMode && !selectedOrder.discountBreakdown && selectedTotals.discount > 0 && (
-                          <div className="flex justify-between text-[10px] font-black uppercase text-emerald-500">
-                            <span>Total Discount</span>
-                            <span>-₱{selectedTotals.discount.toLocaleString()}</span>
-                          </div>
-                        )}
-
-                        {/* Discount for user view (sum of all discounts as 'Garage Discount') */}
-                        {!isAdminMode && selectedTotals.discount > 0 && (
-                          <div className="flex justify-between text-[10px] font-black uppercase text-emerald-500">
-                            <span>Garage Discount</span>
-                            <span>-₱{selectedTotals.discount.toLocaleString()}</span>
-                          </div>
-                        )}
-
-                        {isAdminMode && selectedTotals.transferFee > 0 && <div className="flex justify-between text-[10px] font-black uppercase opacity-40 text-amber-500"><span>Transfer Fee</span><span>₱{selectedTotals.transferFee.toLocaleString()}</span></div>}
-                        <div className="flex justify-between text-[10px] font-black uppercase opacity-40 text-emerald-500"><span>Paid</span><span>-₱{selectedTotals.paid.toLocaleString()}</span></div>
-                        
-                        {isAdminMode && (
-                          <div className="pt-2 mt-2 border-t border-black/5 dark:border-white/5 bg-blue-500/5 p-3 rounded-xl">
-                            <p className="text-[8px] font-black uppercase opacity-40 mb-1">Current System Rate Reference</p>
-                            <div className="flex justify-between text-[9px] font-black">
-                                <span className="opacity-60">Base Downpayment</span>
-                                <span>₱{rates?.general?.downpayment?.toLocaleString() || '500'}</span>
-                            </div>
-                          </div>
-                        )}
-
-                      </div>
-
-                      <div className="w-full py-4 rounded-2xl text-[11px] font-black uppercase text-center tracking-[0.2em] shadow-inner bg-black/5 dark:bg-white/5">
-                        Total Cost: ₱{selectedTotals.total.toLocaleString()}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Optional: Add custom components or additional order info here if needed */}
-                  {/* </div> */}
-                </div>
-
-                {/* COLUMN 3: ORDER STATUS DASHBOARD */}
-                <div className="space-y-6">
-                  <h4 className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-3 text-left">Order Status Dashboard</h4>
-
-                  <div className={`w-full py-4 rounded-2xl text-[11px] font-black uppercase text-center tracking-[0.2em] shadow-inner ${selectedOrder.status === 'Completed' ? 'bg-emerald-500 text-white' : selectedOrder.status === 'Cancelled' ? 'bg-red-500 text-white' : 'bg-blue-600 text-white'}`}>
-                    {getDisplayStatus(selectedOrder)}
-                  </div>
-
-                  {isSecondPaymentPending && (
-                    <div className="bg-purple-500/10 border border-purple-500/20 p-4 rounded-3xl text-left space-y-2 animate-in fade-in duration-300">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-purple-600 dark:text-purple-400">Print Downpayment Required</p>
-                      <p className="text-xs font-bold leading-normal">
-                        The 3D design has been finalized. Please settle the print downpayment of <strong>₱{printDp.toLocaleString()}</strong> to start printing.
-                      </p>
-                    </div>
-                  )}
-
-                {/* PAYMENT MEDIA SECTION */}
-                <div className="space-y-3">
-                  {selectedOrder.paymentMethod === 'Cash' && !isOrderFromMaintenance ? (
-                    <div className="p-6 bg-blue-500/5 rounded-3xl border border-blue-500/10 flex flex-col items-center text-center gap-3 w-full animate-in fade-in duration-300">
-                      <Store className="text-blue-500 animate-pulse" size={32} />
-                      <h4 className="text-[10px] font-black uppercase tracking-widest text-blue-600">Cash Payment</h4>
-                      <p className="text-xs font-bold opacity-80 max-w-sm">
-                        {isOrderFromMaintenance ? (
-                          "This order was placed during maintenance mode and is invalid."
-                        ) : (
-                          "Your order is being prepared, we will notify you when it's ready for pickup."
-                        )}
-                      </p>
-                    </div>
-                  ) : (
-                    <div className={`grid gap-4 ${showQrContainer || isOrderFromMaintenance ? 'grid-cols-2' : 'grid-cols-1'}`}>
-                      {isOrderFromMaintenance ? (
-                        <div className="p-4 bg-amber-500/5 rounded-3xl border border-amber-500/10 flex flex-col items-center gap-3">
-                          <h4 className="text-[9px] font-black uppercase tracking-widest text-red-500">
-                            Invalid Order Placeholder
-                          </h4>
-                          <button
-                            type="button"
-                            className="w-24 h-24 bg-white p-2 border rounded-2xl hover:opacity-80 transition-opacity flex items-center justify-center"
-                            onClick={() => {
-                              setActivePreviewUrl(qrImageSrc);
-                              setIsPreviewExpanded(true);
-                            }}
-                          >
-                            <img src={qrImageSrc} className="object-contain" alt="Payment placeholder" />
-                          </button>
-                          <a 
-                            href={qrImageSrc} 
-                            download="SG-Logo.png"
-                            className="w-full py-2 bg-amber-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest text-center transition-all hover:bg-amber-700 flex items-center justify-center gap-1"
-                          >
-                            <Download size={12} /> Download
-                          </a>
-                        </div>
-                      ) : showQrContainer && (
-                        <div className="p-4 bg-amber-500/5 rounded-3xl border border-amber-500/10 flex flex-col items-center gap-3">
-                          <h4 className="text-[9px] font-black uppercase tracking-widest text-amber-600">
-                            Payment QR
-                          </h4>
-                          <button
-                            type="button"
-                            className="w-24 h-24 bg-white p-2 border rounded-2xl hover:opacity-80 transition-opacity flex items-center justify-center"
-                            onClick={() => {
-                              setActivePreviewUrl(qrImageSrc);
-                              setIsPreviewExpanded(true);
-                            }}
-                          >
-                            <img src={qrImageSrc} className="object-contain" alt={`${selectedOrder?.paymentMethod} QR`} />
-                          </button>
-                          <a 
-                            href={qrImageSrc} 
-                            download={`${selectedOrder?.paymentMethod}-QR.png`}
-                            className="w-full py-2 bg-amber-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest text-center transition-all hover:bg-amber-700 flex items-center justify-center gap-1"
-                          >
-                            <Download size={12} /> Download
-                          </a>
-                        </div>
-                      )}
-
-                      <div className="p-4 bg-blue-500/5 rounded-3xl border border-blue-500/10 flex flex-col items-center gap-3">
-                        <h4 className="text-[9px] font-black uppercase tracking-widest text-blue-600">Receipt</h4>
-                        {selectedOrder.receipt || previewUrl ? (
-                          <button
-                            type="button"
-                            className="w-24 h-24 rounded-2xl overflow-hidden bg-white border-2 border-blue-600 relative group"
-                            onClick={() => {
-                              setActivePreviewUrl(previewUrl || selectedOrder.receipt);
-                              setIsPreviewExpanded(true);
-                              setHasPreviewedReceipt(true);
-                            }}
-                          >
-                            <img src={previewUrl || selectedOrder.receipt} className="w-full h-full object-cover" alt="Receipt" />
-                            <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                              <Eye size={16} className="text-white" />
-                            </div>
-                          </button>
-                        ) : (
-                          <div className="w-24 h-24 border-2 border-dashed border-blue-600/30 rounded-2xl flex flex-col items-center justify-center gap-1 opacity-50">
-                            <Upload size={16} />
-                            <span className="text-[8px] font-black uppercase">No Receipt</span>
-                          </div>
-                        )}
-
-                        {!isAdminMode && !selectedOrder.receipt && ['Reserved', 'Waiting', 'Arrived', 'Validating'].includes(selectedOrder.status) && (
-                          <label className="w-full cursor-pointer">
-                            <input type="file" className="hidden" accept="image/*" onChange={handleFileSelect} disabled={isUploading} />
-                            <div className="w-full py-2 bg-blue-600/10 text-blue-600 rounded-xl text-[9px] font-black uppercase tracking-widest text-center">
-                              {isSecondPaymentPending ? 'Upload Print Downpayment Receipt' : selectedOrder.receipt ? 'Upload New Receipt' : 'Upload Receipt'}
-                            </div>
-                          </label>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {previewUrl && !isAdminMode && (
-                    <div className="flex justify-center animate-in fade-in duration-300">
-                      <button 
-                        onClick={() => handleConfirmReceipt(selectedOrder)} 
-                        disabled={isUploading}
-                        className="w-full max-w-[220px] py-3 bg-emerald-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg active:scale-95 transition-all"
-                      >
-                        {isUploading ? 'Submitting...' : 'Submit Receipt'}
-                      </button>
-                    </div>
-                  )}
-
-                  {isAdminMode && selectedOrder.paymentMethod === 'Cash' && selectedOrder.status === 'Reserved' && (
-                    <div className="space-y-2 animate-in fade-in duration-300">
-                      <button 
-                        onClick={() => handleConfirmPayment(selectedOrder)} 
-                        className="w-full py-4 bg-emerald-600 text-white rounded-[1.5rem] text-xs font-black uppercase tracking-widest shadow-xl shadow-emerald-600/20 active:scale-95 transition-all flex items-center justify-center gap-2"
-                      >
-                        <CheckCircle2 size={18} /> Confirm Cash Payment
-                      </button>
-                    </div>
-                  )}
-
-                  {isAdminMode && selectedOrder.paymentMethod !== 'Cash' && selectedOrder.receipt && selectedOrder.status === 'Validating' && (
-                    <div className="space-y-2">
-                      <button 
-                        onClick={() => handleConfirmPayment(selectedOrder)} 
-                        disabled={!hasPreviewedReceipt}
-                        className={`w-full py-4 bg-emerald-600 text-white rounded-[1.5rem] text-xs font-black uppercase tracking-widest shadow-xl shadow-emerald-600/20 active:scale-95 transition-all flex items-center justify-center gap-2 ${!hasPreviewedReceipt ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
-                      >
-                        <CheckCircle2 size={18} /> Validate Receipt
-                      </button>
-                      {!hasPreviewedReceipt && (
-                        <p className="text-[8px] font-black text-amber-600 uppercase text-center animate-pulse">Preview receipt first to validate</p>
-                      )}
-                    </div>
-                  )}
-
-                  {isAdminMode && (selectedShippingFlags.usesPickupPoint || selectedShippingFlags.usesMeetupLocation) && ['Preparing', 'To Ship'].includes(selectedOrder.status) && (
-                    <button 
-                      onClick={handleMarkReadyForPickup}
-                      className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 shadow-lg shadow-blue-600/20"
-                    >
-                      {selectedShippingFlags.usesMeetupLocation ? 'Mark Ready for Meetup' : 'Mark Ready for Pickup'}
-                    </button>
-                  )}
-
-                  {isAdminMode && selectedShippingFlags.isPickupPointCourier && selectedOrder.status === 'Ready for Pickup' && (
-                    <button 
-                      onClick={handleMarkDispatched}
-                      className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 shadow-lg shadow-blue-600/20"
-                    >
-                      Mark Dispatched
-                    </button>
-                  )}
-
-                  {isAdminMode && (
-                    ['Shipped', 'Dispatched', 'In Transit'].includes(selectedOrder.status) ||
-                    (isReadyForPickupStatus(selectedOrder.status) && !selectedShippingFlags.isPickupPointCourier)
-                  ) && (
-                    <button 
-                      onClick={handleMarkCompleted}
-                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 shadow-lg shadow-emerald-600/20"
-                    >
-                      Mark Completed
-                    </button>
-                  )}
-                </div>
-
-                  {isAdminMode && hasStlWithDesignService && selectedOrder.status === 'Preparing' && !selectedOrder.designFinalized && (
-                    <button 
-                      onClick={async () => {
-                        if (window.confirm("Mark design as finalized and request print downpayment? This will set status to 'Waiting' and request the customer for the second downpayment.")) {
-                          try {
-                            const patch = { designFinalized: true, receipt: null, status: 'Waiting' };
-                            await updateOrderDetails(selectedOrder.id, patch);
-                            moveOrderToTargetTab(selectedOrder, patch);
-                            setSelectedOrder(prev => ({ ...prev, ...patch }));
-                            alert("Design marked as finalized! Print downpayment requested.");
-                          } catch (err) {
-                            console.error("SG LOG: Failed to finalize design:", err);
-                            alert("Failed to finalize design.");
-                          }
-                        }
-                      }}
-                      className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 shadow-lg shadow-purple-600/20 mb-3"
-                    >
-                      Finalize Design & Request Print Dp
-                    </button>
-                  )}
-
-                  {isAdminMode && selectedOrder.isPreOrder && selectedOrder.status === 'Reserved' && (
-                    <button 
-                      onClick={() => handleRequestBalance(selectedOrder.id)}
-                      className="w-full py-3 bg-amber-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest"
-                    >
-                      Request Balance
-                    </button>
-                  )}
-
-
-
-                  {!isAdminMode && ['Shipped', 'Dispatched', 'In Transit', 'Ready for Pickup', 'Ready for Meetup'].includes(selectedOrder.status) && (
-                    <button 
-                      onClick={handleMarkCompleted}
-                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 shadow-lg shadow-emerald-600/20 mb-3"
-                    >
-                      Confirm Order Received
-                    </button>
-                  )}
-
-                  {(canAdminCancel || canCustomerCancel) && (
-                    <button 
-                      onClick={() => handleCancelOrder(selectedOrder.id)}
-                      className="w-full py-3 bg-red-500/10 text-red-500 rounded-xl text-[10px] font-black uppercase tracking-widest"
-                    >
-                      Cancel Order
-                    </button>
-                  )}
-
-                  {isAdminMode && selectedOrder.status === 'Cancelled' && (
-                    <button 
-                      onClick={() => { deleteOrder(selectedOrder.id); setSelectedOrder(null); }}
-                      className="w-full py-3 bg-red-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest"
-                    >
-                      Delete Order
-                    </button>
-                  )}
-                </div>
               </div>
             </div>
           </div>

@@ -1,0 +1,68 @@
+# 🗄️ Data & Store Architecture
+
+Snorlax Garage organizes its application state and real-time synchronization pipelines through a centralized Zustand store integrated with Firebase Firestore.
+
+---
+
+## 📦 1. State Management (Zustand)
+Global frontend state is managed in [useStore.js](file:///c:/Users/daive/Desktop/react-app/snorlaxgarage-type-f/src/store/useStore.js) using **Zustand** with session persistence.
+
+### 🔌 State Lifecycle & Preloading
+To eliminate loading flashes (content flickering) in React, the store tracks page requirements dynamically before disabling the global spinner:
+- **`_getPageRequirements(pathname)`**: Returns a map of database collections necessary for the requested route.
+- **`checkPageReady(pathname)`**: Evaluates if the current route's required datasets have finished downloading.
+- **`_loadedDatasets`**: A state dictionary tracking loading statuses (e.g. `userProfile: true`, `kits: true`, `orders: false`).
+- **`startBackgroundListeners()`**: Initiates background listeners (`onSnapshot`) once the initial page datasets are ready.
+
+---
+
+## 🗃️ 2. Firestore Collection Schema
+The Firestore database is structured into 13 primary collections:
+
+### 👤 User Roles & Auth
+- **`users`**
+  - *Document ID:* User Firebase UID
+  - *Data:* Profile names, email, status (active/banned), basket arrays.
+- **`admins`**
+  - *Document ID:* Admin Firebase UID
+  - *Data:* Dynamic whitelist configuration authorizing admin UI privileges.
+
+### 🏷️ E-Commerce & Catalog
+- **`kits`**
+  - *Document ID:* Unique generated ID (or formatted via `createKitTargetId`)
+  - *Data:* Kit properties, description, image galleries, and the `stocks` map.
+- **`deals`**
+  - *Document ID:* Auto-generated
+  - *Data:* Promotional bundle records linking multiple kits with expiration timestamps.
+- **`stories`**
+  - *Document ID:* Auto-generated
+  - *Data:* Marketing slide data listed at the top of the landing page.
+- **`orders`**
+  - *Document ID:* Auto-generated
+  - *Data:* Detailed checkout record mapping user profiles, payment summaries, transaction statuses, and item references.
+- **`shelf`**
+  - *Document ID:* Auto-generated
+  - *Data:* Transient holds and item assignments managed by admins.
+
+### 📐 3D Print Configurations & Calculations
+- **`filaments`**
+  - *Document ID:* Auto-generated
+  - *Data:* Active filament spools (brand, color, type, weight, and remaining grams).
+- **`printers`**
+  - *Document ID:* Auto-generated
+  - *Data:* Printer specifications (bootup timing, bed leveling, multi-color CFS compatibility).
+- **`feeders`**
+  - *Document ID:* Auto-generated
+  - *Data:* Auxiliary multi-material hardware properties (e.g. CFS swap speeds).
+- **`extras`**
+  - *Document ID:* Auto-generated
+  - *Data:* Assembly hardware units (magnets, heatset inserts) tracked by packaging limits.
+- **`rates`**
+  - *Document ID:* Static Category Names (e.g., `labor-cost`, `material-cost`)
+  - *Data:* Key-value variables feeding the Cost Estimation Engine formulas.
+- **`blueprints`**
+  - *Document ID:* Auto-generated
+  - *Data:* Customer design files, dimension metadata, and cost parameters.
+- **`settings`**
+  - *Document ID:* Static categories (e.g., `garage`, `checkout`)
+  - *Data:* Metadata like contact records and global payment handling fees.
