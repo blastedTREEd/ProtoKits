@@ -26,24 +26,6 @@ function resolveImage(idOrUrl, imagesArray) {
   return match?.url || '';
 }
 
-function toOrderDate(ts) {
-  if (!ts) return null;
-  if (ts.seconds) return new Date(ts.seconds * 1000);
-  const date = new Date(ts);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function formatOrderDateLabel(ts) {
-  const date = toOrderDate(ts);
-  if (!date) return null;
-  return date.toLocaleDateString('en-PH', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
-}
 
 function ChangeView({ center }) {
   const map = useMap();
@@ -51,7 +33,7 @@ function ChangeView({ center }) {
   return null;
 }
 
-function ReservationTimer({ createdAt, expiresAt, onExpire, compact = false, durationMs, variant = 'warning' }) {
+function ReservationTimer({ createdAt, expiresAt, onExpire, compact = false, durationMs, variant = 'warning', children }) {
   const [timeLeft, setTimeLeft] = useState('');
   const hasExpiredRef = useRef(false);
   useEffect(() => {
@@ -91,6 +73,9 @@ function ReservationTimer({ createdAt, expiresAt, onExpire, compact = false, dur
     const interval = setInterval(calculateTime, 1000);
     return () => clearInterval(interval);
   }, [createdAt, expiresAt, onExpire, compact, durationMs]);
+  if (typeof children === 'function') {
+    return children(timeLeft, variant === 'invalid');
+  }
   if (compact) {
     const isInvalid = variant === 'invalid';
     return (
@@ -274,7 +259,6 @@ export default function Orders() {
 
   const [trackingRef, setTrackingRef] = useState('');
   const [customerTrackingLink, setCustomerTrackingLink] = useState('');
-  const [meetupScheduleInput, setMeetupScheduleInput] = useState('');
   const [claimantBalance, setClaimantBalance] = useState('');
   const [shippingFeeInput, setShippingFeeInput] = useState('');
   const [manualOrderData, setManualOrderData] = useState({ 
@@ -336,7 +320,6 @@ export default function Orders() {
     if (selectedOrder) {
       setTrackingRef(selectedOrder.trackingNo || '');
       setCustomerTrackingLink(selectedOrder.customerTrackingLink || selectedOrder.trackingLink || '');
-      setMeetupScheduleInput(selectedOrder.preferredSchedule || '');
       setClaimantBalance(selectedOrder.claimantBalance || '');
       setShippingFeeInput(selectedOrder.shippingFee ?? '');
     }
@@ -493,37 +476,6 @@ export default function Orders() {
     setSelectedOrder(prev => ({ ...prev, ...patch, status: 'In Transit' }));
   };
 
-  const handleSaveMeetupSchedule = async () => {
-    if (!selectedOrder) return;
-    if (!String(meetupScheduleInput || '').trim()) {
-      alert("Please choose a preferred meetup time.");
-      return;
-    }
-    try {
-      await updateOrderDetails(selectedOrder.id, { preferredSchedule: meetupScheduleInput });
-      alert("Preferred meetup time saved!");
-      setSelectedOrder(prev => ({ ...prev, preferredSchedule: meetupScheduleInput }));
-    } catch (e) {
-      console.error(e);
-      alert("Failed to save meetup time.");
-    }
-  };
-
-  const handleSavePickupSchedule = async () => {
-    if (!selectedOrder) return;
-    if (!String(meetupScheduleInput || '').trim()) {
-      alert("Please choose a preferred pickup schedule.");
-      return;
-    }
-    try {
-      await updateOrderDetails(selectedOrder.id, { preferredSchedule: meetupScheduleInput });
-      alert("Preferred pickup schedule saved!");
-      setSelectedOrder(prev => ({ ...prev, preferredSchedule: meetupScheduleInput }));
-    } catch (e) {
-      console.error(e);
-      alert("Failed to save pickup schedule.");
-    }
-  };
 
   const handleSaveCustomerTrackingLink = async () => {
     if (!selectedOrder) return;
@@ -735,26 +687,55 @@ export default function Orders() {
     let amount = 0;
     let extraFields = {};
 
+    const isResOrPartial = order && (['reservation', 'partial'].includes(String(order.paymentPlan || '').toLowerCase()) || order.isReservation || order.isPartial);
+    const { total: orderTotal } = getOrderTotals(order);
+
     if (isSecondPaymentPending) {
       amount = Math.max(0, Number(order.minDownpayment || 0) - Number(order.originalPaymentDueNow || 0));
       extraFields = { printDownpaymentPaid: true };
+    } else if (isResOrPartial) {
+      // If we are confirming the downpayment receipt (when buyerPaid is 0 or less than paymentDueNow)
+      // Note: we check if they have not yet validated the downpayment. 
+      // If buyerPaid in Firestore is already equal to or greater than the order total due to previous over-crediting, 
+      // we still want to set it back to the downpayment amount.
+      const currentPaid = Number(order.buyerPaid) || 0;
+      const dpAmount = Number(order.paymentDueNow || 0);
+      
+      // If the firestore doc was over-credited, or is 0, we are validating the first downpayment.
+      if (currentPaid === 0 || (currentPaid >= orderTotal && !order.balanceReceipt)) {
+        amount = dpAmount;
+      } else {
+        // Otherwise, they already validated the downpayment (e.g. currentPaid == dpAmount), so we validate the remaining balance
+        amount = calculateBalance(order);
+      }
     } else {
       amount = calculateBalance(order);
     }
 
     if (window.confirm(`Confirm payment ₱${amount.toLocaleString()}?`)) {
-      await confirmOrderPayment(order.id, amount);
+      if (isResOrPartial && Number(order.buyerPaid || 0) >= orderTotal && amount === Number(order.paymentDueNow || 0)) {
+        // Correct the Firestore buyerPaid value back to the downpayment amount
+        await updateOrderDetails(order.id, { buyerPaid: amount });
+      } else {
+        await confirmOrderPayment(order.id, amount);
+      }
+      
       if (Object.keys(extraFields).length > 0) {
         await updateOrderDetails(order.id, extraFields);
       }
       const newStatus = order.shippingMethod?.toUpperCase().includes('LBC') ? 'To Ship' : 'Preparing';
       await updateOrderStatus(order.id, newStatus);
-      moveOrderToTargetTab(order, { status: newStatus, buyerPaid: (Number(order.buyerPaid) || 0) + amount, ...extraFields });
+      
+      const newBuyerPaid = (isResOrPartial && Number(order.buyerPaid || 0) >= orderTotal && amount === Number(order.paymentDueNow || 0))
+        ? amount
+        : (Number(order.buyerPaid) || 0) + amount;
+
+      moveOrderToTargetTab(order, { status: newStatus, buyerPaid: newBuyerPaid, ...extraFields });
       if (selectedOrder?.id === order.id) {
         setSelectedOrder(prev => ({
           ...prev,
           status: newStatus,
-          buyerPaid: (Number(prev.buyerPaid) || 0) + amount,
+          buyerPaid: newBuyerPaid,
           ...extraFields
         }));
       }
@@ -871,8 +852,14 @@ export default function Orders() {
     const handlingFee = Number(order?.handlingFee) || 0;
     const transferFee = Number(order?.transferFee) || 0;
     const discount = Number(order?.discount) || 0;
-    const paid = Number(order?.buyerPaid) || 0;
     const total = Math.max(0, itemTotal + shippingFee + handlingFee + transferFee - discount);
+    
+    let paid = Number(order?.buyerPaid) || 0;
+    const isResOrPartial = order && (['reservation', 'partial'].includes(String(order.paymentPlan || '').toLowerCase()) || order.isReservation || order.isPartial);
+    if (isResOrPartial && paid >= total && !order.balanceReceipt && ['Reserved', 'Validating', 'Preparing', 'To Ship', 'Arrived'].includes(order.status)) {
+      paid = Number(order.paymentDueNow || 0);
+    }
+    
     const balance = Math.max(0, total - paid);
     return { itemTotal, shippingFee, handlingFee, transferFee, discount, paid, total, balance };
   };
@@ -908,22 +895,15 @@ export default function Orders() {
   const selectedShippingFlags = selectedOrder ? getShippingFlags(selectedOrder) : {};
   const selectedLogistics = selectedOrder ? getBuyerAddressDetails(selectedOrder) : {};
   const selectedTotals = selectedOrder ? getOrderTotals(selectedOrder) : {};
-  const selectedOrderCancelledLabel = selectedOrder?.status === 'Cancelled'
-    ? formatOrderDateLabel(selectedOrder.cancelledAt || selectedOrder.expiresAt)
-    : null;
-  const selectedOrderDateLabel = selectedOrderCancelledLabel || formatOrderDateLabel(selectedOrder?.createdAt) || selectedOrder?.date;
-  const selectedOrderDatePrefix = selectedOrderCancelledLabel ? 'Cancelled' : 'Created';
-
   const hasStlWithDesignService = selectedOrder?.items?.some(item => 
     item.type === 'project' && 
     item.projectData?.method?.name?.toUpperCase() === 'STL' && 
     item.projectData?.selectedDesignService
   );
-  const isSecondPaymentPending = hasStlWithDesignService && selectedOrder?.designFinalized && !selectedOrder?.printDownpaymentPaid && (Number(selectedOrder?.buyerPaid) < Number(selectedOrder?.minDownpayment));
-  const printDp = isSecondPaymentPending ? Math.max(0, Number(selectedOrder?.minDownpayment || 0) - Number(selectedOrder?.originalPaymentDueNow || 0)) : 0;
   const canCustomerCancel = Boolean(selectedOrder && !isAdminMode && !selectedOrder.receipt && selectedOrder.status !== 'Cancelled');
   const canAdminCancel = Boolean(selectedOrder && isAdminMode && selectedOrder.status !== 'Cancelled');
-  const showPaymentQr = Boolean(selectedOrder && !isAdminMode && selectedTotals.balance > 0 && !selectedOrder.receipt);
+  const isSelectedResOrPartial = selectedOrder && (['reservation', 'partial'].includes(String(selectedOrder.paymentPlan || '').toLowerCase()) || selectedOrder.isReservation || selectedOrder.isPartial);
+  const showPaymentQr = Boolean(selectedOrder && selectedTotals.balance > 0 && (isSelectedResOrPartial ? true : (!isAdminMode && !selectedOrder.receipt)));
   // isMaintenanceOrder is stored on the order itself — stays true even after maintenance is lifted
   const isOrderFromMaintenance = Boolean(selectedOrder?.isMaintenanceOrder);
   const brandLogoUrl = garageInfo?.logoURL || "https://graph.facebook.com/SnorlaxGarage/picture?type=large";
@@ -955,6 +935,15 @@ export default function Orders() {
       return acc + (sellPrice + installmentFee) * qty;
     }, 0) || selectedTotals.itemTotal || Number(selectedOrder.totalPrice || selectedOrder.price || 0);
     const isBalanceApplicable = ['reservation', 'partial', 'pre-order'].includes(selectedOrder.paymentPlan) || selectedOrder.isPreOrder || selectedTotals.balance > 0;
+    const showTrackingSection = activeTab === 'to_ship' || ['Preparing', 'Ready for Pickup', 'Ready for Meetup', 'Arrived', 'To Ship'].includes(selectedOrder.status);
+    const isReservationOrPartial = ['reservation', 'partial'].includes(String(selectedOrder.paymentPlan || '').toLowerCase()) || selectedOrder.isReservation || selectedOrder.isPartial;
+    const isDpValidated = selectedOrder.receipt && (selectedOrder.status !== 'Validating' || selectedOrder.balanceReceipt || Number(selectedOrder.buyerPaid || 0) > 0);
+    const isFullValidated = !isReservationOrPartial && selectedOrder.receipt && selectedOrder.status !== 'Validating';
+    const isFirstReceiptValidated = isReservationOrPartial ? isDpValidated : isFullValidated;
+    const isBalValidated = selectedOrder.balanceReceipt && selectedOrder.status !== 'Validating';
+
+    const isOrderInvalid = Boolean(selectedOrder.isMaintenanceOrder && !selectedOrder.receipt);
+    const isReservedTimerActive = selectedOrder.status === 'Reserved' && !selectedOrder.receipt && Boolean(selectedOrder.cancellationTimerStartedAt || isOrderInvalid);
 
     return (
       <div className="w-full min-h-screen text-neutral-900 dark:text-white bg-white dark:bg-[#0a0a0a]">
@@ -966,15 +955,6 @@ export default function Orders() {
               <h2 className="text-xl md:text-2xl font-black uppercase italic tracking-tight text-blue-600 dark:text-blue-500">
                 {selectedOrder.orderId}
               </h2>
-            {selectedOrder.status === 'Reserved' && !selectedOrder.receipt && selectedOrder.cancellationTimerStartedAt && (
-              <div className="px-3 py-1 bg-amber-500/10 text-amber-600 rounded-full text-[10px] font-black uppercase tracking-widest">
-                <ReservationTimer
-                  createdAt={selectedOrder.cancellationTimerStartedAt}
-                  durationMs={60 * 60 * 1000}
-                  onExpire={() => handleSilentCancelOrder(selectedOrder.id)}
-                />
-              </div>
-            )}
             {selectedOrder.isMaintenanceOrder && ['Completed', 'Cancelled'].includes(selectedOrder.status) && (
               <DeletionTimer
                 completedAt={selectedOrder.completedAt || selectedOrder.cancelledAt || selectedOrder.lastUpdated}
@@ -987,13 +967,36 @@ export default function Orders() {
             )}
           </div>
           <div className="flex items-center gap-4">
-            <div className={`px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest leading-none border ${
-              selectedOrder.status === 'Completed' ? 'bg-emerald-500/15 text-emerald-600 border-emerald-500/20' : 
-              selectedOrder.status === 'Cancelled' ? 'bg-red-500/15 text-red-500 border-red-500/20' : 
-              'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-600/20'
-            }`}>
-              {getDisplayStatus(selectedOrder)}
-            </div>
+            {isReservedTimerActive ? (
+              <ReservationTimer
+                createdAt={selectedOrder.cancellationTimerStartedAt || selectedOrder.createdAt}
+                durationMs={60 * 60 * 1000}
+                onExpire={() => handleSilentCancelOrder(selectedOrder.id)}
+              >
+                {(timeLeft) => (
+                  <div className={`px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest leading-none border flex items-center gap-1.5 ${
+                    isOrderInvalid
+                      ? 'bg-red-600 text-white border-red-600 shadow-lg shadow-red-600/20'
+                      : 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-600/20'
+                  }`}>
+                    {isOrderInvalid && <Flag size={13} className="fill-current" />}
+                    <span>{getDisplayStatus(selectedOrder)}</span>
+                    {timeLeft && <span className="opacity-90">({timeLeft})</span>}
+                  </div>
+                )}
+              </ReservationTimer>
+            ) : (
+              <div className={`px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest leading-none border flex items-center gap-1.5 ${
+                isOrderInvalid
+                  ? 'bg-red-600 text-white border-red-600 shadow-lg shadow-red-600/20'
+                  : selectedOrder.status === 'Completed' ? 'bg-emerald-500/15 text-emerald-600 border-emerald-500/20' : 
+                  selectedOrder.status === 'Cancelled' ? 'bg-red-500/15 text-red-500 border-red-500/20' : 
+                  'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-600/20'
+              }`}>
+                {isOrderInvalid && <Flag size={13} className="fill-current" />}
+                <span>{getDisplayStatus(selectedOrder)}</span>
+              </div>
+            )}
             <button 
               onClick={() => setSelectedOrder(null)} 
               className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full opacity-60 hover:opacity-100 transition-all active:scale-95 text-neutral-500 dark:text-neutral-400"
@@ -1050,107 +1053,109 @@ export default function Orders() {
             </div>
 
             {/* Tracking / Inputs */}
-            <div className="pt-2 border-t border-black/5 dark:border-white/5 flex flex-col">
-              <span className="text-[10px] font-black uppercase opacity-40 mb-2 tracking-wider">Logistics & Tracking Info</span>
-              {/* Admin: Tracking input when no tracking saved yet */}
-              {isAdminMode && selectedOrder.status !== 'Cancelled' && !selectedOrder.trackingNo ? (
-                <div className="space-y-3">
-                  <input 
-                    className="w-full p-3 rounded-xl border bg-white dark:bg-[#121212] border-black/10 dark:border-white/10 text-xs font-black uppercase"
-                    value={trackingRef}
-                    onChange={(e) => setTrackingRef(e.target.value.toUpperCase())}
-                    placeholder={selectedShippingFlags.isLbc ? 'LBC TRACKING NO.' : 'TRACKING NO. / COURIER URL'}
-                  />
-                  {selectedShippingFlags.needsAdminShipping && (
+            {showTrackingSection && (
+              <div className="pt-2 border-t border-black/5 dark:border-white/5 flex flex-col">
+                <span className="text-[10px] font-black uppercase opacity-40 mb-2 tracking-wider">Logistics & Tracking Info</span>
+                {/* Admin: Tracking input when no tracking saved yet */}
+                {isAdminMode && selectedOrder.status !== 'Cancelled' && !selectedOrder.trackingNo ? (
+                  <div className="space-y-3">
                     <input 
-                      type="number"
-                      className="w-full p-3 rounded-xl border bg-white dark:bg-[#121212] border-black/10 dark:border-white/10 text-xs font-black"
-                      value={shippingFeeInput}
-                      onChange={(e) => setShippingFeeInput(e.target.value)}
-                      placeholder="SHIPPING FEE"
+                      className="w-full p-3 rounded-xl border bg-white dark:bg-[#121212] border-black/10 dark:border-white/10 text-xs font-black uppercase"
+                      value={trackingRef}
+                      onChange={(e) => setTrackingRef(e.target.value.toUpperCase())}
+                      placeholder={selectedShippingFlags.isLbc ? 'LBC TRACKING NO.' : 'TRACKING NO. / COURIER URL'}
                     />
-                  )}
-                  {selectedShippingFlags.isLbc && (
-                    <input 
-                      className="w-full p-3 rounded-xl border bg-white dark:bg-[#121212] border-black/10 dark:border-white/10 text-xs font-black"
-                      value={claimantBalance}
-                      onChange={(e) => setClaimantBalance(e.target.value)}
-                      placeholder="CLAIMANT BALANCE"
-                    />
-                  )}
-                  <button 
-                    onClick={handleSaveShippingDetails}
-                    className="w-full py-3 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-blue-600/20 active:scale-95 transition-all"
-                  >
-                    Save Tracking & Mark In Transit
-                  </button>
-                </div>
-
-              ) : !isAdminMode && selectedShippingFlags.isLalamoveSelf && !['Completed', 'Cancelled'].includes(selectedOrder.status) ? (
-                /* Customer: Self-booking input for Lalamove tracking URL */
-                <div className="space-y-3">
-                  {selectedOrder.customerTrackingLink && (
-                    <a 
-                      href={selectedOrder.customerTrackingLink}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs font-black text-blue-600 hover:underline break-all block"
+                    {selectedShippingFlags.needsAdminShipping && (
+                      <input 
+                        type="number"
+                        className="w-full p-3 rounded-xl border bg-white dark:bg-[#121212] border-black/10 dark:border-white/10 text-xs font-black"
+                        value={shippingFeeInput}
+                        onChange={(e) => setShippingFeeInput(e.target.value)}
+                        placeholder="SHIPPING FEE"
+                      />
+                    )}
+                    {selectedShippingFlags.isLbc && (
+                      <input 
+                        className="w-full p-3 rounded-xl border bg-white dark:bg-[#121212] border-black/10 dark:border-white/10 text-xs font-black"
+                        value={claimantBalance}
+                        onChange={(e) => setClaimantBalance(e.target.value)}
+                        placeholder="CLAIMANT BALANCE"
+                      />
+                    )}
+                    <button 
+                      onClick={handleSaveShippingDetails}
+                      className="w-full py-3 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-blue-600/20 active:scale-95 transition-all"
                     >
-                      {selectedOrder.customerTrackingLink}
-                    </a>
-                  )}
-                  <input 
-                    type="url"
-                    className="w-full p-3 rounded-xl border bg-white dark:bg-[#121212] border-black/10 dark:border-white/10 text-xs font-semibold"
-                    placeholder="https://web.lalamove.com/..."
-                    value={customerTrackingLink}
-                    onChange={(e) => setCustomerTrackingLink(e.target.value)}
-                  />
-                  <button 
-                    onClick={handleSaveCustomerTrackingLink}
-                    className="w-full py-3 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-blue-600/20 active:scale-95 transition-all"
-                  >
-                    {selectedOrder.customerTrackingLink ? 'Update Tracking URL' : 'Save Tracking URL'}
-                  </button>
-                </div>
+                      Save Tracking & Mark In Transit
+                    </button>
+                  </div>
 
-              ) : (
-                /* Read-only: Display tracking info */
-                <div className="space-y-1">
-                  {selectedOrder.trackingNo ? (
-                    /^https?:\/\//i.test(selectedOrder.trackingNo) ? (
+                ) : !isAdminMode && selectedShippingFlags.isLalamoveSelf && !['Completed', 'Cancelled'].includes(selectedOrder.status) ? (
+                  /* Customer: Self-booking input for Lalamove tracking URL */
+                  <div className="space-y-3">
+                    {selectedOrder.customerTrackingLink && (
                       <a 
-                        href={selectedOrder.trackingNo}
+                        href={selectedOrder.customerTrackingLink}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-xs font-black text-blue-600 hover:underline break-all block"
                       >
-                        {selectedOrder.trackingNo}
+                        {selectedOrder.customerTrackingLink}
+                      </a>
+                    )}
+                    <input 
+                      type="url"
+                      className="w-full p-3 rounded-xl border bg-white dark:bg-[#121212] border-black/10 dark:border-white/10 text-xs font-semibold"
+                      placeholder="https://web.lalamove.com/..."
+                      value={customerTrackingLink}
+                      onChange={(e) => setCustomerTrackingLink(e.target.value)}
+                    />
+                    <button 
+                      onClick={handleSaveCustomerTrackingLink}
+                      className="w-full py-3 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-blue-600/20 active:scale-95 transition-all"
+                    >
+                      {selectedOrder.customerTrackingLink ? 'Update Tracking URL' : 'Save Tracking URL'}
+                    </button>
+                  </div>
+
+                ) : (
+                  /* Read-only: Display tracking info */
+                  <div className="space-y-1">
+                    {selectedOrder.trackingNo ? (
+                      /^https?:\/\//i.test(selectedOrder.trackingNo) ? (
+                        <a 
+                          href={selectedOrder.trackingNo}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs font-black text-blue-600 hover:underline break-all block"
+                        >
+                          {selectedOrder.trackingNo}
+                        </a>
+                      ) : (
+                        <p className="text-xs font-black uppercase text-blue-600 dark:text-blue-500">
+                          {selectedOrder.trackingNo}
+                        </p>
+                      )
+                    ) : selectedOrder.customerTrackingLink ? (
+                      <a 
+                        href={selectedOrder.customerTrackingLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs font-black text-blue-600 hover:underline break-all block"
+                      >
+                        {selectedOrder.customerTrackingLink}
                       </a>
                     ) : (
                       <p className="text-xs font-black uppercase text-blue-600 dark:text-blue-500">
-                        {selectedOrder.trackingNo}
+                        {selectedOrder.status === 'Cancelled' ? 'N/A' : selectedShippingFlags.isLalamoveSelf ? 'Pending Customer Booking' : 'Pending'}
                       </p>
-                    )
-                  ) : selectedOrder.customerTrackingLink ? (
-                    <a 
-                      href={selectedOrder.customerTrackingLink}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs font-black text-blue-600 hover:underline break-all block"
-                    >
-                      {selectedOrder.customerTrackingLink}
-                    </a>
-                  ) : (
-                    <p className="text-xs font-black uppercase text-blue-600 dark:text-blue-500">
-                      {selectedOrder.status === 'Cancelled' ? 'N/A' : selectedShippingFlags.isLalamoveSelf ? 'Pending Customer Booking' : 'Pending'}
-                    </p>
-                  )}
-                  {selectedShippingFlags.needsAdminShipping && <p className="text-[10px] font-bold opacity-60">Shipping Fee: ₱{selectedTotals.shippingFee.toLocaleString()}</p>}
-                  {selectedOrder.claimantBalance && <p className="text-[10px] font-bold opacity-60">Claimant Balance: ₱{Number(selectedOrder.claimantBalance || 0).toLocaleString()}</p>}
-                </div>
-              )}
-            </div>
+                    )}
+                    {selectedShippingFlags.needsAdminShipping && <p className="text-[10px] font-bold opacity-60">Shipping Fee: ₱{selectedTotals.shippingFee.toLocaleString()}</p>}
+                    {selectedOrder.claimantBalance && <p className="text-[10px] font-bold opacity-60">Claimant Balance: ₱{Number(selectedOrder.claimantBalance || 0).toLocaleString()}</p>}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Right Column: Map */}
@@ -1323,7 +1328,12 @@ export default function Orders() {
                 {/* Payment QR */}
                 {showQrContainer && (
                   <div className="p-4 bg-amber-500/5 rounded-2xl border border-amber-500/10 flex flex-col items-center gap-2">
-                    <h4 className="text-[9px] font-black uppercase tracking-widest text-amber-600 text-center">Payment QR</h4>
+                    <h4 className="text-[12px] font-black uppercase tracking-widest text-amber-600 text-center leading-tight">
+                      Payment QR
+                      {selectedOrder?.paymentMethod && (
+                        <span className="block mt-0.5 opacity-100 text-[12px] font-black">{selectedOrder.paymentMethod}</span>
+                      )}
+                    </h4>
                     <button
                       type="button"
                       className="w-20 h-20 bg-white p-2 border rounded-xl hover:opacity-80 transition-opacity flex items-center justify-center border-black/5"
@@ -1334,19 +1344,31 @@ export default function Orders() {
                     >
                       <img src={qrImageSrc} className="object-contain" alt={`${selectedOrder?.paymentMethod} QR`} />
                     </button>
-                    <a 
-                      href={qrImageSrc} 
-                      download={`${selectedOrder?.paymentMethod}-QR.png`}
-                      className="w-full py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[9px] font-black uppercase tracking-widest text-center transition-all flex items-center justify-center gap-1"
-                    >
-                      <Download size={10} /> QR Code
-                    </a>
+                    {!isAdminMode && (
+                      <a 
+                        href={qrImageSrc} 
+                        download={`${selectedOrder?.paymentMethod}-QR.png`}
+                        className="w-full py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[12px] font-black uppercase tracking-widest text-center transition-all flex items-center justify-center gap-1"
+                      >
+                        <Download size={10} /> QR Code
+                      </a>
+                    )}
                   </div>
                 )}
 
                 {/* Payment Receipt */}
                 <div className="p-4 bg-blue-500/5 rounded-2xl border border-blue-500/10 flex flex-col items-center gap-2">
-                  <h4 className="text-[9px] font-black uppercase tracking-widest text-blue-600 text-center">Payment Receipt</h4>
+                  <h4 className="text-[12px] font-black uppercase tracking-widest text-blue-600 text-center leading-tight">
+                    {isReservationOrPartial ? (
+                      String(selectedOrder.paymentPlan || '').toLowerCase() === 'reservation' ? (
+                        <>Reservation<br />Receipt</>
+                      ) : (
+                        <>Partial<br />Receipt</>
+                      )
+                    ) : (
+                      <>Payment<br />Receipt</>
+                    )}
+                  </h4>
                   {selectedOrder.receipt || previewUrl ? (
                     <button
                       type="button"
@@ -1366,6 +1388,13 @@ export default function Orders() {
                     <div className="w-20 h-20 border-2 border-dashed border-blue-600/30 rounded-xl flex flex-col items-center justify-center gap-1 opacity-50 shrink-0">
                       <Upload size={14} />
                       <span className="text-[8px] font-black uppercase text-center leading-tight">No Receipt</span>
+                    </div>
+                  )}
+
+                  {isFirstReceiptValidated && (
+                    <div className="flex items-center gap-1 text-[9px] font-black uppercase text-emerald-600 tracking-wider">
+                      <CheckCircle2 size={11} className="text-emerald-500 animate-in zoom-in duration-300" />
+                      Validated
                     </div>
                   )}
 
@@ -1390,9 +1419,9 @@ export default function Orders() {
                 </div>
 
                 {/* Balance Payment Receipt */}
-                {(selectedTotals.balance > 0 || selectedOrder.balanceReceipt || balancePreviewUrl) && (
+                {isReservationOrPartial && Number(selectedOrder.buyerPaid || 0) > 0 && (selectedTotals.balance > 0 || selectedOrder.balanceReceipt || balancePreviewUrl) && (
                   <div className="p-4 bg-purple-500/5 rounded-2xl border border-purple-500/10 flex flex-col items-center gap-2">
-                    <h4 className="text-[9px] font-black uppercase tracking-widest text-purple-600 text-center">Balance Receipt</h4>
+                    <h4 className="text-[12px] font-black uppercase tracking-widest text-purple-600 text-center leading-tight">Balance<br />Receipt</h4>
                     {selectedOrder.balanceReceipt || balancePreviewUrl ? (
                       <button
                         type="button"
@@ -1412,6 +1441,13 @@ export default function Orders() {
                       <div className="w-20 h-20 border-2 border-dashed border-purple-600/30 rounded-xl flex flex-col items-center justify-center gap-1 opacity-50 shrink-0">
                         <Upload size={14} />
                         <span className="text-[8px] font-black uppercase text-center leading-tight">No Receipt</span>
+                      </div>
+                    )}
+
+                    {isBalValidated && (
+                      <div className="flex items-center gap-1 text-[9px] font-black uppercase text-emerald-600 tracking-wider">
+                        <CheckCircle2 size={11} className="text-emerald-500 animate-in zoom-in duration-300" />
+                        Validated
                       </div>
                     )}
 
@@ -1463,17 +1499,45 @@ export default function Orders() {
 
             {/* Third row: Total */}
             <div className="flex justify-between items-center text-sm font-black border-t border-black/5 dark:border-white/5 pt-3">
-              <span>Total Cost</span>
+              <span className="flex items-center gap-1.5">
+                Total Cost 
+                {isFirstReceiptValidated && (
+                  <CheckCircle2 size={12} className="text-emerald-500" />
+                )}
+              </span>
               <span>₱{selectedTotals.total.toLocaleString()}</span>
             </div>
 
-            {/* Fourth row: Balance (reservation, pre-order, partial) */}
-            {isBalanceApplicable && (
+            {/* Fourth row: Downpayment & Balance (reservation/partial) */}
+            {isBalanceApplicable && isReservationOrPartial ? (
+              <>
+                {/* Downpayment amount — blue when unpaid, default when paid */}
+                <div className={`flex justify-between items-center text-xs font-bold border-t border-black/5 dark:border-white/5 pt-3 ${!selectedOrder.receipt ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                  <span className="flex items-center gap-1.5">
+                    Downpayment 
+                    {isFirstReceiptValidated && (
+                      <CheckCircle2 size={12} className="text-emerald-500" />
+                    )}
+                  </span>
+                  <span>₱{Number(selectedOrder.paymentDueNow || 0).toLocaleString()}</span>
+                </div>
+                {/* Remaining Balance — blue when downpayment paid but balance unpaid, default otherwise */}
+                <div className={`flex justify-between items-center text-xs font-bold ${selectedOrder.receipt && !selectedOrder.balanceReceipt ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                  <span className="flex items-center gap-1.5">
+                    Remaining Balance 
+                    {isBalValidated && (
+                      <CheckCircle2 size={12} className="text-emerald-500" />
+                    )}
+                  </span>
+                  <span>₱{Math.max(0, (selectedTotals.total || 0) - Number(selectedOrder.paymentDueNow || 0)).toLocaleString()}</span>
+                </div>
+              </>
+            ) : isBalanceApplicable ? (
               <div className="flex justify-between items-center text-sm font-black border-t border-black/5 dark:border-white/5 pt-3 text-amber-600 dark:text-amber-500">
                 <span>Balance Due</span>
                 <span>₱{selectedTotals.balance.toLocaleString()}</span>
               </div>
-            )}
+            ) : null}
           </div>
         </div>
 
@@ -1632,18 +1696,18 @@ export default function Orders() {
               )}
               {visibleOrders.map(o => {
                 const isSelected = selectedOrders.includes(o.id);
-                const balance = calculateBalance(o);
                 const orderItems = Array.isArray(o.items) && o.items.length > 0 ? o.items : [o];
-                const isValidToPayOrder = activeTab === 'to_pay' && !o.isMaintenanceOrder;
-                const showCancelTimerTag = isValidToPayOrder && !o.receipt && Boolean(o.cancellationTimerStartedAt);
-                const invalidCancellationStart = o.cancellationTimerStartedAt || o.createdAt;
+                const { total: orderGrandTotal } = getOrderTotals(o);
+                const isCardInvalid = Boolean(o.isMaintenanceOrder && !o.receipt);
+                const isCardReservedTimerActive = o.status === 'Reserved' && !o.receipt && Boolean(o.cancellationTimerStartedAt || isCardInvalid);
+
                 const statusTagClass = o.status === 'Cancelled'
                   ? 'bg-red-500/15 text-red-500 border-red-500/20'
                   : o.status === 'Completed'
                     ? 'bg-emerald-500/15 text-emerald-600 border-emerald-500/20'
                     : ['Shipped', 'Dispatched', 'In Transit'].includes(o.status)
                       ? 'bg-purple-500/15 text-purple-500 border-purple-500/20'
-                      : 'bg-blue-500/15 text-blue-600 border-blue-500/20';
+                      : 'bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-600/20';
                 const shippingMethodLabel = String(o.shippingMethod || '')
                   .replace(/\s*\([^)]*\)/g, '')
                   .split(':')[0]
@@ -1657,24 +1721,32 @@ export default function Orders() {
                       handleDeleteOrderNow(o.id);
                     }}
                   />
-                ) : o.isMaintenanceOrder && !o.receipt ? (
+                ) : isCardReservedTimerActive ? (
                   <ReservationTimer
-                    compact
-                    variant="invalid"
-                    createdAt={invalidCancellationStart}
+                    createdAt={o.cancellationTimerStartedAt || o.createdAt}
                     durationMs={60 * 60 * 1000}
                     onExpire={() => handleSilentCancelOrder(o.id)}
-                  />
-                ) : showCancelTimerTag ? (
-                  <ReservationTimer
-                    compact
-                    createdAt={o.cancellationTimerStartedAt}
-                    durationMs={60 * 60 * 1000}
-                    onExpire={() => handleSilentCancelOrder(o.id)}
-                  />
+                  >
+                    {(timeLeft) => (
+                      <span className={`inline-flex items-center gap-1.5 text-[11px] font-black px-3 py-1 rounded-full uppercase tracking-widest leading-none border whitespace-nowrap ${
+                        isCardInvalid
+                          ? 'bg-red-600 text-white border-red-600 shadow-md shadow-red-600/20'
+                          : 'bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-600/20'
+                      }`}>
+                        {isCardInvalid && <Flag size={12} className="fill-current" />}
+                        <span>{getDisplayStatus(o)}</span>
+                        {timeLeft && <span className="opacity-90">({timeLeft})</span>}
+                      </span>
+                    )}
+                  </ReservationTimer>
                 ) : (
-                  <span className={`inline-block text-[13px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider border leading-none whitespace-nowrap ${statusTagClass}`}>
-                    {o.status}
+                  <span className={`inline-flex items-center gap-1.5 text-[11px] font-black px-3 py-1 rounded-full uppercase tracking-widest leading-none border whitespace-nowrap ${
+                    isCardInvalid
+                      ? 'bg-red-600 text-white border-red-600 shadow-md shadow-red-600/20'
+                      : statusTagClass
+                  }`}>
+                    {isCardInvalid && <Flag size={12} className="fill-current" />}
+                    <span>{getDisplayStatus(o)}</span>
                   </span>
                 );
                 const pricedItems = orderItems.map((item) => {
@@ -1836,7 +1908,7 @@ export default function Orders() {
                         <div className="flex items-baseline justify-end gap-2 leading-none">
                           <span className="text-[13px] font-black uppercase tracking-widest">Total</span>
                           <span className="font-black text-[15px] text-neutral-900 dark:text-white">
-                            ₱{balance.toLocaleString()}
+                            ₱{orderGrandTotal.toLocaleString()}
                           </span>
                         </div>
                       </div>
@@ -1910,12 +1982,46 @@ export default function Orders() {
           </div>
         )}
 
-        {isPreviewExpanded && activePreviewUrl && (
-          <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/95 animate-in fade-in duration-300" onClick={() => { setIsPreviewExpanded(false); setActivePreviewUrl(null); }}>
-            <button className="absolute top-8 right-8 text-white/50 hover:text-white"><X size={40} /></button>
-            <img src={activePreviewUrl} className="max-w-full max-h-[90vh] object-contain rounded-xl shadow-2xl" />
-          </div>
-        )}
+        {isPreviewExpanded && activePreviewUrl && (() => {
+          const isQrPreview = activePreviewUrl === qrImageSrc;
+          const isResOrPartial = selectedOrder && (['reservation', 'partial'].includes(String(selectedOrder.paymentPlan || '').toLowerCase()) || selectedOrder.isReservation || selectedOrder.isPartial);
+          let amountToPay = 0;
+          if (isQrPreview && selectedTotals) {
+            if (isResOrPartial) {
+              // First receipt validated → show remaining balance; otherwise show downpayment amount
+              amountToPay = selectedOrder.receipt
+                ? (selectedTotals.balance > 0 ? selectedTotals.balance : 0)
+                : Number(selectedOrder.paymentDueNow || selectedTotals.total || 0);
+            } else {
+              amountToPay = selectedTotals.total || 0;
+            }
+          }
+          return (
+            <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/95 animate-in fade-in duration-300" onClick={() => { setIsPreviewExpanded(false); setActivePreviewUrl(null); }}>
+              <button className="absolute top-8 right-8 text-white/50 hover:text-white z-10"><X size={40} /></button>
+              {isQrPreview ? (
+                <div className="flex flex-col items-center gap-6" onClick={e => e.stopPropagation()}>
+                  {/* QR Card */}
+                  <div className="bg-white rounded-3xl p-6 shadow-2xl flex flex-col items-center gap-4 max-w-[80vw]">
+                    <img src={activePreviewUrl} className="w-[60vw] h-[60vw] max-w-[320px] max-h-[320px] object-contain" alt="Payment QR Code" />
+                    {selectedOrder?.paymentMethod && (
+                      <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">{selectedOrder.paymentMethod}</p>
+                    )}
+                  </div>
+                  {/* Amount to Pay */}
+                  {amountToPay > 0 && (
+                    <div className="flex flex-col items-center gap-1">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-white/40">Amount to Pay</p>
+                      <p className="text-3xl font-black text-white tracking-tight">₱{amountToPay.toLocaleString()}</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <img src={activePreviewUrl} className="max-w-full max-h-[90vh] object-contain rounded-xl shadow-2xl" />
+              )}
+            </div>
+          );
+        })()}
 
         {showManualOrderModal && (
           <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 backdrop-blur-md bg-black/60">
