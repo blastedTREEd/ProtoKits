@@ -5,7 +5,8 @@ import PageTemplate from './PageTemplate';
 import { 
   ClipboardList, Plus, MapPin, Package, PackageOpen, ShieldCheck, X, CheckCircle2, 
   ChevronRight, ChevronDown, Clock, Store, Truck, Tag, Trash2, AlertCircle,
-  Camera, Upload, QrCode, ArrowRight, Eye, RefreshCw, Download, ListTodo, Flag
+  Camera, Upload, QrCode, ArrowRight, Eye, RefreshCw, Download, ListTodo, Flag,
+  XCircle, Wallet
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -196,8 +197,6 @@ export default function Orders() {
   const [balancePreviewUrl, setBalancePreviewUrl] = useState(null);
   const [activePreviewUrl, setActivePreviewUrl] = useState(null);
   const [isPreviewExpanded, setIsPreviewExpanded] = useState(false);
-  const [hasPreviewedReceipt, setHasPreviewedReceipt] = useState(false);
-  const [hasPreviewedBalanceReceipt, setHasPreviewedBalanceReceipt] = useState(false);
   const [selectedOrders, setSelectedOrders] = useState([]);
   const [isMultiSelectEnabled, setIsMultiSelectEnabled] = useState(false);
   const [expandedOrderItems, setExpandedOrderItems] = useState({});
@@ -430,6 +429,8 @@ export default function Orders() {
 
     if (['Reserved', 'Validating'].includes(status)) return isAdminMode ? 'to_validate' : 'to_pay';
     if (status === 'Arrived' && !isLBC && balance > 0) return isAdminMode ? 'to_validate' : 'to_pay';
+    // Full-payment orders with balance requested (incomplete payment) — show in validation/payment tab
+    if (nextOrder.balanceRequested && balance > 0 && !nextOrder.balanceReceipt && ['Preparing'].includes(status)) return isAdminMode ? 'to_validate' : 'to_pay';
 
     if (['Preparing', 'Ready for Pickup', 'Ready for Meetup', 'To Ship'].includes(status)) {
       if (isLBC || balance <= 0 || (nextOrder.paymentPlan === 'partial' && !isProject)) {
@@ -728,7 +729,6 @@ export default function Orders() {
       const now = new Date().toISOString();
       const patch = { 
         status: isReservation ? 'Reserved' : 'Arrived', 
-        receipt: null,
         balanceRequestedAt: now,
         ...(isProject && { projectCompletedAt: now })
       };
@@ -739,7 +739,7 @@ export default function Orders() {
       }
     }
   };
-  const handleConfirmPayment = async (order) => {
+  const handleConfirmPayment = async (order, skipConfirm = false) => {
     const isSecondPaymentPending = order.items?.some(item => 
       item.type === 'project' && 
       item.projectData?.method?.name?.toUpperCase() === 'STL' && 
@@ -773,7 +773,7 @@ export default function Orders() {
       amount = calculateBalance(order);
     }
 
-    if (window.confirm(`Confirm payment ₱${amount.toLocaleString()}?`)) {
+    if (skipConfirm || window.confirm(`Confirm payment ₱${amount.toLocaleString()}?`)) {
       if (isResOrPartial && Number(order.buyerPaid || 0) >= orderTotal && amount === Number(order.paymentDueNow || 0)) {
         // Correct the Firestore buyerPaid value back to the downpayment amount
         await updateOrderDetails(order.id, { buyerPaid: amount });
@@ -824,6 +824,77 @@ export default function Orders() {
       setSelectedOrder(null);
     }
   };
+
+  // Admin: Insufficient Payment from Preview — validates receipt as partial payment and requests remaining balance
+  const handleInsufficientPayment = async (order, isBalance = false) => {
+    if (!window.confirm("Confirm payment as insufficient and request the remaining balance?")) return;
+    try {
+      const { total: orderTotal } = getOrderTotals(order);
+      const isResOrPartial = ['reservation', 'partial'].includes(String(order.paymentPlan || '').toLowerCase()) || order.isReservation || order.isPartial;
+      
+      let amount = 0;
+      if (isBalance) {
+        // If it's already a balance receipt and we request balance again (incomplete balance payment),
+        // we just clear the balance receipt to let them upload a new one, without adding more buyerPaid.
+        amount = 0;
+      } else {
+        if (isResOrPartial) {
+          amount = Number(order.paymentDueNow || 0);
+        } else {
+          // For full payment plan, assume they paid 50% of the total as a downpayment
+          amount = Math.round(orderTotal / 2);
+        }
+      }
+
+      if (amount > 0) {
+        await confirmOrderPayment(order.id, amount);
+      }
+      
+      // Determine appropriate status after partial payment confirmation
+      const isReservationPlan = String(order.paymentPlan || '').toLowerCase() === 'reservation';
+      const isPartialPlan = String(order.paymentPlan || '').toLowerCase() === 'partial';
+      const isPreOrder = order.isPreOrder || order.items?.some(i => i.isPreOrder);
+      const isProjectOrder = order.type === 'project' || order.items?.some(i => i.type === 'project');
+      
+      let newStatus;
+      if (isReservationPlan) {
+        newStatus = isPreOrder ? 'Waiting' : 'Reserved';
+      } else if (isPartialPlan && (isPreOrder || isProjectOrder)) {
+        newStatus = 'Waiting';
+      } else {
+        // Full payment plan — partial payment received, status becomes Preparing
+        newStatus = 'Preparing';
+      }
+
+      const extraFields = {
+        status: newStatus,
+        balanceRequested: true,
+        balanceRequestedAt: new Date().toISOString()
+      };
+      if (isReservationPlan && !order.downpaymentConfirmedAt) {
+        extraFields.downpaymentConfirmedAt = new Date().toISOString();
+      }
+      // If this was a balance receipt being partially validated, clear it so they can upload the next step
+      if (isBalance) {
+        extraFields.balanceReceipt = null;
+      }
+      
+      await updateOrderDetails(order.id, extraFields);
+      
+      const newBuyerPaid = (Number(order.buyerPaid) || 0) + amount;
+      moveOrderToTargetTab(order, { ...extraFields, buyerPaid: newBuyerPaid });
+      if (selectedOrder?.id === order.id) {
+        setSelectedOrder(prev => ({ ...prev, ...extraFields, buyerPaid: newBuyerPaid }));
+      }
+      
+      setIsPreviewExpanded(false);
+      setActivePreviewUrl(null);
+    } catch (err) {
+      console.error("SG LOG: Insufficient payment handler failed:", err);
+      alert("Failed to process request.");
+    }
+  };
+
   const handleSilentCancelOrder = useCallback(async (orderId) => {
     try {
       if (selectedOrder?.id === orderId) {
@@ -952,7 +1023,7 @@ export default function Orders() {
   const tabData = useMemo(() => {
     const isLBC = (o) => o.shippingMethod?.toUpperCase().includes('LBC');
     const baseTabs = (isAdminMode ? [
-      { id: 'to_validate', label: 'To Validate', filter: (o) => o.status === 'Validating' || (!isLBC(o) && calculateBalance(o) > 0 && o.status === 'Arrived') || (calculateBalance(o) > 0 && o.status === 'Reserved') },
+      { id: 'to_validate', label: 'To Validate', filter: (o) => o.status === 'Validating' || (!isLBC(o) && calculateBalance(o) > 0 && o.status === 'Arrived') || (calculateBalance(o) > 0 && o.status === 'Reserved') || (o.balanceRequested && calculateBalance(o) > 0 && !o.balanceReceipt && o.status === 'Preparing') },
       { id: 'to_follow', label: 'In Progress', filter: (o) => {
         if (o.status === 'Waiting') return true;
         // Project na may balance at nasa process/queue (Preparing/Ready/etc)
@@ -976,7 +1047,7 @@ export default function Orders() {
       { id: 'completed', label: 'Completed', filter: (o) => o.status === 'Completed' },
       { id: 'cancelled', label: 'Cancelled', filter: (o) => o.status === 'Cancelled' }
     ] : [
-      { id: 'to_pay', label: 'To Pay', filter: (o) => o.status === 'Reserved' || o.status === 'Validating' || (!isLBC(o) && calculateBalance(o) > 0 && o.status === 'Arrived') },
+      { id: 'to_pay', label: 'To Pay', filter: (o) => o.status === 'Reserved' || o.status === 'Validating' || (!isLBC(o) && calculateBalance(o) > 0 && o.status === 'Arrived') || (o.balanceRequested && calculateBalance(o) > 0 && !o.balanceReceipt && o.status === 'Preparing') },
       { id: 'to_follow', label: 'In Progress', filter: (o) => {
         if (o.status === 'Waiting') return true;
         const isProject = o.type === 'project' || o.items?.some(i => i.type === 'project');
@@ -1491,7 +1562,16 @@ export default function Orders() {
                     >
                       <img src={qrImageSrc} className="object-contain" alt={`${selectedOrder?.paymentMethod} QR`} />
                     </button>
-                    {!isAdminMode && (
+                    {isAdminMode ? (
+                      canAdminCancel && (
+                        <button 
+                          onClick={() => handleCancelOrder(selectedOrder.id)}
+                          className="w-full py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg text-[12px] font-black uppercase tracking-widest text-center transition-all mt-1"
+                        >
+                          Cancel Order
+                        </button>
+                      )
+                    ) : (
                       <a 
                         href={qrImageSrc} 
                         download={`${selectedOrder?.paymentMethod}-QR.png`}
@@ -1523,7 +1603,6 @@ export default function Orders() {
                       onClick={() => {
                         setActivePreviewUrl(previewUrl || selectedOrder.receipt);
                         setIsPreviewExpanded(true);
-                        setHasPreviewedReceipt(true);
                       }}
                     >
                       <img src={previewUrl || selectedOrder.receipt} className="w-full h-full object-cover" alt="Receipt" />
@@ -1539,24 +1618,23 @@ export default function Orders() {
                   )}
 
                   {isFirstReceiptValidated && (
-                    <div className="flex items-center gap-1 text-[12px] font-black uppercase text-emerald-600 tracking-wider">
-                      <CheckCircle2 size={12} className="text-emerald-500 animate-in zoom-in duration-300" />
+                    <div className="w-full py-1.5 bg-emerald-500/10 text-emerald-600 rounded-lg text-[12px] font-black uppercase tracking-widest text-center transition-all mt-1 flex items-center justify-center gap-1">
+                      <CheckCircle2 size={13} className="text-emerald-500 animate-in zoom-in duration-300" />
                       Validated
                     </div>
                   )}
 
                   {isAdminMode && selectedOrder.paymentMethod !== 'Cash' && selectedOrder.receipt && selectedOrder.status === 'Validating' && !(selectedOrder.balanceReceipt && Number(selectedOrder.buyerPaid || 0) > 0) && (
-                    <div className="flex flex-col items-center gap-1 w-full">
-                      <button 
-                        onClick={() => { if (window.confirm('Validate this receipt?')) handleConfirmPayment(selectedOrder); }} 
-                        disabled={!hasPreviewedReceipt}
-                        className={`w-full py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-black uppercase tracking-widest shadow-md transition-all active:scale-95 flex items-center justify-center gap-1 ${!hasPreviewedReceipt ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
-                      >
-                        <CheckCircle2 size={12} /> Validate
-                      </button>
-                      {!hasPreviewedReceipt && (
-                        <p className="text-[7px] font-black text-amber-600 uppercase animate-pulse text-center">Preview first</p>
-                      )}
+                    <div className="w-full py-1.5 bg-amber-500/10 text-amber-600 rounded-lg text-[11px] font-black uppercase tracking-widest text-center mt-1 flex items-center justify-center gap-1 animate-pulse">
+                      <Clock size={13} className="text-amber-500" />
+                      For Validation
+                    </div>
+                  )}
+
+                  {!isAdminMode && selectedOrder.receipt && selectedOrder.status === 'Validating' && !(selectedOrder.balanceReceipt && Number(selectedOrder.buyerPaid || 0) > 0) && (
+                    <div className="w-full py-1.5 bg-amber-500/10 text-amber-600 rounded-lg text-[11px] font-black uppercase tracking-widest text-center mt-1 flex items-center justify-center gap-1">
+                      <Clock size={13} className="text-amber-500 animate-pulse" />
+                      Validating
                     </div>
                   )}
 
@@ -1581,7 +1659,7 @@ export default function Orders() {
                 </div>
 
                 {/* Balance Payment Receipt */}
-                {isReservationOrPartial && Number(selectedOrder.buyerPaid || 0) > 0 && (selectedTotals.balance > 0 || selectedOrder.balanceReceipt || balancePreviewUrl) && (
+                {((isReservationOrPartial && Number(selectedOrder.buyerPaid || 0) > 0 && (selectedTotals.balance > 0 || selectedOrder.balanceReceipt || balancePreviewUrl)) || (selectedOrder.balanceRequested && Number(selectedOrder.buyerPaid || 0) > 0 && (selectedTotals.balance > 0 || selectedOrder.balanceReceipt || balancePreviewUrl))) && (
                   <div className="p-4 bg-purple-500/5 rounded-2xl border border-purple-500/10 flex flex-col items-center gap-2">
                     <h4 className="text-[12px] font-black uppercase tracking-widest text-purple-600 text-center leading-tight">Balance<br />Receipt</h4>
                     {selectedOrder.balanceReceipt || balancePreviewUrl ? (
@@ -1591,7 +1669,6 @@ export default function Orders() {
                         onClick={() => {
                           setActivePreviewUrl(balancePreviewUrl || selectedOrder.balanceReceipt);
                           setIsPreviewExpanded(true);
-                          setHasPreviewedBalanceReceipt(true);
                         }}
                       >
                         <img src={balancePreviewUrl || selectedOrder.balanceReceipt} className="w-full h-full object-cover" alt="Balance Receipt" />
@@ -1607,24 +1684,23 @@ export default function Orders() {
                     )}
 
                     {isBalValidated && (
-                      <div className="flex items-center gap-1 text-[12px] font-black uppercase text-emerald-600 tracking-wider">
-                        <CheckCircle2 size={12} className="text-emerald-500 animate-in zoom-in duration-300" />
+                      <div className="w-full py-1.5 bg-emerald-500/10 text-emerald-600 rounded-lg text-[12px] font-black uppercase tracking-widest text-center transition-all mt-1 flex items-center justify-center gap-1">
+                        <CheckCircle2 size={13} className="text-emerald-500 animate-in zoom-in duration-300" />
                         Validated
                       </div>
                     )}
 
                     {isAdminMode && selectedOrder.paymentMethod !== 'Cash' && selectedOrder.balanceReceipt && selectedOrder.status === 'Validating' && Number(selectedOrder.buyerPaid || 0) > 0 && (
-                      <div className="flex flex-col items-center gap-1 w-full">
-                        <button 
-                          onClick={() => { if (window.confirm('Validate this balance receipt?')) handleConfirmPayment(selectedOrder); }}
-                          disabled={!hasPreviewedBalanceReceipt}
-                          className={`w-full py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-black uppercase tracking-widest shadow-md transition-all active:scale-95 flex items-center justify-center gap-1 ${!hasPreviewedBalanceReceipt ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
-                        >
-                          <CheckCircle2 size={12} /> Validate
-                        </button>
-                        {!hasPreviewedBalanceReceipt && (
-                          <p className="text-[7px] font-black text-amber-600 uppercase animate-pulse text-center">Preview first</p>
-                        )}
+                      <div className="w-full py-1.5 bg-amber-500/10 text-amber-600 rounded-lg text-[11px] font-black uppercase tracking-widest text-center mt-1 flex items-center justify-center gap-1 animate-pulse">
+                        <Clock size={13} className="text-amber-500" />
+                        For Validation
+                      </div>
+                    )}
+
+                    {!isAdminMode && selectedOrder.balanceReceipt && selectedOrder.status === 'Validating' && Number(selectedOrder.buyerPaid || 0) > 0 && (
+                      <div className="w-full py-1.5 bg-amber-500/10 text-amber-600 rounded-lg text-[11px] font-black uppercase tracking-widest text-center mt-1 flex items-center justify-center gap-1">
+                        <Clock size={13} className="text-amber-500 animate-pulse" />
+                        Validating
                       </div>
                     )}
 
@@ -1650,7 +1726,7 @@ export default function Orders() {
                 )}
               </div>
 
-              {(canAdminCancel || canCustomerCancel) && (
+              {((isAdminMode && canAdminCancel && !showQrContainer) || (!isAdminMode && canCustomerCancel)) && (
                 <button 
                   onClick={() => handleCancelOrder(selectedOrder.id)}
                   className="w-full py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all mt-2"
@@ -1986,8 +2062,6 @@ export default function Orders() {
                         toggleOrderSelection(e, o.id);
                       } else {
                         setSelectedOrder(o);
-                        setHasPreviewedReceipt(false);
-                        setHasPreviewedBalanceReceipt(false);
                       }
                     }}
                     className={`p-3 rounded-2xl border-2 cursor-pointer flex flex-col gap-3 transition-all duration-200 ${
@@ -2207,7 +2281,44 @@ export default function Orders() {
                   )}
                 </div>
               ) : (
-                <img src={activePreviewUrl} className="max-w-full max-h-[90vh] object-contain rounded-xl shadow-2xl" />
+                <div className="flex flex-col items-center gap-4" onClick={e => e.stopPropagation()}>
+                  <img src={activePreviewUrl} className="max-w-[90vw] max-h-[60vh] object-contain rounded-xl shadow-2xl animate-in zoom-in-95 duration-200" alt="Receipt Preview" />
+                  {isAdminMode && selectedOrder.status === 'Validating' && (() => {
+                    const isFirstReceipt = activePreviewUrl === (previewUrl || selectedOrder.receipt);
+                    const isBalanceReceipt = activePreviewUrl === (balancePreviewUrl || selectedOrder.balanceReceipt);
+                    const receiptLabel = isBalanceReceipt ? 'Balance Receipt' : 'Receipt';
+                    
+                    if (isFirstReceipt || isBalanceReceipt) {
+                      return (
+                        <div className="flex flex-row items-center justify-center gap-3 w-full max-w-sm px-4">
+                          {/* Validate Button */}
+                          <button 
+                            onClick={() => {
+                              if (window.confirm(`Validate this ${receiptLabel.toLowerCase()}?`)) {
+                                handleConfirmPayment(selectedOrder, true);
+                                setIsPreviewExpanded(false);
+                                setActivePreviewUrl(null);
+                              }
+                            }} 
+                            className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] sm:text-[11px] font-black uppercase tracking-widest shadow-xl transition-all active:scale-95 flex items-center justify-center gap-1.5 whitespace-nowrap"
+                          >
+                            <CheckCircle2 size={14} /> Validate
+                          </button>
+
+                          {/* Request Balance Button */}
+                          <button
+                            onClick={() => handleInsufficientPayment(selectedOrder, isBalanceReceipt)}
+                            className="flex-1 py-3 bg-white hover:bg-neutral-200 text-neutral-950 rounded-xl text-[10px] sm:text-[11px] font-black uppercase tracking-widest shadow-xl transition-all active:scale-95 flex items-center justify-center gap-1.5 whitespace-nowrap"
+                          >
+                            <Wallet size={14} /> Request Balance
+                          </button>
+                        </div>
+                      );
+                    }
+                    
+                    return null;
+                  })()}
+                </div>
               )}
             </div>
           );

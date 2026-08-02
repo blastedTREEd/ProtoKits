@@ -544,7 +544,7 @@ return (
                 <div 
                   className={`rounded-full p-[2px] transition-all duration-300 ${isProfileOpen ? 'bg-red-500/10' : (isAdmin && isAdminView ? adminRingClass : 'bg-transparent group-hover:bg-gradient-to-br group-hover:from-[#0866FF] group-hover:to-[#00CFFF]')}`}
                 >
-                  <div className={`rounded-full overflow-hidden border-2 transition-colors ${isProfileOpen ? 'border-red-500' : (isProfileOpen ? (isDarkMode ? 'border-neutral-900' : 'border-white') : 'border-transparent group-hover:border-white dark:group-hover:border-neutral-900')}`}>
+                  <div className={`rounded-full overflow-hidden border-2 transition-colors ${isProfileOpen ? 'border-red-500' : (isAdmin && isAdminView ? 'border-white dark:border-neutral-900' : 'border-transparent group-hover:border-white dark:group-hover:border-neutral-900')}`}>
                     {isProfileOpen ? (
                         <CircleX size={specs.utilIcon - 4} className="text-red-500" />
                     ) : (isAdmin && isAdminView) ? (
