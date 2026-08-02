@@ -1070,7 +1070,7 @@ export default function Orders() {
       <div className="w-full min-h-screen text-neutral-900 dark:text-white bg-white dark:bg-[#0a0a0a]">
         
         {/* Sticky Header / First Row */}
-        <div className="sticky top-[60px] bg-white/95 dark:bg-[#0a0a0a]/95 backdrop-blur-md z-[80] border-b border-black/5 dark:border-white/5 shadow-sm">
+        <div className="sticky top-[56px] sm:top-[60px] bg-white/95 dark:bg-[#0a0a0a]/95 backdrop-blur-md z-[80] border-b border-black/5 dark:border-white/5 shadow-sm">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-8 py-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <h2 className="text-xl md:text-2xl font-black uppercase italic tracking-tight text-blue-600 dark:text-blue-500">
@@ -1835,7 +1835,7 @@ export default function Orders() {
     <PageTemplate isDarkMode={isDarkMode}>
       <div className="min-h-screen flex flex-col bg-neutral-50 dark:bg-[#0a0a0a] font-sans">
         {!selectedOrder && (
-          <div className="sticky top-[60px] z-[90] h-[60px] w-full bg-neutral-50 dark:bg-[#0a0a0a] border-b border-black/5 dark:border-white/5">
+          <div className="sticky top-[56px] sm:top-[60px] z-[90] h-[60px] w-full bg-neutral-50 dark:bg-[#0a0a0a] border-b border-black/5 dark:border-white/5">
             <div className="max-w-7xl mx-auto px-4 md:px-8 h-full flex items-center justify-between gap-4">
               <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-2">
                 {tabData.map((tab) => (
