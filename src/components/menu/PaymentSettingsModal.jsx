@@ -37,6 +37,9 @@ export default function PaymentSettingsModal({ isOpen, onClose }) {
       cashInFee: Number(savedSettings.cashInFee ?? 0),
       transferFee: Number(savedSettings.transferFee ?? 0),
       exclusiveDiscountPercent: Number(savedSettings.exclusiveDiscountPercent ?? 100),
+      preOrderSettleDays: Number(savedSettings.preOrderSettleDays ?? 10),
+      reservationSettleDays: Number(savedSettings.reservationSettleDays ?? 10),
+      projectSettleDays: Number(savedSettings.projectSettleDays ?? 10),
       maintenanceMode: savedSettings.maintenanceMode ?? (savedSettings.showPayNow === false),
       maintenanceInvalidTypes: {
         kit: savedSettings.maintenanceInvalidTypes?.kit ?? true,
@@ -139,6 +142,9 @@ export default function PaymentSettingsModal({ isOpen, onClose }) {
         cashInFee: Math.max(0, Number(paymentSettings.cashInFee) || 0),
         transferFee: Math.max(0, Number(paymentSettings.transferFee) || 0),
         exclusiveDiscountPercent: Math.min(100, Math.max(0, Number(paymentSettings.exclusiveDiscountPercent) || 0)),
+        preOrderSettleDays: Math.max(1, Number(paymentSettings.preOrderSettleDays) || 10),
+        reservationSettleDays: Math.max(1, Number(paymentSettings.reservationSettleDays) || 10),
+        projectSettleDays: Math.max(1, Number(paymentSettings.projectSettleDays) || 10),
         maintenanceInvalidTypes: {
           kit: paymentSettings.maintenanceInvalidTypes?.kit !== false,
           prints: paymentSettings.maintenanceInvalidTypes?.prints !== false
@@ -156,14 +162,11 @@ export default function PaymentSettingsModal({ isOpen, onClose }) {
       }
 
       // Step 1: Explicitly delete removed payment method keys from Firestore using deleteField().
-      // setDoc+merge does NOT remove unspecified nested-map keys — it only adds/overwrites.
-      // This matches how shippingMethods deletion is handled in updateShippingSettings.
       if (deletedMethods.length > 0) {
         await deletePaymentMethods(deletedMethods);
       }
 
       // Step 2: Write all surviving payment settings via updateDoc with dot-notation paths
-      // so Firestore replaces each individual field without a shallow-merge re-introducing old keys.
       await updateShippingSettings(user.uid, {
         paymentSettings: normalizedPaymentSettings
       });

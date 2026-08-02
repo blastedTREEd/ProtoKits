@@ -38,12 +38,12 @@ function ReservationTimer({ createdAt, expiresAt, onExpire, compact = false, dur
   const hasExpiredRef = useRef(false);
   useEffect(() => {
     const calculateTime = () => {
-      if (!createdAt) return;
-      const start = createdAt.seconds ? createdAt.seconds * 1000 : new Date(createdAt).getTime();
+      if (!createdAt && !expiresAt) return;
+      const start = createdAt ? (createdAt.seconds ? createdAt.seconds * 1000 : new Date(createdAt).getTime()) : 0;
       const end = durationMs
         ? start + durationMs
         : expiresAt
-        ? (expiresAt.seconds ? expiresAt.seconds * 1000 : new Date(expiresAt).getTime())
+        ? (typeof expiresAt === 'number' ? expiresAt : expiresAt.seconds ? expiresAt.seconds * 1000 : new Date(expiresAt).getTime())
         : (start + (60 * 60 * 1000));
       const now = new Date().getTime();
       const diff = end - now;
@@ -56,13 +56,16 @@ function ReservationTimer({ createdAt, expiresAt, onExpire, compact = false, dur
         return;
       }
       
-      const hours = Math.floor(diff / (1000 * 60 * 60));
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
       const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
       const secs = Math.floor((diff % (1000 * 60)) / 1000);
       
       if (compact) {
         const totalMins = Math.floor(diff / (1000 * 60));
         setTimeLeft(`${totalMins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
+      } else if (days > 0) {
+        setTimeLeft(`${days}d ${hours}h`);
       } else if (hours > 0) {
         setTimeLeft(`${hours}h ${mins}m ${secs}s`);
       } else {
@@ -194,6 +197,7 @@ export default function Orders() {
   const [activePreviewUrl, setActivePreviewUrl] = useState(null);
   const [isPreviewExpanded, setIsPreviewExpanded] = useState(false);
   const [hasPreviewedReceipt, setHasPreviewedReceipt] = useState(false);
+  const [hasPreviewedBalanceReceipt, setHasPreviewedBalanceReceipt] = useState(false);
   const [selectedOrders, setSelectedOrders] = useState([]);
   const [isMultiSelectEnabled, setIsMultiSelectEnabled] = useState(false);
   const [expandedOrderItems, setExpandedOrderItems] = useState({});
@@ -354,6 +358,39 @@ export default function Orders() {
     });
   }, [orders]);
 
+  const getBalancePaymentDeadline = (order, settings) => {
+    if (!order) return 0;
+    const paymentSettings = settings?.paymentSettings || {};
+    const reservationSettleDays = Number(paymentSettings.reservationSettleDays ?? 10);
+    const preOrderSettleDays = Number(paymentSettings.preOrderSettleDays ?? 10);
+    const projectSettleDays = Number(paymentSettings.projectSettleDays ?? 10);
+
+    const isPreOrder = order.isPreOrder || order.items?.some(i => i.isPreOrder);
+    const isProject = order.type === 'project' || order.items?.some(i => i.type === 'project');
+
+    const paymentPlan = String(order.paymentPlan || '').toLowerCase();
+
+    if (isProject) {
+      // Project partial: countdown starts when project is done (projectCompletedAt)
+      const start = order.projectCompletedAt || order.balanceRequestedAt || order.createdAt;
+      const startTime = start?.seconds ? start.seconds * 1000 : new Date(start).getTime();
+      return startTime + (projectSettleDays * 24 * 60 * 60 * 1000);
+    }
+
+    if (isPreOrder) {
+      // Pre-order: countdown starts when item arrives (balanceRequestedAt)
+      const start = order.balanceRequestedAt || order.createdAt;
+      const startTime = start?.seconds ? start.seconds * 1000 : new Date(start).getTime();
+      const days = paymentPlan === 'reservation' ? reservationSettleDays : preOrderSettleDays;
+      return startTime + (days * 24 * 60 * 60 * 1000);
+    }
+
+    // On-hand reservation: countdown starts after downpayment validated (downpaymentConfirmedAt)
+    const start = order.downpaymentConfirmedAt || order.cancellationTimerStartedAt || order.createdAt;
+    const startTime = start?.seconds ? start.seconds * 1000 : new Date(start).getTime();
+    return startTime + (reservationSettleDays * 24 * 60 * 60 * 1000);
+  };
+
   const calculateBalance = useCallback((order) => {
     if (!order) return 0;
     const flags = getShippingFlags(order);
@@ -379,15 +416,27 @@ export default function Orders() {
     const method = String(nextOrder.shippingMethod || '').toUpperCase();
     const isLBC = method.includes('LBC');
     const balance = calculateBalance(nextOrder);
+    const isProject = nextOrder.type === 'project' || nextOrder.items?.some(i => i.type === 'project');
 
     if (status === 'Cancelled') return 'cancelled';
     if (status === 'Completed') return 'completed';
     if (status === 'Waiting') return 'to_follow';
     if (['Shipped', 'Dispatched', 'In Transit'].includes(status)) return 'to_receive';
+    
+    // In Progress for projects with balance under preparing/ready/etc
+    if (isProject && balance > 0 && ['Preparing', 'Ready for Pickup', 'Ready for Meetup', 'To Ship'].includes(status)) {
+      return 'to_follow';
+    }
+
     if (['Reserved', 'Validating'].includes(status)) return isAdminMode ? 'to_validate' : 'to_pay';
     if (status === 'Arrived' && !isLBC && balance > 0) return isAdminMode ? 'to_validate' : 'to_pay';
-    if ((isLBC || balance <= 0) && ['Preparing', 'Ready for Pickup', 'Ready for Meetup', 'Arrived', 'To Ship'].includes(status)) return 'to_ship';
-    if (['Preparing', 'Ready for Pickup', 'Ready for Meetup', 'To Ship'].includes(status)) return 'to_ship';
+
+    if (['Preparing', 'Ready for Pickup', 'Ready for Meetup', 'To Ship'].includes(status)) {
+      if (isLBC || balance <= 0 || (nextOrder.paymentPlan === 'partial' && !isProject)) {
+        return 'to_ship';
+      }
+    }
+    if (status === 'Arrived' && (isLBC || balance <= 0)) return 'to_ship';
 
     return null;
   }, [calculateBalance, isAdminMode]);
@@ -673,7 +722,16 @@ export default function Orders() {
   };
   const handleRequestBalance = async (orderId) => {
     if (window.confirm("Request balance?")) {
-      const patch = { status: 'Arrived', receipt: null };
+      const order = orders.find(o => o.id === orderId) || selectedOrder;
+      const isReservation = String(order?.paymentPlan || '').toLowerCase() === 'reservation';
+      const isProject = order?.type === 'project' || order?.items?.some(i => i.type === 'project');
+      const now = new Date().toISOString();
+      const patch = { 
+        status: isReservation ? 'Reserved' : 'Arrived', 
+        receipt: null,
+        balanceRequestedAt: now,
+        ...(isProject && { projectCompletedAt: now })
+      };
       await updateOrderDetails(orderId, patch);
       if (selectedOrder?.id === orderId) {
         moveOrderToTargetTab(selectedOrder, patch);
@@ -692,24 +750,23 @@ export default function Orders() {
     let extraFields = {};
 
     const isResOrPartial = order && (['reservation', 'partial'].includes(String(order.paymentPlan || '').toLowerCase()) || order.isReservation || order.isPartial);
+    const isReservationPlan = String(order?.paymentPlan || '').toLowerCase() === 'reservation';
     const { total: orderTotal } = getOrderTotals(order);
+    const currentPaid = Number(order.buyerPaid) || 0;
+    const isFirstPayment = currentPaid === 0 || (currentPaid >= orderTotal && !order.balanceReceipt);
 
     if (isSecondPaymentPending) {
       amount = Math.max(0, Number(order.minDownpayment || 0) - Number(order.originalPaymentDueNow || 0));
       extraFields = { printDownpaymentPaid: true };
     } else if (isResOrPartial) {
-      // If we are confirming the downpayment receipt (when buyerPaid is 0 or less than paymentDueNow)
-      // Note: we check if they have not yet validated the downpayment. 
-      // If buyerPaid in Firestore is already equal to or greater than the order total due to previous over-crediting, 
-      // we still want to set it back to the downpayment amount.
-      const currentPaid = Number(order.buyerPaid) || 0;
       const dpAmount = Number(order.paymentDueNow || 0);
       
-      // If the firestore doc was over-credited, or is 0, we are validating the first downpayment.
-      if (currentPaid === 0 || (currentPaid >= orderTotal && !order.balanceReceipt)) {
+      if (isFirstPayment) {
         amount = dpAmount;
+        if (isReservationPlan) {
+          extraFields = { ...extraFields, downpaymentConfirmedAt: new Date().toISOString() };
+        }
       } else {
-        // Otherwise, they already validated the downpayment (e.g. currentPaid == dpAmount), so we validate the remaining balance
         amount = calculateBalance(order);
       }
     } else {
@@ -727,7 +784,20 @@ export default function Orders() {
       if (Object.keys(extraFields).length > 0) {
         await updateOrderDetails(order.id, extraFields);
       }
-      const newStatus = order.shippingMethod?.toUpperCase().includes('LBC') ? 'To Ship' : 'Preparing';
+      
+      let newStatus;
+      const isPartialPlan = String(order.paymentPlan || '').toLowerCase() === 'partial';
+      const isPreOrder = order.isPreOrder || order.items?.some(i => i.isPreOrder);
+      const isProjectOrder = order.type === 'project' || order.items?.some(i => i.type === 'project');
+      if (isReservationPlan && isFirstPayment) {
+        // Reservation plan: pre-order → Waiting (for arrival), on-hand → Reserved (countdown starts)
+        newStatus = isPreOrder ? 'Waiting' : 'Reserved';
+      } else if (isPartialPlan && isFirstPayment && (isPreOrder || isProjectOrder)) {
+        // Partial plan pre-order/project: after downpayment → Waiting (no countdown yet)
+        newStatus = 'Waiting';
+      } else {
+        newStatus = order.shippingMethod?.toUpperCase().includes('LBC') ? 'To Ship' : 'Preparing';
+      }
       await updateOrderStatus(order.id, newStatus);
       
       const newBuyerPaid = (isResOrPartial && Number(order.buyerPaid || 0) >= orderTotal && amount === Number(order.paymentDueNow || 0))
@@ -821,6 +891,17 @@ export default function Orders() {
     if (secondPaymentPending) return 'Print Dp Required';
 
     if (flags.usesMeetupLocation && order.status === 'Ready for Pickup') return 'Ready for Meetup';
+
+    if (order.status === 'Waiting') {
+      const isPreOrder = order.isPreOrder || order.items?.some(item => item.isPreOrder);
+      if (isPreOrder) return 'Waiting for Arrival';
+    }
+
+    const isProject = order.type === 'project' || order.items?.some(item => item.type === 'project');
+    if (isProject && ['Waiting', 'Preparing'].includes(order.status) && calculateBalance(order) > 0) {
+      return 'Project in Queue';
+    }
+
     return order.status;
   };
 
@@ -872,15 +953,46 @@ export default function Orders() {
     const isLBC = (o) => o.shippingMethod?.toUpperCase().includes('LBC');
     const baseTabs = (isAdminMode ? [
       { id: 'to_validate', label: 'To Validate', filter: (o) => o.status === 'Validating' || (!isLBC(o) && calculateBalance(o) > 0 && o.status === 'Arrived') || (calculateBalance(o) > 0 && o.status === 'Reserved') },
-      { id: 'to_follow', label: 'To Follow', filter: (o) => o.status === 'Waiting' },
-      { id: 'to_ship', label: 'To Ship', filter: (o) => (isLBC(o) || calculateBalance(o) <= 0) && ['Preparing', 'Ready for Pickup', 'Ready for Meetup', 'Arrived', 'To Ship'].includes(o.status) },
+      { id: 'to_follow', label: 'In Progress', filter: (o) => {
+        if (o.status === 'Waiting') return true;
+        // Project na may balance at nasa process/queue (Preparing/Ready/etc)
+        const isProject = o.type === 'project' || o.items?.some(i => i.type === 'project');
+        if (isProject && ['Preparing', 'Ready for Pickup', 'Ready for Meetup', 'To Ship'].includes(o.status)) {
+          return calculateBalance(o) > 0;
+        }
+        return false;
+      }},
+      { id: 'to_ship', label: 'To Ship', filter: (o) => {
+        if (['Preparing', 'Ready for Pickup', 'Ready for Meetup', 'To Ship'].includes(o.status)) {
+          // Fully paid, LBC (courier collects), o partial payment plan sa kits (non-projects)
+          const isProject = o.type === 'project' || o.items?.some(i => i.type === 'project');
+          return isLBC(o) || calculateBalance(o) <= 0 || (o.paymentPlan === 'partial' && !isProject);
+        }
+        // Arrived — ipakita lang dito kung fully paid na o LBC (kung may balance pa, nasa To Validate pa)
+        if (o.status === 'Arrived') return isLBC(o) || calculateBalance(o) <= 0;
+        return false;
+      }},
       { id: 'to_receive', label: 'To Receive', filter: (o) => o.status === 'Shipped' || o.status === 'Dispatched' || o.status === 'In Transit' },
       { id: 'completed', label: 'Completed', filter: (o) => o.status === 'Completed' },
       { id: 'cancelled', label: 'Cancelled', filter: (o) => o.status === 'Cancelled' }
     ] : [
       { id: 'to_pay', label: 'To Pay', filter: (o) => o.status === 'Reserved' || o.status === 'Validating' || (!isLBC(o) && calculateBalance(o) > 0 && o.status === 'Arrived') },
-      { id: 'to_follow', label: 'To Follow', filter: (o) => o.status === 'Waiting' },
-      { id: 'to_ship', label: 'To Ship', filter: (o) => (isLBC(o) || calculateBalance(o) <= 0) && ['Preparing', 'Ready for Pickup', 'Ready for Meetup', 'Arrived', 'To Ship'].includes(o.status) },
+      { id: 'to_follow', label: 'In Progress', filter: (o) => {
+        if (o.status === 'Waiting') return true;
+        const isProject = o.type === 'project' || o.items?.some(i => i.type === 'project');
+        if (isProject && ['Preparing', 'Ready for Pickup', 'Ready for Meetup', 'To Ship'].includes(o.status)) {
+          return calculateBalance(o) > 0;
+        }
+        return false;
+      }},
+      { id: 'to_ship', label: 'To Ship', filter: (o) => {
+        if (['Preparing', 'Ready for Pickup', 'Ready for Meetup', 'To Ship'].includes(o.status)) {
+          const isProject = o.type === 'project' || o.items?.some(i => i.type === 'project');
+          return isLBC(o) || calculateBalance(o) <= 0 || (o.paymentPlan === 'partial' && !isProject);
+        }
+        if (o.status === 'Arrived') return isLBC(o) || calculateBalance(o) <= 0;
+        return false;
+      }},
       { id: 'to_receive', label: 'To Receive', filter: (o) => o.status === 'Shipped' || o.status === 'Dispatched' || o.status === 'In Transit' },
       { id: 'completed', label: 'Completed', filter: (o) => o.status === 'Completed' },
       { id: 'cancelled', label: 'Cancelled', filter: (o) => o.status === 'Cancelled' }
@@ -948,6 +1060,11 @@ export default function Orders() {
 
     const isOrderInvalid = Boolean(selectedOrder.isMaintenanceOrder);
     const isReservedTimerActive = selectedOrder.status === 'Reserved' && !selectedOrder.receipt && Boolean(selectedOrder.cancellationTimerStartedAt || isOrderInvalid);
+    const selPaymentPlan = String(selectedOrder.paymentPlan || '').toLowerCase();
+    const isReservationBalanceTimerActive = (
+      (selectedOrder.status === 'Reserved' && selPaymentPlan === 'reservation') ||
+      (selectedOrder.status === 'Arrived' && selPaymentPlan === 'partial' && selectedOrder.balanceRequestedAt)
+    ) && calculateBalance(selectedOrder) > 0 && !selectedOrder.balanceReceipt;
 
     return (
       <div className="w-full min-h-screen text-neutral-900 dark:text-white bg-white dark:bg-[#0a0a0a]">
@@ -974,6 +1091,18 @@ export default function Orders() {
                       : 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-600/20'
                   }`}>
                     {isOrderInvalid && <Flag size={13} className="fill-current" />}
+                    <span>{getDisplayStatus(selectedOrder)}</span>
+                    {timeLeft && <span className="opacity-90">({timeLeft})</span>}
+                  </div>
+                )}
+              </ReservationTimer>
+            ) : isReservationBalanceTimerActive ? (
+              <ReservationTimer
+                expiresAt={getBalancePaymentDeadline(selectedOrder, shippingSettings)}
+                onExpire={() => handleSilentCancelOrder(selectedOrder.id)}
+              >
+                {(timeLeft) => (
+                  <div className="px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest leading-none border flex items-center gap-1.5 bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-600/20 whitespace-nowrap">
                     <span>{getDisplayStatus(selectedOrder)}</span>
                     {timeLeft && <span className="opacity-90">({timeLeft})</span>}
                   </div>
@@ -1159,7 +1288,15 @@ export default function Orders() {
                         {selectedOrder.status === 'Cancelled' ? 'N/A' : selectedShippingFlags.isLalamoveSelf ? 'Pending Customer Booking' : 'Pending'}
                       </p>
                     )}
-                    {selectedShippingFlags.needsAdminShipping && <p className="text-[14px] font-bold">Shipping Fee: ₱{selectedTotals.shippingFee.toLocaleString()}</p>}
+                    {selectedShippingFlags.needsAdminShipping && (
+                      <p className="text-[14px] font-bold">
+                        Shipping Fee: {selectedTotals.shippingFee === 0 ? (
+                          <span className="text-amber-600 dark:text-amber-500 uppercase font-black">Not Included</span>
+                        ) : (
+                          `₱${selectedTotals.shippingFee.toLocaleString()}`
+                        )}
+                      </p>
+                    )}
                     {selectedOrder.claimantBalance && <p className="text-[14px] font-bold">Claimant Balance: ₱{Number(selectedOrder.claimantBalance || 0).toLocaleString()}</p>}
                   </div>
                 )}
@@ -1321,7 +1458,7 @@ export default function Orders() {
         {/* Totals & Payments side-by-side */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start mb-8 pb-8">
           {/* Left Side: Payments (QR, Receipt, Balance Receipt) */}
-          <div className="space-y-4 text-left">
+          <div className="space-y-4 text-left order-2 lg:order-1">
             <h3 className="text-[13px] font-black uppercase tracking-widest mb-2">Payment Details</h3>
             
             {selectedOrder.paymentMethod === 'Cash' && !isOrderFromMaintenance ? (
@@ -1333,6 +1470,7 @@ export default function Orders() {
                 </p>
               </div>
             ) : (
+              <>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 {/* Payment QR */}
                 {showQrContainer && (
@@ -1407,6 +1545,21 @@ export default function Orders() {
                     </div>
                   )}
 
+                  {isAdminMode && selectedOrder.paymentMethod !== 'Cash' && selectedOrder.receipt && selectedOrder.status === 'Validating' && !(selectedOrder.balanceReceipt && Number(selectedOrder.buyerPaid || 0) > 0) && (
+                    <div className="flex flex-col items-center gap-1 w-full">
+                      <button 
+                        onClick={() => { if (window.confirm('Validate this receipt?')) handleConfirmPayment(selectedOrder); }} 
+                        disabled={!hasPreviewedReceipt}
+                        className={`w-full py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-black uppercase tracking-widest shadow-md transition-all active:scale-95 flex items-center justify-center gap-1 ${!hasPreviewedReceipt ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
+                      >
+                        <CheckCircle2 size={12} /> Validate
+                      </button>
+                      {!hasPreviewedReceipt && (
+                        <p className="text-[7px] font-black text-amber-600 uppercase animate-pulse text-center">Preview first</p>
+                      )}
+                    </div>
+                  )}
+
                   {!isAdminMode && !selectedOrder.receipt && ['Reserved', 'Waiting', 'Arrived', 'Validating'].includes(selectedOrder.status) && (
                     <label className="w-full cursor-pointer">
                       <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileSelect(e, false)} disabled={isUploading} />
@@ -1438,7 +1591,7 @@ export default function Orders() {
                         onClick={() => {
                           setActivePreviewUrl(balancePreviewUrl || selectedOrder.balanceReceipt);
                           setIsPreviewExpanded(true);
-                          setHasPreviewedReceipt(true);
+                          setHasPreviewedBalanceReceipt(true);
                         }}
                       >
                         <img src={balancePreviewUrl || selectedOrder.balanceReceipt} className="w-full h-full object-cover" alt="Balance Receipt" />
@@ -1457,6 +1610,21 @@ export default function Orders() {
                       <div className="flex items-center gap-1 text-[12px] font-black uppercase text-emerald-600 tracking-wider">
                         <CheckCircle2 size={12} className="text-emerald-500 animate-in zoom-in duration-300" />
                         Validated
+                      </div>
+                    )}
+
+                    {isAdminMode && selectedOrder.paymentMethod !== 'Cash' && selectedOrder.balanceReceipt && selectedOrder.status === 'Validating' && Number(selectedOrder.buyerPaid || 0) > 0 && (
+                      <div className="flex flex-col items-center gap-1 w-full">
+                        <button 
+                          onClick={() => { if (window.confirm('Validate this balance receipt?')) handleConfirmPayment(selectedOrder); }}
+                          disabled={!hasPreviewedBalanceReceipt}
+                          className={`w-full py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-black uppercase tracking-widest shadow-md transition-all active:scale-95 flex items-center justify-center gap-1 ${!hasPreviewedBalanceReceipt ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
+                        >
+                          <CheckCircle2 size={12} /> Validate
+                        </button>
+                        {!hasPreviewedBalanceReceipt && (
+                          <p className="text-[7px] font-black text-amber-600 uppercase animate-pulse text-center">Preview first</p>
+                        )}
                       </div>
                     )}
 
@@ -1481,11 +1649,21 @@ export default function Orders() {
                   </div>
                 )}
               </div>
+
+              {(canAdminCancel || canCustomerCancel) && (
+                <button 
+                  onClick={() => handleCancelOrder(selectedOrder.id)}
+                  className="w-full py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all mt-2"
+                >
+                  Cancel Order
+                </button>
+              )}
+              </>
             )}
           </div>
 
           {/* Right Side: Totals */}
-          <div className="space-y-3 bg-black/[0.01] dark:bg-white/[0.01] p-6 rounded-3xl border border-black/5 dark:border-white/5 text-left">
+          <div className="space-y-3 bg-black/[0.01] dark:bg-white/[0.01] p-6 rounded-3xl border border-black/5 dark:border-white/5 text-left order-1 lg:order-2">
             <h3 className="text-[13px] font-black uppercase tracking-widest mb-2">Order Totals</h3>
             
             {/* First row: Items Total */}
@@ -1503,7 +1681,13 @@ export default function Orders() {
             {/* Second row: Shipping Fee */}
             <div className="flex justify-between items-center text-[14px] font-bold">
               <span>Shipping Fee</span>
-              <span>₱{selectedTotals.shippingFee.toLocaleString()}</span>
+              <span>
+                {selectedShippingFlags.needsAdminShipping && selectedTotals.shippingFee === 0 ? (
+                  <span className="text-amber-600 dark:text-amber-500 uppercase font-black">Not Included</span>
+                ) : (
+                  `₱${selectedTotals.shippingFee.toLocaleString()}`
+                )}
+              </span>
             </div>
 
             {/* Third row: Total */}
@@ -1561,20 +1745,6 @@ export default function Orders() {
             </button>
           )}
 
-          {isAdminMode && selectedOrder.paymentMethod !== 'Cash' && (selectedOrder.receipt || selectedOrder.balanceReceipt) && selectedOrder.status === 'Validating' && (
-            <div className="flex flex-col items-end gap-1">
-              <button 
-                onClick={() => handleConfirmPayment(selectedOrder)} 
-                disabled={!hasPreviewedReceipt}
-                className={`px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg transition-all active:scale-95 flex items-center gap-1.5 ${!hasPreviewedReceipt ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
-              >
-                <CheckCircle2 size={14} /> Validate Receipt
-              </button>
-              {!hasPreviewedReceipt && (
-                <p className="text-[8px] font-black text-amber-600 uppercase animate-pulse">Preview receipt first to validate</p>
-              )}
-            </div>
-          )}
 
           {isAdminMode && (selectedShippingFlags.usesPickupPoint || selectedShippingFlags.usesMeetupLocation) && ['Preparing', 'To Ship'].includes(selectedOrder.status) && (
             <button 
@@ -1646,14 +1816,6 @@ export default function Orders() {
             </button>
           )}
 
-          {(canAdminCancel || canCustomerCancel) && (
-            <button 
-              onClick={() => handleCancelOrder(selectedOrder.id)}
-              className="px-5 py-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
-            >
-              Cancel Order
-            </button>
-          )}
 
           {isAdminMode && selectedOrder.status === 'Cancelled' && (
             <button 
@@ -1700,7 +1862,7 @@ export default function Orders() {
               {visibleOrders.length === 0 && (
                 <div className="text-center py-20 opacity-40">
                   <ClipboardList size={56} className="mx-auto mb-4" />
-                  <p className="font-black uppercase tracking-widest text-sm">No orders here</p>
+                  <p className="font-black uppercase tracking-widest text-sm">Ready for your next build?</p>
                 </div>
               )}
               {visibleOrders.map(o => {
@@ -1747,6 +1909,18 @@ export default function Orders() {
                           : 'bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-600/20'
                       }`}>
                         {isCardInvalid && <Flag size={12} className="fill-current" />}
+                        <span>{getDisplayStatus(o)}</span>
+                        {timeLeft && <span className="opacity-90">({timeLeft})</span>}
+                      </span>
+                    )}
+                  </ReservationTimer>
+                ) : ((o.status === 'Reserved' && String(o.paymentPlan || '').toLowerCase() === 'reservation' && calculateBalance(o) > 0 && !o.balanceReceipt) || (o.status === 'Arrived' && String(o.paymentPlan || '').toLowerCase() === 'partial' && o.balanceRequestedAt && calculateBalance(o) > 0 && !o.balanceReceipt)) ? (
+                  <ReservationTimer
+                    expiresAt={getBalancePaymentDeadline(o, shippingSettings)}
+                    onExpire={() => handleSilentCancelOrder(o.id)}
+                  >
+                    {(timeLeft) => (
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-black px-3 py-1 rounded-full uppercase tracking-widest leading-none border whitespace-nowrap bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-600/20">
                         <span>{getDisplayStatus(o)}</span>
                         {timeLeft && <span className="opacity-90">({timeLeft})</span>}
                       </span>
@@ -1812,6 +1986,8 @@ export default function Orders() {
                         toggleOrderSelection(e, o.id);
                       } else {
                         setSelectedOrder(o);
+                        setHasPreviewedReceipt(false);
+                        setHasPreviewedBalanceReceipt(false);
                       }
                     }}
                     className={`p-3 rounded-2xl border-2 cursor-pointer flex flex-col gap-3 transition-all duration-200 ${

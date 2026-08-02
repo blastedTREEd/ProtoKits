@@ -1,9 +1,15 @@
 import React from 'react';
 import PageTemplate from './PageTemplate';
 import { useTheme } from '../context/ThemeContext';
+import { useStore } from '../store/useStore';
 
 export default function PaymentRefund() {
   const { isDarkMode } = useTheme();
+  const shippingSettings = useStore((state) => state.shippingSettings);
+  const paymentSettings = shippingSettings?.paymentSettings || {};
+  const preOrderSettleDays = Number(paymentSettings.preOrderSettleDays ?? 10);
+  const reservationSettleDays = Number(paymentSettings.reservationSettleDays ?? 10);
+  const projectSettleDays = Number(paymentSettings.projectSettleDays ?? 10);
 
   return (
     <PageTemplate isDarkMode={isDarkMode}>
@@ -100,15 +106,15 @@ export default function PaymentRefund() {
               }`}>
                 <tr>
                   <td className={`p-3 font-medium ${isDarkMode ? 'text-white' : 'text-neutral-900'}`}>Reservations (On-hand)</td>
-                  <td className="p-3">Within <strong className={isDarkMode ? 'text-white' : 'text-neutral-900'}>10 calendar days</strong> from reservation date.</td>
+                  <td className="p-3">Within <strong className={isDarkMode ? 'text-white' : 'text-neutral-900'}>{reservationSettleDays} calendar days</strong> from reservation date.</td>
                 </tr>
                 <tr>
                   <td className={`p-3 font-medium ${isDarkMode ? 'text-white' : 'text-neutral-900'}`}>Reservations (Pre-order)</td>
-                  <td className="p-3">Within <strong className={isDarkMode ? 'text-white' : 'text-neutral-900'}>10 calendar days</strong> from item&apos;s arrival.</td>
+                  <td className="p-3">Within <strong className={isDarkMode ? 'text-white' : 'text-neutral-900'}>{preOrderSettleDays} calendar days</strong> from item&apos;s arrival.</td>
                 </tr>
                 <tr>
                   <td className={`p-3 font-medium ${isDarkMode ? 'text-white' : 'text-neutral-900'}`}>Custom Projects</td>
-                  <td className="p-3">Within <strong className={isDarkMode ? 'text-white' : 'text-neutral-900'}>10 calendar days</strong> from project completion.</td>
+                  <td className="p-3">Within <strong className={isDarkMode ? 'text-white' : 'text-neutral-900'}>{projectSettleDays} calendar days</strong> from project completion.</td>
                 </tr>
                 <tr>
                   <td className={`p-3 font-medium ${isDarkMode ? 'text-white' : 'text-neutral-900'}`}>Partial Payment (COD/COP)</td>
