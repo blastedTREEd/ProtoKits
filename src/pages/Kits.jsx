@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Package, Gift, Plus, Trash2, Box, Sparkles, Clock, Pencil, Search, Loader2, X, Wallet, AlertCircle, TrendingUp, Filter, Zap, ArrowUpWideNarrow, ArrowDownWideNarrow, SortAsc, SortDesc, ListOrdered, ChevronDown, Image as ImageIcon, Settings } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
@@ -133,6 +133,7 @@ export default function Kits() {
   const [showSearchBar, setShowSearchBar] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
   const navigate = useNavigate();
+  const { kitId: routeKitId } = useParams();
 
   const openCheckoutPage = (items, isGuestPreview = !user) => {
     navigate('/checkout', { state: { items, isGuestPreview } });
@@ -385,6 +386,12 @@ export default function Kits() {
   const visibleKits = useMemo(() => {
     return allFilteredKits.slice(0, displayLimit);
   }, [allFilteredKits, displayLimit]);
+
+  const visibleKitsWithRouteSelection = useMemo(() => {
+    if (!routeKitId || visibleKits.some(kit => kit.id === routeKitId)) return visibleKits;
+    const routeKit = (storeKits || []).find(kit => kit.id === routeKitId);
+    return routeKit ? [routeKit, ...visibleKits] : visibleKits;
+  }, [routeKitId, storeKits, visibleKits]);
 
   // Infinite Scroll Observer (Client-side pagination)
   useEffect(() => {
@@ -756,7 +763,7 @@ export default function Kits() {
                 );
               })}
 
-               {visibleKits.map((kit) => {
+               {visibleKitsWithRouteSelection.map((kit) => {
                 const isUpdating = kitToEdit?.id === kit.id;
                 return (
                   <div key={kit.id} className={`w-full h-full transition-opacity duration-500 ${isUpdating ? 'opacity-30' : 'opacity-100'}`}>
@@ -767,6 +774,7 @@ export default function Kits() {
                         kit={kit} 
                         onBuyNowClick={handleBuyNowFromCard} 
                         onEdit={handleEditKit}
+                        routeKitId={routeKitId}
                       />
                     )}
                   </div>

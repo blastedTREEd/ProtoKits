@@ -1,6 +1,6 @@
 /* eslint-disable react-hooks/preserve-manual-memoization */
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { 
   ShoppingBag, ShoppingBasket, X, Clock, Package, ShelvingUnit, PackageMinus, PackagePlus, PackageX, Calendar, UserCheck, Info,
   ChevronRight, ChevronLeft, Truck, Pencil, Trash2, Bell, Plane, Plus, ArrowBigUpDash, Bike, Gift, Zap
@@ -240,8 +240,9 @@ const GRADIENT_COLORS = {
 
 const getShadowColor = (gradientClass) => GRADIENT_COLORS[gradientClass] || 'rgba(8,102,255,0.2)';
 
-export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
+export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, routeKitId }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { isDarkMode, isSpectralMode } = useTheme();
   const spectralGradient = useMemo(() => getSpectralGradient(kit?.id), [kit?.id]);
   const shadowColor = useMemo(() => getShadowColor(spectralGradient), [spectralGradient]);
@@ -328,8 +329,12 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
     setDealForDetails(deal);
     setIsDealDetailsOpen(true);
     setIsProfileOpen(false);
-    if (window.history.state?.modal === 'product') {
-      window.history.replaceState({}, '');
+    if (window.location.pathname === productPath) {
+      if (window.history.state?.modal === 'product') {
+        window.history.replaceState({}, '', '/kits');
+        return;
+      }
+      navigate('/kits', { replace: true });
     }
   };
   
@@ -398,6 +403,8 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
   }, [isAdmin, isAdminView, now]);
 
   const kitId = kit?.id;
+  const productPath = kitId ? `/kits/${encodeURIComponent(kitId)}` : '/kits';
+  const isRouteSelectedProduct = !!kitId && routeKitId === kitId;
 
   const publicReleasableStocks = useMemo(() => {
     return stockList.filter(s => {
@@ -688,62 +695,39 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
     return { cost, sell, profit: sell - cost };
   }, [stockList, isAdminView, selectedStock, kit]);
 
-  const handleSelectGroup = (group) => {
+  const handleSelectGroup = useCallback((group) => {
     setSelectedGroupLabel(group.key || group.label);
     setSelectedStock(group.items[0]);
     setTargetPrice("");
-  };
-
-  useEffect(() => {
-    if (isModalOpen) {
-      document.body.style.overflow = 'hidden';
-      document.body.style.height = '100vh';
-    } else {
-      document.body.style.overflow = '';
-      document.body.style.height = '';
-    }
-    return () => {
-      document.body.style.overflow = '';
-      document.body.style.height = '';
-    };
-  }, [isModalOpen]);
-
-  const closeProductModal = useCallback(() => {
-    if (window.history.state?.modal === 'product') {
-      window.history.back();
-    } else {
-      setIsProfileOpen(false);
-      setSelectedStock(null);
-      setSelectedGroupLabel(null);
-    }
   }, []);
 
   useEffect(() => {
-    const handlePopState = () => {
-      if (isModalOpen) {
-        setIsProfileOpen(false);
-        setSelectedStock(null);
-        setSelectedGroupLabel(null);
-      }
+    if (!isModalOpen) return undefined;
+
+    const scrollY = window.scrollY;
+    const previousStyles = {
+      overflow: document.body.style.overflow,
+      position: document.body.style.position,
+      top: document.body.style.top,
+      width: document.body.style.width,
+      height: document.body.style.height
     };
 
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape' && isModalOpen) {
-        closeProductModal();
-      }
-    };
+    document.body.style.overflow = 'hidden';
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.width = '100%';
+    document.body.style.height = '100vh';
 
-    if (isModalOpen) {
-      window.history.pushState({ modal: 'product' }, '');
-      window.addEventListener('popstate', handlePopState);
-      window.addEventListener('keydown', handleKeyDown);
-    }
-    
     return () => {
-      window.removeEventListener('popstate', handlePopState);
-      window.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = previousStyles.overflow;
+      document.body.style.position = previousStyles.position;
+      document.body.style.top = previousStyles.top;
+      document.body.style.width = previousStyles.width;
+      document.body.style.height = previousStyles.height;
+      window.scrollTo(0, scrollY);
     };
-  }, [closeProductModal, isModalOpen]);
+  }, [isModalOpen]);
 
   const galleryImages = useMemo(() => {
     // Resolve master grid image (may be an ID or legacy base64 URL)
@@ -770,6 +754,75 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
   const touchStartX = React.useRef(0);
   const lastManualActionTime = React.useRef(null);
   const thumbnailsContainerRef = React.useRef(null);
+
+  const resetProductModalState = useCallback(() => {
+    setIsProfileOpen(false);
+    setSelectedStock(null);
+    setSelectedGroupLabel(null);
+  }, []);
+
+  const openProductModalView = useCallback(() => {
+    setToastMessage(null);
+    setGalleryIndex(0);
+    lastManualActionTime.current = Date.now();
+    if (selectableAvailabilityGroups.length > 0) {
+        handleSelectGroup(selectableAvailabilityGroups[0]);
+    }
+    setIsProfileOpen(true);
+  }, [handleSelectGroup, selectableAvailabilityGroups, setToastMessage]);
+
+  const closeProductModal = useCallback(() => {
+    if (window.location.pathname === productPath) {
+      if (window.history.state?.modal === 'product') {
+        resetProductModalState();
+        window.history.back();
+      } else {
+        resetProductModalState();
+        navigate('/kits', { replace: true });
+      }
+      return;
+    }
+    resetProductModalState();
+  }, [navigate, productPath, resetProductModalState]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      if (isModalOpen && window.location.pathname !== productPath) {
+        resetProductModalState();
+      }
+    };
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && isModalOpen) {
+        closeProductModal();
+      }
+    };
+
+    if (isModalOpen) {
+      window.addEventListener('popstate', handlePopState);
+      window.addEventListener('keydown', handleKeyDown);
+    }
+    
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [closeProductModal, isModalOpen, productPath, resetProductModalState]);
+
+  useEffect(() => {
+    if (isRouteSelectedProduct) {
+      if (!isModalOpen) {
+        const timer = window.setTimeout(openProductModalView, 0);
+        return () => window.clearTimeout(timer);
+      }
+      return undefined;
+    }
+    if (isModalOpen && location.pathname.startsWith('/kits') && window.location.pathname !== productPath) {
+      const timer = window.setTimeout(resetProductModalState, 0);
+      return () => window.clearTimeout(timer);
+    }
+    return undefined;
+  }, [isRouteSelectedProduct, isModalOpen, location.pathname, openProductModalView, productPath, resetProductModalState]);
 
   useEffect(() => {
     if (thumbnailsContainerRef.current) {
@@ -824,13 +877,10 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
         onClick();
         return;
     }
-    setToastMessage(null);
-    setGalleryIndex(0);
-    lastManualActionTime.current = Date.now();
-    if (selectableAvailabilityGroups.length > 0) {
-        handleSelectGroup(selectableAvailabilityGroups[0]);
+    if (kitId && window.location.pathname !== productPath) {
+        window.history.pushState({ modal: 'product' }, '', productPath);
     }
-    setIsProfileOpen(true);
+    openProductModalView();
   };
 
   const getBuyLabel = useCallback(() => {
@@ -1257,7 +1307,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
       </div>
 
       {isModalOpen && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-0 lg:p-12 bg-white dark:bg-[#0a0a0a] lg:bg-white/30 lg:dark:bg-black/30 animate-in fade-in duration-200 overflow-hidden touch-action-none">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-0 lg:p-12 bg-white/55 dark:bg-black/55 backdrop-blur-md animate-in fade-in duration-200 overflow-hidden overscroll-none touch-action-none">
           <div className={`relative w-full h-full lg:h-[70vh] lg:max-w-7xl flex flex-col lg:rounded-[2.5rem] lg:border lg:shadow-2xl overflow-hidden overscroll-none ${isDarkMode ? 'bg-[var(--color-bg)] border-white/10 text-white' : 'bg-white border-black/5 text-neutral-900'}`}>
             <div className="h-full max-h-full flex flex-col portrait:flex-col landscape:sm:flex-row items-stretch overflow-hidden">
               <div className="sticky top-0 z-[220] w-full h-0 overflow-visible sm:hidden">
@@ -1335,7 +1385,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick }) {
                             </div>
                           </div>
                       )}
-                      <h2 className="text-[16px] sm:text-4xl md:text-2xl lg:text-4xl font-black italic uppercase tracking-tighter leading-[0.9]">{kit.name}</h2>
+                      <h2 className="pr-14 sm:pr-16 lg:pr-20 text-[16px] sm:text-4xl md:text-2xl lg:text-4xl font-black italic uppercase tracking-tighter leading-[0.9] break-words">{kit.name}</h2>
                       <div className="flex flex-wrap items-center gap-2 text-[14px]  font-black uppercase tracking-[0.2em] opacity-90">
                         {metaTags.map((tag, index) => (
                           <React.Fragment key={`${tag}-${index}`}>
