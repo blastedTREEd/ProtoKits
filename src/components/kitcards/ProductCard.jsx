@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { 
   ShoppingBag, ShoppingBasket, X, Clock, Package, ShelvingUnit, PackageMinus, PackagePlus, PackageX, Calendar, UserCheck, Info,
-  ChevronRight, ChevronLeft, Truck, Pencil, Trash2, Bell, Plane, Plus, ArrowBigUpDash, Bike, Gift, Zap
+  ChevronRight, ChevronLeft, Truck, Pencil, Trash2, Bell, Plane, Plus, ArrowBigUpDash, Bike, Gift, Zap, Forward
   } from 'lucide-react';
 import { FaQuestion } from 'react-icons/fa';
 import { useStore } from '../../store/useStore';
@@ -754,6 +754,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, route
   const touchStartX = React.useRef(0);
   const lastManualActionTime = React.useRef(null);
   const thumbnailsContainerRef = React.useRef(null);
+  const modalHistoryOwnerRef = React.useRef(false);
 
   const resetProductModalState = useCallback(() => {
     setIsProfileOpen(false);
@@ -773,21 +774,42 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, route
 
   const closeProductModal = useCallback(() => {
     if (window.location.pathname === productPath) {
-      if (window.history.state?.modal === 'product') {
+      if (window.history.state?.modal === 'product' && window.history.state?.kitId === kitId) {
         resetProductModalState();
+        modalHistoryOwnerRef.current = false;
         window.history.back();
       } else {
         resetProductModalState();
+        modalHistoryOwnerRef.current = false;
         navigate('/kits', { replace: true });
       }
       return;
     }
     resetProductModalState();
-  }, [navigate, productPath, resetProductModalState]);
+    modalHistoryOwnerRef.current = false;
+  }, [kitId, navigate, productPath, resetProductModalState]);
+
+  const handleShareProduct = useCallback(async (event) => {
+    event.stopPropagation();
+    const url = `${window.location.origin}${productPath}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setToastMessage('Product link copied to clipboard.');
+    } catch {
+      const input = document.createElement('input');
+      input.value = url;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
+      setToastMessage('Product link copied to clipboard.');
+    }
+  }, [productPath, setToastMessage]);
 
   useEffect(() => {
     const handlePopState = () => {
       if (isModalOpen && window.location.pathname !== productPath) {
+        modalHistoryOwnerRef.current = false;
         resetProductModalState();
       }
     };
@@ -817,7 +839,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, route
       }
       return undefined;
     }
-    if (isModalOpen && location.pathname.startsWith('/kits') && window.location.pathname !== productPath) {
+    if (isModalOpen && window.location.pathname.startsWith('/kits') && window.location.pathname !== productPath) {
       const timer = window.setTimeout(resetProductModalState, 0);
       return () => window.clearTimeout(timer);
     }
@@ -878,7 +900,8 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, route
         return;
     }
     if (kitId && window.location.pathname !== productPath) {
-        window.history.pushState({ modal: 'product' }, '', productPath);
+        window.history.pushState({ modal: 'product', kitId }, '', productPath);
+        modalHistoryOwnerRef.current = true;
     }
     openProductModalView();
   };
@@ -1021,7 +1044,9 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, route
 
     if (onBuyNowClick) {
       onBuyNowClick({ kit, stock: finalStock, displayPrice });
-      closeProductModal();
+      if (window.location.pathname !== productPath) {
+        closeProductModal();
+      }
     } else {
       if (!user) {
         setPendingBasketItem({
@@ -1307,15 +1332,17 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, route
       </div>
 
       {isModalOpen && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-0 lg:p-12 bg-white/55 dark:bg-black/55 backdrop-blur-md animate-in fade-in duration-200 overflow-hidden overscroll-none touch-action-none">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-0 lg:p-12 bg-white/40 dark:bg-black/45 backdrop-blur-sm animate-in fade-in duration-200 overflow-hidden overscroll-none touch-action-none">
           <div className={`relative w-full h-full lg:h-[70vh] lg:max-w-7xl flex flex-col lg:rounded-[2.5rem] lg:border lg:shadow-2xl overflow-hidden overscroll-none ${isDarkMode ? 'bg-[var(--color-bg)] border-white/10 text-white' : 'bg-white border-black/5 text-neutral-900'}`}>
             <div className="h-full max-h-full flex flex-col portrait:flex-col landscape:sm:flex-row items-stretch overflow-hidden">
               <div className="sticky top-0 z-[220] w-full h-0 overflow-visible sm:hidden">
-                <div className="absolute top-4 right-4 flex justify-end items-center">
+                <div className="absolute top-4 right-4 flex justify-end items-center gap-2">
+                    <button onClick={handleShareProduct} className={`p-2 rounded-full backdrop-blur-md border transition-all shadow-lg bg-black/20 text-white border-white/10 hover:bg-black/40`} title="Copy product link" aria-label="Copy product link"><Forward size={20} /></button>
                     <button onClick={closeProductModal} className={`p-2 rounded-full backdrop-blur-md border transition-all shadow-lg bg-black/20 text-white border-white/10 hover:bg-black/40`}><X size={20} /></button>
                 </div>
               </div>
-              <div className="hidden sm:block absolute top-4 right-4 z-[210]">
+              <div className="hidden sm:flex absolute top-4 right-4 z-[210] gap-2">
+                <button onClick={handleShareProduct} className={`p-2 rounded-full backdrop-blur-md border transition-all shadow-lg bg-black/20 text-white border-white/10 hover:bg-black/40`} title="Copy product link" aria-label="Copy product link"><Forward size={20} /></button>
                 <button onClick={closeProductModal} className={`p-2 rounded-full backdrop-blur-md border transition-all shadow-lg bg-black/20 text-white border-white/10 hover:bg-black/40`}><X size={20} /></button>
               </div>
             

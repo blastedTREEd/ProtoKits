@@ -110,13 +110,14 @@ export default function PaymentSettingsModal({ isOpen, onClose }) {
     }));
   };
 
-  // I-delete ang payment method kasama ang lahat ng related keys (QR, TransferDiscount)
+  // I-delete ang payment method kasama ang lahat ng related keys (QR, TransferDiscount, DiscountAmount)
   const deleteMethod = (method) => {
     setPaymentSettings(prev => {
       const updatedMethods = { ...prev.methods };
       delete updatedMethods[method];
       delete updatedMethods[`${method}Qr`];
       delete updatedMethods[`${method}TransferDiscount`];
+      delete updatedMethods[`${method}DiscountAmount`];
       return { ...prev, methods: updatedMethods };
     });
     setDeletedMethods(prev => [...prev, method]);
@@ -152,12 +153,13 @@ export default function PaymentSettingsModal({ isOpen, onClose }) {
       };
 
       // I-purge ang deleted methods mula sa normalizedPaymentSettings bago i-save
-      // (kasama ang kanilang QR at TransferDiscount keys)
+      // (kasama ang kanilang QR, TransferDiscount, at DiscountAmount keys)
       if (deletedMethods.length > 0) {
         deletedMethods.forEach(method => {
           delete normalizedPaymentSettings.methods[method];
           delete normalizedPaymentSettings.methods[`${method}Qr`];
           delete normalizedPaymentSettings.methods[`${method}TransferDiscount`];
+          delete normalizedPaymentSettings.methods[`${method}DiscountAmount`];
         });
       }
 

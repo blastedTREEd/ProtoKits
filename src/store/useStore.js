@@ -1196,6 +1196,7 @@ export const useStore = create(
           deletions[`paymentSettings.methods.${method}`] = deleteField();
           deletions[`paymentSettings.methods.${method}Qr`] = deleteField();
           deletions[`paymentSettings.methods.${method}TransferDiscount`] = deleteField();
+          deletions[`paymentSettings.methods.${method}DiscountAmount`] = deleteField();
         });
         console.log('SG DEBUG: Deleting payment method keys from Firestore:', Object.keys(deletions));
         await updateDoc(docRef, deletions);

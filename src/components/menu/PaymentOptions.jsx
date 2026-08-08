@@ -18,7 +18,8 @@ export default function PaymentOptions({
       const normalizedKey = key.toLowerCase();
       return !normalizedKey.endsWith('qr') && 
              !normalizedKey.endsWith('fee') && 
-             !normalizedKey.endsWith('transferdiscount');
+             !normalizedKey.endsWith('transferdiscount') &&
+             !normalizedKey.endsWith('discountamount');
     })
   ]));
 
@@ -210,6 +211,7 @@ export default function PaymentOptions({
             {cat.options.map(opt => {
               const isActive = paymentSettings?.[cat.id]?.[opt] !== false;
               const hasTransferDiscount = paymentSettings?.[cat.id]?.[`${opt}TransferDiscount`] === true;
+              const discountAmount = paymentSettings?.[cat.id]?.[`${opt}DiscountAmount`] ?? 0;
               
               return (
                 <div key={opt} className="bg-black/5 dark:bg-white/5 rounded-2xl border border-transparent overflow-hidden">
@@ -258,7 +260,32 @@ export default function PaymentOptions({
                   </div>
 
                   {cat.id === 'methods' && isActive && opt !== 'cash' && (
-                    <div className="px-4 pb-4 animate-in slide-in-from-top-2 duration-300">
+                    <div className="px-4 pb-4 animate-in slide-in-from-top-2 duration-300 space-y-3">
+                      <div className="rounded-xl bg-white/60 dark:bg-black/20 p-3">
+                        <label className="mb-2 block text-[8px] font-black uppercase tracking-widest opacity-40">
+                          Payment Discount Amount
+                        </label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black opacity-40">₱</span>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            value={discountAmount}
+                            onFocus={() => {
+                              if (Number(discountAmount || 0) === 0) updatePaymentData('methods', `${opt}DiscountAmount`, '');
+                            }}
+                            onChange={(e) => {
+                              const val = e.target.value.replace(/\D/g, '');
+                              updatePaymentData('methods', `${opt}DiscountAmount`, val === '' ? '' : Number(val));
+                            }}
+                            onBlur={() => {
+                              if (paymentSettings?.methods?.[`${opt}DiscountAmount`] === '') updatePaymentData('methods', `${opt}DiscountAmount`, 0);
+                            }}
+                            className="w-full rounded-xl bg-white/80 py-3 pl-7 pr-4 text-xs font-black outline-none focus:ring-2 focus:ring-garage-blue/30 dark:bg-black/30"
+                          />
+                        </div>
+                      </div>
                       {paymentSettings?.methods?.[`${opt}Qr`] ? (
                         <div className="relative w-full h-32 rounded-xl overflow-hidden border border-white/10 bg-white">
                           <img src={paymentSettings.methods[`${opt}Qr`]} alt={`${opt} QR`} className="w-full h-full object-contain" />

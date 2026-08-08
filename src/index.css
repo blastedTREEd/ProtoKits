@@ -140,3 +140,36 @@
     flex-direction: row;
   }
 }
+
+.leaflet-control-zoom {
+  border: 0 !important;
+  border-radius: 0.875rem !important;
+  overflow: hidden;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.18) !important;
+}
+
+.leaflet-control-zoom a {
+  width: 2.5rem !important;
+  height: 2.5rem !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  background: rgba(255, 255, 255, 0.96) !important;
+  color: #2563eb !important;
+  font-size: 1.15rem !important;
+  font-weight: 900 !important;
+  line-height: 1 !important;
+  transition: transform 160ms ease, background 160ms ease, color 160ms ease;
+}
+
+.leaflet-control-zoom a:hover {
+  background: #2563eb !important;
+  color: #fff !important;
+  transform: scale(1.04);
+}
+
+.dark .leaflet-control-zoom a {
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  background: rgba(10, 10, 10, 0.96) !important;
+}

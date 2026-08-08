@@ -229,7 +229,7 @@ const getSuboptionLabel = (shippingMethods, method, subKey) => {
 
 const getPaymentMethodConfig = (methods = {}, method = '') => {
   const raw = String(method || '').trim();
-  if (!raw) return { active: false, transferDiscount: false, qr: null };
+  if (!raw) return { active: false, transferDiscount: false, discountAmount: 0, qr: null };
 
   const compact = raw.replace(/\s+/g, '');
   const lower = raw.toLowerCase();
@@ -244,6 +244,11 @@ const getPaymentMethodConfig = (methods = {}, method = '') => {
     key.toLowerCase() === `${lower}transferdiscount` ||
     key.toLowerCase() === `${compactLower}transferdiscount`
   );
+  const discountAmountKey = Object.keys(methods || {}).find(key =>
+    key.toLowerCase() === `${methodKey.toLowerCase()}discountamount` ||
+    key.toLowerCase() === `${lower}discountamount` ||
+    key.toLowerCase() === `${compactLower}discountamount`
+  );
   const qrKey = Object.keys(methods || {}).find(key =>
     key.toLowerCase() === `${methodKey.replace(/\s+/g, '').toLowerCase()}qr` ||
     key.toLowerCase() === `${compactLower}qr`
@@ -253,6 +258,7 @@ const getPaymentMethodConfig = (methods = {}, method = '') => {
     key: methodKey,
     active: isMethodEnabled(methods?.[methodKey]),
     transferDiscount: transferDiscountKey ? methods[transferDiscountKey] === true : false,
+    discountAmount: Math.max(0, Number(discountAmountKey ? methods[discountAmountKey] : 0) || 0),
     qr: qrKey ? methods[qrKey] : null
   };
 };
@@ -946,7 +952,15 @@ const baseTotal = useMemo(() => {
     return methodConfig.transferDiscount ? totalAppliedTransferFee : 0;
   }, [checkoutData.shippingMethod, checkoutData.paymentMethod, totalAppliedTransferFee, storeAdmin]);
 
+  const fixedPaymentMethodDiscount = useMemo(() => {
+    if (!checkoutData.paymentMethod) return 0;
+    const methodConfig = getPaymentMethodConfig(storeAdmin?.paymentSettings?.methods, checkoutData.paymentMethod);
+    return Math.max(0, Number(methodConfig.discountAmount || 0));
+  }, [checkoutData.paymentMethod, storeAdmin?.paymentSettings?.methods]);
 
+  const paymentMethodDiscount = useMemo(() => {
+    return Math.max(transferFeeDiscount, fixedPaymentMethodDiscount);
+  }, [fixedPaymentMethodDiscount, transferFeeDiscount]);
 
   const handlingFeeDiscount = useMemo(() => {
     if (!checkoutData.shippingMethod) return 0;
@@ -963,8 +977,8 @@ const baseTotal = useMemo(() => {
   }, [checkoutData.paymentPlan, totalAppliedInstallmentFee]);
 
   const garageDiscount = useMemo(() => {
-    return handlingFeeDiscount + installmentFeeDiscount + transferFeeDiscount;
-  }, [handlingFeeDiscount, installmentFeeDiscount, transferFeeDiscount]);
+    return handlingFeeDiscount + installmentFeeDiscount + paymentMethodDiscount;
+  }, [handlingFeeDiscount, installmentFeeDiscount, paymentMethodDiscount]);
 
   const totalToSettle = useMemo(() => {
     const result = (baseTotal || 0) - garageDiscount;
@@ -1935,7 +1949,9 @@ const handleFinalizeOrder = async () => {
         discountBreakdown: {
           handlingFee: handlingFeeDiscount || 0,
           installmentFee: installmentFeeDiscount || 0,
-          transferFee: transferFeeDiscount || 0
+          transferFee: transferFeeDiscount || 0,
+          paymentMethod: paymentMethodDiscount || 0,
+          fixedPaymentMethod: fixedPaymentMethodDiscount || 0
         },
         date: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
         createdAt: createdTime,
@@ -2052,6 +2068,7 @@ const handleFinalizeOrder = async () => {
         return !normalizedKey.endsWith('qr') &&
           !normalizedKey.endsWith('fee') &&
           !normalizedKey.endsWith('transferdiscount') &&
+          !normalizedKey.endsWith('discountamount') &&
           normalizedKey !== 'cash';
       }),
       'cash'
@@ -2688,11 +2705,15 @@ const handleFinalizeOrder = async () => {
                   <div className="grid grid-cols-2 gap-2">
                     {availablePaymentMethods.map(method => {
                       const methodConfig = getPaymentMethodConfig(storeAdmin?.paymentSettings?.methods, method);
-                      const hasDiscount = methodConfig.transferDiscount && totalAppliedTransferFee > 0;
+                      const methodDiscount = Math.max(
+                        methodConfig.transferDiscount ? totalAppliedTransferFee : 0,
+                        Number(methodConfig.discountAmount || 0)
+                      );
+                      const hasDiscount = methodDiscount > 0;
                       const isSelected = checkoutData.paymentMethod?.toLowerCase() === method.toLowerCase();
                       return (
                         <button key={method} onClick={() => updateCheckoutData(prev => ({ ...prev, paymentMethod: method }))} className={`rounded-xl border px-3 py-3 text-[13px] font-black uppercase ${isSelected ? 'border-white bg-white text-blue-600' : 'border-white/80 text-white'}`}>
-                          {method}{hasDiscount ? ` ₱${totalAppliedTransferFee} OFF` : ''}
+                          {method}{hasDiscount ? ` ₱${methodDiscount.toLocaleString()} OFF` : ''}
                         </button>
                       );
                     })}
@@ -3562,7 +3583,11 @@ const handleFinalizeOrder = async () => {
                               ang cash restriction, pre-order check, at active/disabled check. */}
                           {availablePaymentMethods.map(method => {
                             const methodConfig = getPaymentMethodConfig(storeAdmin?.paymentSettings?.methods, method);
-                            const hasDiscount = methodConfig.transferDiscount;
+                            const methodDiscount = Math.max(
+                              methodConfig.transferDiscount ? totalAppliedTransferFee : 0,
+                              Number(methodConfig.discountAmount || 0)
+                            );
+                            const hasDiscount = methodDiscount > 0;
                             const isSelected = checkoutData.paymentMethod?.toLowerCase() === method.toLowerCase();
 
                             return (
@@ -3570,16 +3595,16 @@ const handleFinalizeOrder = async () => {
                                  key={method}
                                  whileTap={{ scale: 0.98 }}
                                  onClick={() => updateCheckoutData(prev => ({ ...prev, paymentMethod: method }))}
-                                 className={`w-full py-3 px-4 rounded-xl text-[10px] font-black uppercase border transition-all flex items-center ${hasDiscount && totalAppliedTransferFee > 0 ? 'justify-between' : 'justify-center'} ${
+                                 className={`w-full py-3 px-4 rounded-xl text-[10px] font-black uppercase border transition-all flex items-center ${hasDiscount ? 'justify-between' : 'justify-center'} ${
                                    isSelected
                                    ? 'bg-white text-blue-600 border-white shadow-lg'
                                    : 'bg-transparent text-white border-white hover:bg-white/5'
                                  }`}
                                >
                                  <span>{method}</span>
-                                 {hasDiscount && totalAppliedTransferFee > 0 && (
+                                 {hasDiscount && (
                                    <span className={`text-[10px] font-black ${isSelected ? 'text-black/80' : 'text-emerald-300'}`}>
-                                     ₱{totalAppliedTransferFee.toLocaleString()} OFF
+                                     ₱{methodDiscount.toLocaleString()} OFF
                                    </span>
                                  )}
                                </motion.button>

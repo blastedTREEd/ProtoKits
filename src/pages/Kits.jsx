@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Package, Gift, Plus, Trash2, Box, Sparkles, Clock, Pencil, Search, Loader2, X, Wallet, AlertCircle, TrendingUp, Filter, Zap, ArrowUpWideNarrow, ArrowDownWideNarrow, SortAsc, SortDesc, ListOrdered, ChevronDown, Image as ImageIcon, Settings } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
@@ -50,6 +50,7 @@ const getSpectralGradient = (id) => {
 };
 
 const getShadowColor = (gradientClass) => GRADIENT_COLORS[gradientClass] || 'rgba(8,102,255,0.2)';
+const KIT_RETURN_STORAGE_KEY = 'sg:kits:returnTarget';
 
 function parseDealDate(value) {
   if (!value) return null;
@@ -132,6 +133,9 @@ export default function Kits() {
   const [itemsForCheckout, setItemsForCheckout] = useState([]); 
   const [showSearchBar, setShowSearchBar] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
+  const kitCardRefs = useRef(new Map());
+  const pendingRestoreRef = useRef(null);
+  const location = useLocation();
   const navigate = useNavigate();
   const { kitId: routeKitId } = useParams();
 
@@ -393,6 +397,54 @@ export default function Kits() {
     return routeKit ? [routeKit, ...visibleKits] : visibleKits;
   }, [routeKitId, storeKits, visibleKits]);
 
+  useEffect(() => {
+    if (routeKitId || location.pathname !== '/kits' || !allFilteredKits.length) return;
+    const raw = window.sessionStorage.getItem(KIT_RETURN_STORAGE_KEY);
+    if (!raw) return;
+
+    let target = null;
+    try {
+      target = JSON.parse(raw);
+    } catch {
+      window.sessionStorage.removeItem(KIT_RETURN_STORAGE_KEY);
+      return;
+    }
+
+    if (!target?.kitId) {
+      window.sessionStorage.removeItem(KIT_RETURN_STORAGE_KEY);
+      return;
+    }
+
+    const index = allFilteredKits.findIndex(kit => kit.id === target.kitId);
+    if (index >= 0) {
+      const neededLimit = Math.max(Number(target.displayLimit || 0), index + 1);
+      if (displayLimit < neededLimit) {
+        pendingRestoreRef.current = target;
+        setDisplayLimit(neededLimit);
+        return;
+      }
+    }
+
+    pendingRestoreRef.current = target;
+    const restore = () => {
+      const pending = pendingRestoreRef.current;
+      if (!pending) return;
+      const node = kitCardRefs.current.get(pending.kitId);
+      if (node) {
+        node.scrollIntoView({ block: 'center', behavior: 'instant' });
+      } else if (Number.isFinite(Number(pending.scrollY))) {
+        window.scrollTo({ top: Number(pending.scrollY), behavior: 'instant' });
+      }
+      pendingRestoreRef.current = null;
+      window.sessionStorage.removeItem(KIT_RETURN_STORAGE_KEY);
+    };
+
+    const frame = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(restore);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [allFilteredKits, displayLimit, location.pathname, routeKitId]);
+
   // Infinite Scroll Observer (Client-side pagination)
   useEffect(() => {
     if (isLoading) return;
@@ -558,6 +610,12 @@ export default function Kits() {
     // Always prepare the items for checkout
     console.log("Setting itemsForCheckout:", [itemData]);
     setItemsForCheckout([itemData]);
+    window.sessionStorage.setItem(KIT_RETURN_STORAGE_KEY, JSON.stringify({
+      kitId: item.kit?.id,
+      scrollY: window.scrollY,
+      displayLimit,
+      savedAt: Date.now()
+    }));
     
     // Check auth
     if (!user) { 
@@ -766,7 +824,14 @@ export default function Kits() {
                {visibleKitsWithRouteSelection.map((kit) => {
                 const isUpdating = kitToEdit?.id === kit.id;
                 return (
-                  <div key={kit.id} className={`w-full h-full transition-opacity duration-500 ${isUpdating ? 'opacity-30' : 'opacity-100'}`}>
+                  <div
+                    key={kit.id}
+                    ref={(node) => {
+                      if (node) kitCardRefs.current.set(kit.id, node);
+                      else kitCardRefs.current.delete(kit.id);
+                    }}
+                    className={`w-full h-full transition-opacity duration-500 ${isUpdating ? 'opacity-30' : 'opacity-100'}`}
+                  >
                     {isUpdating ? (
                       <KitSkeleton />
                     ) : (
