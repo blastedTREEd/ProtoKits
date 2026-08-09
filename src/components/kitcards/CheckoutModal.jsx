@@ -290,13 +290,6 @@ const formatPlaceAddressWithoutHouseNo = (place = {}) => {
   ].filter(Boolean).join(', ');
 };
 
-const formatPickupStreetAddress = (place = {}) => {
-  return [
-    place.houseDetails || place.street,
-    place.subdivision,
-    place.barangay
-  ].filter(Boolean).join(', ');
-};
 
 const getPlaceLabel = (place = {}, fallback = 'Snorlax Garage') => {
   return place.landmark || formatPlaceAddress(place) || fallback;
@@ -554,7 +547,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   const [isUploading, setIsUploading] = useState(false);
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [previewUrl, setPreviewUrl] = useState(null);
-  const [activePreviewUrl, setActivePreviewUrl] = useState(null);
+  // const [activePreviewUrl, setActivePreviewUrl] = useState(null);
   const [paymentSubmitted, setPaymentSubmitted] = useState(false);
   const [createdOrderIds, setCreatedOrderIds] = useState([]);
   const [agreedToPolicy, setAgreedToPolicy] = useState(false);
@@ -736,7 +729,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       e.preventDefault();
       setCheckoutStep(1);
       setPreviewUrl(null);
-      setActivePreviewUrl(null);
+      // setActivePreviewUrl(null);
       setPaymentSubmitted(false);
       setCreatedOrderIds([]);
       setIsUploading(false);
@@ -2208,7 +2201,7 @@ const handleFinalizeOrder = async () => {
     }
     setCheckoutStep(1);
     setPreviewUrl(null);
-    setActivePreviewUrl(null);
+    // setActivePreviewUrl(null);
     setPaymentSubmitted(false);
     setCreatedOrderIds([]);
     setIsUploading(false);
@@ -3351,19 +3344,28 @@ const handleFinalizeOrder = async () => {
                                   </div>
                                 )}
 
-                                {requiredFields.includes(13) && checkoutData.lbcBranch && (
-                                  <div className="space-y-1">
-                                    <p className="text-[8px] font-black uppercase opacity-30 tracking-[0.2em]">{courierName} Branch</p>
-                                    <p className="text-sm font-black uppercase italic text-blue-600">{checkoutData.lbcBranch}</p>
-                                    {branchDestinationLine && (
-                                      <p className="text-[11px] font-black uppercase text-neutral-500 dark:text-neutral-300 leading-tight">
-                                        {branchDestinationLine}
-                                      </p>
-                                    )}
-                                  </div>
-                                )}
+                                {(() => {
+                                  const isBranchPickup = requiredFields.includes(13);
+                                  const branchDestinationLine = [
+                                    deliveryData.city,
+                                    deliveryData.province,
+                                    deliveryData.zipCode
+                                  ].filter(Boolean).join(', ');
+                                  return (
+                                    <>
+                                      {isBranchPickup && checkoutData.lbcBranch && (
+                                        <div className="space-y-1">
+                                          <p className="text-[8px] font-black uppercase opacity-30 tracking-[0.2em]">{courierName} Branch</p>
+                                          <p className="text-sm font-black uppercase italic text-blue-600">{checkoutData.lbcBranch}</p>
+                                          {branchDestinationLine && (
+                                            <p className="text-[11px] font-black uppercase text-neutral-500 dark:text-neutral-300 leading-tight">
+                                              {branchDestinationLine}
+                                            </p>
+                                          )}
+                                        </div>
+                                      )}
 
-                                {!isLocalPlaceMethod && !isBranchPickup && (requiredFields.includes(5) || requiredFields.includes(6) || requiredFields.includes(7) || requiredFields.includes(8) || requiredFields.includes(4) || requiredFields.includes(9) || requiredFields.includes(10) || requiredFields.includes(11)) && (
+                                      {!isLocalPlaceMethod && !isBranchPickup && (requiredFields.includes(5) || requiredFields.includes(6) || requiredFields.includes(7) || requiredFields.includes(8) || requiredFields.includes(4) || requiredFields.includes(9) || requiredFields.includes(10) || requiredFields.includes(11)) && (
                                   <div className="space-y-1">
                                     <p className="text-[8px] font-black uppercase opacity-30 tracking-[0.2em]">Delivery Address</p>
                                     <div className="space-y-0.5">
@@ -3388,6 +3390,9 @@ const handleFinalizeOrder = async () => {
                                     </div>
                                   </div>
                                 )}
+                                    </>
+                                  );
+                                })()}
                               </div>
                             ) : (
                               <div className="p-5 rounded-[2.5rem] bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5 space-y-5 animate-in zoom-in-95 duration-300 text-left">
@@ -3708,7 +3713,7 @@ const handleFinalizeOrder = async () => {
             </div>
         ))}
         {checkoutStep === 2 && renderCheckoutPaymentStep()}
-        {false && checkoutStep === 2 && (
+        {/* DISABLED: Old Order Reserved step (kept for reference)
           <div className="max-w-4xl mx-auto py-2 md:py-4 animate-in zoom-in-95 duration-500">
              <div className="text-center mb-6">
                 <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-500 mx-auto mb-2"><CheckCircle2 size={28} /></div>
@@ -3828,8 +3833,8 @@ const handleFinalizeOrder = async () => {
                 </div>
              )}
           </div>
-        )}
-        {false && activePreviewUrl && (
+        */}
+        {/* DISABLED: Old image preview overlay (kept for reference)
           <div
             className="fixed inset-0 z-[700] flex items-center justify-center bg-black/95 p-4 animate-in fade-in duration-300"
             onClick={() => setActivePreviewUrl(null)}
@@ -3885,7 +3890,7 @@ const handleFinalizeOrder = async () => {
               )}
             </div>
           </div>
-        )}
+        */}
       </div>
     </div>
   );
