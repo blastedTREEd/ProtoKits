@@ -6,7 +6,7 @@ import {
   ClipboardList, Plus, MapPin, Package, PackageOpen, ShieldCheck, X, CheckCircle2, 
   ChevronRight, ChevronDown, Clock, Store, Truck, Tag, Trash2, AlertCircle,
   Camera, Upload, QrCode, ArrowRight, Eye, RefreshCw, Download, ListTodo, Flag,
-  XCircle, Wallet
+  XCircle, Wallet, MapPinSearch
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -32,6 +32,29 @@ function ChangeView({ center }) {
   const map = useMap();
   useEffect(() => { if (center && center[0] && center[1]) map.setView(center, 16); }, [center, map]);
   return null;
+}
+
+function MapRecenterButton({ center }) {
+  const map = useMap();
+  const recenter = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    map.setView(center, 17, { animate: true });
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={recenter}
+      onMouseDown={(event) => event.stopPropagation()}
+      onDoubleClick={(event) => event.stopPropagation()}
+      className="absolute right-3 top-3 z-[1000] flex h-10 w-10 items-center justify-center rounded-xl border border-black/10 bg-white text-blue-600 shadow-lg transition hover:scale-105 hover:bg-blue-600 hover:text-white dark:border-white/10 dark:bg-neutral-950"
+      title="Back to pin"
+      aria-label="Back to pin"
+    >
+      <MapPinSearch size={18} />
+    </button>
+  );
 }
 
 function ReservationTimer({ createdAt, expiresAt, onExpire, compact = false, durationMs, variant = 'warning', children }) {
@@ -980,21 +1003,26 @@ export default function Orders() {
     const rd = order?.receiverDetails || {};
     const flags = getShippingFlags(order);
     const addressParts = [rd.houseNo, rd.houseDetails, rd.subdivision, rd.barangay, rd.city, rd.province, rd.zipCode].filter(Boolean);
-    // Pagkatapos ma-verify ang payment, ipakita ang full address (may house no.) para sa couriers.
-    // Para sa Self-Pickup, ipakita ang exactAddress (mula sa paired pickup point na may house no.) pagkatapos ma-verify.
+    // Admin: palaging makikita ang exact address ng pickup point.
+    // User: makikita lang ang vague address (walang house no.) hanggang ma-validate ng admin ang receipts.
     const paymentVerified = !['Reserved', 'Waiting', 'Validating'].includes(order?.status);
-    const pickupAddress = flags.isSelfPickup
-      ? (paymentVerified
-          ? (order?.pickupDetails?.exactAddress || order?.pickupDetails?.publicAddress || order?.pickupLocation)
-          : (order?.pickupDetails?.publicAddress || order?.pickupLocation))
-      : paymentVerified
-        ? (order?.pickupDetails?.address || order?.pickupLocation)
-        : (order?.pickupDetails?.publicAddress || order?.pickupLocation);
+    const showExactAddress = isAdminMode || paymentVerified;
+    const rawPickupAddress = showExactAddress
+      ? (order?.pickupDetails?.exactAddress || order?.pickupDetails?.publicAddress || order?.pickupLocation)
+      : (order?.pickupDetails?.publicAddress || order?.pickupLocation);
+      
+    // Alisin ang landmark sa beginning ng address string para hindi ma-double ang landmark display.
+    const landmarkLabel = order?.pickupDetails?.label;
+    let pickupAddress = rawPickupAddress;
+    if (landmarkLabel && pickupAddress && pickupAddress.startsWith(landmarkLabel)) {
+      pickupAddress = pickupAddress.substring(landmarkLabel.length).replace(/^[\s,]+/, '');
+    }
+
     const location = flags.isLbc && rd.lbcBranch
       ? rd.lbcBranch
       : flags.isMeetup
-        ? (paymentVerified ? (order?.pickupDetails?.address || order?.meetupLocation) : order?.meetupLocation)
-        : flags.isSelfPickup
+        ? (showExactAddress ? (order?.pickupDetails?.exactAddress || order?.meetupLocation) : order?.meetupLocation)
+        : (flags.isSelfPickup || flags.usesPickupPoint)
           ? pickupAddress
           : addressParts.join(', ');
 
@@ -1269,6 +1297,11 @@ export default function Orders() {
                   </span>
                 )}
               </span>
+              {!isAdminMode && (selectedShippingFlags.usesPickupPoint || selectedShippingFlags.usesMeetupLocation) && ['Reserved', 'Waiting', 'Validating'].includes(selectedOrder.status) && (
+                <span className="text-[13px] font-black uppercase text-amber-600 dark:text-amber-500 mt-1 leading-tight">
+                   * Complete pickup details to be available once payment receipt is validated.
+                </span>
+              )}
             </div>
 
             {/* Tracking / Inputs */}
@@ -1392,7 +1425,7 @@ export default function Orders() {
               <div className="overflow-hidden rounded-3xl border border-black/5 dark:border-white/5 h-[280px] w-full relative z-10">
                 <MapContainer 
                   center={[mapLat, mapLng]} 
-                  zoom={16} 
+                  zoom={17} 
                   scrollWheelZoom={false} 
                   style={{ height: '100%', width: '100%' }}
                 >
@@ -1402,6 +1435,7 @@ export default function Orders() {
                   />
                   <Marker position={[mapLat, mapLng]} />
                   <ChangeView center={[mapLat, mapLng]} />
+                  <MapRecenterButton center={[mapLat, mapLng]} />
                 </MapContainer>
               </div>
             ) : (

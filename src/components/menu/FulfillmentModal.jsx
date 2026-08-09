@@ -49,7 +49,6 @@ const buildPlaceAddress = (place = {}, { includeHouseNo = true } = {}) => {
   ].filter(Boolean).join(' ').trim();
 
   return [
-    place.landmark,
     streetLine,
     place.subdivision,
     place.barangay,

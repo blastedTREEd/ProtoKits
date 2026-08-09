@@ -69,7 +69,7 @@ const getCheckoutItemBasePrice = (item, kit, fees = {}) => {
 };
 
 const DEFAULT_DELIVERY_COORDS = { lat: 14.5995, lng: 120.9842 };
-const MAP_DEFAULT_ZOOM = 14;
+const MAP_DEFAULT_ZOOM = 17;
 const MAP_MAX_PIN_ZOOM = 19;
 // Ang mga locally-handled na methods na hindi gumagamit ng delivery address form
 const LOCAL_METHODS = ['Seller Meetup', 'Self-Pickup'];
@@ -302,13 +302,23 @@ const getPlaceLabel = (place = {}, fallback = 'Snorlax Garage') => {
   return place.landmark || formatPlaceAddress(place) || fallback;
 };
 
+const cleanAddressLandmark = (addressStr, landmark) => {
+  if (!addressStr) return '';
+  let clean = addressStr;
+  if (landmark && clean.startsWith(landmark)) {
+    clean = clean.substring(landmark.length).replace(/^[\s,]+/, '');
+  }
+  return clean;
+};
+
 const getCheckoutPlaceLabel = (place = {}, fallback = 'Pickup Point') => (
   place.landmark || formatPlaceAddressWithoutHouseNo(place) || formatPlaceAddress(place) || fallback
 ).replace(/^\d+\s+/, '');
 
-const getCheckoutPlaceAddress = (place = {}, { includeHouseNo = false } = {}) => (
-  includeHouseNo ? formatPlaceAddress(place) : formatPlaceAddressWithoutHouseNo(place)
-).replace(/^\d+\s+/, '');
+const getCheckoutPlaceAddress = (place = {}, { includeHouseNo = false } = {}) => {
+  const addr = (includeHouseNo ? formatPlaceAddress(place) : formatPlaceAddressWithoutHouseNo(place)).replace(/^\d+\s+/, '');
+  return cleanAddressLandmark(addr, place.landmark);
+};
 
 const hasCheckoutSettings = (admin) => {
   return Boolean(admin?.shippingMethods || admin?.pickupDetails || admin?.paymentSettings);
@@ -1416,8 +1426,10 @@ const baseTotal = useMemo(() => {
     let pickupLocation = '';
     let pickupLocationIndex = null;
     if (hasPickup && pickupPoints.length > 0) {
-      pickupLocation = getCheckoutPlaceLabel(pickupPoints[0], 'Pickup Point 1');
-      pickupLocationIndex = 0;
+      const firstPublicIdx = pickupPoints.findIndex(p => !p.houseNo);
+      const targetIdx = firstPublicIdx !== -1 ? firstPublicIdx : 0;
+      pickupLocation = getCheckoutPlaceLabel(pickupPoints[targetIdx], `Pickup Point ${targetIdx + 1}`);
+      pickupLocationIndex = targetIdx;
     }
 
     let meetupLocation = '';
@@ -1889,11 +1901,15 @@ const handleFinalizeOrder = async () => {
         pickupDetails: selectedLocalPlaceDetails ? (() => {
           // Hanapin ang paired pickup point na may house no. para sa exact pickup address.
           const exactPlace = pickupPoints.find(p => p.isActive !== false && p.houseNo);
+          const rawAddress = formatPlaceAddress(selectedLocalPlaceDetails) || '';
+          const rawPublic = formatPlaceAddressWithoutHouseNo(selectedLocalPlaceDetails) || '';
+          const rawExact = exactPlace ? formatPlaceAddress(exactPlace) : '';
+          const landmark = selectedLocalPlaceDetails.landmark;
           return {
             label: getCheckoutPlaceLabel(selectedLocalPlaceDetails) || 'Pickup Point',
-            address: formatPlaceAddress(selectedLocalPlaceDetails) || '',
-            publicAddress: formatPlaceAddressWithoutHouseNo(selectedLocalPlaceDetails) || '',
-            exactAddress: exactPlace ? formatPlaceAddress(exactPlace) : '',
+            address: cleanAddressLandmark(rawAddress, landmark),
+            publicAddress: cleanAddressLandmark(rawPublic, landmark),
+            exactAddress: cleanAddressLandmark(rawExact, exactPlace?.landmark || landmark),
             lat: selectedLocalPlaceDetails.lat || null,
             lng: selectedLocalPlaceDetails.lng || null
           };
@@ -2336,11 +2352,8 @@ const handleFinalizeOrder = async () => {
           })
       : [];
     const showLocationSelect = usesPickupPoint || usesMeetupLocation;
-    const isSelfPickupMethod = String(checkoutData.shippingMethod || '').toUpperCase().includes('SELF-PICKUP');
-    // Para sa Self-Pickup, itago ang mga pickup points na may house no. para sa privacy ng admin.
-    const filteredPickupPoints = isSelfPickupMethod
-      ? pickupPoints.filter(p => !p.houseNo)
-      : pickupPoints;
+    // Para sa lahat ng courier na gumagamit ng pickup points, itago ang mga may house no. para sa privacy ng admin.
+    const filteredPickupPoints = pickupPoints.filter(p => !p.houseNo);
     const locationOptions = usesMeetupLocation
       ? (storeAdmin?.pickupDetails?.meetup?.places || []).filter(p => p.isActive !== false)
       : filteredPickupPoints;
@@ -2358,12 +2371,16 @@ const handleFinalizeOrder = async () => {
       label: subVal.label || subKey,
       badge: getShippingDiscountLabel(checkoutData.shippingMethod, subKey)
     }));
-    const locationDropdownOptions = locationOptions.map((place, idx) => ({
-      value: idx,
-      label: getCheckoutPlaceLabel(place, usesMeetupLocation ? `Meetup Place ${idx + 1}` : `Pickup Point ${idx + 1}`),
-      description: getCheckoutPlaceAddress(place, { includeHouseNo: false }),
-      badge: locationDiscountBadge
-    }));
+    const locationDropdownOptions = locationOptions.map((place, idx) => {
+      // Gamitin ang original index sa pickupPoints para tama ang ma-select na pickup point.
+      const originalIdx = (!usesMeetupLocation && usesPickupPoint) ? pickupPoints.indexOf(place) : idx;
+      return {
+        value: originalIdx,
+        label: getCheckoutPlaceLabel(place, usesMeetupLocation ? `Meetup Place ${idx + 1}` : `Pickup Point ${idx + 1}`),
+        description: getCheckoutPlaceAddress(place, { includeHouseNo: false }),
+        badge: locationDiscountBadge
+      };
+    });
     const shouldShowSuboptionDropdown = checkoutData.shippingMethod && methodSuboptions.length > 0;
     const shouldShowLocationDropdown = showLocationSelect && locationOptions.length > 0;
     const shippingControlCount = 1 + (shouldShowSuboptionDropdown ? 1 : 0) + (shouldShowLocationDropdown ? 1 : 0);
@@ -2390,7 +2407,9 @@ const handleFinalizeOrder = async () => {
       const subConfig = activeMethodConfig?.suboptions?.[subKey] || {};
       const hasPickup = checkUsesPickupPoint(checkoutData.shippingMethod, activeMethodConfig, subKey);
       const hasMeetup = checkUsesMeetupLocation(checkoutData.shippingMethod, activeMethodConfig, subKey);
-      const pickupLoc = hasPickup && pickupPoints.length > 0 ? getCheckoutPlaceLabel(pickupPoints[0], 'Pickup Point 1') : '';
+      const firstPublicIdx = pickupPoints.findIndex(p => !p.houseNo);
+      const targetIdx = firstPublicIdx !== -1 ? firstPublicIdx : 0;
+      const pickupLoc = hasPickup && pickupPoints.length > 0 ? getCheckoutPlaceLabel(pickupPoints[targetIdx], `Pickup Point ${targetIdx + 1}`) : '';
       const meetupPlaces = (storeAdmin?.pickupDetails?.meetup?.places || []).filter(p => p.isActive !== false);
       const meetupLoc = hasMeetup && meetupPlaces.length > 0 ? getCheckoutPlaceLabel(meetupPlaces[0], 'Meetup Place 1') : '';
 
@@ -2399,7 +2418,7 @@ const handleFinalizeOrder = async () => {
         selectedSuboption: subKey,
         customSuboption: subKey,
         pickupLocation: pickupLoc,
-        pickupLocationIndex: hasPickup && pickupPoints.length > 0 ? 0 : null,
+        pickupLocationIndex: hasPickup && pickupPoints.length > 0 ? targetIdx : null,
         meetupLocation: meetupLoc,
         meetupLocationIndex: hasMeetup && meetupPlaces.length > 0 ? 0 : null
       }));
@@ -2410,7 +2429,8 @@ const handleFinalizeOrder = async () => {
 
     const handleLocationChange = (indexValue) => {
       const idx = Number(indexValue);
-      const place = locationOptions[idx];
+      // Para sa pickup points, idx ay original index sa pickupPoints array.
+      const place = usesMeetupLocation ? locationOptions[idx] : pickupPoints[idx];
       const fallback = usesMeetupLocation ? `Meetup Place ${idx + 1}` : `Pickup Point ${idx + 1}`;
       const placeLabel = getCheckoutPlaceLabel(place, fallback);
       updateCheckoutData(prev => ({
@@ -2550,6 +2570,11 @@ const handleFinalizeOrder = async () => {
                       {getCheckoutPlaceAddress(selectedLocalPlaceDetails) && (
                         <p className="mt-1 text-[13px] font-bold uppercase opacity-55">{getCheckoutPlaceAddress(selectedLocalPlaceDetails)}</p>
                       )}
+                      {!usesMeetupLocation && (
+                        <p className="text-[13px] font-bold uppercase text-amber-600 dark:text-amber-500 leading-tight mt-1">
+                          * Complete pickup details to be available once payment receipt is validated.
+                        </p>
+                      )}
                     </div>
                   )}
                   {isBranchPickup && (
@@ -2587,7 +2612,7 @@ const handleFinalizeOrder = async () => {
                           zoomControl={true}
                         >
                           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={MAP_MAX_PIN_ZOOM} />
-                          {usesMeetupLocation && <Marker position={selectedLocalPlaceCoord} />}
+                          <Marker position={selectedLocalPlaceCoord} />
                           <ChangeView center={selectedLocalPlaceCoord} />
                           <MapRecenterButton center={selectedLocalPlaceCoord} />
                         </MapContainer>
@@ -3104,6 +3129,9 @@ const handleFinalizeOrder = async () => {
                                     <p className="text-sm font-black uppercase italic text-blue-600">
                                       {getCheckoutPlaceAddress(selectedPickupDetails) || 'Pickup Point'}
                                     </p>
+                                    <p className="text-[9px] font-black uppercase text-amber-600 dark:text-amber-500 leading-tight ml-6 mt-1 animate-in fade-in duration-300">
+                                      * Complete pin and address will be available once payment receipt is validated.
+                                    </p>
                                   </div>
                                 </div>
                                 <div className="p-4 rounded-2xl bg-blue-600/5 border border-blue-600/10 space-y-2">
@@ -3133,9 +3161,14 @@ const handleFinalizeOrder = async () => {
                                     </p>
                                   </div>
                                   {getCheckoutPlaceAddress(selectedPickupDetails) && (
+                                    <>
                                     <p className="text-[11px] font-black uppercase text-neutral-500 dark:text-neutral-300 leading-tight ml-6">
                                       {getCheckoutPlaceAddress(selectedPickupDetails)}
                                     </p>
+                                    <p className="text-[9px] font-black uppercase text-amber-600 dark:text-amber-500 leading-tight ml-6 mt-1 animate-in fade-in duration-300">
+                                      * Complete pin and address will be available once payment receipt is validated.
+                                    </p>
+                                    </>
                                   )}
                                 </div>
                                 <div className="p-4 rounded-2xl bg-blue-600/5 border border-blue-600/10 space-y-2">
@@ -3185,7 +3218,7 @@ const handleFinalizeOrder = async () => {
                                         zoomControl={true}
                                     >
                                       <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={MAP_MAX_PIN_ZOOM} />
-                                      {usesMeetupLocation && <Marker position={selectedLocalPlaceCoord} />}
+                                      <Marker position={selectedLocalPlaceCoord} />
                                       <ChangeView center={selectedLocalPlaceCoord} />
                                       <MapRecenterButton center={selectedLocalPlaceCoord} />
                                     </MapContainer>
@@ -3286,6 +3319,11 @@ const handleFinalizeOrder = async () => {
                                           {getCheckoutPlaceAddress(selectedLocalPlaceDetails)}
                                         </p>
                                       )}
+                                      {checkoutData.shippingMethod !== 'Seller Meetup' && (
+                                        <p className="text-[9px] font-black uppercase text-amber-600 dark:text-amber-500 leading-tight ml-6 mt-1">
+                                          * Complete pin and address will be available once payment receipt is validated.
+                                        </p>
+                                      )}
                                     </div>
                                   </div>
                                 )}
@@ -3296,9 +3334,9 @@ const handleFinalizeOrder = async () => {
                                       {checkoutData.shippingMethod === 'Seller Meetup' ? 'Meetup Map Pin' : 'Pickup Map'}
                                     </p>
                                     <div className="w-full h-40 rounded-[2rem] overflow-hidden border-2 border-blue-600/20 relative">
-                                      <MapContainer center={selectedLocalPlaceCoord} zoom={MAP_DEFAULT_ZOOM} maxZoom={MAP_MAX_PIN_ZOOM} style={{ height: '100%', width: '100%' }} dragging={true} scrollWheelZoom={true} doubleClickZoom={true} touchZoom={true} zoomControl={true}>
+                                      <MapContainer center={selectedLocalPlaceCoord} zoom={MAP_DEFAULT_ZOOM} maxZoom={MAP_MAX_PIN_ZOOM} style={{ height: '100%', width: '100%' }} dragging={false} scrollWheelZoom={false} doubleClickZoom={false} touchZoom={false} zoomControl={false}>
                                         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={MAP_MAX_PIN_ZOOM} />
-                                        {usesMeetupLocation && <Marker position={selectedLocalPlaceCoord} />}
+                                        <Marker position={selectedLocalPlaceCoord} />
                                         <ChangeView center={selectedLocalPlaceCoord} />
                                         <MapRecenterButton center={selectedLocalPlaceCoord} />
                                       </MapContainer>
