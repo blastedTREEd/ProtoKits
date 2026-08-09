@@ -242,20 +242,23 @@ const GRADIENT_COLORS = {
 
 const getShadowColor = (gradientClass) => GRADIENT_COLORS[gradientClass] || 'rgba(8,102,255,0.2)';
 
-export default function ProductCard({ kit, onBuyNowClick, onDealCheckout, onEdit, onClick, routeKitId, onEditDeal }) {
+export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckout, onEdit, onClick, routeKitId, onEditDeal }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { isDarkMode, isSpectralMode } = useTheme();
-  const spectralGradient = useMemo(() => getSpectralGradient(kit?.id), [kit?.id]);
+  const spectralGradient = useMemo(() => getSpectralGradient(cardKit?.id), [cardKit?.id]);
   const shadowColor = useMemo(() => getShadowColor(spectralGradient), [spectralGradient]);
 
   
   const [isModalOpen, setIsProfileOpen] = useState(false);
+  const [modalKit, setModalKit] = useState(cardKit);
+  const [modalKitHistory, setModalKitHistory] = useState([]);
   const [selectedStock, setSelectedStock] = useState(null);
   const [selectedGroupLabel, setSelectedGroupLabel] = useState(null);
   const [targetPrice, setTargetPrice] = useState("");
   const [timeLeft, setTimeLeft] = useState("");
   const [now, setNow] = useState(0);
+  const kit = isModalOpen ? (modalKit || cardKit) : cardKit;
   const handleDealCheckout = (deal) => {
     if (typeof onDealCheckout === 'function') {
       setIsProfileOpen(false);
@@ -761,19 +764,57 @@ export default function ProductCard({ kit, onBuyNowClick, onDealCheckout, onEdit
 
   const resetProductModalState = useCallback(() => {
     setIsProfileOpen(false);
+    setModalKit(cardKit);
+    setModalKitHistory([]);
     setSelectedStock(null);
     setSelectedGroupLabel(null);
-  }, []);
+  }, [cardKit]);
 
   const openProductModalView = useCallback(() => {
     setToastMessage(null);
+    setModalKit(cardKit);
+    setModalKitHistory([]);
     setGalleryIndex(0);
     lastManualActionTime.current = Date.now();
     if (selectableAvailabilityGroups.length > 0) {
         handleSelectGroup(selectableAvailabilityGroups[0]);
     }
     setIsProfileOpen(true);
-  }, [handleSelectGroup, selectableAvailabilityGroups, setToastMessage]);
+  }, [cardKit, handleSelectGroup, selectableAvailabilityGroups, setToastMessage]);
+
+  const handleOpenIncludedKit = useCallback((includedKit, event) => {
+    event?.stopPropagation();
+    if (!includedKit || includedKit.id === kitId) return;
+    setModalKitHistory(prev => [...prev, kit]);
+    setModalKit(includedKit);
+    setSelectedStock(null);
+    setSelectedGroupLabel(null);
+    setTargetPrice("");
+    setGalleryIndex(0);
+    lastManualActionTime.current = Date.now();
+    if (includedKit.id) {
+      window.history.replaceState({ modal: 'product', kitId: includedKit.id }, '', `/kits/${encodeURIComponent(includedKit.id)}`);
+    }
+  }, [kit, kitId]);
+
+  const handlePreviousModalKit = useCallback((event) => {
+    event?.stopPropagation();
+    setModalKitHistory(prev => {
+      if (prev.length === 0) return prev;
+      const nextHistory = prev.slice(0, -1);
+      const previousKit = prev[prev.length - 1];
+      setModalKit(previousKit);
+      setSelectedStock(null);
+      setSelectedGroupLabel(null);
+      setTargetPrice("");
+      setGalleryIndex(0);
+      lastManualActionTime.current = Date.now();
+      if (previousKit?.id) {
+        window.history.replaceState({ modal: 'product', kitId: previousKit.id }, '', `/kits/${encodeURIComponent(previousKit.id)}`);
+      }
+      return nextHistory;
+    });
+  }, []);
 
   const closeProductModal = useCallback(() => {
     if (window.location.pathname === productPath) {
@@ -1350,12 +1391,16 @@ export default function ProductCard({ kit, onBuyNowClick, onDealCheckout, onEdit
               <div className="sticky top-0 z-[220] w-full h-0 overflow-visible sm:hidden">
                 <div className="absolute top-4 right-4 flex justify-end items-center gap-2">
                     <button onClick={handleShareProduct} className={`p-2 rounded-full backdrop-blur-md border transition-all shadow-lg bg-black/20 text-white border-white/10 hover:bg-black/40`} title="Copy product link" aria-label="Copy product link"><Forward size={20} /></button>
-                    <button onClick={closeProductModal} className={`p-2 rounded-full backdrop-blur-md border transition-all shadow-lg bg-black/20 text-white border-white/10 hover:bg-black/40`}><X size={20} /></button>
+                    <button onClick={modalKitHistory.length > 0 ? handlePreviousModalKit : closeProductModal} className={`p-2 rounded-full backdrop-blur-md border transition-all shadow-lg bg-black/20 text-white border-white/10 hover:bg-black/40`}>
+                      {modalKitHistory.length > 0 ? <ChevronLeft size={20} /> : <X size={20} />}
+                    </button>
                 </div>
               </div>
               <div className="hidden sm:flex absolute top-4 right-4 z-[210] gap-2">
                 <button onClick={handleShareProduct} className={`p-2 rounded-full backdrop-blur-md border transition-all shadow-lg bg-black/20 text-white border-white/10 hover:bg-black/40`} title="Copy product link" aria-label="Copy product link"><Forward size={20} /></button>
-                <button onClick={closeProductModal} className={`p-2 rounded-full backdrop-blur-md border transition-all shadow-lg bg-black/20 text-white border-white/10 hover:bg-black/40`}><X size={20} /></button>
+                <button onClick={modalKitHistory.length > 0 ? handlePreviousModalKit : closeProductModal} className={`p-2 rounded-full backdrop-blur-md border transition-all shadow-lg bg-black/20 text-white border-white/10 hover:bg-black/40`}>
+                  {modalKitHistory.length > 0 ? <ChevronLeft size={20} /> : <X size={20} />}
+                </button>
               </div>
             
               {/* Gallery Column (Hidden in portrait) */}
@@ -1541,7 +1586,11 @@ export default function ProductCard({ kit, onBuyNowClick, onDealCheckout, onEdit
                                     handleSelectGroup(bundleGroup);
                                   }
                                 }}
-                                className="relative space-y-2 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 transition-colors duration-300 cursor-pointer hover:border-emerald-500/40"
+                                className={`relative space-y-2 rounded-2xl border px-4 py-3 transition-colors duration-300 cursor-pointer ${
+                                  isSelectedBundlePanel
+                                    ? 'border-emerald-500 bg-emerald-500/20 shadow-lg shadow-emerald-500/10'
+                                    : 'border-emerald-500/20 bg-emerald-500/10 hover:border-emerald-500/40'
+                                }`}
                               >
                                 <div className="flex items-start justify-between gap-3 px-1">
                                   <div className="min-w-0 flex-1 text-left">
@@ -1561,7 +1610,19 @@ export default function ProductCard({ kit, onBuyNowClick, onDealCheckout, onEdit
                                       const referencePrice = Number(sourceStock?.sellPrice || stocks[0]?.sellPrice || includedKit?.sellPrice || 0);
 
                                       return (
-                                        <div key={includedKit.id} className={`flex w-full items-center gap-4 py-3 transition-all duration-300 ${includedIndex === 0 ? 'pt-0' : ''} ${includedIndex === includedKits.length - 1 ? 'pb-0' : ''} ${includedIndex > 0 ? 'border-t border-black/5 dark:border-white/10' : ''}`}>
+                                        <div
+                                          key={includedKit.id}
+                                          role="button"
+                                          tabIndex={0}
+                                          onClick={(event) => handleOpenIncludedKit(includedKit, event)}
+                                          onKeyDown={(event) => {
+                                            if (event.key === 'Enter' || event.key === ' ') {
+                                              event.preventDefault();
+                                              handleOpenIncludedKit(includedKit, event);
+                                            }
+                                          }}
+                                          className={`flex w-full cursor-pointer items-center gap-4 py-3 transition-all duration-300 hover:translate-x-0.5 ${includedIndex === 0 ? 'pt-0' : ''} ${includedIndex === includedKits.length - 1 ? 'pb-0' : ''} ${includedIndex > 0 ? 'border-t border-black/5 dark:border-white/10' : ''}`}
+                                        >
                                           <div className="flex items-center justify-center shrink-0">
                                             {resolveImage(includedKit.image, includedKit.images) ? (
                                               <img
@@ -1595,7 +1656,19 @@ export default function ProductCard({ kit, onBuyNowClick, onDealCheckout, onEdit
                                   <div className="space-y-1 px-1 pt-1">
                                     <div className="flex min-w-0 flex-wrap items-center pl-1">
                                       {includedKits.map((includedKit, includedIndex) => (
-                                        <div key={includedKit.id} className={`h-20 w-20 overflow-hidden rounded-full border-2 border-white bg-neutral-200 shadow-sm dark:bg-neutral-800 ${includedIndex > 0 ? '-ml-1.5' : ''}`}>
+                                        <div
+                                          key={includedKit.id}
+                                          role="button"
+                                          tabIndex={0}
+                                          onClick={(event) => handleOpenIncludedKit(includedKit, event)}
+                                          onKeyDown={(event) => {
+                                            if (event.key === 'Enter' || event.key === ' ') {
+                                              event.preventDefault();
+                                              handleOpenIncludedKit(includedKit, event);
+                                            }
+                                          }}
+                                          className={`h-5 w-5 cursor-pointer overflow-hidden rounded-full border-2 border-white bg-neutral-200 shadow-sm transition-transform hover:scale-110 dark:bg-neutral-800 ${includedIndex > 0 ? '-ml-1.5' : ''}`}
+                                        >
                                           {resolveImage(includedKit.image, includedKit.images) ? (
                                             <img
                                               src={resolveImage(includedKit.image, includedKit.images)}
