@@ -15,6 +15,7 @@ import SalesDashboardModal from '../components/kitcards/SalesDashboardModal';
 import LoginPromptModal from '../components/menu/LoginPromptModal';
 import LoadingState from '../components/common/LoadingState';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
+import { distributeRoundedBundlePrices } from '../utils/bundlePricing';
 
 // --- Spectral gradient helpers (mirrored from ProductCard) ---
 const SPECTRAL_GRADIENTS = [
@@ -553,15 +554,17 @@ export default function Kits() {
     const exclusivePool = exclusiveKitIds.length > 0 ? totalDiscount * pct : 0;
     const standardPool = totalDiscount - exclusivePool;
 
-    const items = kitPrices.map(({ kit, refPrice, isExclusive, availableStock }) => {
+    const pricedRows = distributeRoundedBundlePrices(kitPrices.map(row => {
       let kitDiscount = 0;
-      if (isExclusive && exclusiveRefTotal > 0) {
-        kitDiscount = exclusivePool * (refPrice / exclusiveRefTotal);
-      } else if (!isExclusive && standardRefTotal > 0) {
-        kitDiscount = standardPool * (refPrice / standardRefTotal);
+      if (row.isExclusive && exclusiveRefTotal > 0) {
+        kitDiscount = exclusivePool * (row.refPrice / exclusiveRefTotal);
+      } else if (!row.isExclusive && standardRefTotal > 0) {
+        kitDiscount = standardPool * (row.refPrice / standardRefTotal);
       }
-      const finalPrice = Math.round(refPrice - kitDiscount);
+      return { ...row, rawPrice: Math.max(0, row.refPrice - kitDiscount) };
+    }), bPrice);
 
+    const items = pricedRows.map(({ kit, finalPrice, availableStock }) => {
       return {
         ...kit,
         name: `${kit?.name} (Bundle Item)`,
@@ -838,7 +841,12 @@ export default function Kits() {
                       <ProductCard 
                         kit={kit} 
                         onBuyNowClick={handleBuyNowFromCard} 
+                        onDealCheckout={handleDealCheckout}
                         onEdit={handleEditKit}
+                        onEditDeal={(deal) => {
+                          setDealToEdit(deal);
+                          setIsAddDealModalOpen(true);
+                        }}
                         routeKitId={routeKitId}
                       />
                     )}

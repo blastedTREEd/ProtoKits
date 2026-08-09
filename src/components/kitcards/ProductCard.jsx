@@ -9,7 +9,7 @@ import { FaQuestion } from 'react-icons/fa';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
 import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
-import DealDetailsModal from './DealDetailsModal';
+import { distributeRoundedBundlePrices } from '../../utils/bundlePricing';
 
 // Resolves an image ID to its URL from the images array.
 // Backward compatible: if the value is already a URL (base64 or http), returns it directly.
@@ -195,17 +195,19 @@ function getBundleKitPrice(deal, dealKit, allKits = [], fallbackExclusivePercent
   const standardTotal = rows.filter(row => !row.isExclusive).reduce((sum, row) => sum + row.refPrice, 0);
   const exclusivePool = exclusiveTotal > 0 ? totalDiscount * exclusivePercent : 0;
   const standardPool = totalDiscount - exclusivePool;
-  const target = rows.find(row => row.kit.id === dealKit.id);
-  if (!target) return null;
+  const targetTotal = Number(deal.bundlePrice ?? Math.max(0, normalTotal - totalDiscount));
+  const pricedRows = distributeRoundedBundlePrices(rows.map(row => {
+    let kitDiscount = 0;
+    if (row.isExclusive && exclusiveTotal > 0) {
+      kitDiscount = exclusivePool * (row.refPrice / exclusiveTotal);
+    } else if (!row.isExclusive && standardTotal > 0) {
+      kitDiscount = standardPool * (row.refPrice / standardTotal);
+    }
+    return { ...row, rawPrice: Math.max(0, row.refPrice - kitDiscount) };
+  }), targetTotal);
+  const target = pricedRows.find(row => row.kit.id === dealKit.id);
 
-  let kitDiscount = 0;
-  if (target.isExclusive && exclusiveTotal > 0) {
-    kitDiscount = exclusivePool * (target.refPrice / exclusiveTotal);
-  } else if (!target.isExclusive && standardTotal > 0) {
-    kitDiscount = standardPool * (target.refPrice / standardTotal);
-  }
-
-  return Math.max(0, Math.round(target.refPrice - kitDiscount));
+  return target ? target.finalPrice : null;
 }
 
 function parseDealDate(value) {
@@ -240,7 +242,7 @@ const GRADIENT_COLORS = {
 
 const getShadowColor = (gradientClass) => GRADIENT_COLORS[gradientClass] || 'rgba(8,102,255,0.2)';
 
-export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, routeKitId }) {
+export default function ProductCard({ kit, onBuyNowClick, onDealCheckout, onEdit, onClick, routeKitId, onEditDeal }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { isDarkMode, isSpectralMode } = useTheme();
@@ -254,10 +256,15 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, route
   const [targetPrice, setTargetPrice] = useState("");
   const [timeLeft, setTimeLeft] = useState("");
   const [now, setNow] = useState(0);
-  const [isDealDetailsOpen, setIsDealDetailsOpen] = useState(false);
-  const [dealForDetails, setDealForDetails] = useState(null);
-
   const handleDealCheckout = (deal) => {
+    if (typeof onDealCheckout === 'function') {
+      setIsProfileOpen(false);
+      setSelectedStock(null);
+      setSelectedGroupLabel(null);
+      onDealCheckout(deal);
+      return;
+    }
+
     if (!deal || !deal.kitIds || deal.type === 'mutually_exclusive') return;
     const bundleKits = (allKits || []).filter(k => deal.kitIds.includes(k.id));
     const normalTotal = bundleKits.reduce((sum, k) => {
@@ -295,15 +302,17 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, route
     const exclusivePool = exclusiveKitIds.length > 0 ? totalDiscount * pct : 0;
     const standardPool = totalDiscount - exclusivePool;
 
-    const items = kitPrices.map(({ kit, refPrice, isExclusive, availableStock }) => {
+    const pricedRows = distributeRoundedBundlePrices(kitPrices.map(row => {
       let kitDiscount = 0;
-      if (isExclusive && exclusiveRefTotal > 0) {
-        kitDiscount = exclusivePool * (refPrice / exclusiveRefTotal);
-      } else if (!isExclusive && standardRefTotal > 0) {
-        kitDiscount = standardPool * (refPrice / standardRefTotal);
+      if (row.isExclusive && exclusiveRefTotal > 0) {
+        kitDiscount = exclusivePool * (row.refPrice / exclusiveRefTotal);
+      } else if (!row.isExclusive && standardRefTotal > 0) {
+        kitDiscount = standardPool * (row.refPrice / standardRefTotal);
       }
-      const finalPrice = Math.round(refPrice - kitDiscount);
+      return { ...row, rawPrice: Math.max(0, row.refPrice - kitDiscount) };
+    }), bPrice);
 
+    const items = pricedRows.map(({ kit, finalPrice, availableStock }) => {
       return {
         ...kit,
         name: `${kit?.name} (Bundle Item)`,
@@ -317,25 +326,15 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, route
       };
     });
 
-    setIsDealDetailsOpen(false);
-    setDealForDetails(null);
     if (!user) { setLoginModalOpen(true); return; }
     navigate('/checkout', { state: { items, isGuestPreview: false } });
   };
 
-  const openSelectedDealDetails = () => {
+  const handleEditSelectedDeal = () => {
     const deal = selectedBundleDealDetails?.deal;
-    if (!deal) return;
-    setDealForDetails(deal);
-    setIsDealDetailsOpen(true);
-    setIsProfileOpen(false);
-    if (window.location.pathname === productPath) {
-      if (window.history.state?.modal === 'product') {
-        window.history.replaceState({}, '', '/kits');
-        return;
-      }
-      navigate('/kits', { replace: true });
-    }
+    if (!deal || typeof onEditDeal !== 'function') return;
+    closeProductModal();
+    onEditDeal(deal);
   };
   
   const { 
@@ -563,14 +562,14 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, route
       ];
       const includedKits = orderedKitIds.map(id => id === kitId ? kit : (allKits || []).find(k => k.id === id)).filter(Boolean);
       const currentKitStock = stockList.find(stock => isBundlePurchasableStock(stock, deal.stockSource || 'onhand')) || null;
-      const currentItemPrice = deal.kitDiscounts?.[kitId]?.finalPrice ?? getBundleKitPrice(deal, kit, allKits, exclusiveDiscountPercent);
+      const currentItemPrice = getBundleKitPrice(deal, kit, allKits, exclusiveDiscountPercent);
       const bundlePrice = Number(deal.bundlePrice ?? Math.max(0, Number(deal.totalSell || 0) - Number(deal.discountAmount || 0)));
       return { deal, includedKits, currentKitStock, currentItemPrice, bundlePrice };
     }).filter(detail => Number.isFinite(Number(detail.currentItemPrice)) && Number(detail.currentItemPrice) > 0);
   }, [bundleOnlyDeals, allKits, kitId, kit, stockList, exclusiveDiscountPercent]);
 
   const bundleDealGroups = useMemo(() => {
-    if (isAdminView || bundleDealDetails.length === 0) return [];
+    if (bundleDealDetails.length === 0) return [];
     return bundleDealDetails.map(detail => ({
       key: `bundle-deal-${detail.deal.id}`,
       label: 'BUNDLE DEAL',
@@ -580,7 +579,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, route
       deal: detail.deal,
       dealDetails: detail
     }));
-  }, [bundleDealDetails, isAdminView]);
+  }, [bundleDealDetails]);
 
   const availabilityGroups = useMemo(() => {
     const stockGroups = isAdmin && isAdminView
@@ -588,6 +587,9 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, route
       : (isCollectionOnly ? collectionGroupedVariants : groupedVariants);
     return [...stockGroups, ...bundleDealGroups];
   }, [isAdmin, isAdminView, groupedVariants, collectionGroupedVariants, isCollectionOnly, bundleDealGroups]);
+  const visibleAvailabilityGroups = useMemo(() => {
+    return availabilityGroups.filter(group => group.tag !== 'bundleDeal');
+  }, [availabilityGroups]);
 
   const selectableAvailabilityGroups = useMemo(() => {
     return isAdmin && isAdminView
@@ -617,6 +619,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, route
       return (deal.exclusiveKitIds || []).includes(kitId);
     });
   }, [deals, kitId, now]);
+  const isIncludedInBundleDeal = bundleOnlyDeals.length > 0 && !isExclusiveToBundle;
 
   // Compute the exclusive bundle deal and proportional discounted price for this kit
   const exclusiveBundlePrice = useMemo(() => {
@@ -981,7 +984,8 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, route
   const handleAction = () => {
     const buyLabel = getBuyLabel(); // This was the problematic re-declaration
     if (buyLabel === "GRAB DEAL") {
-      openSelectedDealDetails();
+      const deal = selectedBundleDealDetails?.deal;
+      if (deal) handleDealCheckout(deal);
       return;
     }
     if (buyLabel === "NOTIFY ME") {
@@ -1004,7 +1008,8 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, route
     if (e) e.stopPropagation();
     const buyLabelFromFunction = getBuyLabel();
     if (buyLabelFromFunction === "GRAB DEAL") {
-      openSelectedDealDetails();
+      const deal = selectedBundleDealDetails?.deal;
+      if (deal) handleDealCheckout(deal);
       return;
     }
     
@@ -1118,8 +1123,9 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, route
   const modalLowestPrice = Number(selectedBundleDealDetails?.currentItemPrice || sellPrice || 0);
   const modalReferencePrice = selectedBundleDealDetails ? Number(lowestPrice || 0) : displayPrice;
   const activeBundleDeal = selectedBundleDealDetails?.deal || null;
-  const dealDetailsDeal = dealForDetails || activeBundleDeal;
   const activeBundleItemPrice = Number(selectedBundleDealDetails?.currentItemPrice || 0);
+  const activeBundlePrice = Number(selectedBundleDealDetails?.bundlePrice || activeBundleDeal?.bundlePrice || 0);
+  const isAdminBundleDealSelected = isAdmin && isAdminView && selectedAvailabilityGroup?.tag === 'bundleDeal' && activeBundleDeal;
   const isPublicOfferMode = !isAdminView && (isCollectionOnly || isSelectedCollectionGroup || isNotifyState);
   const showPublicModalPrice = !isAdminView && !isPublicOfferMode;
   const renderAvailabilityGroupButton = (group) => {
@@ -1165,11 +1171,13 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, route
 
         {group.label}
 
-        <span className={`ml-1 px-1.5 py-0.5 rounded-md text-[8px] ${
-          isSelected ? 'bg-white/20' : isCollectionGroup ? 'bg-red-500/10 text-red-500' : isBundleDealGroup ? 'bg-emerald-600/10 text-emerald-600' : 'bg-blue-600/10 text-blue-600'
-        }`}>
-          {isBundleDealGroup ? (group.deal?.kitIds || []).length : group.items.length}
-        </span>
+        {!isBundleDealGroup && (
+          <span className={`ml-1 px-1.5 py-0.5 rounded-md text-[8px] ${
+            isSelected ? 'bg-white/20' : isCollectionGroup ? 'bg-red-500/10 text-red-500' : 'bg-blue-600/10 text-blue-600'
+          }`}>
+            {group.items.length}
+          </span>
+        )}
       </button>
     );
   };
@@ -1198,6 +1206,10 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, route
                   {isExclusiveToBundle ? (
                     <div className="px-1.5 py-0.5 font-black uppercase tracking-tigther text-[10px] md:text-[11px] bg-emerald-500 text-white border-emerald-400 shadow-lg">
                       Bundle Exclusive
+                    </div>
+                  ) : isIncludedInBundleDeal ? (
+                    <div className="px-1.5 py-0.5 font-black uppercase tracking-tigther text-[10px] md:text-[11px] bg-emerald-500 text-white border-emerald-400 shadow-lg">
+                      Bundle Deal
                     </div>
                   ) : availableCount > 0 ? (
                     <div className="px-1.5 py-0.5 font-bold uppercase tracking-tigther text-[10px] md:text-[11px] bg-emerald-500 text-white border-emerald-400 shadow-lg">
@@ -1358,7 +1370,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, route
               />
               
               <div className="w-full flex flex-col relative sm:landscape:w-7/12 h-full min-h-0 overflow-hidden">
-                  <div className="flex-1 min-h-0 overflow-y-auto lg:pb-12 sm:pb-8 md:pb-6 space-y-5 text-left">
+                  <div className="flex-1 min-h-0 overflow-y-auto lg:pb-12 sm:pb-8 md:pb-6 space-y-5 text-left [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                     {/* Portrait Gallery */}
                     <div className="w-full overflow-hidden block sm:landscape:hidden">
                       <Gallery 
@@ -1386,7 +1398,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, route
                                       LOWEST PRICE
                                     </p>
 
-                                    <p className="text-[13px] md:text-[22px] font-black italic tracking-tighter opacity-80 leading-tight line-through">
+                                    <p className="text-[13px] md:text-[22px] font-black italic tracking-tighter leading-tight line-through">
                                       ₱{modalReferencePrice.toLocaleString()}
                                     </p>
                                   </div>
@@ -1403,7 +1415,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, route
                                       PROFIT
                                     </p>
 
-                                    <p className="text-[13px] md:text-[22px] font-black italic tracking-tighter opacity-80 leading-tight line-through text-emerald-600">
+                                    <p className="text-[13px] md:text-[22px] font-black italic tracking-tighter leading-tight line-through text-emerald-600">
                                       ₱{(adminDisplayInfo?.profit || 0).toLocaleString()}
                                     </p>
                                   </div>
@@ -1413,7 +1425,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, route
                           </div>
                       )}
                       <h2 className="pr-14 sm:pr-16 lg:pr-20 text-[16px] sm:text-4xl md:text-2xl lg:text-4xl font-black italic uppercase tracking-tighter leading-[0.9] break-words">{kit.name}</h2>
-                      <div className="flex flex-wrap items-center gap-2 text-[14px]  font-black uppercase tracking-[0.2em] opacity-90">
+                      <div className="flex flex-wrap items-center gap-2 text-[14px]  font-black uppercase tracking-[0.2em]">
                         {metaTags.map((tag, index) => (
                           <React.Fragment key={`${tag}-${index}`}>
                             {index > 0 && <span className="w-1.5 h-1.5 rounded-full bg-blue-600" />}
@@ -1435,7 +1447,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, route
                                       LOWEST PRICE
                                     </p>
 
-                                    <p className="text-[18px] font-black italic tracking-tighter opacity-80 leading-none line-through">
+                                    <p className="text-[18px] font-black italic tracking-tighter leading-none line-through">
                                       ₱{modalReferencePrice.toLocaleString()}
                                     </p>
                                   </div>
@@ -1452,7 +1464,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, route
                                       PROFIT
                                     </p>
 
-                                    <p className="text-[18px] font-black italic tracking-tighter opacity-80 leading-none line-through text-emerald-600">
+                                    <p className="text-[18px] font-black italic tracking-tighter leading-none line-through text-emerald-600">
                                       ₱{(adminDisplayInfo?.profit || 0).toLocaleString()}
                                     </p>
                                   </div>
@@ -1463,7 +1475,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, route
                       )}
                     </div>
                     <div className="space-y-2 px-8">
-                      <p className="text-[12px] font-black uppercase tracking-[0.1em] opacity-30 flex items-center gap-2 text-left"><Package size={18} /> Condition Details</p>
+                      <p className="text-[12px] font-black uppercase tracking-[0.1em] text-neutral-400 flex items-center gap-2 text-left"><Package size={18} /> Condition Details</p>
                       <div className="flex flex-wrap gap-1.5">
                         {conditionDetailsStock && getConditionDetails(conditionDetailsStock).length > 0 ? (
                           getConditionDetails(conditionDetailsStock).map((detail, i) => {
@@ -1494,7 +1506,7 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, route
                     <div className="space-y-4 px-8 pb-12">
                       <h4 className="text-[12px] font-black uppercase tracking-[0.1em] opacity-30 flex items-center gap-2 text-left"><Bike size={20} /> AVAILABILITY</h4>
                       <div className="flex flex-wrap gap-2">
-                        {availabilityGroups.length > 0 ? availabilityGroups.map(renderAvailabilityGroupButton) : <span className="text-[11px] font-black uppercase px-2.5 py-1 rounded-lg bg-neutral-500/10 text-neutral-500 border border-neutral-500/20">No Info</span>}
+                        {visibleAvailabilityGroups.length > 0 ? visibleAvailabilityGroups.map(renderAvailabilityGroupButton) : <span className="text-[11px] font-black uppercase px-2.5 py-1 rounded-lg bg-neutral-500/10 text-neutral-500 border border-neutral-500/20">No Info</span>}
                       </div>
 
                       {isAdmin && isAdminView && collectionGroupedVariants.length > 0 && (
@@ -1508,36 +1520,104 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, route
                         </div>
                       )}
 
-                      {!isAdminView && bundleDealDetails.length > 0 && (
+                      {bundleDealDetails.length > 0 && (
                         <div className="pt-4 space-y-2">
                           <h4 className="text-[12px] font-black uppercase tracking-[0.1em] opacity-30 flex items-center gap-2 text-left">
-                            <Gift size={18} /> DEALS
+                            <Gift size={18} /> BUNDLE DEALS
                           </h4>
-                          <div className="space-y-2">
-                            {bundleDealDetails.map(({ deal, includedKits, bundlePrice }) => (
-                              <div key={deal.id} className="flex items-center justify-between gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3">
-                                <div className="min-w-0 flex-1 text-left">
-                                  <p className="truncate text-[12px] font-black uppercase italic leading-tight text-emerald-500">{deal.name}</p>
-                                  <p className="mt-1 text-[9px] font-black uppercase tracking-widest opacity-50">
-                                    Bundle Deal / {getDealCountdownLabel(deal.validUntil)}
-                                  </p>
-                                  <div className="mt-2 flex -space-x-2 overflow-hidden">
-                                    {includedKits.slice(0, 6).map(includedKit => (
-                                      <img
-                                        key={includedKit.id}
-                                        src={resolveImage(includedKit.image, includedKit.images)}
-                                        className="h-8 w-8 rounded-full border-2 border-white bg-white object-cover dark:border-neutral-900"
-                                        alt=""
-                                      />
-                                    ))}
+                          <div className="space-y-4">
+                            {bundleDealDetails.map(({ deal, includedKits }) => {
+                              const isSelectedBundlePanel = selectedBundleDealDetails?.deal?.id === deal.id;
+                              const bundleGroup = bundleDealGroups.find(group => group.deal?.id === deal.id);
+                              return (
+                              <div
+                                key={deal.id}
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => bundleGroup && handleSelectGroup(bundleGroup)}
+                                onKeyDown={(event) => {
+                                  if ((event.key === 'Enter' || event.key === ' ') && bundleGroup) {
+                                    event.preventDefault();
+                                    handleSelectGroup(bundleGroup);
+                                  }
+                                }}
+                                className="relative space-y-2 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 transition-colors duration-300 cursor-pointer hover:border-emerald-500/40"
+                              >
+                                <div className="flex items-start justify-between gap-3 px-1">
+                                  <div className="min-w-0 flex-1 text-left">
+                                    <p className="truncate text-[13px] font-black uppercase italic leading-tight text-emerald-500">{deal.name}</p>
+                                  </div>
+                                  <div className="shrink-0 pt-0.5 text-right">
+                                    <p className={`text-[12px] font-black uppercase`}>{getDealCountdownLabel(deal.validUntil)}</p>
                                   </div>
                                 </div>
-                                <div className="text-right shrink-0">
-                                  <p className="text-[13px] font-black italic text-amber-500">&#8369;{bundlePrice.toLocaleString()}</p>
-                                  <p className="text-[8px] font-black uppercase opacity-40">{(deal.kitIds || []).length} Kits</p>
-                                </div>
+
+                                {isSelectedBundlePanel ? (
+                                  <div>
+                                    {includedKits.map((includedKit, includedIndex) => {
+                                      const bundleKitPrice = Number(getBundleKitPrice(deal, includedKit, allKits, exclusiveDiscountPercent) || 0);
+                                      const stocks = Object.values(includedKit?.stocks || {});
+                                      const sourceStock = stocks.find(stock => stockMatchesDealSource(stock, deal.stockSource || 'onhand'));
+                                      const referencePrice = Number(sourceStock?.sellPrice || stocks[0]?.sellPrice || includedKit?.sellPrice || 0);
+
+                                      return (
+                                        <div key={includedKit.id} className={`flex w-full items-center gap-4 py-3 transition-all duration-300 ${includedIndex === 0 ? 'pt-0' : ''} ${includedIndex === includedKits.length - 1 ? 'pb-0' : ''} ${includedIndex > 0 ? 'border-t border-black/5 dark:border-white/10' : ''}`}>
+                                          <div className="flex items-center justify-center shrink-0">
+                                            {resolveImage(includedKit.image, includedKit.images) ? (
+                                              <img
+                                                src={resolveImage(includedKit.image, includedKit.images)}
+                                                className="w-20 h-20 md:landscape:w-40 md:landscape:h-22 object-cover object-[center_25%] rounded-xl border border-neutral-100 dark:border-neutral-800 transition-opacity duration-500"
+                                                alt={includedKit.name}
+                                              />
+                                            ) : (
+                                              <div className="w-20 h-20 sm:landscape:w-[60px] sm:landscape:h-[40px] md:w-[60px] md:h-[40px] rounded-xl border border-neutral-100 bg-neutral-200 dark:border-neutral-800 dark:bg-neutral-800 flex items-center justify-center">
+                                                <Package size={24} className="opacity-20" />
+                                              </div>
+                                            )}
+                                          </div>
+                                          <div className="min-w-0 flex-1 text-left">
+                                            <p className="line-clamp-1 text-[13px] font-black uppercase leading-tight">{includedKit.name}</p>
+                                            <p className="mt-0.5 truncate text-[13px] font-black uppercase tracking-widest text-neutral-900 dark:text-white">
+                                              {[includedKit.brand, includedKit.specs?.line, includedKit.specs?.scale].filter(Boolean).join(' / ') || 'Included Kit'}
+                                            </p>
+                                          </div>
+                                          <div className="text-right shrink-0">
+                                            <p className="text-[14px] font-black italic text-emerald-600">&#8369;{bundleKitPrice.toLocaleString()}</p>
+                                            {referencePrice > 0 && referencePrice !== bundleKitPrice && (
+                                              <p className="mt-0.5 text-[14px] font-black line-through text-black">&#8369;{referencePrice.toLocaleString()}</p>
+                                            )}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  <div className="space-y-1 px-1 pt-1">
+                                    <div className="flex min-w-0 flex-wrap items-center pl-1">
+                                      {includedKits.map((includedKit, includedIndex) => (
+                                        <div key={includedKit.id} className={`h-20 w-20 overflow-hidden rounded-full border-2 border-white bg-neutral-200 shadow-sm dark:bg-neutral-800 ${includedIndex > 0 ? '-ml-1.5' : ''}`}>
+                                          {resolveImage(includedKit.image, includedKit.images) ? (
+                                            <img
+                                              src={resolveImage(includedKit.image, includedKit.images)}
+                                              className="h-full w-full object-cover object-[center_25%]"
+                                              alt=""
+                                            />
+                                          ) : (
+                                            <div className="flex h-full w-full items-center justify-center">
+                                              <Package size={10} className="opacity-20" />
+                                            </div>
+                                          )}
+                                        </div>
+                                      ))}
+                                    </div>
+                                    <div className="flex justify-end">
+                                      <p className="text-[14px] font-black italic leading-none text-amber-500">&#8369;{Number(deal.bundlePrice || 0).toLocaleString()}</p>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         </div>
                       )}
@@ -1579,18 +1659,28 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, route
                                   <Bell size={14} className="fill-white" /> {isCollectionOnly ? "SEND OFFER" : hasReserved ? "SEND DEAL" : "NOTIFY ME!"}
                                 </button>
                             </div>
+                          ) : isAdminBundleDealSelected ? (
+                            <div className="flex w-full items-stretch justify-center">
+                              <button
+                                onClick={handleEditSelectedDeal}
+                                disabled={typeof onEditDeal !== 'function'}
+                                className="w-full max-w-sm flex items-center justify-center gap-2 px-2 py-4 rounded-full text-white font-black italic uppercase text-[12px] tracking-widest shadow-lg transition-all active:scale-95 whitespace-nowrap disabled:opacity-30 bg-gradient-to-br from-blue-500 to-blue-600 shadow-blue-500/20"
+                              >
+                                <Pencil size={14} /> EDIT DEAL
+                              </button>
+                            </div>
                           ) : activeBundleDeal && activeBundleItemPrice > 0 && !isAdminView ? (
-                            <div className="flex flex-col w-full gap-3">
-                              {/* Price Difference Display */}
-                              <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 rounded-2xl bg-black/5 dark:bg-white/5 border border-white/5 text-[10px] font-bold">
-                                <span className="opacity-50">ORIGINAL PRICE: ₱{lowestPrice.toLocaleString()}</span>
-                                <span className="text-emerald-500 font-black">BUNDLE DISCOUNT: -₱{Math.max(0, lowestPrice - activeBundleItemPrice).toLocaleString()}</span>
-                                <span className="text-emerald-500 font-black text-xs">PROMO: ₱{activeBundleItemPrice.toLocaleString()}</span>
+                            <div className="flex w-full items-center justify-between gap-3">
+                              <div className="min-w-0 flex-1 px-4 py-3 rounded-2xl bg-black/5 dark:bg-white/5 border border-white/5">
+                                <div className="grid grid-cols-2 items-center text-center text-[14px] font-black uppercase tracking-tight">
+                                  <span className="text-emerald-500 whitespace-nowrap">Save &#8369;{Math.max(0, lowestPrice - activeBundleItemPrice).toLocaleString()}</span>
+                                  <span className="text-amber-500 whitespace-nowrap">Deal Price: &#8369;{activeBundlePrice.toLocaleString()}</span>
+                                </div>
                               </div>
-                              <div className="flex w-full items-stretch justify-center">
+                              <div className="w-[42%] max-w-xs shrink-0 flex items-stretch justify-center">
                                 <button 
-                                  onClick={openSelectedDealDetails} 
-                                  className="w-full max-w-sm flex items-center justify-center gap-2 px-2 py-4 rounded-full text-white font-black italic uppercase text-[12px] tracking-widest shadow-lg transition-all active:scale-95 whitespace-nowrap bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-emerald-500/20"
+                                  onClick={() => handleDealCheckout(activeBundleDeal)} 
+                                  className="w-full flex items-center justify-center gap-2 px-2 py-4 rounded-full text-white font-black italic uppercase text-[12px] tracking-widest shadow-lg transition-all active:scale-95 whitespace-nowrap bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-emerald-500/20"
                                 >
                                   <Zap size={14} fill="currentColor" /> GRAB DEAL
                                 </button>
@@ -1634,15 +1724,6 @@ export default function ProductCard({ kit, onBuyNowClick, onEdit, onClick, route
           </div>
         </div>
       )}
-      {isDealDetailsOpen && dealDetailsDeal && (
-        <DealDetailsModal 
-          isOpen={isDealDetailsOpen} 
-          onClose={() => { setIsDealDetailsOpen(false); setDealForDetails(null); }} 
-          deal={dealDetailsDeal} 
-          onBuyNow={handleDealCheckout} 
-        />
-      )}
-
     </>
   );
 }

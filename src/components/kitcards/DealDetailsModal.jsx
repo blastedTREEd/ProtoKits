@@ -1,7 +1,8 @@
 import React, { useMemo, useEffect, useRef } from 'react';
-import { X, Gift, Zap, ArrowRight, Star, Settings } from 'lucide-react';
+import { X, Gift, Zap, ArrowRight, Settings } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
+import { distributeRoundedBundlePrices } from '../../utils/bundlePricing';
 
 function resolveImage(idOrUrl, imagesArray) {
   if (!idOrUrl) return '';
@@ -97,15 +98,19 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, isEd
     const exclusivePool = exclusiveKitIds.length > 0 ? totalDiscount * pct : 0;
     const standardPool = totalDiscount - exclusivePool;
 
-    const pricing = refPrices.map(({ kitId, refPrice, isExclusive }) => {
+    const pricingRows = refPrices.map(({ kitId, refPrice, isExclusive }) => {
       let kitDiscount = 0;
       if (isExclusive && exclusiveRefTotal > 0) {
         kitDiscount = exclusivePool * (refPrice / exclusiveRefTotal);
       } else if (!isExclusive && standardRefTotal > 0) {
         kitDiscount = standardPool * (refPrice / standardRefTotal);
       }
-      return { kitId, refPrice, distributedPrice: Math.round(refPrice - kitDiscount), isExclusive };
+      return { kitId, refPrice, rawPrice: Math.max(0, refPrice - kitDiscount), isExclusive };
     });
+    const pricing = distributeRoundedBundlePrices(pricingRows, bPrice).map(row => ({
+      ...row,
+      distributedPrice: row.finalPrice
+    }));
 
     return { normalTotal: nTotal, bundlePrice: bPrice, savings: nTotal > bPrice ? nTotal - bPrice : 0, kitPricing: pricing };
   }, [includedKits, deal, exclusiveDiscountPercent]);
@@ -196,12 +201,9 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, isEd
                   <div key={kit.id} className={`flex items-center gap-4 p-4 rounded-3xl border ${isExclusive ? 'bg-emerald-500/5 dark:bg-emerald-500/10 border-emerald-500/20' : 'bg-black/5 dark:bg-white/5 border-white/5'}`}>
                      <img src={resolveImage(kit.image, kit.images)} className="w-12 h-12 rounded-xl object-cover bg-white shadow-sm" alt="" />
                      <div className="flex-1 text-left">
-                        <div className="flex items-center gap-1.5">
-                          <p className="text-[11px] font-black uppercase leading-tight line-clamp-1">{kit.name}</p>
-                          {isExclusive && <Star size={10} className="text-emerald-500 fill-emerald-500 shrink-0" />}
-                        </div>
+                        <p className="text-[11px] font-black uppercase leading-tight line-clamp-1">{kit.name}</p>
                         <p className="text-[9px] font-bold opacity-40 uppercase mt-1">
-                          {isExclusive ? <span className="text-emerald-500 opacity-100">EXCLUSIVE</span> : kit.specs?.line || ''}
+                          {kit.specs?.line || ''}
                         </p>
                      </div>
                      <div className="text-right">

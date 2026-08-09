@@ -3,6 +3,7 @@ import { X, Plus, Trash2, Gift, Lock, Ban, Search, ChevronRight, ChevronLeft, Lo
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
 import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
+import { distributeRoundedBundlePrices } from '../../utils/bundlePricing';
 
 /* ─── Image resolver ─── */
 function resolveImage(idOrUrl, imagesArray) {
@@ -62,7 +63,7 @@ function getBundleDiscountBreakdown(kits = [], selectedIds = [], exclusiveIds = 
   const exclusivePool = exclusiveTotal > 0 ? cappedDiscount * (Math.min(100, Math.max(0, Number(exclusivePercent) || 0)) / 100) : 0;
   const standardPool = cappedDiscount - exclusivePool;
 
-  const withDiscounts = rows.map(row => {
+  const rowsWithRawPrices = rows.map(row => {
     let discount = 0;
     if (row.isExclusive && exclusiveTotal > 0) {
       discount = exclusivePool * (row.sell / exclusiveTotal);
@@ -72,16 +73,21 @@ function getBundleDiscountBreakdown(kits = [], selectedIds = [], exclusiveIds = 
     return {
       ...row,
       discount,
-      finalPrice: Math.max(0, Math.round(row.sell - discount))
+      rawFinalPrice: Math.max(0, row.sell - discount)
     };
   });
+  const bundlePrice = Math.max(0, totalSell - cappedDiscount);
+  const withDiscounts = distributeRoundedBundlePrices(rowsWithRawPrices, bundlePrice).map(row => ({
+    ...row,
+    discount: Math.max(0, row.sell - row.finalPrice)
+  }));
 
   return {
     rows: withDiscounts,
     totalSell,
     totalCost,
     discountAmount: cappedDiscount,
-    bundlePrice: Math.max(0, totalSell - cappedDiscount),
+    bundlePrice,
     projectedProfit: totalSell - totalCost - cappedDiscount
   };
 }
