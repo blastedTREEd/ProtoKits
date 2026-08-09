@@ -555,14 +555,15 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     });
   }, [allKits, deals, kitId, kit, now]);
 
-  const hasBundleExclusiveDeal = bundleOnlyDeals.length > 0;
+  const hasBundleExclusiveDeal = bundleOnlyDeals.some(deal => (deal.exclusiveKitIds || []).includes(kitId));
 
   const bundleDealDetails = useMemo(() => {
     return bundleOnlyDeals.map(deal => {
       const orderedKitIds = [
+        kitId,
         ...(deal.previewKitIds || []),
         ...(deal.kitIds || []).filter(id => !(deal.previewKitIds || []).includes(id))
-      ];
+      ].filter((id, index, ids) => id && ids.indexOf(id) === index);
       const includedKits = orderedKitIds.map(id => id === kitId ? kit : (allKits || []).find(k => k.id === id)).filter(Boolean);
       const currentKitStock = stockList.find(stock => isBundlePurchasableStock(stock, deal.stockSource || 'onhand')) || null;
       const currentItemPrice = getBundleKitPrice(deal, kit, allKits, exclusiveDiscountPercent);
@@ -1169,6 +1170,62 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   const isAdminBundleDealSelected = isAdmin && isAdminView && selectedAvailabilityGroup?.tag === 'bundleDeal' && activeBundleDeal;
   const isPublicOfferMode = !isAdminView && (isCollectionOnly || isSelectedCollectionGroup || isNotifyState);
   const showPublicModalPrice = !isAdminView && !isPublicOfferMode;
+  const gridStatusBadges = [];
+  if (isEarlyAccess) {
+    gridStatusBadges.push({
+      label: 'Early Access',
+      className: 'bg-blue-500 text-white border-blue-400 shadow-lg animate-pulse'
+    });
+  }
+  if (isFSEligible) {
+    gridStatusBadges.push({
+      label: 'Free Shipping',
+      className: 'bg-emerald-500 text-white border-emerald-400 shadow-lg flex items-center gap-1'
+    });
+  }
+  if (availableCount > 0) {
+    gridStatusBadges.push({
+      label: `${availableCount} Available`,
+      isAvailabilityCount: true,
+      className: 'bg-emerald-500 text-white border-emerald-400 shadow-lg'
+    });
+  }
+  if (isExclusiveToBundle) {
+    gridStatusBadges.push({
+      label: 'Bundle Exclusive',
+      className: 'bg-emerald-500 text-white border-emerald-400 shadow-lg'
+    });
+  } else if (isIncludedInBundleDeal) {
+    gridStatusBadges.push({
+      label: 'Bundle Deal',
+      className: 'bg-emerald-500 text-white border-emerald-400 shadow-lg'
+    });
+  } else if (availableCount <= 0 && isAdminView && shelfCount > 0) {
+    gridStatusBadges.push({
+      label: `${shelfCount} Reserved`,
+      className: 'bg-red-500 text-white border-red-400 shadow-lg'
+    });
+  } else if (availableCount <= 0 && isCollectionOnly) {
+    gridStatusBadges.push({
+      label: 'Collection',
+      className: 'bg-red-500 text-white border-red-400 shadow-lg'
+    });
+  } else if (availableCount <= 0 && stockList.some(s => s.isReserved)) {
+    gridStatusBadges.push({
+      label: isAdminView ? `${stockList.filter(s => s.isReserved).length} Reserved` : 'NOT FOR SALE',
+      className: `${isAdminView ? 'bg-blue-500 text-white border-blue-400' : 'bg-red-500 text-white border-red-400'} shadow-lg`
+    });
+  } else if (availableCount <= 0) {
+    gridStatusBadges.push({
+      label: 'Out of Stock',
+      className: 'bg-gray-500 text-white border-gray-400 shadow-lg'
+    });
+  }
+  const sortedGridStatusBadges = [...gridStatusBadges].sort((a, b) => {
+    if (a.isAvailabilityCount && !b.isAvailabilityCount) return 1;
+    if (!a.isAvailabilityCount && b.isAvailabilityCount) return -1;
+    return b.label.length - a.label.length;
+  });
   const renderAvailabilityGroupButton = (group) => {
     const isSelected = selectedGroupLabel === (group.key || group.label);
     const availableCountInGroup = group.items.filter(s => !s.isReserved && !s.order?.orderId).length;
@@ -1242,39 +1299,14 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
         }`}>
           {/* Status Badges Container (Moved here to appear above inner border) */}
           <div className="absolute top-4 left-0 z-50 flex flex-col items-start">
-                  {isEarlyAccess && <div className="px-1.5 py-0.5 font-black uppercase tracking-tigther text-[10px] md:text-[11px] bg-blue-500 text-white border-blue-400 shadow-lg animate-pulse mb-1">Early Access</div>}
-                  {isFSEligible && <div className="px-1.5 py-0.5 font-black uppercase tracking-tigther text-[10px] md:text-[11px] bg-emerald-500 text-white border-emerald-400 shadow-lg mb-1 flex items-center gap-1">Free Shipping</div>}
-                  {isExclusiveToBundle ? (
-                    <div className="px-1.5 py-0.5 font-black uppercase tracking-tigther text-[10px] md:text-[11px] bg-emerald-500 text-white border-emerald-400 shadow-lg">
-                      Bundle Exclusive
+                  {sortedGridStatusBadges.map((badge, index) => (
+                    <div
+                      key={`${badge.label}-${index}`}
+                      className={`px-1.5 py-0.5 font-bold uppercase tracking-tigther text-[10px] md:text-[11px] ${badge.className} ${index < sortedGridStatusBadges.length - 1 ? 'mb-1' : ''}`}
+                    >
+                      {badge.label}
                     </div>
-                  ) : isIncludedInBundleDeal ? (
-                    <div className="px-1.5 py-0.5 font-black uppercase tracking-tigther text-[10px] md:text-[11px] bg-emerald-500 text-white border-emerald-400 shadow-lg">
-                      Bundle Deal
-                    </div>
-                  ) : availableCount > 0 ? (
-                    <div className="px-1.5 py-0.5 font-bold uppercase tracking-tigther text-[10px] md:text-[11px] bg-emerald-500 text-white border-emerald-400 shadow-lg">
-                       {availableCount} Available
-                    </div>
-                  ) : hasBundleExclusiveDeal ? (
-                    <div className="px-1.5 py-0.5 font-black uppercase tracking-tigther text-[10px] md:text-[11px] bg-emerald-500 text-white border-emerald-400 shadow-lg">
-                      Bundle Exclusive
-                    </div>
-                  ) : isAdminView && shelfCount > 0 ? (
-                    <div className="px-1.5 py-0.5 font-black uppercase tracking-tigther text-[10px] md:text-[11px] bg-red-500 text-white border-red-400 shadow-lg">
-                      {shelfCount} Reserved
-                    </div>
-                  ) : isCollectionOnly ? (
-                    <div className="px-1.5 py-0.5 font-black uppercase tracking-tigther text-[10px] md:text-[11px] bg-red-500 text-white border-red-400 shadow-lg">
-                      Collection
-                    </div>
-                  ) : stockList.some(s => s.isReserved) ? (
-                    <div className={`px-1.5 py-0.5 font-black uppercase tracking-tigther text-[10px] md:text-[11px] ${isAdminView ? 'bg-blue-500 text-white border-blue-400' : 'bg-red-500 text-white border-red-400'} shadow-lg`}>
-                      {isAdminView ? `${stockList.filter(s => s.isReserved).length} Reserved` : 'NOT FOR SALE'}
-                    </div>
-                  ) : (
-                    <div className="px-1.5 py-0.5 font-black uppercase tracking-tigther text-[10px] md:text-[11px] bg-gray-500 text-white border-gray-400 shadow-lg">Out of Stock</div>
-                  )}
+                  ))}
                </div>
           <div className="p-3 flex flex-col h-full">
             <div className="relative aspect-square rounded-2xl overflow-hidden mb-3 bg-[var(--color-bg)] shrink-0 z-0">
@@ -1651,6 +1683,11 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                         </div>
                                       );
                                     })}
+                                    <div className="flex justify-end pt-2">
+                                      <p className="text-[12px] font-black uppercase leading-none text-emerald-600">
+                                        Save &#8369;{Math.max(0, lowestPrice - activeBundleItemPrice).toLocaleString()}
+                                      </p>
+                                    </div>
                                   </div>
                                 ) : (
                                   <div className="space-y-1 px-1 pt-1">
@@ -1744,13 +1781,12 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                             </div>
                           ) : activeBundleDeal && activeBundleItemPrice > 0 && !isAdminView ? (
                             <div className="flex w-full items-center justify-between gap-3">
-                              <div className="min-w-0 flex-1 px-4 py-3 rounded-2xl bg-black/5 dark:bg-white/5 border border-white/5">
-                                <div className="grid grid-cols-2 items-center text-center text-[14px] font-black uppercase tracking-tight">
-                                  <span className="text-emerald-500 whitespace-nowrap">Save &#8369;{Math.max(0, lowestPrice - activeBundleItemPrice).toLocaleString()}</span>
+                              <div className="min-w-0 flex-1 px-4 py-3 rounded-2xl border border-black/5 dark:border-white/10">
+                                <div className="flex items-center justify-center text-center text-[14px] font-black uppercase tracking-tight">
                                   <span className="text-amber-500 whitespace-nowrap">Deal Price: &#8369;{activeBundlePrice.toLocaleString()}</span>
                                 </div>
                               </div>
-                              <div className="w-[42%] max-w-xs shrink-0 flex items-stretch justify-center">
+                              <div className="min-w-0 flex-1 flex items-stretch justify-center">
                                 <button 
                                   onClick={() => handleDealCheckout(activeBundleDeal)} 
                                   className="w-full flex items-center justify-center gap-2 px-2 py-4 rounded-full text-white font-black italic uppercase text-[12px] tracking-widest shadow-lg transition-all active:scale-95 whitespace-nowrap bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-emerald-500/20"
