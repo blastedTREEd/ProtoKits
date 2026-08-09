@@ -980,12 +980,22 @@ export default function Orders() {
     const rd = order?.receiverDetails || {};
     const flags = getShippingFlags(order);
     const addressParts = [rd.houseNo, rd.houseDetails, rd.subdivision, rd.barangay, rd.city, rd.province, rd.zipCode].filter(Boolean);
+    // Pagkatapos ma-verify ang payment, ipakita ang full address (may house no.) para sa couriers.
+    // Para sa Self-Pickup, ipakita ang exactAddress (mula sa paired pickup point na may house no.) pagkatapos ma-verify.
+    const paymentVerified = !['Reserved', 'Waiting', 'Validating'].includes(order?.status);
+    const pickupAddress = flags.isSelfPickup
+      ? (paymentVerified
+          ? (order?.pickupDetails?.exactAddress || order?.pickupDetails?.publicAddress || order?.pickupLocation)
+          : (order?.pickupDetails?.publicAddress || order?.pickupLocation))
+      : paymentVerified
+        ? (order?.pickupDetails?.address || order?.pickupLocation)
+        : (order?.pickupDetails?.publicAddress || order?.pickupLocation);
     const location = flags.isLbc && rd.lbcBranch
       ? rd.lbcBranch
       : flags.isMeetup
-        ? order?.meetupLocation
+        ? (paymentVerified ? (order?.pickupDetails?.address || order?.meetupLocation) : order?.meetupLocation)
         : flags.isSelfPickup
-          ? order?.pickupLocation
+          ? pickupAddress
           : addressParts.join(', ');
 
     return {

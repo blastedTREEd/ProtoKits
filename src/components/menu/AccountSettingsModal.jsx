@@ -52,7 +52,9 @@ export default function AccountSettingsModal({ isOpen, onClose }) {
   const isLoggingIn = isSyncing;
   const [authError, setAuthError] = useState(null);
   const scrollRef = useRef(null);
-  const [canDrag, setCanDrag] = useState(true);
+  const [isOverMap, setIsOverMap] = useState(false);
+  const [isScrolled, setIsScrolled] = useState(false);
+  const canDrag = !isOverMap && !isScrolled;
   const [showFacebook, setShowFacebook] = useState(false);
   const holdTimerRef = useRef(null);
   const timeoutTimerRef = useRef(null);
@@ -279,7 +281,7 @@ export default function AccountSettingsModal({ isOpen, onClose }) {
   };
 
   const handleScroll = (e) => {
-    setCanDrag(e.target.scrollTop <= 0);
+    setIsScrolled(e.target.scrollTop > 0);
   };
 
   const mapCenter = [formData.lat, formData.lng];
@@ -420,7 +422,15 @@ export default function AccountSettingsModal({ isOpen, onClose }) {
                     <div className="relative text-left"><Map className="absolute left-4 top-3.5 text-blue-600" size={18} /><input placeholder="Province" value={formData.province} onChange={(e) => setFormData(p => ({...p, province: e.target.value}))} onBlur={(e) => handleBlur('province', e.target.value)} className={inputClass} /></div>
                   </div>
                   
-                  <div className="w-full h-52 rounded-[2.5rem] overflow-hidden border-2 border-blue-600/10 mt-2">
+                  <div 
+                    className="w-full h-52 rounded-[2.5rem] overflow-hidden border-2 border-blue-600/10 mt-2"
+                    style={{ touchAction: 'none' }}
+                    onMouseEnter={() => setIsOverMap(true)}
+                    onMouseLeave={() => setIsOverMap(false)}
+                    onTouchStart={() => setIsOverMap(true)}
+                    onTouchEnd={() => setIsOverMap(false)}
+                    onTouchCancel={() => setIsOverMap(false)}
+                  >
                     <MapContainer center={mapCenter} zoom={16} style={{ height: '100%', width: '100%' }}>
                       <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
                       <Marker position={mapCenter} draggable={true} eventHandlers={{ dragend: (e) => { const pos = e.target.getLatLng(); setFormData(prev => ({ ...prev, lat: pos.lat, lng: pos.lng })); } }} />

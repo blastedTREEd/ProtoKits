@@ -1886,13 +1886,18 @@ const handleFinalizeOrder = async () => {
             : (checkoutData.shippingMethod || 'Standard'),
         meetupLocation: usesMeetupLocation ? (checkoutData.meetupLocation || null) : null,
         pickupLocation: usesPickupPoint ? (checkoutData.pickupLocation || null) : null,
-        pickupDetails: selectedLocalPlaceDetails ? {
-          label: getCheckoutPlaceLabel(selectedLocalPlaceDetails) || 'Pickup Point',
-          address: formatPlaceAddress(selectedLocalPlaceDetails) || '',
-          publicAddress: formatPlaceAddressWithoutHouseNo(selectedLocalPlaceDetails) || '',
-          lat: selectedLocalPlaceDetails.lat || null,
-          lng: selectedLocalPlaceDetails.lng || null
-        } : null,
+        pickupDetails: selectedLocalPlaceDetails ? (() => {
+          // Hanapin ang paired pickup point na may house no. para sa exact pickup address.
+          const exactPlace = pickupPoints.find(p => p.isActive !== false && p.houseNo);
+          return {
+            label: getCheckoutPlaceLabel(selectedLocalPlaceDetails) || 'Pickup Point',
+            address: formatPlaceAddress(selectedLocalPlaceDetails) || '',
+            publicAddress: formatPlaceAddressWithoutHouseNo(selectedLocalPlaceDetails) || '',
+            exactAddress: exactPlace ? formatPlaceAddress(exactPlace) : '',
+            lat: selectedLocalPlaceDetails.lat || null,
+            lng: selectedLocalPlaceDetails.lng || null
+          };
+        })() : null,
         preferredSchedule: checkoutData.shippingMethod === 'Seller Meetup' 
           ? (checkoutData.meetupSchedule || null)
           : checkoutData.shippingMethod === 'Self-Pickup' 
@@ -2331,9 +2336,14 @@ const handleFinalizeOrder = async () => {
           })
       : [];
     const showLocationSelect = usesPickupPoint || usesMeetupLocation;
+    const isSelfPickupMethod = String(checkoutData.shippingMethod || '').toUpperCase().includes('SELF-PICKUP');
+    // Para sa Self-Pickup, itago ang mga pickup points na may house no. para sa privacy ng admin.
+    const filteredPickupPoints = isSelfPickupMethod
+      ? pickupPoints.filter(p => !p.houseNo)
+      : pickupPoints;
     const locationOptions = usesMeetupLocation
       ? (storeAdmin?.pickupDetails?.meetup?.places || []).filter(p => p.isActive !== false)
-      : pickupPoints;
+      : filteredPickupPoints;
     const selectedLocationIndex = usesMeetupLocation ? checkoutData.meetupLocationIndex : checkoutData.pickupLocationIndex;
     const locationDiscountBadge = showLocationSelect && checkoutData.shippingMethod && !hasConfiguredSuboptions(activeMethodConfig)
       ? getShippingDiscountLabel(checkoutData.shippingMethod)
@@ -3091,7 +3101,9 @@ const handleFinalizeOrder = async () => {
                                   <p className="text-[8px] font-black uppercase opacity-30 tracking-[0.2em]">Pickup Point</p>
                                   <div className="flex items-center gap-2">
                                     <MapPinCheckInside size={16} className="text-blue-600" />
-                                    <p className="text-sm font-black uppercase italic text-blue-600">{formatPickupStreetAddress(selectedPickupDetails) || formatPlaceAddress(selectedPickupDetails) || 'Pickup Point'}</p>
+                                    <p className="text-sm font-black uppercase italic text-blue-600">
+                                      {getCheckoutPlaceAddress(selectedPickupDetails) || 'Pickup Point'}
+                                    </p>
                                   </div>
                                 </div>
                                 <div className="p-4 rounded-2xl bg-blue-600/5 border border-blue-600/10 space-y-2">

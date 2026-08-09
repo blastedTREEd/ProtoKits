@@ -65,7 +65,9 @@ export default function FulfillmentModal({ isOpen, onClose }) {
   const [selectedCategory, setSelectedPickupCategory] = useState('methods');
   const [formData, setFormData] = useState(null);
   const scrollRef = useRef(null);
-  const [canDrag, setCanDrag] = useState(true);
+  const [isOverMap, setIsOverMap] = useState(false);
+  const [isScrolled, setIsScrolled] = useState(false);
+  const canDrag = !isOverMap && !isScrolled;
 
   const initialFormData = useMemo(() => {
     const isMeetupCat = selectedCategory === 'meetup';
@@ -114,7 +116,7 @@ export default function FulfillmentModal({ isOpen, onClose }) {
   }, [isOpen]);
 
   const handleScroll = (e) => {
-    setCanDrag(e.target.scrollTop <= 0);
+    setIsScrolled(e.target.scrollTop > 0);
   };
 
   const categories = [
@@ -474,7 +476,15 @@ const handleDeletePlace = async (type, index = null) => {
                       <div className="relative text-left"><Building2 className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="City" value={formData.city} onChange={(e) => handleAddressChange({ city: e.target.value })} onBlur={(e) => handleBlur('city', e.target.value)} className={inputClass} /></div>
                       <div className="relative text-left"><Map className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="Province" value={formData.province} onChange={(e) => handleAddressChange({ province: e.target.value })} onBlur={(e) => handleBlur('province', e.target.value)} className={inputClass} /></div>
                       
-                      <div className="w-full h-40 rounded-2xl overflow-hidden mt-4">
+                      <div 
+                        className="w-full h-40 rounded-2xl overflow-hidden mt-4"
+                        style={{ touchAction: 'none' }}
+                        onMouseEnter={() => setIsOverMap(true)}
+                        onMouseLeave={() => setIsOverMap(false)}
+                        onTouchStart={() => setIsOverMap(true)}
+                        onTouchEnd={() => setIsOverMap(false)}
+                        onTouchCancel={() => setIsOverMap(false)}
+                      >
                         <MapContainer center={mapCenter} zoom={16} minZoom={12} maxZoom={18} style={{ height: '100%', width: '100%' }} dragging={true} scrollWheelZoom={true} zoomControl={true}>
                           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
                           <Marker 
