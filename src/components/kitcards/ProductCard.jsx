@@ -1704,7 +1704,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                               handleOpenIncludedKit(includedKit, event);
                                             }
                                           }}
-                                          className={`h-5 w-5 cursor-pointer overflow-hidden rounded-full border-2 border-white bg-neutral-200 shadow-sm transition-transform hover:scale-110 dark:bg-neutral-800 ${includedIndex > 0 ? '-ml-1.5' : ''}`}
+                                          className={`h-20 w-20 cursor-pointer overflow-hidden rounded-full border-2 border-white bg-neutral-200 shadow-sm transition-transform hover:scale-110 dark:bg-neutral-800 ${includedIndex > 0 ? '-ml-1.5' : ''}`}
                                         >
                                           {resolveImage(includedKit.image, includedKit.images) ? (
                                             <img
