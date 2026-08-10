@@ -685,7 +685,7 @@ export default function Kits() {
                           size={16} 
                           className={`transition-all ${isSortOpen ? "text-blue-600 fill-blue-600" : "text-black dark:text-white opacity-70"} group-hover:text-white group-hover:fill-white group-hover:opacity-100`} 
                         />
-                        <span className="text-[9px] font-black uppercase tracking-widest hidden sm:inline text-black dark:text-white group-hover:text-white">Sort</span>
+                        <span className="text-[11px] font-black uppercase tracking-widest hidden sm:inline text-black dark:text-white group-hover:text-white">Sort</span>
                         <ChevronDown size={12} className={`text-black dark:text-white opacity-40 transition-transform ${isSortOpen ? 'rotate-180' : ''} group-hover:text-white group-hover:opacity-100`} />
                     </button>
 
@@ -765,7 +765,7 @@ export default function Kits() {
                   showSearchBar ? 'top-[116px] sm:top-[120px]' : 'top-[56px] sm:top-[60px]'
                 } flex items-center gap-3`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
-                  <span className="text-[9px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Deals</span>
+                  <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Deals</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                 </div>
               )}
@@ -854,7 +854,7 @@ export default function Kits() {
                   showSearchBar ? 'top-[116px] sm:top-[120px]' : 'top-[56px] sm:top-[60px]'
                 } flex items-center gap-3`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
-                  <span className="text-[9px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Available Kits</span>
+                  <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Available Kits</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                 </div>
               )}
@@ -894,7 +894,7 @@ export default function Kits() {
                   showSearchBar ? 'top-[116px] sm:top-[120px]' : 'top-[56px] sm:top-[60px]'
                 } flex items-center gap-3`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
-                  <span className="text-[9px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Collection</span>
+                  <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Collection</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                 </div>
               )}
@@ -934,7 +934,7 @@ export default function Kits() {
                   showSearchBar ? 'top-[116px] sm:top-[120px]' : 'top-[56px] sm:top-[60px]'
                 } flex items-center gap-3`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
-                  <span className="text-[9px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Out of Stock</span>
+                  <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Out of Stock</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                 </div>
               )}

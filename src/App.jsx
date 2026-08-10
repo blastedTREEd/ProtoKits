@@ -28,6 +28,7 @@ const TermsOfUse = lazy(() => import('./pages/TermsOfUse'));
 const Deletion = lazy(() => import('./pages/Deletion'));
 const ShippingPolicy = lazy(() => import('./pages/ShippingPolicy'));
 const PaymentAndRefundPolicy = lazy(() => import('./pages/PaymentAndRefundPolicy'));
+const NotFound = lazy(() => import('./pages/NotFound'));
 
 const getPageLoadingLabel = (pathname, { isAdminView = false } = {}) => {
   if (pathname === '/') return 'Loading SnorlaxGarage';
@@ -65,6 +66,10 @@ const getSyncMessage = (syncStatus, pathname, { isAdminView = false } = {}) => {
 if (typeof window !== 'undefined' && 'scrollRestoration' in window.history) {
   window.history.scrollRestoration = 'manual';
 }
+
+// Known route prefixes — used to skip loading/auth gating on 404 pages
+const KNOWN_PATHS = ['/', '/kits', '/prints', '/blueprints', '/about-us', '/orders', '/basket', '/checkout', '/shelf', '/notify-list', '/users-dashboard', '/privacy-policy', '/terms-of-use', '/data-deletion', '/shipping-policy', '/payment-and-refund-policy'];
+const isKnownRoute = (pathname) => KNOWN_PATHS.some(p => p === '/' ? pathname === '/' : pathname === p || pathname.startsWith(p + '/'));
 
 const Layout = ({ children }) => {
   const [isCompact, setIsCompact] = useState(false);
@@ -151,12 +156,16 @@ const Layout = ({ children }) => {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <Stories isCompact={isCompact || isProfileFullscreenOpen} hideImmediately={isProfileFullscreenOpen} />
-      <Navbar isCompact={isCompact} />
-      <main className="container mx-auto max-w-7xl flex-1">
+      {isKnownRoute(location.pathname) && (
+        <>
+          <Stories isCompact={isCompact || isProfileFullscreenOpen} hideImmediately={isProfileFullscreenOpen} />
+          <Navbar isCompact={isCompact} />
+        </>
+      )}
+      <main className={`${isKnownRoute(location.pathname) ? 'container mx-auto max-w-7xl' : ''} flex-1`}>
         {children}
       </main>
-      <Footer />
+      {isKnownRoute(location.pathname) && <Footer />}
       
       {isAdmin && (
         <div className="fixed bottom-12 left-4 z-[9999] p-2 bg-black/80 text-white rounded-full text-[10px] font-black uppercase tracking-widest backdrop-blur-md pointer-events-none">
@@ -206,7 +215,10 @@ const RouterContent = () => {
   // Derive loading state synchronously during render (no content flash)
   const req = _getPageRequirements(location.pathname);
   const ds = _loadedDatasets;
-  const showLoading = isLoading ||
+  // For unknown routes (404), skip data loading gate entirely — render immediately
+  const isKnown = isKnownRoute(location.pathname);
+  const showLoading = isKnown && (
+    isLoading ||
     !ds.userProfile ||
     (req.stories && !ds.stories) ||
     (req.kits && !ds.kits) ||
@@ -214,7 +226,8 @@ const RouterContent = () => {
     (req.orders && !ds.orders) ||
     (req.basket && !ds.basket) ||
     (req.shelf && !ds.shelf) ||
-    (req.prints && !ds.prints);
+    (req.prints && !ds.prints)
+  );
   const loadingDetails = getLoadingDetails({
     pathname: location.pathname,
     isAdminView
@@ -272,6 +285,7 @@ const RouterContent = () => {
             <Route path="/data-deletion" element={<Deletion />} />
             <Route path="/shipping-policy" element={<ShippingPolicy />} />
             <Route path="/payment-and-refund-policy" element={<PaymentAndRefundPolicy />} />
+            <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
       )}

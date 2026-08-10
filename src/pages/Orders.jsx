@@ -6,7 +6,7 @@ import {
   ClipboardList, Plus, MapPin, Package, PackageOpen, ShieldCheck, X, CheckCircle2, 
   ChevronRight, ChevronDown, Clock, Store, Truck, Tag, Trash2, AlertCircle,
   Camera, Upload, QrCode, ArrowRight, Eye, RefreshCw, Download, ListTodo, Flag,
-  XCircle, Wallet, MapPinSearch
+  XCircle, Wallet, MapPinSearch, ClockFading, PrinterCheck
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -999,6 +999,39 @@ export default function Orders() {
     return order.status;
   };
 
+  // Helper: returns { className, icon } for an order status badge.
+  // isInvalid = maintenance order, displayStatus = resolved label, iconSize = icon px size
+  const getOrderStatusUI = (order, isInvalid, displayStatus, iconSize = 13) => {
+    // --- Background color logic ---
+    let className;
+    if (isInvalid) {
+      className = 'bg-red-600 text-white border-red-600 shadow-lg shadow-red-600/20';
+    } else if (displayStatus === 'Cancelled' || order.status === 'Cancelled') {
+      className = 'bg-red-600 text-white border-red-600 shadow-lg shadow-red-600/20';
+    } else if (displayStatus === 'Completed' || order.status === 'Completed') {
+      className = 'bg-emerald-500/15 text-emerald-600 border-emerald-500/20';
+    } else {
+      className = 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-600/20';
+    }
+
+    // --- Icon logic ---
+    let icon = null;
+    if (isInvalid) {
+      // Invalid orders always show a single Flag icon
+      icon = <Flag size={iconSize} className="fill-current" />;
+    } else {
+      // Valid orders: status-specific icons
+      if (displayStatus === 'Reserved' || displayStatus === 'Print DP Required') {
+        icon = <ClockFading size={iconSize} />;
+      } else if (displayStatus === 'Project in Queue') {
+        icon = <PrinterCheck size={iconSize} />;
+      }
+      // All other valid statuses: no icon
+    }
+
+    return { className, icon };
+  };
+
   const getBuyerAddressDetails = (order) => {
     const rd = order?.receiverDetails || {};
     const flags = getShippingFlags(order);
@@ -1033,8 +1066,8 @@ export default function Orders() {
       display: location || 'No details',
       schedule: order?.preferredSchedule || '',
       landmark: rd.landmark || '',
-      lat: rd.lat || order?.pickupDetails?.lat || null,
-      lng: rd.lng || order?.pickupDetails?.lng || null,
+      lat: rd.lat || (showExactAddress ? (order?.pickupDetails?.exactLat || order?.pickupDetails?.lat) : order?.pickupDetails?.lat) || null,
+      lng: rd.lng || (showExactAddress ? (order?.pickupDetails?.exactLng || order?.pickupDetails?.lng) : order?.pickupDetails?.lng) || null,
       lbcBranch: rd.lbcBranch
     };
   };
@@ -1151,8 +1184,10 @@ export default function Orders() {
           appliedInstallmentFee: selectedOrder.appliedInstallmentFee || 0
         }];
 
-    const mapLat = selectedLogistics.lat || selectedOrder.pickupDetails?.lat;
-    const mapLng = selectedLogistics.lng || selectedOrder.pickupDetails?.lng;
+    const detailPaymentVerified = !['Reserved', 'Waiting', 'Validating'].includes(selectedOrder?.status);
+    const detailShowExact = isAdminMode || detailPaymentVerified;
+    const mapLat = selectedLogistics.lat || (detailShowExact ? (selectedOrder.pickupDetails?.exactLat || selectedOrder.pickupDetails?.lat) : selectedOrder.pickupDetails?.lat);
+    const mapLng = selectedLogistics.lng || (detailShowExact ? (selectedOrder.pickupDetails?.exactLng || selectedOrder.pickupDetails?.lng) : selectedOrder.pickupDetails?.lng);
     const itemsSubtotal = detailItems.reduce((acc, item) => {
       const sellPrice = Number(item.sellPrice || item.price || 0);
       const installmentFee = Number(item.appliedInstallmentFee || 0);
@@ -1187,63 +1222,59 @@ export default function Orders() {
               </h2>
           </div>
           <div className="flex items-center gap-4">
-            {isReservedTimerActive ? (
-              <ReservationTimer
-                createdAt={selectedOrder.cancellationTimerStartedAt || selectedOrder.createdAt}
-                durationMs={60 * 60 * 1000}
-                onExpire={() => handleSilentCancelOrder(selectedOrder.id)}
-              >
-                {(timeLeft) => (
-                  <div className={`px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest leading-none border flex items-center gap-1.5 ${
-                    isOrderInvalid
-                      ? 'bg-red-600 text-white border-red-600 shadow-lg shadow-red-600/20'
-                      : 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-600/20'
-                  }`}>
-                    {isOrderInvalid && <Flag size={13} className="fill-current" />}
-                    <span>{getDisplayStatus(selectedOrder)}</span>
-                    {timeLeft && <span className="opacity-90">({timeLeft})</span>}
-                  </div>
-                )}
-              </ReservationTimer>
-            ) : isReservationBalanceTimerActive ? (
-              <ReservationTimer
-                expiresAt={getBalancePaymentDeadline(selectedOrder, shippingSettings)}
-                onExpire={() => handleSilentCancelOrder(selectedOrder.id)}
-              >
-                {(timeLeft) => (
-                  <div className="px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest leading-none border flex items-center gap-1.5 bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-600/20 whitespace-nowrap">
-                    <span>{getDisplayStatus(selectedOrder)}</span>
-                    {timeLeft && <span className="opacity-90">({timeLeft})</span>}
-                  </div>
-                )}
-              </ReservationTimer>
-            ) : selectedOrder.isMaintenanceOrder && ['Completed', 'Cancelled'].includes(selectedOrder.status) ? (
-              <DeletionTimer
-                completedAt={selectedOrder.completedAt || selectedOrder.cancelledAt || selectedOrder.lastUpdated}
-                onExpire={() => handleDeleteOrderNow(selectedOrder.id)}
-              >
-                {(timeLeft) => (
-                  <div className={`px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest leading-none border flex items-center gap-1.5 ${
-                    'bg-red-600 text-white border-red-600 shadow-lg shadow-red-600/20'
-                  }`}>
-                    <Flag size={13} className="fill-current" />
-                    <span>{getDisplayStatus(selectedOrder)}</span>
-                    {timeLeft && <span className="opacity-90">({timeLeft})</span>}
-                  </div>
-                )}
-              </DeletionTimer>
-            ) : (
-              <div className={`px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest leading-none border flex items-center gap-1.5 ${
-                isOrderInvalid
-                  ? 'bg-red-600 text-white border-red-600 shadow-lg shadow-red-600/20'
-                  : selectedOrder.status === 'Completed' ? 'bg-emerald-500/15 text-emerald-600 border-emerald-500/20' : 
-                  selectedOrder.status === 'Cancelled' ? 'bg-red-500/15 text-red-500 border-red-500/20' : 
-                  'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-600/20'
-              }`}>
-                {isOrderInvalid && <Flag size={13} className="fill-current" />}
-                <span>{getDisplayStatus(selectedOrder)}</span>
-              </div>
-            )}
+            {(() => {
+              const detailDisplayStatus = getDisplayStatus(selectedOrder);
+              const detailUI = getOrderStatusUI(selectedOrder, isOrderInvalid, detailDisplayStatus, 13);
+              if (isReservedTimerActive) return (
+                <ReservationTimer
+                  createdAt={selectedOrder.cancellationTimerStartedAt || selectedOrder.createdAt}
+                  durationMs={60 * 60 * 1000}
+                  onExpire={() => handleSilentCancelOrder(selectedOrder.id)}
+                >
+                  {(timeLeft) => (
+                    <div className={`px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest leading-none border flex items-center gap-1.5 whitespace-nowrap ${detailUI.className}`}>
+                      {detailUI.icon}
+                      <span>{detailDisplayStatus}</span>
+                      {timeLeft && <span className="opacity-90">({timeLeft})</span>}
+                    </div>
+                  )}
+                </ReservationTimer>
+              );
+              if (isReservationBalanceTimerActive) return (
+                <ReservationTimer
+                  expiresAt={getBalancePaymentDeadline(selectedOrder, shippingSettings)}
+                  onExpire={() => handleSilentCancelOrder(selectedOrder.id)}
+                >
+                  {(timeLeft) => (
+                    <div className={`px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest leading-none border flex items-center gap-1.5 whitespace-nowrap ${detailUI.className}`}>
+                      {detailUI.icon}
+                      <span>{detailDisplayStatus}</span>
+                      {timeLeft && <span className="opacity-90">({timeLeft})</span>}
+                    </div>
+                  )}
+                </ReservationTimer>
+              );
+              if (selectedOrder.isMaintenanceOrder && ['Completed', 'Cancelled'].includes(selectedOrder.status)) return (
+                <DeletionTimer
+                  completedAt={selectedOrder.completedAt || selectedOrder.cancelledAt || selectedOrder.lastUpdated}
+                  onExpire={() => handleDeleteOrderNow(selectedOrder.id)}
+                >
+                  {(timeLeft) => (
+                    <div className={`px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest leading-none border flex items-center gap-1.5 whitespace-nowrap ${detailUI.className}`}>
+                      {detailUI.icon}
+                      <span>{detailDisplayStatus}</span>
+                      {timeLeft && <span className="opacity-90">({timeLeft})</span>}
+                    </div>
+                  )}
+                </DeletionTimer>
+              );
+              return (
+                <div className={`px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest leading-none border flex items-center gap-1.5 ${detailUI.className}`}>
+                  {detailUI.icon}
+                  <span>{detailDisplayStatus}</span>
+                </div>
+              );
+            })()}
             <button 
               onClick={() => setSelectedOrder(null)} 
               className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full opacity-60 hover:opacity-100 transition-all active:scale-95 text-neutral-500 dark:text-neutral-400"
@@ -1992,13 +2023,8 @@ export default function Orders() {
                 const isCardInvalid = Boolean(o.isMaintenanceOrder);
                 const isCardReservedTimerActive = o.status === 'Reserved' && !o.receipt && Boolean(o.cancellationTimerStartedAt || isCardInvalid);
 
-                const statusTagClass = o.status === 'Cancelled'
-                  ? 'bg-red-500/15 text-red-500 border-red-500/20'
-                  : o.status === 'Completed'
-                    ? 'bg-emerald-500/15 text-emerald-600 border-emerald-500/20'
-                    : ['Shipped', 'Dispatched', 'In Transit'].includes(o.status)
-                      ? 'bg-purple-500/15 text-purple-500 border-purple-500/20'
-                      : 'bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-600/20';
+                const cardDisplayStatus = getDisplayStatus(o);
+                const cardUI = getOrderStatusUI(o, isCardInvalid, cardDisplayStatus, 12);
                 const shippingMethodLabel = String(o.shippingMethod || '')
                   .replace(/\s*\([^)]*\)/g, '')
                   .split(':')[0]
@@ -2009,9 +2035,9 @@ export default function Orders() {
                     onExpire={() => handleDeleteOrderNow(o.id)}
                   >
                     {(timeLeft) => (
-                      <span className="inline-flex items-center gap-1.5 rounded-full border border-red-600 bg-red-600 px-3 py-1 text-[11px] font-black uppercase leading-none tracking-widest text-white shadow-md shadow-red-600/20 whitespace-nowrap">
-                        <Flag size={12} className="fill-current" />
-                        <span>{getDisplayStatus(o)}</span>
+                      <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-black uppercase leading-none tracking-widest shadow-md whitespace-nowrap ${cardUI.className}`}>
+                        {cardUI.icon}
+                        <span>{cardDisplayStatus}</span>
                         {timeLeft && <span className="opacity-90">({timeLeft})</span>}
                       </span>
                     )}
@@ -2023,13 +2049,9 @@ export default function Orders() {
                     onExpire={() => handleSilentCancelOrder(o.id)}
                   >
                     {(timeLeft) => (
-                      <span className={`inline-flex items-center gap-1.5 text-[11px] font-black px-3 py-1 rounded-full uppercase tracking-widest leading-none border whitespace-nowrap ${
-                        isCardInvalid
-                          ? 'bg-red-600 text-white border-red-600 shadow-md shadow-red-600/20'
-                          : 'bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-600/20'
-                      }`}>
-                        {isCardInvalid && <Flag size={12} className="fill-current" />}
-                        <span>{getDisplayStatus(o)}</span>
+                      <span className={`inline-flex items-center gap-1.5 text-[11px] font-black px-3 py-1 rounded-full uppercase tracking-widest leading-none border whitespace-nowrap ${cardUI.className}`}>
+                        {cardUI.icon}
+                        <span>{cardDisplayStatus}</span>
                         {timeLeft && <span className="opacity-90">({timeLeft})</span>}
                       </span>
                     )}
@@ -2040,21 +2062,17 @@ export default function Orders() {
                     onExpire={() => handleSilentCancelOrder(o.id)}
                   >
                     {(timeLeft) => (
-                      <span className="inline-flex items-center gap-1.5 text-[11px] font-black px-3 py-1 rounded-full uppercase tracking-widest leading-none border whitespace-nowrap bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-600/20">
-                        <span>{getDisplayStatus(o)}</span>
+                      <span className={`inline-flex items-center gap-1.5 text-[11px] font-black px-3 py-1 rounded-full uppercase tracking-widest leading-none border whitespace-nowrap ${cardUI.className}`}>
+                        {cardUI.icon}
+                        <span>{cardDisplayStatus}</span>
                         {timeLeft && <span className="opacity-90">({timeLeft})</span>}
                       </span>
                     )}
                   </ReservationTimer>
                 ) : (
-                  <span className={`inline-flex items-center gap-1.5 text-[11px] font-black px-3 py-1 rounded-full uppercase tracking-widest leading-none border whitespace-nowrap ${
-                    isCardInvalid
-                      ? 'bg-red-600 text-white border-red-600 shadow-md shadow-red-600/20'
-                      : statusTagClass
-                  }`}>
-                    {isCardInvalid && <Flag size={12} className="fill-current" />}
-                    <Flag size={12} className="fill-current" />
-                    <span>{getDisplayStatus(o)}</span>
+                  <span className={`inline-flex items-center gap-1.5 text-[11px] font-black px-3 py-1 rounded-full uppercase tracking-widest leading-none border whitespace-nowrap ${cardUI.className}`}>
+                    {cardUI.icon}
+                    <span>{cardDisplayStatus}</span>
                   </span>
                 );
                 const pricedItems = orderItems.map((item) => {
