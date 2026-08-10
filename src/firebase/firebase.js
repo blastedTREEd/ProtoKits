@@ -2,6 +2,7 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, FacebookAuthProvider, GoogleAuthProvider, setPersistence, browserLocalPersistence } from "firebase/auth";
 import { initializeFirestore, memoryLocalCache } from "firebase/firestore";
+import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
@@ -16,6 +17,23 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
+
+
+// Initialize App Check (browser-only)
+if (typeof window !== "undefined") {
+  if (import.meta.env.DEV) {
+    // Enable debug provider in local development
+  # App Check debug token removed from history
+  }
+
+  // Fallback to a dummy key in development if VITE_RECAPTCHA_SITE_KEY is not defined yet
+  const siteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY || "6Lc_some_dummy_key_for_development_AAAAAA";
+
+  initializeAppCheck(app, {
+    provider: new ReCaptchaV3Provider(siteKey),
+    isTokenAutoRefreshEnabled: true,
+  });
+}
 
 // Enforce local persistence so session survives redirect
 setPersistence(auth, browserLocalPersistence)
