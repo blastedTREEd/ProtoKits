@@ -761,9 +761,11 @@ export default function Kits() {
 
               {/* --- Section Divider: Deals --- */}
               {filteredDeals.length > 0 && (
-                <div className="col-span-full w-full flex items-center gap-3 pb-1">
+                <div className={`col-span-full w-full sticky z-[80] bg-neutral-50/90 dark:bg-[#0a0a0a]/90 backdrop-blur-md py-3 transition-all duration-300 ${
+                  showSearchBar ? 'top-[116px] sm:top-[120px]' : 'top-[56px] sm:top-[60px]'
+                } flex items-center gap-3`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
-                  <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Deals</span>
+                  <span className="text-[9px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Deals</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                 </div>
               )}
@@ -848,9 +850,11 @@ export default function Kits() {
 
               {/* --- Section Divider: Available Kits --- */}
               {kitGroups.available.length > 0 && (
-                <div className="col-span-full w-full flex items-center gap-3 pt-2 pb-1 mt-1">
+                <div className={`col-span-full w-full sticky z-[80] bg-neutral-50/90 dark:bg-[#0a0a0a]/90 backdrop-blur-md py-3 transition-all duration-300 ${
+                  showSearchBar ? 'top-[116px] sm:top-[120px]' : 'top-[56px] sm:top-[60px]'
+                } flex items-center gap-3`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
-                  <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Available Kits</span>
+                  <span className="text-[9px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Available Kits</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                 </div>
               )}
@@ -886,9 +890,11 @@ export default function Kits() {
 
               {/* --- Section Divider: Collection --- */}
               {kitGroups.collection.length > 0 && (
-                <div className="col-span-full w-full flex items-center gap-3 pt-3 pb-1 mt-2">
+                <div className={`col-span-full w-full sticky z-[80] bg-neutral-50/90 dark:bg-[#0a0a0a]/90 backdrop-blur-md py-3 transition-all duration-300 ${
+                  showSearchBar ? 'top-[116px] sm:top-[120px]' : 'top-[56px] sm:top-[60px]'
+                } flex items-center gap-3`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
-                  <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Collection</span>
+                  <span className="text-[9px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Collection</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                 </div>
               )}
@@ -924,9 +930,11 @@ export default function Kits() {
 
               {/* --- Section Divider: Out of Stock --- */}
               {kitGroups.outOfStock.length > 0 && (
-                <div className="col-span-full w-full flex items-center gap-3 pt-3 pb-1 mt-2">
+                <div className={`col-span-full w-full sticky z-[80] bg-neutral-50/90 dark:bg-[#0a0a0a]/90 backdrop-blur-md py-3 transition-all duration-300 ${
+                  showSearchBar ? 'top-[116px] sm:top-[120px]' : 'top-[56px] sm:top-[60px]'
+                } flex items-center gap-3`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
-                  <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Out of Stock</span>
+                  <span className="text-[9px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Out of Stock</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                 </div>
               )}

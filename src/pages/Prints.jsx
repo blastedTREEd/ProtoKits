@@ -314,9 +314,11 @@ export default function Prints({ isDarkMode }) {
             <div className="grid grid-cols-2 sm:grid-cols-4 sm:portrait:grid-cols-3 md:grid-cols-4 md:portrait:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-3 items-stretch">
               {/* --- Section Divider: Garage Projects --- */}
               {(filteredBlueprints.length > 0 || (isAdmin && isAdminView)) && (
-                <div className="col-span-full w-full flex items-center gap-3 pb-1">
+                <div className={`col-span-full w-full sticky z-[80] bg-[var(--color-bg)]/90 backdrop-blur-md py-3 transition-all duration-300 ${
+                  showSearchBar ? 'top-[116px] sm:top-[120px]' : 'top-[56px] sm:top-[60px]'
+                } flex items-center gap-3`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
-                  <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Garage Projects</span>
+                  <span className="text-[9px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Garage Projects</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                 </div>
               )}
@@ -384,9 +386,11 @@ export default function Prints({ isDarkMode }) {
 
               {/* --- Section Divider: Vault (Personal Projects) --- */}
               {(filteredVault.length > 0 || !(isAdmin && isAdminView)) && (
-                <div className="col-span-full w-full flex items-center gap-3 pt-3 pb-1 mt-2">
+                <div className={`col-span-full w-full sticky z-[80] bg-[var(--color-bg)]/90 backdrop-blur-md py-3 transition-all duration-300 ${
+                  showSearchBar ? 'top-[116px] sm:top-[120px]' : 'top-[56px] sm:top-[60px]'
+                } flex items-center gap-3`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
-                  <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">User Projects</span>
+                  <span className="text-[9px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Vault</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                 </div>
               )}
