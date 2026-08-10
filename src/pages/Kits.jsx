@@ -398,6 +398,14 @@ export default function Kits() {
     return routeKit ? [routeKit, ...visibleKits] : visibleKits;
   }, [routeKitId, storeKits, visibleKits]);
 
+  // --- Grupo-grupo ang kits ayon sa status para sa section dividers ---
+  const kitGroups = useMemo(() => {
+    const available = visibleKitsWithRouteSelection.filter(k => k._statusOrder === 2);
+    const collection = visibleKitsWithRouteSelection.filter(k => k._statusOrder === 1);
+    const outOfStock = visibleKitsWithRouteSelection.filter(k => k._statusOrder === 0);
+    return { available, collection, outOfStock };
+  }, [visibleKitsWithRouteSelection]);
+
   useEffect(() => {
     if (routeKitId || location.pathname !== '/kits' || !allFilteredKits.length) return;
     const raw = window.sessionStorage.getItem(KIT_RETURN_STORAGE_KEY);
@@ -421,7 +429,9 @@ export default function Kits() {
       const neededLimit = Math.max(Number(target.displayLimit || 0), index + 1);
       if (displayLimit < neededLimit) {
         pendingRestoreRef.current = target;
-        setDisplayLimit(neededLimit);
+        setTimeout(() => {
+          setDisplayLimit(neededLimit);
+        }, 0);
         return;
       }
     }
@@ -497,10 +507,14 @@ export default function Kits() {
         return stocks.some(s => isBundlePurchasableStock(s, d.stockSource || 'onhand'));
       });
     });
-    if (!searchTerm) return fulfillable;
+    // Hide expired deals from public users — admins can still see them
+    const active = (isAdmin && isAdminView)
+      ? fulfillable
+      : fulfillable.filter(d => getDealCountdownLabel(d.validUntil) !== 'EXPIRED');
+    if (!searchTerm) return active;
     const lowerSearch = searchTerm.toLowerCase();
-    return fulfillable.filter(deal => deal?.name?.toLowerCase().includes(lowerSearch));
-  }, [deals, storeKits, searchTerm]);
+    return active.filter(deal => deal?.name?.toLowerCase().includes(lowerSearch));
+  }, [deals, storeKits, searchTerm, isAdmin, isAdminView]);
 
   const handleSaveNewKit = async (newKit) => {
     try { return await addKit(newKit); } catch (e) { console.error(e); throw e; }
@@ -745,6 +759,14 @@ export default function Kits() {
                 </div>
               )}
 
+              {/* --- Section Divider: Deals --- */}
+              {filteredDeals.length > 0 && (
+                <div className="col-span-full w-full flex items-center gap-3 pb-1">
+                  <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
+                  <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Deals</span>
+                  <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
+                </div>
+              )}
               {filteredDeals.map(deal => {
                 if (!deal) return null;
                 const orderedKitIds = [
@@ -824,7 +846,91 @@ export default function Kits() {
                 );
               })}
 
-               {visibleKitsWithRouteSelection.map((kit) => {
+              {/* --- Section Divider: Available Kits --- */}
+              {kitGroups.available.length > 0 && (
+                <div className="col-span-full w-full flex items-center gap-3 pt-2 pb-1 mt-1">
+                  <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
+                  <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Available Kits</span>
+                  <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
+                </div>
+              )}
+              {kitGroups.available.map((kit) => {
+                const isUpdating = kitToEdit?.id === kit.id;
+                return (
+                  <div
+                    key={kit.id}
+                    ref={(node) => {
+                      if (node) kitCardRefs.current.set(kit.id, node);
+                      else kitCardRefs.current.delete(kit.id);
+                    }}
+                    className={`w-full h-full transition-opacity duration-500 ${isUpdating ? 'opacity-30' : 'opacity-100'}`}
+                  >
+                    {isUpdating ? (
+                      <KitSkeleton />
+                    ) : (
+                      <ProductCard 
+                        kit={kit} 
+                        onBuyNowClick={handleBuyNowFromCard} 
+                        onDealCheckout={handleDealCheckout}
+                        onEdit={handleEditKit}
+                        onEditDeal={(deal) => {
+                          setDealToEdit(deal);
+                          setIsAddDealModalOpen(true);
+                        }}
+                        routeKitId={routeKitId}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* --- Section Divider: Collection --- */}
+              {kitGroups.collection.length > 0 && (
+                <div className="col-span-full w-full flex items-center gap-3 pt-3 pb-1 mt-2">
+                  <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
+                  <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Collection</span>
+                  <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
+                </div>
+              )}
+              {kitGroups.collection.map((kit) => {
+                const isUpdating = kitToEdit?.id === kit.id;
+                return (
+                  <div
+                    key={kit.id}
+                    ref={(node) => {
+                      if (node) kitCardRefs.current.set(kit.id, node);
+                      else kitCardRefs.current.delete(kit.id);
+                    }}
+                    className={`w-full h-full transition-opacity duration-500 ${isUpdating ? 'opacity-30' : 'opacity-100'}`}
+                  >
+                    {isUpdating ? (
+                      <KitSkeleton />
+                    ) : (
+                      <ProductCard 
+                        kit={kit} 
+                        onBuyNowClick={handleBuyNowFromCard} 
+                        onDealCheckout={handleDealCheckout}
+                        onEdit={handleEditKit}
+                        onEditDeal={(deal) => {
+                          setDealToEdit(deal);
+                          setIsAddDealModalOpen(true);
+                        }}
+                        routeKitId={routeKitId}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* --- Section Divider: Out of Stock --- */}
+              {kitGroups.outOfStock.length > 0 && (
+                <div className="col-span-full w-full flex items-center gap-3 pt-3 pb-1 mt-2">
+                  <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
+                  <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Out of Stock</span>
+                  <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
+                </div>
+              )}
+              {kitGroups.outOfStock.map((kit) => {
                 const isUpdating = kitToEdit?.id === kit.id;
                 return (
                   <div

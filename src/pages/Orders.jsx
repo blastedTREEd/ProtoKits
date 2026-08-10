@@ -200,6 +200,32 @@ const compressImage = (base64Str, maxWidth = 1024, maxHeight = 1024, quality = 0
   });
 };
 
+const getShippingFlags = (order) => {
+  const method = String(order?.shippingMethod || '').toUpperCase();
+  const isLbc = method.includes('LBC');
+  const isLalamoveSeller = method.includes('LALAMOVE (SELLER-BOOKING)');
+  const isLalamoveSelf = method.includes('LALAMOVE (SELF-BOOKING)');
+  const isSpx = method.includes('SPX EXPRESS');
+  const hasMeetupLocation = Boolean(order?.meetupLocation);
+  const isMeetup = method.includes('MEETUP') || hasMeetupLocation;
+  const isSelfPickup = method.includes('SELF-PICKUP');
+  const hasPickupPoint = Boolean(order?.pickupLocation || order?.pickupDetails);
+  const usesPickupPoint = hasPickupPoint && !isMeetup;
+  const isPickupPointCourier = usesPickupPoint && !isSelfPickup && !isLalamoveSelf;
+  return {
+    isLbc,
+    isLalamoveSeller,
+    isLalamoveSelf,
+    isSpx,
+    isMeetup,
+    isSelfPickup,
+    usesPickupPoint,
+    usesMeetupLocation: isMeetup,
+    isPickupPointCourier,
+    needsAdminShipping: isLbc || isLalamoveSeller || isSpx,
+    needsTracking: (isLbc || isLalamoveSeller || isSpx) && !usesPickupPoint && !isMeetup
+  };
+};
 
 export default function Orders() {
   const { isDarkMode } = useTheme();
@@ -943,32 +969,6 @@ export default function Orders() {
     }
   }, [deleteOrder, selectedOrder, setToastMessage]);
   const handleDeleteOrder = async (e, orderId) => { e.stopPropagation(); if (window.confirm("DELETE record?")) { await deleteOrder(orderId); if (selectedOrder?.id === orderId) setSelectedOrder(null); } };
-  const getShippingFlags = (order) => {
-    const method = String(order?.shippingMethod || '').toUpperCase();
-    const isLbc = method.includes('LBC');
-    const isLalamoveSeller = method.includes('LALAMOVE (SELLER-BOOKING)');
-    const isLalamoveSelf = method.includes('LALAMOVE (SELF-BOOKING)');
-    const isSpx = method.includes('SPX EXPRESS');
-    const hasMeetupLocation = Boolean(order?.meetupLocation);
-    const isMeetup = method.includes('MEETUP') || hasMeetupLocation;
-    const isSelfPickup = method.includes('SELF-PICKUP');
-    const hasPickupPoint = Boolean(order?.pickupLocation || order?.pickupDetails);
-    const usesPickupPoint = hasPickupPoint && !isMeetup;
-    const isPickupPointCourier = usesPickupPoint && !isSelfPickup && !isLalamoveSelf;
-    return {
-      isLbc,
-      isLalamoveSeller,
-      isLalamoveSelf,
-      isSpx,
-      isMeetup,
-      isSelfPickup,
-      usesPickupPoint,
-      usesMeetupLocation: isMeetup,
-      isPickupPointCourier,
-      needsAdminShipping: isLbc || isLalamoveSeller || isSpx,
-      needsTracking: (isLbc || isLalamoveSeller || isSpx) && !usesPickupPoint && !isMeetup
-    };
-  };
 
   const isReadyForPickupStatus = (status) => ['Ready for Pickup', 'Ready for Meetup'].includes(status);
   const getDisplayStatus = (order) => {

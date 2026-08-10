@@ -312,6 +312,15 @@ export default function Prints({ isDarkMode }) {
             <LoadingState message="Loading projects..." />
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-4 sm:portrait:grid-cols-3 md:grid-cols-4 md:portrait:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-3 items-stretch">
+              {/* --- Section Divider: Garage Projects --- */}
+              {(filteredBlueprints.length > 0 || (isAdmin && isAdminView)) && (
+                <div className="col-span-full w-full flex items-center gap-3 pb-1">
+                  <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
+                  <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Garage Projects</span>
+                  <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
+                </div>
+              )}
+
               {isAdmin && isAdminView && (
                 <button 
                   onClick={openNewPrintModal}
@@ -327,24 +336,6 @@ export default function Prints({ isDarkMode }) {
                 </button>
               )}
 
-              {!(isAdmin && isAdminView) && (
-                <button 
-                  onClick={enterEstimating}
-                  className="group relative flex flex-col items-center justify-center rounded-[2.5rem] border-2 border-dashed p-10 transition-all hover:scale-[1.02] active:scale-95 bg-blue-600/10 dark:bg-blue-600/20 border-blue-600/20 dark:border-blue-500/40 hover:border-blue-600/50"
-                >
-                  <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-tr from-blue-600 to-cyan-400 text-white shadow-xl shadow-blue-600/20 transition-transform">
-                    <Calculator size={40} className="group-hover:rotate-12 transition-transform" />
-                    <div className={`absolute -top-1 -right-1 rounded-full p-1 border-2 ${
-                        estimationLimitReached ? 'bg-blue-300 border-blue-600' : 'bg-cyan-300 border-blue-600'
-                    }`}>
-                      {estimationLimitReached ? <Lock size={12} strokeWidth={4} /> : <Plus size={12} strokeWidth={4} />}
-                    </div>
-                  </div>
-                  <span className={`mt-4 text-[12px] font-black uppercase tracking-widest text-center leading-tight transition-opacity text-blue-600 dark:text-blue-400 opacity-60 group-hover:opacity-100`}>
-                    New<br/>Project
-                  </span>
-                </button>
-              )}
 
               {isAdmin && isAdminView && (
                 <button 
@@ -390,6 +381,34 @@ export default function Prints({ isDarkMode }) {
                   />
                 );
               })}
+
+              {/* --- Section Divider: Vault (Personal Projects) --- */}
+              {(filteredVault.length > 0 || !(isAdmin && isAdminView)) && (
+                <div className="col-span-full w-full flex items-center gap-3 pt-3 pb-1 mt-2">
+                  <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
+                  <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">User Projects</span>
+                  <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
+                </div>
+              )}
+
+              {!(isAdmin && isAdminView) && (
+                <button 
+                  onClick={enterEstimating}
+                  className="group relative flex flex-col items-center justify-center rounded-[2.5rem] border-2 border-dashed p-10 transition-all hover:scale-[1.02] active:scale-95 bg-blue-600/10 dark:bg-blue-600/20 border-blue-600/20 dark:border-blue-500/40 hover:border-blue-600/50"
+                >
+                  <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-tr from-blue-600 to-cyan-400 text-white shadow-xl shadow-blue-600/20 transition-transform">
+                    <Calculator size={40} className="group-hover:rotate-12 transition-transform" />
+                    <div className={`absolute -top-1 -right-1 rounded-full p-1 border-2 ${
+                        estimationLimitReached ? 'bg-blue-300 border-blue-600' : 'bg-cyan-300 border-blue-600'
+                    }`}>
+                      {estimationLimitReached ? <Lock size={12} strokeWidth={4} /> : <Plus size={12} strokeWidth={4} />}
+                    </div>
+                  </div>
+                  <span className={`mt-4 text-[12px] font-black uppercase tracking-widest text-center leading-tight transition-opacity text-blue-600 dark:text-blue-400 opacity-60 group-hover:opacity-100`}>
+                    New<br/>Estimate
+                  </span>
+                </button>
+              )}
 
               {filteredVault.map((project) => {
                 return (

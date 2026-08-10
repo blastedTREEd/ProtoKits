@@ -1884,6 +1884,12 @@ const handleFinalizeOrder = async () => {
         isPreOrder,
         hasProjects,
         isMadeToOrder: hasProjects,
+        isSelfBooking: (() => {
+          const subKey = checkoutData.selectedSuboption || checkoutData.customSuboption || null;
+          const methodConfig = storeAdmin?.shippingMethods?.[checkoutData.shippingMethod];
+          const subConfig = methodConfig?.suboptions?.[subKey];
+          return subConfig?.isSelfBooking === true;
+        })(),
         shippingMethod: (checkoutData.selectedSuboption || checkoutData.customSuboption)
           ? `${checkoutData.shippingMethod} (${storeAdmin?.shippingMethods?.[checkoutData.shippingMethod]?.suboptions?.[checkoutData.selectedSuboption || checkoutData.customSuboption]?.label || checkoutData.selectedSuboption || checkoutData.customSuboption || 'Standard'})`
           : requiredFields.includes(13) && checkoutData.lbcBranch
@@ -1904,7 +1910,9 @@ const handleFinalizeOrder = async () => {
             publicAddress: cleanAddressLandmark(rawPublic, landmark),
             exactAddress: cleanAddressLandmark(rawExact, exactPlace?.landmark || landmark),
             lat: selectedLocalPlaceDetails.lat || null,
-            lng: selectedLocalPlaceDetails.lng || null
+            lng: selectedLocalPlaceDetails.lng || null,
+            exactLat: exactPlace?.lat || selectedLocalPlaceDetails.lat || null,
+            exactLng: exactPlace?.lng || selectedLocalPlaceDetails.lng || null
           };
         })() : null,
         preferredSchedule: checkoutData.shippingMethod === 'Seller Meetup' 
