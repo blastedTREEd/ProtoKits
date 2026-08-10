@@ -44,6 +44,7 @@ setPersistence(auth, browserLocalPersistence)
 export const fbProvider = new FacebookAuthProvider();
 export const googleProvider = new GoogleAuthProvider();
 export const db = initializeFirestore(app, {
-  localCache: memoryLocalCache()
+  localCache: memoryLocalCache(),
+  experimentalForceLongPolling: true
 });
 

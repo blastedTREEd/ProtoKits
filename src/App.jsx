@@ -201,6 +201,11 @@ const RouterContent = () => {
   const _loadedDatasets = useStore((state) => state._loadedDatasets);
   const _getPageRequirements = useStore((state) => state._getPageRequirements);
   const isAdminView = useStore((state) => state.isAdminView);
+  const user = useStore((state) => state.user);
+  const stories = useStore((state) => state.stories) || [];
+  const kits = useStore((state) => state.kits) || [];
+  const deals = useStore((state) => state.deals) || [];
+  const blueprints = useStore((state) => state.blueprints) || [];
 
   // Keep _activePath in sync and trigger background listeners when ready
   useLayoutEffect(() => {
@@ -217,16 +222,17 @@ const RouterContent = () => {
   const ds = _loadedDatasets;
   // For unknown routes (404), skip data loading gate entirely — render immediately
   const isKnown = isKnownRoute(location.pathname);
+  const isGuest = !user;
   const showLoading = isKnown && (
     isLoading ||
     !ds.userProfile ||
-    (req.stories && !ds.stories) ||
-    (req.kits && !ds.kits) ||
-    (req.deals && !ds.deals) ||
+    (req.stories && (!ds.stories || (isGuest && stories.length === 0))) ||
+    (req.kits && (!ds.kits || (isGuest && kits.length === 0))) ||
+    (req.deals && (!ds.deals || (isGuest && deals.length === 0))) ||
     (req.orders && !ds.orders) ||
     (req.basket && !ds.basket) ||
     (req.shelf && !ds.shelf) ||
-    (req.prints && !ds.prints)
+    (req.prints && (!ds.prints || (isGuest && blueprints.length === 0)))
   );
   const loadingDetails = getLoadingDetails({
     pathname: location.pathname,
