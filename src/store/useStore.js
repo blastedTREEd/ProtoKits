@@ -1530,16 +1530,16 @@ export const useStore = create(
         });
       },
 
-      syncUserAccount: async (fbUser, onSyncComplete) => {
-        console.log("DEBUG: syncUserAccount called with:", fbUser ? fbUser.uid : "null");
+      syncUserAccount: async (sgUser, onSyncComplete) => {
+        // console.log("DEBUG: syncUserAccount called with:", sgUser ? sgUser.uid : "null");
         set({ syncStatus: 'Syncing Profile' });
         if (get().unsubUser) get().unsubUser();
         if (get().unsubShelf) get().unsubShelf();
         if (get().unsubAdmin) get().unsubAdmin();
         if (get().unsubBasket) get().unsubBasket();
 
-        if (!fbUser) {
-          console.log("DEBUG: No fbUser found, switching to guest mode.");
+        if (!sgUser) {
+          console.log("DEBUG: No sgUser found, switching to guest mode.");
           const guestProjectVault = JSON.parse(localStorage.getItem('sg_guest_project_vault') || '[]');
           const guestBasket = JSON.parse(localStorage.getItem('sg_guest_basket') || '[]');
           set({ user: null, isAdmin: false, isAdminView: false, usersList: [], projectVault: guestProjectVault, guestBasket, shelf: [], unsubUser: null, unsubShelf: null, unsubAdmin: null, unsubBasket: null, syncStatus: 'Restoring local basket' });
@@ -1552,9 +1552,9 @@ export const useStore = create(
           return;
         }
 
-        console.log("DEBUG: fbUser detected, syncing data for UID:", fbUser.uid);
-        const userRef = doc(db, 'users', fbUser.uid);
-        const adminSnap = await getDoc(doc(db, 'admins', fbUser.uid));
+        console.log("DEBUG: sgUser detected, syncing data for UID:", sgUser.uid);
+        const userRef = doc(db, 'users', sgUser.uid);
+        const adminSnap = await getDoc(doc(db, 'admins', sgUser.uid));
         const isActuallyAdmin = adminSnap.exists();
         console.log("DEBUG: Is user admin?", isActuallyAdmin);
 
@@ -1565,7 +1565,7 @@ export const useStore = create(
         // Fetch user data once for migration
         const initialDocSnap = await getDoc(userRef);
         let userData = initialDocSnap.exists() ? initialDocSnap.data() : null;
-        const authPhotoURL = fbUser.photoURL || '';
+        const authPhotoURL = sgUser.photoURL || '';
         const storedPhotoURL = userData?.photoURL || '';
 
         if (authPhotoURL && storedPhotoURL !== authPhotoURL) {
@@ -1584,7 +1584,7 @@ export const useStore = create(
             const batch = writeBatch(db);
             for (const item of guestBasket) {
                 const bId = item.basketId || `b_kit_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-                batch.set(doc(db, 'users', fbUser.uid, 'basket', bId), { ...item, basketId: bId });
+                batch.set(doc(db, 'users', sgUser.uid, 'basket', bId), { ...item, basketId: bId });
             }
             await batch.commit();
             localStorage.removeItem('sg_guest_basket');
@@ -1597,7 +1597,7 @@ export const useStore = create(
             const batch = writeBatch(db);
             Object.entries(userData.basket).forEach(([bId, item]) => {
                 if (item) {
-                    batch.set(doc(db, 'users', fbUser.uid, 'basket', bId), { ...item, basketId: bId });
+                    batch.set(doc(db, 'users', sgUser.uid, 'basket', bId), { ...item, basketId: bId });
                 }
             });
             batch.update(userRef, { basket: deleteField() });
@@ -1608,7 +1608,7 @@ export const useStore = create(
         set({ syncStatus: 'Loading Projects' });
 
         // Mag-subscribe sa projectVaults subcollection para iwas sa 1MB user doc limit
-        const vaultRef = doc(db, 'projectVaults', fbUser.uid);
+        const vaultRef = doc(db, 'projectVaults', sgUser.uid);
         const vaultSnap = await getDoc(vaultRef);
         const initialVault = vaultSnap.exists() ? (vaultSnap.data().items || []) : [];
         set({ projectVault: initialVault });
@@ -1617,14 +1617,14 @@ export const useStore = create(
         if (userData?.projectVault && Array.isArray(userData.projectVault) && userData.projectVault.length > 0) {
           console.log("DEBUG: Migrating projectVault from user doc to projectVaults collection");
           const mergedVault = [...userData.projectVault];
-          await setDoc(vaultRef, { items: mergedVault, uid: fbUser.uid }, { merge: true });
+          await setDoc(vaultRef, { items: mergedVault, uid: sgUser.uid }, { merge: true });
           await updateDoc(userRef, { projectVault: deleteField() });
           set({ projectVault: mergedVault });
         }
 
         let isInitialUserDocLoaded = false;
         const unsubUser = onSnapshot(userRef, async (docSnap) => {
-            console.log("DEBUG: User doc snapshot update for UID:", fbUser.uid);
+            console.log("DEBUG: User doc snapshot update for UID:", sgUser.uid);
             
             if (docSnap.exists()) {
               const data = docSnap.data();
@@ -1632,10 +1632,10 @@ export const useStore = create(
               // naka-store na ito sa sariling collections/subcollections para iwas sa 1MB limit
               set({ 
                 user: { 
-                  uid: fbUser.uid,
+                  uid: sgUser.uid,
                   ...data,
-                  photoURL: data.photoURL || fbUser.photoURL || '',
-                  displayName: (data.displayName || fbUser.displayName || "Anonymous").toUpperCase() 
+                  photoURL: data.photoURL || sgUser.photoURL || '',
+                  displayName: (data.displayName || sgUser.displayName || "Anonymous").toUpperCase() 
                 }, 
                 isAdmin: isActuallyAdmin, 
                 isBanned: data.userDetails?.status === 'banned', 
@@ -1643,8 +1643,8 @@ export const useStore = create(
               });
               get().processPendingBasket();
             } else {
-              console.log("DEBUG: User doc does not exist, creating initial doc for UID:", fbUser.uid);
-              const initial = { uid: fbUser.uid, displayName: (fbUser.displayName || "Anonymous").toUpperCase(), photoURL: fbUser.photoURL, role: 'customer', createdAt: serverTimestamp() };
+              console.log("DEBUG: User doc does not exist, creating initial doc for UID:", sgUser.uid);
+              const initial = { uid: sgUser.uid, displayName: (sgUser.displayName || "Anonymous").toUpperCase(), photoURL: sgUser.photoURL, role: 'customer', createdAt: serverTimestamp() };
               await setDoc(userRef, initial, { merge: true });
               set({ user: { ...initial, createdAt: new Date().toISOString() }, isAdmin: isActuallyAdmin });
             }
@@ -1657,7 +1657,7 @@ export const useStore = create(
 
         set({ syncStatus: 'Loading Basket' });
 
-        const unsubBasket = onSnapshot(collection(db, 'users', fbUser.uid, 'basket'), (basketSnap) => {
+        const unsubBasket = onSnapshot(collection(db, 'users', sgUser.uid, 'basket'), (basketSnap) => {
             const basketItems = basketSnap.docs.map(doc => ({ ...doc.data(), basketId: doc.id }));
             set({ basket: basketItems.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()) });
             
@@ -1669,7 +1669,7 @@ export const useStore = create(
 
         let unsubAdmin = null;
         if (isActuallyAdmin) {
-          unsubAdmin = onSnapshot(doc(db, 'admins', fbUser.uid), (snap) => {
+          unsubAdmin = onSnapshot(doc(db, 'admins', sgUser.uid), (snap) => {
             set({ adminData: snap.exists() ? snap.data() : null });
           });
         }
