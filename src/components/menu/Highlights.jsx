@@ -64,7 +64,7 @@ export default function Highlights() {
   };
 
   return (
-    <section className="relative overflow-visible border-t border-black/[0.06] bg-neutral-50 px-5 py-20 dark:border-white/[0.08] dark:bg-[#111111] sm:px-8 lg:px-12">
+    <section className="relative overflow-visible border-t border-black/[0.06] bg-neutral-50 px-5 pb-10 dark:border-white/[0.08] dark:bg-[#111111] sm:px-8 lg:px-12">
       <div className="mx-auto max-w-7xl">
         <div ref={headerRef} className="sticky top-[56px] z-[80] -mx-5 mb-10 flex flex-col gap-5 border-b border-black/5 bg-neutral-50/95 px-5 py-4 backdrop-blur-md transition-all duration-300 dark:border-white/5 dark:bg-[#111111]/95 sm:top-[60px] sm:-mx-8 sm:flex-row sm:items-end sm:justify-between sm:px-8 lg:-mx-12 lg:px-12">
           <div className="text-left">

@@ -187,7 +187,6 @@ export default function Stories({ isCompact, hideImmediately = false }) {
                     style={{ backgroundColor: story.value }}
                   />
                   
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent z-[2]" />
                 </div>
 
                 {/* Profile Icon */}
@@ -199,11 +198,6 @@ export default function Stories({ isCompact, hideImmediately = false }) {
                     onError={() => setImgError(true)}
                   />
                 </div>
-
-                {/* Label from DB */}
-                <span className="absolute bottom-4 left-4 right-4 text-[9px] text-white font-black uppercase truncate tracking-widest leading-none drop-shadow-lg z-20">
-                  {story.label}
-                </span>
               </div>
             ))}
           </div>
