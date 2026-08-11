@@ -124,7 +124,7 @@ export default function AccountSettingsModal({ isOpen, onClose }) {
       // Data detected, small delay to ensure store is ready
       const timer = setTimeout(() => {
         useStore.setState({ isSyncing: false });
-        setToastMessage("Login Success!");
+        setToastMessage("Welcome Back!");
         onClose();
       }, 800);
       return () => clearTimeout(timer);

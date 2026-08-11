@@ -510,88 +510,91 @@ export const useStore = create(
             _loadedDatasets: { userProfile: false, stories: false, kits: false, deals: false, orders: false, basket: false, shelf: false, prints: false }
           });
 
+          // Phase 2: Start PUBLIC data listeners immediately (these don't depend on user identity)
+          const currentReq = get()._getPageRequirements(get()._activePath);
+          const priorityKeys = Object.entries(currentReq).filter(([, v]) => v).map(([k]) => k);
+          priorityKeys.forEach((key) => {
+            if (get()._loadedDatasets[key]) return;
+            const timeoutId = setTimeout(() => {
+              if (!get()._loadedDatasets[key]) {
+                console.warn(`SG LOG: ${key} listener is slow; rendering page while Firestore reconnects.`);
+                get().markLoaded(key);
+              }
+            }, 8000);
+            priorityLoadTimeouts.push(timeoutId);
+          });
+
+          // 1. Home priority -> Stories (public data — start immediately)
+          if (currentReq.stories) {
+            const initialStoriesQuery = query(collection(db, "stories"), orderBy("order", "asc"), limit(20));
+            const unsub = onSnapshot(initialStoriesQuery, (snap) => {
+              set({ stories: snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) });
+              get().markLoaded('stories');
+              
+              const bgStoriesQuery = query(collection(db, "stories"), orderBy("order", "asc"));
+              const unsubFull = onSnapshot(bgStoriesQuery, (bgSnap) => {
+                set({ stories: bgSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) });
+              }, (err) => console.error("SG LOG: Background Stories subscription error:", err));
+              set((state) => ({ _prioUnsubs: [...state._prioUnsubs, unsubFull] }));
+            }, (err) => {
+              console.error("SG LOG: Stories subscription error:", err);
+              get().markLoaded('stories');
+            });
+            set((state) => ({ _prioUnsubs: [...state._prioUnsubs, unsub] }));
+          }
+
+          // 2. Kits priority -> ALL kits (public data — start immediately)
+          if (currentReq.kits) {
+            const allKitsQuery = query(collection(db, "kits"), orderBy("lastUpdated", "desc"));
+            const unsub = onSnapshot(allKitsQuery, (snap) => {
+              const allKits = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+              set({ 
+                kits: sortKitsByAvailability(allKits), 
+                lastVisibleKit: snap.docs[snap.docs.length - 1]
+              });
+              get().markLoaded('kits');
+              get().syncAllDeals();
+            }, (err) => {
+              console.error("SG LOG: Kits subscription error:", err);
+              get().markLoaded('kits');
+            });
+            set((state) => ({ _prioUnsubs: [...state._prioUnsubs, unsub] }));
+          }
+
+          // 2b. Deals priority (public data — start immediately)
+          if (currentReq.deals) {
+            const unsub = onSnapshot(collection(db, "deals"), (snap) => {
+              set({ deals: docsToArray(snap) });
+              get().markLoaded('deals');
+              get().syncAllDeals();
+            }, (err) => {
+              console.error("SG LOG: Deals priority subscription error:", err);
+              get().markLoaded('deals');
+            });
+            set((state) => ({ _prioUnsubs: [...state._prioUnsubs, unsub] }));
+          }
+
+          // 3. Prints priority -> All Blueprints (public data — start immediately)
+          if (currentReq.prints) {
+            const unsub = onSnapshot(collection(db, "blueprints"), (snap) => {
+              set({ 
+                blueprints: docsToArray(snap),
+                loadedData: { ...get().loadedData, blueprints: true }
+              });
+              get().markLoaded('prints');
+            }, (err) => {
+              console.error("SG LOG: Blueprints priority error:", err);
+              get().markLoaded('prints');
+            });
+            set((state) => ({ _prioUnsubs: [...state._prioUnsubs, unsub] }));
+          }
+
+          // Phase 1: Auth & profile sync (runs in parallel with public data above)
           await get().syncUserAccount(u, () => {
             get().markLoaded('userProfile');
 
-            // Phase 2: Start priority fetching ONLY for the current active page
-            const currentReq = get()._getPageRequirements(get()._activePath);
-            Object.entries(currentReq).forEach(([key, isRequired]) => {
-              if (!isRequired || get()._loadedDatasets[key]) return;
-              const timeoutId = setTimeout(() => {
-                if (!get()._loadedDatasets[key]) {
-                  console.warn(`SG LOG: ${key} listener is slow; rendering page while Firestore reconnects.`);
-                  get().markLoaded(key);
-                }
-              }, 8000);
-              priorityLoadTimeouts.push(timeoutId);
-            });
-
-            // 1. Home priority -> Stories
-            if (currentReq.stories) {
-              const initialStoriesQuery = query(collection(db, "stories"), orderBy("order", "asc"), limit(20));
-              const unsub = onSnapshot(initialStoriesQuery, (snap) => {
-                set({ stories: snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) });
-                get().markLoaded('stories');
-                
-                const bgStoriesQuery = query(collection(db, "stories"), orderBy("order", "asc"));
-                const unsubFull = onSnapshot(bgStoriesQuery, (bgSnap) => {
-                  set({ stories: bgSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) });
-                }, (err) => console.error("SG LOG: Background Stories subscription error:", err));
-                set((state) => ({ _prioUnsubs: [...state._prioUnsubs, unsubFull] }));
-              }, (err) => {
-                console.error("SG LOG: Stories subscription error:", err);
-                get().markLoaded('stories');
-              });
-              set((state) => ({ _prioUnsubs: [...state._prioUnsubs, unsub] }));
-            }
-
-            // 2. Kits priority -> ALL kits (hasAvailableStock field is unreliable on older docs)
-            if (currentReq.kits) {
-              const allKitsQuery = query(collection(db, "kits"), orderBy("lastUpdated", "desc"));
-              const unsub = onSnapshot(allKitsQuery, (snap) => {
-                const allKits = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                set({ 
-                  kits: sortKitsByAvailability(allKits), 
-                  lastVisibleKit: snap.docs[snap.docs.length - 1]
-                });
-                get().markLoaded('kits');
-                get().syncAllDeals();
-              }, (err) => {
-                console.error("SG LOG: Kits subscription error:", err);
-                get().markLoaded('kits');
-              });
-              set((state) => ({ _prioUnsubs: [...state._prioUnsubs, unsub] }));
-            }
-
-            // 2b. Deals priority
-            if (currentReq.deals) {
-              const unsub = onSnapshot(collection(db, "deals"), (snap) => {
-                set({ deals: docsToArray(snap) });
-                get().markLoaded('deals');
-                get().syncAllDeals();
-              }, (err) => {
-                console.error("SG LOG: Deals priority subscription error:", err);
-                get().markLoaded('deals');
-              });
-              set((state) => ({ _prioUnsubs: [...state._prioUnsubs, unsub] }));
-            }
-
-            // 3. Prints priority -> All Blueprints with onSnapshot
-            if (currentReq.prints) {
-              const unsub = onSnapshot(collection(db, "blueprints"), (snap) => {
-                set({ 
-                  blueprints: docsToArray(snap),
-                  loadedData: { ...get().loadedData, blueprints: true }
-                });
-                get().markLoaded('prints');
-              }, (err) => {
-                console.error("SG LOG: Blueprints priority error:", err);
-                get().markLoaded('prints');
-              });
-              set((state) => ({ _prioUnsubs: [...state._prioUnsubs, unsub] }));
-            }
-
-            // 4. Shelf priority -> Shelf collection (Basket is already sync'ed priority in syncUserAccount)
+            // User-dependent data: only start AFTER profile is synced
+            // 4. Shelf priority -> Shelf collection (requires admin check)
             if (currentReq.shelf) {
               const unsub = onSnapshot(collection(db, "shelf"), (snap) => {
                 const items = snap.docs.map(doc => ({ ...doc.data(), basketId: doc.id }));
@@ -604,7 +607,7 @@ export const useStore = create(
               set((state) => ({ _prioUnsubs: [...state._prioUnsubs, unsub] }));
             }
 
-            // 5. Orders priority -> Orders limit 20
+            // 5. Orders priority -> Orders limit 20 (requires user UID)
             if (currentReq.orders) {
               if (u) {
                 set({ syncStatus: 'Loading orders' });

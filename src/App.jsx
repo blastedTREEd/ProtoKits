@@ -338,7 +338,7 @@ export default function App() {
         const result = await getRedirectResult(auth);
         if (result) {
           console.log("DEBUG: Redirect result success:", result.user);
-          setToastMessage("Login Success!");
+          setToastMessage("Welcome Back!");
         }
       } catch (error) {
         console.error("DEBUG: Redirect login error:", error);
