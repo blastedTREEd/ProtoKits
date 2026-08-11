@@ -677,6 +677,12 @@ export default function Kits() {
     setSelectedDeal(deal);
   };
 
+  const handleOpenDealKit = (kit) => {
+    if (!kit?.id) return;
+    setSelectedDeal(null);
+    navigate(`/kits/${encodeURIComponent(kit.id)}`, { replace: true });
+  };
+
   const handleBuyNowFromCard = (item) => {
     console.log("handleBuyNowFromCard called with:", item);
     const isPreOrder = item.stock?.status?.toLowerCase().includes('pre') || item.stock?.status?.toLowerCase().includes('batch');
@@ -1107,6 +1113,7 @@ export default function Kits() {
             onClose={() => setSelectedDeal(null)}
             deal={selectedDeal}
             onBuyNow={handleDealCheckout}
+            onOpenKit={handleOpenDealKit}
             isEditMode={isAdmin && isAdminView}
             onEditDeal={(deal) => {
               setSelectedDeal(null);

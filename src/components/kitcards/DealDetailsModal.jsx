@@ -1,5 +1,5 @@
 import React, { useMemo, useEffect, useRef } from 'react';
-import { X, Gift, Zap, ArrowRight, Settings } from 'lucide-react';
+import { X, Gift, Zap, ArrowRight, Settings, Package } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
 import { distributeRoundedBundlePrices } from '../../utils/bundlePricing';
@@ -22,7 +22,7 @@ function stockMatchesDealSource(stock, source = 'onhand') {
   return source === 'preorder' ? isPreOrder : !isPreOrder;
 }
 
-export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, isEditMode = false, onEditDeal }) {
+export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onOpenKit, isEditMode = false, onEditDeal }) {
   const { kits, shippingSettings } = useStore();
   const { exclusiveDiscountPercent } = getCheckoutPaymentFees({ shippingSettings });
   const onCloseRef = useRef(onClose);
@@ -164,7 +164,7 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, isEd
               </div>
               <div>
                  <h2 className="text-xl font-black uppercase italic leading-none">{deal.name}</h2>
-                 <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500 mt-2 block">
+                 <span className="text-[12px] font-black uppercase tracking-widest text-emerald-500 mt-2 block">
                     {(deal.type === 'bundle_discount' || deal.type === 'bundle_only') ? 'Bundle Only Package' : 'Special Deal Package'}
                   </span>
               </div>
@@ -177,11 +177,11 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, isEd
            {/* Summary Cards */}
            <div className="grid grid-cols-2 gap-3 shrink-0">
               <div className="bg-black/5 dark:bg-white/5 rounded-3xl p-5 text-left border border-white/5">
-                 <span className="text-[9px] font-black uppercase opacity-40 tracking-widest block mb-1 text-left">Original Total</span>
+                 <span className="text-[12px] font-black uppercase opacity-40 tracking-widest block mb-1 text-left">Original Total</span>
                  <span className="text-lg font-black italic line-through opacity-30">₱{normalTotal.toLocaleString()}</span>
               </div>
               <div className="bg-emerald-600/10 rounded-3xl p-5 text-left border border-emerald-500/20">
-                 <span className="text-[9px] font-black uppercase text-emerald-500 tracking-widest block mb-1 text-left">You Save</span>
+                 <span className="text-[12 px] font-black uppercase text-emerald-500 tracking-widest block mb-1 text-left">You Save</span>
                  <span className="text-lg font-black italic text-emerald-500">₱{savings.toLocaleString()}</span>
               </div>
            </div>
@@ -189,31 +189,62 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, isEd
            {/* Kit List */}
            <div className="space-y-3">
               <div className="flex justify-between items-end mb-1 px-2">
-                 <h4 className="text-[10px] font-black uppercase tracking-[0.2em] opacity-30 text-left">Proportional Inclusions ({includedKits.length})</h4>
-                 <span className="text-[8px] font-bold opacity-20 uppercase italic">Prices include bundle discount</span>
+                 <h4 className="text-[13px] font-black uppercase tracking-[0.2em] opacity-30 text-left">Bundle Inclusions ({includedKits.length})</h4>
               </div>
               
-              {includedKits.map(kit => {
-                const pricing = kitPricing.find(p => p.kitId === kit.id) || {};
-                const { refPrice = 0, distributedPrice = 0, isExclusive = false } = pricing;
-                
-                return (
-                  <div key={kit.id} className={`flex items-center gap-4 p-4 rounded-3xl border ${isExclusive ? 'bg-emerald-500/5 dark:bg-emerald-500/10 border-emerald-500/20' : 'bg-black/5 dark:bg-white/5 border-white/5'}`}>
-                     <img src={resolveImage(kit.image, kit.images)} className="w-12 h-12 rounded-xl object-cover bg-white shadow-sm" alt="" />
-                     <div className="flex-1 text-left">
-                        <p className="text-[11px] font-black uppercase leading-tight line-clamp-1">{kit.name}</p>
-                        <p className="text-[9px] font-bold opacity-40 uppercase mt-1">
-                          {kit.specs?.line || ''}
+              <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 dark:bg-emerald-500/10">
+                {includedKits.map((kit, kitIndex) => {
+                  const pricing = kitPricing.find(p => p.kitId === kit.id) || {};
+                  const { refPrice = 0, distributedPrice = 0 } = pricing;
+                  const imageUrl = resolveImage(kit.image, kit.images);
+                  const kitDetails = [kit.brand, kit.specs?.line, kit.specs?.scale].filter(Boolean).join(' / ') || 'Included Kit';
+
+                  return (
+                    <div
+                      key={kit.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => onOpenKit?.(kit)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          onOpenKit?.(kit);
+                        }
+                      }}
+                      className={`flex w-full cursor-pointer items-center gap-4 py-3 transition-transform duration-200 hover:translate-x-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 ${kitIndex > 0 ? 'border-t border-black/5 dark:border-white/10' : ''}`}
+                    >
+                      <div className="flex shrink-0 items-center justify-center">
+                        {imageUrl ? (
+                          <img
+                            src={imageUrl}
+                            className="h-16 w-20 rounded-xl border border-neutral-100 bg-white object-cover object-[center_25%] sm:h-20 sm:w-32 md:w-40 dark:border-neutral-800 dark:bg-neutral-900"
+                            alt={kit.name}
+                          />
+                        ) : (
+                          <div className="flex h-16 w-20 items-center justify-center rounded-xl border border-neutral-100 bg-neutral-200 sm:h-20 sm:w-32 md:w-40 dark:border-neutral-800 dark:bg-neutral-800">
+                            <Package size={24} className="opacity-20" />
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="min-w-0 flex-1 text-left">
+                        <p className="line-clamp-2 text-[13px] font-black uppercase leading-tight">{kit.name}</p>
+                        <p className="mt-1 line-clamp-1 text-[12px] font-black uppercase tracking-wider text-neutral-900 dark:text-white">
+                          {kitDetails}
                         </p>
-                     </div>
-                     <div className="text-right">
-                        <p className="text-[11px] font-black italic text-emerald-500">₱{Math.round(distributedPrice).toLocaleString()}</p>
-                        <p className="text-[8px] font-bold line-through opacity-20 mt-0.5">₱{refPrice.toLocaleString()}</p>
-                     </div>
-                  </div>
-                );
-              })}
-           </div>
+                      </div>
+
+                      <div className="shrink-0 text-right">
+                        <p className="text-[14px] font-black italic text-emerald-600">&#8369;{Math.round(distributedPrice).toLocaleString()}</p>
+                        {refPrice > 0 && refPrice !== Math.round(distributedPrice) && (
+                          <p className="mt-0.5 text-[14px] font-black text-neutral-900 line-through dark:text-white">&#8369;{refPrice.toLocaleString()}</p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
         </div>
 
         {/* Footer / CTA - in one row */}
