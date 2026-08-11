@@ -12,12 +12,12 @@ export default function Checkout() {
   const { isDarkMode } = useTheme();
   const user = useStore((state) => state.user);
   const items = Array.isArray(location.state?.items) ? location.state.items : [];
-  const isGuestPreview = location.state?.isGuestPreview ?? !user;
+  const isGuestPreview = !user;
 
   if (items.length === 0) {
     return (
       <PageTemplate isDarkMode={isDarkMode}>
-        <div className="min-h-[calc(100dvh-60px)] w-full bg-neutral-50 dark:bg-[#0a0a0a] px-4 py-10 font-sans text-neutral-900 dark:text-white">
+      <div className="min-h-dvh w-full bg-neutral-50 px-4 py-10 font-sans text-neutral-900 dark:bg-[#0a0a0a] dark:text-white lg:min-h-[calc(100dvh-60px)]">
           <div className="mx-auto flex max-w-xl flex-col items-center justify-center rounded-[2rem] border border-black/5 bg-white p-8 text-center shadow-sm dark:border-white/10 dark:bg-neutral-950">
             <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-600 text-white">
               <ShoppingBasket size={26} />
@@ -40,7 +40,7 @@ export default function Checkout() {
 
   return (
     <PageTemplate isDarkMode={isDarkMode}>
-      <div className="min-h-[calc(100dvh-60px)] w-full bg-neutral-50 dark:bg-[#0a0a0a] transition-colors duration-500">
+      <div className="min-h-dvh w-full bg-neutral-50 transition-colors duration-500 dark:bg-[#0a0a0a] lg:min-h-[calc(100dvh-60px)]">
         <CheckoutModal isOpen variant="page" items={items} isGuestPreview={isGuestPreview} onClose={() => navigate(-1)} />
       </div>
     </PageTemplate>

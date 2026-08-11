@@ -1,10 +1,13 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import {
+  AlertTriangle,
   Bell,
   CheckCircle2,
   ChevronRight,
   Clock3,
+  Gift,
   Package,
+  PackageCheck,
   Truck,
   XCircle
 } from 'lucide-react';
@@ -14,7 +17,35 @@ import {
   notificationValueToMillis
 } from './notificationUtils';
 
-const getStatusDetails = (status) => {
+const getStatusDetails = (notification) => {
+  if (notification?.notificationKind === 'low_stock') {
+    return {
+      message: notification.message,
+      icon: AlertTriangle,
+      accent: 'bg-orange-500',
+      iconClass: 'bg-orange-500/10 text-orange-600'
+    };
+  }
+
+  if (notification?.notificationKind === 'bundle_ending') {
+    return {
+      message: notification.message,
+      icon: Gift,
+      accent: 'bg-emerald-500',
+      iconClass: 'bg-emerald-500/10 text-emerald-600'
+    };
+  }
+
+  if (notification?.notificationKind === 'back_in_stock') {
+    return {
+      message: notification.message,
+      icon: PackageCheck,
+      accent: 'bg-blue-500',
+      iconClass: 'bg-blue-500/10 text-blue-600'
+    };
+  }
+
+  const status = notification?.status;
   const normalized = String(status || '').trim().toLowerCase();
 
   if (normalized === 'cancelled') {
@@ -96,6 +127,7 @@ const formatActivityTime = (value) => {
 };
 
 const getOrderSummary = (order) => {
+  if (order?.summary) return order.summary;
   const items = Array.isArray(order.items) ? order.items : [];
   const firstItem = items[0]?.name || items[0]?.projectData?.name || order.item || '';
   if (!firstItem) return '';
@@ -199,7 +231,7 @@ export default function NotificationModal({
         style={panelStyle}
         className={`fixed z-[150] animate-in fade-in slide-in-from-top-2 duration-200 ${isFullscreen ? 'w-full max-w-none sm:max-w-sm' : 'w-[390px] max-w-[calc(100vw-5rem)]'}`}
       >
-        <div className={`${isFullscreen ? 'h-full rounded-none' : 'rounded-[1.5rem]'} overflow-hidden border shadow-2xl backdrop-blur-xl ${isDarkMode ? 'border-white/10 bg-neutral-900/95' : 'border-black/5 bg-white/95'}`}>
+        <div className={`${isFullscreen ? 'h-full rounded-none' : 'rounded-[1.5rem]'} overflow-hidden border shadow-[0_24px_70px_rgba(0,0,0,0.22)] backdrop-blur-2xl backdrop-saturate-150 ${isDarkMode ? 'border-white/15 bg-neutral-900/80' : 'border-white/60 bg-white/80'}`}>
           <div
             style={listStyle}
             className={`${isFullscreen ? 'h-full max-h-full' : 'max-h-[min(68vh,560px)]'} overscroll-contain overflow-y-auto p-2`}
@@ -210,7 +242,7 @@ export default function NotificationModal({
                 <p className="text-[10px] font-black uppercase tracking-widest">No order updates yet</p>
               </div>
             ) : notifications.map((order) => {
-              const details = getStatusDetails(order.status);
+              const details = getStatusDetails(order);
               const StatusIcon = details.icon;
               const activityTime = order.lastUpdated || order.createdAt;
               const orderSummary = getOrderSummary(order);
@@ -230,10 +262,10 @@ export default function NotificationModal({
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center justify-between gap-2">
                       <span className="truncate text-[12px] font-black uppercase italic text-neutral-900 dark:text-white">
-                        {order.orderId || 'Order'}
+                        {order.orderId || order.title || 'Notification'}
                       </span>
                       <span className="shrink-0 text-[9px] font-black uppercase tracking-wider text-blue-600">
-                        {order.status || 'Updated'}
+                        {order.notificationLabel || order.status || 'Updated'}
                       </span>
                     </span>
                     <span className="mt-1 block text-[11px] font-semibold leading-4 text-neutral-600 dark:text-neutral-300">

@@ -761,6 +761,12 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     return storeAdmin?.paymentSettings?.maintenanceMode === true;
   }, [storeAdmin]);
 
+  const isAnySalesPageUnderMaintenance = useMemo(() => {
+    if (!isMaintenance) return false;
+    const invalidTypes = storeAdmin?.paymentSettings?.maintenanceInvalidTypes || {};
+    return invalidTypes.kit !== false || invalidTypes.prints !== false;
+  }, [isMaintenance, storeAdmin]);
+
   const isAdminCheckoutConfigReady = Boolean(storeAdmin);
 
   const pickupPoints = useMemo(() => {
@@ -884,17 +890,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     return checkoutItems.some(isProjectCheckoutItem);
   }, [checkoutItems]);
 
-  const hasKitItems = useMemo(() => {
-    return checkoutItems.some(item => !isProjectCheckoutItem(item));
-  }, [checkoutItems]);
-
-  const isOrderInvalidForMaintenance = useMemo(() => {
-    if (!isMaintenance) return false;
-    const invalidTypes = storeAdmin?.paymentSettings?.maintenanceInvalidTypes || {};
-    const invalidKits = invalidTypes.kit !== false;
-    const invalidPrints = invalidTypes.prints !== false;
-    return (hasKitItems && invalidKits) || (hasProjects && invalidPrints);
-  }, [isMaintenance, storeAdmin, hasKitItems, hasProjects]);
+  const isOrderInvalidForMaintenance = isAnySalesPageUnderMaintenance && !isAdmin;
 
   // Detect if selected suboption is a "Cash On" variant (COD/COP/custom)
   const isCashOnSuboption = useMemo(() => {
@@ -1782,6 +1778,8 @@ const handleFinalizeOrder = async () => {
       return;
     }
 
+    if (isOrderInvalidForMaintenance) return;
+
     if (!isNoDetailsMode && !isFormValid) {
       alert("Please complete delivery details and confirm map pin.");
       return;
@@ -2388,10 +2386,10 @@ const handleFinalizeOrder = async () => {
     const shouldShowLocationDropdown = showLocationSelect && locationOptions.length > 0;
     const shippingControlCount = 1 + (shouldShowSuboptionDropdown ? 1 : 0) + (shouldShowLocationDropdown ? 1 : 0);
     const shippingGridClass = shippingControlCount >= 3
-      ? 'md:grid-cols-3'
+      ? 'lg:grid-cols-3'
       : shippingControlCount === 2
-        ? 'md:grid-cols-2'
-        : 'md:grid-cols-1';
+        ? 'lg:grid-cols-2'
+        : 'lg:grid-cols-1';
     const detailsTitle = !checkoutData.shippingMethod
       ? "Receiver's Details"
       : !LOCAL_METHODS.includes(checkoutData.shippingMethod)
@@ -2457,8 +2455,9 @@ const handleFinalizeOrder = async () => {
       return { id: item.basketId || item.stockKey || item.id || idx, image: displayImage, name: rawName, meta: [displayGrade, displayBrand, isProjectCheckoutItem(item) ? 'PROJECT' : item.status].filter(Boolean).join(' / '), quantity, unitPrice };
     });
 
-    const isPaymentUnavailable = isOrderInvalidForMaintenance;
+    const isPaymentUnavailable = isOrderInvalidForMaintenance && !isGuestPreview;
     const isDisabled = !isGuestPreview && (
+      isPaymentUnavailable ||
       isFinalizing ||
       !checkoutData.shippingMethod ||
       (!isNoDetailsMode && !isFormValid) ||
@@ -2469,7 +2468,7 @@ const handleFinalizeOrder = async () => {
     );
 
     return (
-      <div className="space-y-8 pb-24">
+      <div className="space-y-8 pb-24 pt-7 lg:pt-0">
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(360px,420px)]">
           <div className="space-y-6">
             <section className="text-left">
@@ -2551,7 +2550,7 @@ const handleFinalizeOrder = async () => {
                   </button>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
                   {requiredFields.includes(1) && (
                     <div className="rounded-2xl bg-black/[0.03] p-4 dark:bg-white/[0.04]">
                       <p className="text-[12px] font-black uppercase tracking-widest opacity-40">Recipient</p>
@@ -2565,7 +2564,7 @@ const handleFinalizeOrder = async () => {
                     </div>
                   )}
                   {(isLocalPlaceMethod || showLocationSelect) && (
-                    <div className="rounded-2xl bg-black/[0.03] p-4 dark:bg-white/[0.04] md:col-span-2">
+                    <div className="rounded-2xl bg-black/[0.03] p-4 dark:bg-white/[0.04] lg:col-span-2">
                       <p className="text-[12px] font-black uppercase tracking-widest opacity-40">{usesMeetupLocation ? 'Meetup Location' : 'Pickup Location'}</p>
                       <p className="mt-1 text-[13px] font-black uppercase text-blue-600">
                         {getCheckoutPlaceLabel(selectedLocalPlaceDetails, usesMeetupLocation ? 'Meetup Place' : 'Pickup Point')}
@@ -2581,7 +2580,7 @@ const handleFinalizeOrder = async () => {
                     </div>
                   )}
                   {isBranchPickup && (
-                    <div className="rounded-2xl bg-black/[0.03] p-4 dark:bg-white/[0.04] md:col-span-2">
+                    <div className="rounded-2xl bg-black/[0.03] p-4 dark:bg-white/[0.04] lg:col-span-2">
                       <p className="text-[12px] font-black uppercase tracking-widest opacity-40">{courierName} Branch</p>
                       <p className="mt-1 text-[13px] font-black uppercase text-blue-600">
                         {checkoutData.lbcBranch || 'No branch provided'}
@@ -2592,17 +2591,17 @@ const handleFinalizeOrder = async () => {
                     </div>
                   )}
                   {!isLocalPlaceMethod && !showLocationSelect && !isBranchPickup && (
-                    <div className="rounded-2xl bg-black/[0.03] p-4 dark:bg-white/[0.04] md:col-span-2">
+                    <div className="rounded-2xl bg-black/[0.03] p-4 dark:bg-white/[0.04] lg:col-span-2">
                       <p className="text-[12px] font-black uppercase tracking-widest opacity-40">Delivery Address</p>
                       <p className="mt-1 text-[13px] font-black uppercase text-blue-600">{formatPlaceAddress(deliveryData) || 'No address confirmed'}</p>
                     </div>
                   )}
                   {(isLocalPlaceMethod || showLocationSelect) && selectedLocalPlaceCoord && (
-                    <div className="space-y-2 md:col-span-2">
+                    <div className="space-y-2 lg:col-span-2">
                       <p className="text-[12px] font-black uppercase tracking-widest opacity-40">
                         {usesMeetupLocation ? 'Meetup Map Pin' : 'Pickup Map'}
                       </p>
-                      <div className="h-64 w-full overflow-hidden rounded-2xl border border-black/5 bg-black/[0.03] dark:border-white/5 dark:bg-white/[0.04]">
+                      <div className="relative z-0 isolate h-64 w-full overflow-hidden rounded-2xl border border-black/5 bg-black/[0.03] dark:border-white/5 dark:bg-white/[0.04]">
                         <MapContainer
                           center={selectedLocalPlaceCoord}
                           zoom={MAP_DEFAULT_ZOOM}
@@ -2623,9 +2622,9 @@ const handleFinalizeOrder = async () => {
                     </div>
                   )}
                   {!isLocalPlaceMethod && !showLocationSelect && requiredFields.includes(12) && (
-                    <div className="space-y-2 md:col-span-2">
+                    <div className="space-y-2 lg:col-span-2">
                       <p className="text-[12px] font-black uppercase tracking-widest opacity-40">Drop-Off Pin</p>
-                      <div className="h-64 w-full overflow-hidden rounded-2xl border border-black/5 bg-black/[0.03] dark:border-white/5 dark:bg-white/[0.04]">
+                      <div className="relative z-0 isolate h-64 w-full overflow-hidden rounded-2xl border border-black/5 bg-black/[0.03] dark:border-white/5 dark:bg-white/[0.04]">
                         <MapContainer
                           center={[deliveryData.lat, deliveryData.lng]}
                           zoom={MAP_DEFAULT_ZOOM}
@@ -2653,12 +2652,12 @@ const handleFinalizeOrder = async () => {
               <h2 className="mb-4 text-[12px] font-black uppercase tracking-widest opacity-45">Items Breakdown</h2>
               <div className="space-y-3">
                 {itemRows.map((row, idx) => (
-                  <div key={`${row.id}-${idx}`} className="grid grid-cols-[5rem_minmax(0,1fr)_auto] gap-3 rounded-2xl border border-black/5 bg-white p-3 dark:border-white/5 dark:bg-neutral-900 md:grid-cols-[10rem_minmax(0,1fr)_auto] lg:grid-cols-[18rem_minmax(0,1fr)_auto]">
+                  <div key={`${row.id}-${idx}`} className="grid grid-cols-[5rem_minmax(0,1fr)_auto] gap-3 rounded-2xl border border-black/5 bg-white p-3 dark:border-white/5 dark:bg-neutral-900 lg:grid-cols-[18rem_minmax(0,1fr)_auto]">
                     <div className="flex items-center justify-center">
                       {row.image ? (
-                        <img src={row.image} alt={row.name} loading="lazy" className="h-20 w-20 rounded-xl border border-neutral-100 object-cover object-[center_25%] dark:border-neutral-800 md:h-24 md:w-40 lg:w-64 xl:w-72" />
+                        <img src={row.image} alt={row.name} loading="lazy" className="h-20 w-20 rounded-xl border border-neutral-100 object-cover object-[center_25%] dark:border-neutral-800 lg:h-24 lg:w-64 xl:w-72" />
                       ) : (
-                        <div className="flex h-20 w-20 items-center justify-center rounded-xl border border-neutral-100 bg-neutral-200 dark:border-neutral-800 dark:bg-neutral-800 md:h-24 md:w-40 lg:w-64 xl:w-72">
+                        <div className="flex h-20 w-20 items-center justify-center rounded-xl border border-neutral-100 bg-neutral-200 dark:border-neutral-800 dark:bg-neutral-800 lg:h-24 lg:w-64 xl:w-72">
                           <Package size={32} className="opacity-20" />
                         </div>
                       )}
@@ -2685,7 +2684,7 @@ const handleFinalizeOrder = async () => {
                 <button
                   type="button"
                   onClick={handleCloseModal}
-                  className="hidden rounded-xl p-2 text-white/65 transition hover:bg-white/10 hover:text-white md:flex"
+                  className="hidden rounded-xl p-2 text-white/65 transition hover:bg-white/10 hover:text-white lg:flex"
                   aria-label="Close checkout"
                 >
                   <X size={22} />
@@ -2761,10 +2760,20 @@ const handleFinalizeOrder = async () => {
                 <button
                   onClick={isGuestPreview ? handleGoogleLogin : handleFinalizeOrder}
                   disabled={isDisabled}
-                  className="w-full rounded-2xl bg-white py-5 text-[13px] font-black uppercase tracking-[0.2em] text-blue-600 shadow-xl disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex w-full items-center justify-center gap-2 rounded-2xl bg-white py-5 text-[13px] font-black uppercase tracking-[0.2em] text-blue-600 shadow-xl disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {isFinalizing ? 'Reserving...' : isPaymentUnavailable ? 'Payment Unavailable' : isGuestPreview ? 'Login with Google' : 'Pay Now'}
+                  {isFinalizing ? 'Reserving...' : isGuestPreview ? (
+                    <>
+                      <FcIcons.FcGoogle size={18} />
+                      <span>Login with Google</span>
+                    </>
+                  ) : isPaymentUnavailable ? 'Payment Unavailable' : 'Pay Now'}
                 </button>
+                {isGuestPreview && isAnySalesPageUnderMaintenance && (
+                  <p className="!mt-1 text-center text-[12px] font-bold uppercase tracking-[0.18em] text-white">
+                    Payment unavailable
+                  </p>
+                )}
               </div>
             </section>
           </aside>
@@ -2774,13 +2783,28 @@ const handleFinalizeOrder = async () => {
   };
 
   return (
-    <div className={isPage ? "w-full min-h-[calc(100dvh-60px)] font-sans text-neutral-900 dark:text-white" : "fixed inset-0 z-[500] flex items-start md:items-center justify-center md:p-4 bg-black/60 font-sans text-neutral-900 dark:text-white"}>
-      <div className={isPage ? "w-full min-h-[calc(100dvh-60px)] px-4 py-6 sm:px-6 md:px-8 lg:px-10 relative custom-scrollbar" : "bg-white/90 dark:bg-[#0a0a0a]/90 backdrop-blur-xl w-full h-full md:h-auto md:max-w-5xl rounded-none md:rounded-[2.5rem] border border-black/5 dark:border-white/10 p-5 md:p-6 shadow-2xl relative overflow-y-auto md:max-h-[95vh] custom-scrollbar"}>
-        <div className="sticky top-0 z-[520] w-full h-0 overflow-visible md:hidden">
-          <div className="absolute top-0 -right-2 flex justify-end items-center">
-            <motion.button whileTap={{ scale: 0.9 }} onClick={handleCloseModal} className="p-2 rounded-full backdrop-blur-md bg-black/10 dark:bg-white/10 text-neutral-900 dark:text-white border border-black/5 dark:border-white/10 shadow-lg"><X size={20} /></motion.button>
+    <div className={isPage ? "min-h-dvh w-full font-sans text-neutral-900 dark:text-white lg:min-h-[calc(100dvh-60px)]" : "fixed inset-0 z-[500] flex items-start md:items-center justify-center md:p-4 bg-black/60 font-sans text-neutral-900 dark:text-white"}>
+      <div className={isPage ? "relative min-h-dvh w-full px-4 pb-6 custom-scrollbar lg:min-h-[calc(100dvh-60px)] lg:px-10 lg:py-6" : "bg-white/90 dark:bg-[#0a0a0a]/90 backdrop-blur-xl w-full h-full md:h-auto md:max-w-5xl rounded-none md:rounded-[2.5rem] border border-black/5 dark:border-white/10 p-5 md:p-6 shadow-2xl relative overflow-y-auto md:max-h-[95vh] custom-scrollbar"}>
+        {isPage ? (
+          <>
+            <div className="pointer-events-none sticky top-0 z-[1000] h-0 lg:hidden">
+              <motion.button
+                whileTap={{ scale: 0.9 }}
+                onClick={handleCloseModal}
+                className="pointer-events-auto absolute right-0 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-neutral-500 text-white shadow-lg transition hover:bg-neutral-600"
+                aria-label="Close checkout"
+              >
+                <X size={20} />
+              </motion.button>
+            </div>
+          </>
+        ) : (
+          <div className="sticky top-0 z-[520] h-0 w-full overflow-visible md:hidden">
+            <div className="absolute top-0 -right-2 flex items-center justify-end">
+              <motion.button whileTap={{ scale: 0.9 }} onClick={handleCloseModal} className="rounded-full border border-black/5 bg-black/10 p-2 text-neutral-900 shadow-lg backdrop-blur-md dark:border-white/10 dark:bg-white/10 dark:text-white"><X size={20} /></motion.button>
+            </div>
           </div>
-        </div>
+        )}
         {!isPage && (
           <motion.button whileTap={{ scale: 0.9 }} onClick={handleCloseModal} className="hidden md:block absolute top-6 right-6 p-4 -m-4 opacity-30 hover:opacity-100 z-50"><X size={24}/></motion.button>
         )}
@@ -3679,8 +3703,9 @@ const handleFinalizeOrder = async () => {
                       </div>
                   </div>
                     {(() => {
-                      const isPaymentUnavailable = isOrderInvalidForMaintenance;
+                      const isPaymentUnavailable = isOrderInvalidForMaintenance && !isGuestPreview;
                       const isDisabled = !isGuestPreview && (
+                        isPaymentUnavailable ||
                         isFinalizing || 
                         !checkoutData.shippingMethod || 
                         (!isNoDetailsMode && !isFormValid) || 
@@ -3691,31 +3716,38 @@ const handleFinalizeOrder = async () => {
                       );
                       const buttonDisabled = isDisabled;
                       return (
-                        <motion.button 
-                          onClick={isGuestPreview ? handleGoogleLogin : handleFinalizeOrder} 
-                          disabled={buttonDisabled} 
-                          animate={buttonDisabled ? { scale: 0.96, opacity: 0.5 } : { scale: 1.0, opacity: 1 }}
-                          whileHover={buttonDisabled ? {} : { scale: 1.03, y: -2 }}
-                          whileTap={buttonDisabled ? {} : { scale: 0.95, y: 1 }}
-                          transition={{ type: "spring", stiffness: 400, damping: 25 }}
-                          className="w-full py-5 rounded-2xl bg-white text-blue-600 font-black uppercase text-xs tracking-[0.2em] shadow-xl flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed"
-                        >
-                          {isFinalizing ? (
-                            <>
-                              <Loader2 className="animate-spin" size={18} />
-                              <span>Reserving...</span>
-                            </>
-                          ) : isPaymentUnavailable ? (
-                            'Payment Unavailable'
-                          ) : isGuestPreview ? (
-                            <>
-                              <FcIcons.FcGoogle size={18} />
-                              <span>Login with Google</span>
-                            </>
-                          ) : (
-                            'Pay Now'
+                        <>
+                          <motion.button
+                            onClick={isGuestPreview ? handleGoogleLogin : handleFinalizeOrder}
+                            disabled={buttonDisabled}
+                            animate={buttonDisabled ? { scale: 0.96, opacity: 0.5 } : { scale: 1.0, opacity: 1 }}
+                            whileHover={buttonDisabled ? {} : { scale: 1.03, y: -2 }}
+                            whileTap={buttonDisabled ? {} : { scale: 0.95, y: 1 }}
+                            transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                            className="w-full py-5 rounded-2xl bg-white text-blue-600 font-black uppercase text-xs tracking-[0.2em] shadow-xl flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed"
+                          >
+                            {isFinalizing ? (
+                              <>
+                                <Loader2 className="animate-spin" size={18} />
+                                <span>Reserving...</span>
+                              </>
+                            ) : isGuestPreview ? (
+                              <>
+                                <FcIcons.FcGoogle size={18} />
+                                <span>Login with Google</span>
+                              </>
+                            ) : isPaymentUnavailable ? (
+                              'Payment Unavailable'
+                            ) : (
+                              'Pay Now'
+                            )}
+                          </motion.button>
+                          {isGuestPreview && isAnySalesPageUnderMaintenance && (
+                            <p className="text-center text-[12px] font-black uppercase tracking-[0.18em] text-white">
+                              Payment unavailable
+                            </p>
                           )}
-                        </motion.button>
+                        </>
                       );
                     })()}
                 </div>

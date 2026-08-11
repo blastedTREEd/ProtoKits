@@ -70,4 +70,33 @@ Closing the panel does not restore the counter. The counter appears again only w
 
 - Mobile and landscape-tablet notification panels use the full available panel height below the compact navbar and lock page scrolling while allowing internal list scrolling.
 - Desktop notifications remain a navbar-anchored dropdown; scrolling outside closes the dropdown.
+- The notification surface uses a translucent, blurred glass treatment consistent with the profile panel.
 - Selecting a notification marks that order version as read and opens the matching record on the Orders page.
+
+### Commerce notification sources
+
+The same notification feed also derives live customer alerts from kits, basket items, deals, and active `hunts` (the **Notify Me** flow):
+
+- **Last stock:** Triggered when a kit currently in the customer's basket has exactly one publicly available, unreserved stock remaining.
+- **Bundle ends today:** Triggered when a basket kit belongs to an active, fulfillable bundle whose `validUntil` date is the current local day and whose deadline has not passed.
+- **Back in stock:** Triggered when a watched kit previously observed without public stock becomes available. Watched kits come from active customer hunts and basket items that reached zero stock. This covers new admin stock, cancelled-order stock releases, and stock released from the admin shelf.
+
+Commerce notifications use stable item IDs and event versions, participate in the same read/seen counters as order notifications, and open the relevant product route when selected. They also work for guests using the guest basket: last-stock and bundle-ending alerts are derived directly from its items, while restock alerts apply to guest basket items previously observed at zero stock. Guest notification state is stored under a browser-local guest scope. Account-based **Notify Me** hunts and order notifications remain available only to signed-in customers.
+
+Out-of-stock history is stored per signed-in user or guest scope in browser `localStorage` so a later restock can be recognized across reloads on the same browser.
+
+### Checkout access during maintenance
+
+When maintenance mode marks either the Kits or Prints storefront unavailable, checkout keeps its current form and items open but changes the final action by user type:
+
+- Guests receive an active **Login with Google** action and a **Payment unavailable** subtext while either storefront is under maintenance. Completing authentication keeps them on the same checkout page with their current checkout state.
+- Administrators bypass storefront maintenance and receive the normal **Pay Now** action.
+- Signed-in non-admin customers receive an inactive **Payment Unavailable** action.
+
+After guest authentication, the action is recalculated from the live account role and maintenance settings, becoming either **Pay Now** or **Payment Unavailable**.
+
+### Responsive checkout page
+
+- Through the `md` viewport range, checkout keeps a single-column mobile layout. Shipping controls, recipient information, maps, item rows, and totals only switch to the desktop arrangement at `lg`.
+- Both the top navbar and mobile mini navbar are hidden on the checkout page through `md` to prevent overlap with checkout controls.
+- The checkout close action floats independently at the upper-right without a navbar-like background. The first checkout heading begins in the same opening area with a small top inset instead of sitting below a dedicated header row. Its sticky layer remains above isolated Leaflet maps and controls during scrolling. The normal navbar and desktop close action return at `lg`.

@@ -12,5 +12,6 @@ export const getNotificationActivityTime = (order) => (
 );
 
 export const getNotificationVersion = (order) => (
-  `${getNotificationActivityTime(order)}:${String(order?.status || '').trim().toLowerCase()}`
+  order?.notificationVersion
+  || `${getNotificationActivityTime(order)}:${String(order?.status || '').trim().toLowerCase()}`
 );

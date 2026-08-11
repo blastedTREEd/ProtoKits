@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   Sun, Moon, ShoppingBasket, Home, X, ShelvingUnit,
@@ -19,6 +19,11 @@ import PaymentSettingsModal from './PaymentSettingsModal';
 import LoginPromptModal from './LoginPromptModal';
 import WelcomeModal from './WelcomeModal';
 import NotificationModal from './NotificationModal';
+import {
+  buildCommerceNotifications,
+  getAvailableStockEntries,
+  isActiveHunt
+} from './commerceNotificationUtils';
 import { getNotificationVersion } from './notificationUtils';
 import StoriesManagerModal from './StoriesManagerModal';
 
@@ -59,6 +64,8 @@ export default function Navbar({ isCompact: scrolledCompact }) {
     garageInfo, 
     basket, 
     shelf,
+    kits,
+    deals,
     orders,
     shippingSettings,
     user, 
@@ -82,12 +89,17 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   } = useStore();
 
   const activeBasket = user ? ((isAdmin && isAdminView) ? shelf : basket) : guestBasket;
+  const notificationBasket = user ? basket : guestBasket;
+  const notificationOwnerKey = user?.uid || 'guest';
 
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
   const [notificationOrders, setNotificationOrders] = useState([]);
+  const [notificationHunts, setNotificationHunts] = useState([]);
   const [notificationReadVersions, setNotificationReadVersions] = useState({});
   const [notificationSeenVersions, setNotificationSeenVersions] = useState({});
+  const [outOfStockKitIds, setOutOfStockKitIds] = useState({});
+  const [notificationNow, setNotificationNow] = useState(Date.now());
   const [notificationAnchorTop, setNotificationAnchorTop] = useState(null);
   const [isPickupPointOpen, setIsPickupPointOpen] = useState(false);
   const [isPaymentSettingsOpen, setIsPaymentSettingsOpen] = useState(false);
@@ -120,14 +132,64 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   const profilePhotoURL = user?.photoURL || auth.currentUser?.photoURL || '';
   const adminRingClass = 'bg-gradient-to-br from-amber-300 via-yellow-400 to-orange-500 shadow-lg shadow-yellow-500/25';
   const customerRingClass = 'bg-gradient-to-br from-[#0866FF] to-[#00CFFF]';
-  const unseenNotificationCount = notificationOrders.reduce((count, order) => (
-    notificationSeenVersions[order.id] === getNotificationVersion(order) ? count : count + 1
+  const commerceNotifications = useMemo(() => (
+    buildCommerceNotifications({
+      kits,
+      deals,
+      basket: notificationBasket,
+      hunts: user?.uid ? notificationHunts : [],
+      outOfStockKitIds,
+      now: notificationNow
+    })
+  ), [deals, kits, notificationBasket, notificationHunts, notificationNow, outOfStockKitIds, user?.uid]);
+  const allNotifications = useMemo(() => (
+    [...notificationOrders, ...commerceNotifications]
+  ), [commerceNotifications, notificationOrders]);
+  const unseenNotificationCount = allNotifications.reduce((count, notification) => (
+    notificationSeenVersions[notification.id] === getNotificationVersion(notification) ? count : count + 1
   ), 0);
 
   useEffect(() => {
-    setNotificationReadVersions(loadNotificationVersions('reads', user?.uid));
-    setNotificationSeenVersions(loadNotificationVersions('seen', user?.uid));
-  }, [user?.uid]);
+    setNotificationReadVersions(loadNotificationVersions('reads', notificationOwnerKey));
+    setNotificationSeenVersions(loadNotificationVersions('seen', notificationOwnerKey));
+    setOutOfStockKitIds(loadNotificationVersions('out-of-stock', notificationOwnerKey));
+  }, [notificationOwnerKey]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNotificationNow(Date.now()), 60000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const kitMap = new Map((kits || []).map((kit) => [kit.id, kit]));
+    const basketKitIds = [...new Set((notificationBasket || []).map((item) => item?.id).filter(Boolean))];
+    const activeHuntKitIds = (user?.uid ? notificationHunts : [])
+      .filter((hunt) => isActiveHunt(hunt, notificationNow))
+      .map((hunt) => hunt?.kitId)
+      .filter(Boolean);
+
+    setOutOfStockKitIds((currentKitIds) => {
+      const nextKitIds = { ...currentKitIds };
+      let hasChanges = false;
+
+      activeHuntKitIds.forEach((kitId) => {
+        if (nextKitIds[kitId]) return;
+        nextKitIds[kitId] = true;
+        hasChanges = true;
+      });
+
+      basketKitIds.forEach((kitId) => {
+        const kit = kitMap.get(kitId);
+        if (!kit || getAvailableStockEntries(kit).length > 0 || nextKitIds[kitId]) return;
+        nextKitIds[kitId] = true;
+        hasChanges = true;
+      });
+
+      if (!hasChanges) return currentKitIds;
+      saveNotificationVersions('out-of-stock', notificationOwnerKey, nextKitIds);
+      return nextKitIds;
+    });
+  }, [kits, notificationBasket, notificationHunts, notificationNow, notificationOwnerKey, user?.uid]);
 
   useEffect(() => {
     const titleWithoutCounter = document.title.replace(/^\(\d+\)\s*/, '');
@@ -274,6 +336,7 @@ useEffect(() => {
   useEffect(() => {
     if (!user?.uid) {
       setNotificationOrders([]);
+      setNotificationHunts([]);
       return undefined;
     }
 
@@ -286,6 +349,17 @@ useEffect(() => {
     });
   }, [user?.uid]);
 
+  useEffect(() => {
+    if (!user?.uid) return undefined;
+
+    const huntQuery = query(collection(db, 'hunts'), where('uid', '==', user.uid));
+    return onSnapshot(huntQuery, (snapshot) => {
+      setNotificationHunts(snapshot.docs.map((huntDoc) => ({ id: huntDoc.id, ...huntDoc.data() })));
+    }, (error) => {
+      console.error('SG LOG: Hunt notification subscription error:', error);
+    });
+  }, [user?.uid]);
+
   const handleNavClick = (path) => {
     if (location.pathname === path) {
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -294,19 +368,23 @@ useEffect(() => {
     }
   };
 
-  const handleOpenNotificationOrder = (order) => {
-    if (!order?.id) return;
+  const handleOpenNotificationOrder = (notification) => {
+    if (!notification?.id) return;
 
     setNotificationReadVersions((currentReadVersions) => {
       const nextReadVersions = {
         ...currentReadVersions,
-        [order.id]: getNotificationVersion(order)
+        [notification.id]: getNotificationVersion(notification)
       };
-      saveNotificationVersions('reads', user?.uid, nextReadVersions);
+      saveNotificationVersions('reads', notificationOwnerKey, nextReadVersions);
       return nextReadVersions;
     });
     setIsNotificationModalOpen(false);
-    navigate('/orders', { state: { openOrderId: order.id } });
+    if (notification.notificationKind && notification.kitId) {
+      navigate(`/kits/${encodeURIComponent(notification.kitId)}`);
+      return;
+    }
+    navigate('/orders', { state: { openOrderId: notification.id } });
   };
 
   const openAfterLandingNavbarCompacts = (openPanel) => {
@@ -329,10 +407,10 @@ useEffect(() => {
     setIsProfileOpen(false);
     setNotificationSeenVersions((currentSeenVersions) => {
       const nextSeenVersions = { ...currentSeenVersions };
-      notificationOrders.forEach((order) => {
-        nextSeenVersions[order.id] = getNotificationVersion(order);
+      allNotifications.forEach((notification) => {
+        nextSeenVersions[notification.id] = getNotificationVersion(notification);
       });
-      saveNotificationVersions('seen', user?.uid, nextSeenVersions);
+      saveNotificationVersions('seen', notificationOwnerKey, nextSeenVersions);
       return nextSeenVersions;
     });
     clearBrowserNotificationCounter();
@@ -553,7 +631,7 @@ return (
       </defs>
     </svg>
 
-    <nav ref={navbarRef} style={{ height: specs.h }} className={`sticky top-0 z-[110] w-full transition-all duration-500 border-b ${isDarkMode ? 'bg-[#0a0a0a]/80 border-white/10' : 'bg-white/80 border-black/10'} backdrop-blur-md`}>
+    <nav ref={navbarRef} style={{ height: specs.h }} className={`sticky top-0 z-[110] w-full transition-all duration-500 border-b ${location.pathname === '/checkout' ? 'hidden lg:block' : ''} ${isDarkMode ? 'bg-[#0a0a0a]/80 border-white/10' : 'bg-white/80 border-black/10'} backdrop-blur-md`}>
       <div className="h-full mx-auto flex items-center px-4 lg:px-10 relative max-w-[1440px]">
         {isMobile ? (
           <div className="flex items-center h-full z-[120] shrink-0 relative">
@@ -938,7 +1016,7 @@ return (
     )}
 
  {/* Mini Navbar */}
-        {isMobile && (
+        {isMobile && location.pathname !== '/checkout' && (
           <div className={`fixed bottom-0 left-0 right-0 z-[100] transition-transform duration-300 ${showBottomNav ? 'translate-y-0' : 'translate-y-full'}`}>
             <div style={{ height: specs.h }} className={`flex items-center justify-around px-2 border-t ${isDarkMode ? 'bg-[#121212] border-white/10' : 'bg-white border-black/5'} shadow-2xl`}>
               <button onClick={(e) => handleNavClick('/', e)} className={`flex flex-col items-center justify-center gap-1 transition-colors ${location.pathname === '/' ? 'text-garage-blue' : 'text-neutral-600 dark:text-neutral-400'}`}>
@@ -967,7 +1045,7 @@ return (
       isOpen={isNotificationModalOpen}
       onClose={() => setIsNotificationModalOpen(false)}
       isDarkMode={isDarkMode}
-      orders={notificationOrders}
+      orders={allNotifications}
       readVersions={notificationReadVersions}
       onOpenOrder={handleOpenNotificationOrder}
       isFullscreen={isProfileFullscreen}
