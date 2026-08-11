@@ -4,8 +4,9 @@ import PageTemplate from './PageTemplate';
 import PrintsCalculator from '../components/calculator/PrintsCalculator';
 import ProjectCard from '../components/calculator/ProjectCard';
 import { useStore } from '../store/useStore';
+import { useTheme } from '../context/ThemeContext';
 import LoginPromptModal from '../components/menu/LoginPromptModal';
-import { Droplet, Calculator, Search, Box, Plus, X, HandCoins, Lock, Zap } from 'lucide-react';
+import { Droplet, Calculator, Search, Box, Plus, X, HandCoins, Lock, Zap, Rocket } from 'lucide-react';
 import FilamentManagerModal from '../components/calculator/FilamentManagerModal';
 import RatesManagerModal from '../components/calculator/RatesManagerModal';
 import LoadingState from '../components/common/LoadingState';
@@ -18,7 +19,75 @@ const isPrintListing = (project) => (
   || (!!project?.production && (!!project?.image || (Array.isArray(project?.images) && project.images.length > 0)))
 );
 
-export default function Prints({ isDarkMode }) {
+const ADMIN_TOOL_STYLES = {
+  blue: {
+    media: 'bg-blue-600/10 dark:bg-blue-600/20',
+    circle: 'from-blue-600 to-cyan-400',
+    shadow: 'shadow-blue-600/20',
+    accent: 'text-blue-600 dark:text-blue-400',
+    badge: 'bg-cyan-300 border-blue-600',
+    hover: 'group-hover:from-blue-600 group-hover:to-cyan-500'
+  },
+  emerald: {
+    media: 'bg-emerald-600/10 dark:bg-emerald-600/20',
+    circle: 'from-emerald-600 to-lime-400',
+    shadow: 'shadow-emerald-600/20',
+    accent: 'text-emerald-600 dark:text-emerald-400',
+    badge: 'bg-lime-300 border-emerald-600',
+    hover: 'group-hover:from-emerald-600 group-hover:to-lime-500'
+  },
+  rose: {
+    media: 'bg-rose-600/10 dark:bg-rose-600/20',
+    circle: 'from-rose-600 to-red-400',
+    shadow: 'shadow-rose-600/20',
+    accent: 'text-rose-600 dark:text-rose-400',
+    badge: 'bg-red-300 border-rose-600',
+    hover: 'group-hover:from-rose-600 group-hover:to-red-500'
+  }
+};
+
+function AdminToolCard({ onClick, icon, title, action, tone, shadow }) {
+  const styles = ADMIN_TOOL_STYLES[tone];
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-full group relative rounded-[2.2rem] p-[2px] bg-black/5 dark:bg-white/5 transition-all duration-500 lg:hover:-translate-y-1 cursor-pointer overflow-hidden ${shadow}`}
+    >
+      <div className="relative rounded-[2.1rem] flex flex-col h-full overflow-hidden bg-white dark:bg-[var(--color-surface)]">
+        <div className="p-3 flex flex-col h-full">
+          <div className={`relative aspect-square rounded-2xl overflow-hidden mb-3 shrink-0 flex items-center justify-center ${styles.media}`}>
+            <div className={`relative flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-tr ${styles.circle} text-white shadow-xl ${styles.shadow} transition-transform group-hover:scale-105`}>
+              {React.createElement(icon, { size: 40, className: 'group-hover:rotate-12 transition-transform' })}
+              <div className={`absolute -top-1 -right-1 rounded-full p-1 border-2 ${styles.badge}`}>
+                <Plus size={12} strokeWidth={4} />
+              </div>
+            </div>
+          </div>
+
+          <div className="px-1 text-center flex-1 flex flex-col min-w-0">
+            <div className="h-[2.5em] flex items-center justify-center min-w-0">
+              <span className={`text-[13px] font-bold uppercase tracking-tighter leading-tight ${styles.accent}`}>
+                {title}
+              </span>
+            </div>
+
+            <div className="mt-auto min-w-0 min-h-[50px] flex items-center pb-1">
+              <div className={`h-9 w-full rounded-full flex items-center justify-center gap-1.5 bg-gradient-to-br ${styles.circle} ${styles.hover} text-white shadow-lg ${styles.shadow} transition-all`}>
+                <Plus size={14} strokeWidth={3} />
+                <span className="text-[10px] font-black uppercase tracking-widest">{action}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+export default function Prints() {
+  const { isDarkMode } = useTheme();
   const navigate = useNavigate();
   const [viewMode, setViewMode] = useState('idle');
   const [modifyingProject, setModifyingProject] = useState(null);
@@ -265,10 +334,10 @@ export default function Prints({ isDarkMode }) {
 
   return (
     <PageTemplate isDarkMode={isDarkMode}>
-      <div className="min-h-screen w-full bg-[var(--color-bg)] transition-colors duration-500 pb-20 font-sans">
+      <div className="min-h-screen w-full bg-neutral-50 dark:bg-[#0a0a0a] transition-colors duration-500 pb-20 font-sans">
         
         {/* Header Search (All Viewports) */}
-        <div className={`sticky top-[56px] sm:top-[60px] z-[90] h-[60px] bg-[var(--color-bg)]/90 backdrop-blur-md border-b border-black/5 dark:border-white/5 transition-transform duration-300 ${showSearchBar ? 'translate-y-0' : '-translate-y-full'}`}>
+        <div className={`sticky top-[56px] sm:top-[60px] z-[90] h-[60px] bg-neutral-50/90 dark:bg-[#0a0a0a]/90 backdrop-blur-md border-b border-black/5 dark:border-white/5 transition-transform duration-300 ${showSearchBar ? 'translate-y-0' : '-translate-y-full'}`}>
           <div className="h-full w-full px-4 md:px-8 flex items-center justify-center gap-4">
             
             <div className="flex-1 max-w-2xl flex items-center gap-4">
@@ -314,9 +383,9 @@ export default function Prints({ isDarkMode }) {
             <div className="grid grid-cols-2 sm:grid-cols-4 sm:portrait:grid-cols-3 md:grid-cols-4 md:portrait:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-3 items-stretch">
               {/* --- Section Divider: Garage Projects --- */}
               {(filteredBlueprints.length > 0 || (isAdmin && isAdminView)) && (
-                <div className={`col-span-full w-full sticky z-[80] bg-[var(--color-bg)]/90 backdrop-blur-md py-3 transition-all duration-300 ${
+                <div className={`col-span-full w-full -mx-4 md:-mx-8 px-4 md:px-8 sticky z-[80] bg-neutral-50/90 dark:bg-[#0a0a0a]/90 backdrop-blur-md py-3 transition-all duration-300 ${
                   showSearchBar ? 'top-[116px] sm:top-[120px]' : 'top-[56px] sm:top-[60px]'
-                } flex items-center gap-3`}>
+                } flex items-center gap-3 w-[calc(100%+2rem)] md:w-[calc(100%+4rem)]`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Garage Projects</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
@@ -324,49 +393,37 @@ export default function Prints({ isDarkMode }) {
               )}
 
               {isAdmin && isAdminView && (
-                <button 
+                <AdminToolCard
                   onClick={openNewPrintModal}
-                  className="group relative flex flex-col items-center justify-center rounded-[2.5rem] border-2 border-dashed p-10 bg-blue-600/10 dark:bg-blue-600/20 border-blue-600/20 dark:border-blue-500/40 hover:border-blue-600/50 transition-all hover:scale-[1.02] active:scale-95"
-                >
-                  <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-tr from-blue-600 to-cyan-400 text-white shadow-xl shadow-blue-600/20">
-                    <Box size={40} className="group-hover:rotate-12 transition-transform" />
-                    <div className="absolute -top-1 -right-1 bg-cyan-300 rounded-full p-1 border-2 border-blue-600">
-                        <Plus size={12} strokeWidth={4} />
-                    </div>
-                  </div>
-                  <span className="mt-4 text-[12px] font-black uppercase tracking-widest text-blue-600 dark:text-blue-400 opacity-60 group-hover:opacity-100 transition-opacity text-center leading-tight">New<br/>Project</span>
-                </button>
+                  icon={Box}
+                  title="New Project"
+                  action="Create"
+                  tone="blue"
+                  shadow={shadow}
+                />
               )}
 
 
               {isAdmin && isAdminView && (
-                <button 
+                <AdminToolCard
                   onClick={() => setShowFilamentModal(true)}
-                  className="group relative flex flex-col items-center justify-center rounded-[2.5rem] border-2 border-dashed p-10 bg-emerald-600/10 dark:bg-emerald-600/20 border-emerald-600/20 dark:border-emerald-500/40 hover:border-emerald-600/50 transition-all hover:scale-[1.02] active:scale-95"
-                >
-                  <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-tr from-emerald-600 to-lime-400 text-white shadow-xl shadow-emerald-600/20">
-                    <Droplet size={40} className="group-hover:rotate-12 transition-transform" />
-                    <div className="absolute -top-1 -right-1 bg-lime-300 rounded-full p-1 border-2 border-emerald-600">
-                        <Plus size={12} strokeWidth={4} />
-                    </div>
-                  </div>
-                  <span className="mt-4 text-[12px] font-black uppercase tracking-widest text-emerald-600 dark:text-emerald-400 opacity-60 group-hover:opacity-100 transition-opacity text-center leading-tight">Inventory<br/>Stock</span>
-                </button>
+                  icon={Droplet}
+                  title="Inventory Stock"
+                  action="Manage"
+                  tone="emerald"
+                  shadow={shadow}
+                />
               )}
 
               {isAdmin && isAdminView && (
-                <button 
+                <AdminToolCard
                   onClick={() => setShowRatesModal(true)}
-                  className="group relative flex flex-col items-center justify-center rounded-[2.5rem] border-2 border-dashed p-10 bg-rose-600/10 dark:bg-rose-600/20 border-rose-600/20 dark:border-rose-500/40 hover:border-rose-600/50 transition-all hover:scale-[1.02] active:scale-95"
-                >
-                  <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-tr from-rose-600 to-red-400 text-white shadow-xl shadow-rose-600/20">
-                    <HandCoins size={40} className="group-hover:-rotate-12 transition-transform" />
-                    <div className="absolute -top-1 -right-1 bg-red-300 rounded-full p-1 border-2 border-rose-600">
-                        <Plus size={12} strokeWidth={4} />
-                    </div>
-                  </div>
-                  <span className="mt-4 text-[12px] font-black uppercase tracking-widest text-rose-600 dark:text-rose-400 opacity-60 group-hover:opacity-100 transition-opacity text-center leading-tight">Printing<br/>Rates</span>
-                </button>
+                  icon={HandCoins}
+                  title="Printing Rates"
+                  action="Manage"
+                  tone="rose"
+                  shadow={shadow}
+                />
               )}
 
               {filteredBlueprints.map((project) => {
@@ -386,9 +443,9 @@ export default function Prints({ isDarkMode }) {
 
               {/* --- Section Divider: Vault (Personal Projects) --- */}
               {(filteredVault.length > 0 || !(isAdmin && isAdminView)) && (
-                <div className={`col-span-full w-full sticky z-[80] bg-[var(--color-bg)]/90 backdrop-blur-md py-3 transition-all duration-300 ${
+                <div className={`col-span-full w-full -mx-4 md:-mx-8 px-4 md:px-8 sticky z-[80] bg-neutral-50/90 dark:bg-[#0a0a0a]/90 backdrop-blur-md py-3 transition-all duration-300 ${
                   showSearchBar ? 'top-[116px] sm:top-[120px]' : 'top-[56px] sm:top-[60px]'
-                } flex items-center gap-3`}>
+                } flex items-center gap-3 w-[calc(100%+2rem)] md:w-[calc(100%+4rem)]`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">User Projects</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
@@ -397,20 +454,39 @@ export default function Prints({ isDarkMode }) {
 
               {!(isAdmin && isAdminView) && (
                 <button 
+                  type="button"
                   onClick={enterEstimating}
-                  className="group relative flex flex-col items-center justify-center rounded-[2.5rem] border-2 border-dashed p-10 transition-all hover:scale-[1.02] active:scale-95 bg-blue-600/10 dark:bg-blue-600/20 border-blue-600/20 dark:border-blue-500/40 hover:border-blue-600/50"
+                  className={`w-full group relative rounded-[2.2rem] p-[2px] bg-black/5 dark:bg-white/5 transition-all duration-500 lg:hover:-translate-y-1 cursor-pointer overflow-hidden ${shadow}`}
                 >
-                  <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-tr from-blue-600 to-cyan-400 text-white shadow-xl shadow-blue-600/20 transition-transform">
-                    <Calculator size={40} className="group-hover:rotate-12 transition-transform" />
-                    <div className={`absolute -top-1 -right-1 rounded-full p-1 border-2 ${
-                        estimationLimitReached ? 'bg-blue-300 border-blue-600' : 'bg-cyan-300 border-blue-600'
-                    }`}>
-                      {estimationLimitReached ? <Lock size={12} strokeWidth={4} /> : <Plus size={12} strokeWidth={4} />}
+                  <div className="relative rounded-[2.1rem] flex flex-col h-full overflow-hidden bg-white dark:bg-[var(--color-surface)]">
+                    <div className="p-3 flex flex-col h-full">
+                      <div className="relative aspect-square rounded-2xl overflow-hidden mb-3 shrink-0 flex items-center justify-center bg-blue-600/10 dark:bg-blue-600/20">
+                        <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-tr from-blue-600 to-cyan-400 text-white shadow-xl shadow-blue-600/20 transition-transform group-hover:scale-105">
+                          <Calculator size={40} className="group-hover:rotate-12 transition-transform" />
+                          <div className={`absolute -top-1 -right-1 rounded-full p-1 border-2 ${
+                              estimationLimitReached ? 'bg-blue-300 border-blue-600' : 'bg-cyan-300 border-blue-600'
+                          }`}>
+                            {estimationLimitReached ? <Lock size={12} strokeWidth={4} /> : <Plus size={12} strokeWidth={4} />}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="px-1 text-center flex-1 flex flex-col min-w-0">
+                        <div className="h-[2.5em] flex items-center justify-center min-w-0">
+                          <span className="text-[13px] font-bold uppercase tracking-tighter leading-tight text-blue-600 dark:text-blue-400 transition-colors">
+                            NEW PROJECT
+                          </span>
+                        </div>
+
+                        <div className="mt-auto min-w-0 min-h-[50px] flex items-center pb-1">
+                          <div className="h-9 w-full rounded-full flex items-center justify-center gap-1.5 bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg shadow-blue-500/40 transition-all group-hover:from-blue-600 group-hover:to-cyan-500">
+                            <Rocket size={14} strokeWidth={2.5} />
+                            <span className="text-[10px] font-black uppercase tracking-widest">ESTIMATE</span>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                  <span className={`mt-4 text-[12px] font-black uppercase tracking-widest text-center leading-tight transition-opacity text-blue-600 dark:text-blue-400 opacity-60 group-hover:opacity-100`}>
-                    New<br/>Estimate
-                  </span>
                 </button>
               )}
 

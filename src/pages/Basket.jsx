@@ -2,11 +2,11 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Trash2, ShoppingBag, ShelvingUnit, ShoppingBasket, PackageOpen, PackagePlus, Plus, Minus } from 'lucide-react';
 import { useStore } from '../store/useStore';
+import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
 import LoginPromptModal from '../components/menu/LoginPromptModal';
 import LoadingState from '../components/common/LoadingState';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
-
 // Resolves an image ID to its URL from the images array.
 // Backward compatible: if the value is already a URL (base64 or http), returns it directly.
 function resolveImage(idOrUrl, imagesArray) {
@@ -24,7 +24,8 @@ function getBasketItemTime(item) {
   return idTime ? Number(idTime[1]) : 0;
 }
 
-export default function Basket({ isDarkMode }) {
+export default function Basket() {
+  const { isDarkMode } = useTheme();
   const { 
     user, basket, shelf, isAdmin, isAdminView, removeFromBasket, kits, addToBasket, addProjectToBasket, decrementProjectQuantity,
     guestBasket, isLoading, setLoginModalOpen, shippingSettings, loadMissingKits, keepOneOfEachToShelf

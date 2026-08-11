@@ -90,6 +90,81 @@ function stockMatchesDealSource(stock, source = 'onhand') {
   return source === 'preorder' ? isPreOrder : !isPreOrder;
 }
 
+const KIT_ADMIN_TOOL_STYLES = {
+  blue: {
+    media: 'bg-blue-600/10 dark:bg-blue-600/20',
+    circle: 'from-blue-600 to-cyan-400',
+    shadow: 'shadow-blue-600/20',
+    accent: 'text-blue-600 dark:text-blue-400',
+    badge: 'bg-cyan-300 border-blue-600',
+    hover: 'group-hover:from-blue-600 group-hover:to-cyan-500'
+  },
+  emerald: {
+    media: 'bg-emerald-600/10 dark:bg-emerald-600/20',
+    circle: 'from-emerald-600 to-lime-400',
+    shadow: 'shadow-emerald-600/20',
+    accent: 'text-emerald-600 dark:text-emerald-400',
+    badge: 'bg-lime-300 border-emerald-600',
+    hover: 'group-hover:from-emerald-600 group-hover:to-lime-500'
+  },
+  amber: {
+    media: 'bg-amber-600/10 dark:bg-amber-600/20',
+    circle: 'from-amber-600 to-yellow-400',
+    shadow: 'shadow-amber-600/20',
+    accent: 'text-amber-600 dark:text-amber-400',
+    badge: 'bg-yellow-300 border-amber-600',
+    hover: 'group-hover:from-amber-600 group-hover:to-yellow-500'
+  },
+  indigo: {
+    media: 'bg-indigo-600/10 dark:bg-indigo-600/20',
+    circle: 'from-indigo-600 to-violet-400',
+    shadow: 'shadow-indigo-600/20',
+    accent: 'text-indigo-600 dark:text-indigo-400',
+    badge: 'bg-violet-300 border-indigo-600',
+    hover: 'group-hover:from-indigo-600 group-hover:to-violet-500'
+  }
+};
+
+function KitAdminToolCard({ onClick, icon, title, action, tone, shadow }) {
+  const styles = KIT_ADMIN_TOOL_STYLES[tone];
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-full group relative rounded-[2.2rem] p-[2px] bg-black/5 dark:bg-white/5 transition-all duration-500 lg:hover:-translate-y-1 cursor-pointer overflow-hidden ${shadow}`}
+    >
+      <div className="relative rounded-[2.1rem] flex flex-col h-full overflow-hidden bg-white dark:bg-[var(--color-surface)]">
+        <div className="p-3 flex flex-col h-full">
+          <div className={`relative aspect-square rounded-2xl overflow-hidden mb-3 shrink-0 flex items-center justify-center ${styles.media}`}>
+            <div className={`relative flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-tr ${styles.circle} text-white shadow-xl ${styles.shadow} transition-transform group-hover:scale-105`}>
+              {React.createElement(icon, { size: 40, className: 'group-hover:rotate-12 transition-transform' })}
+              <div className={`absolute -top-1 -right-1 rounded-full p-1 border-2 ${styles.badge}`}>
+                <Plus size={12} strokeWidth={4} />
+              </div>
+            </div>
+          </div>
+
+          <div className="px-1 text-center flex-1 flex flex-col min-w-0">
+            <div className="h-[2.5em] flex items-center justify-center min-w-0">
+              <span className={`text-[13px] font-bold uppercase tracking-tighter leading-tight ${styles.accent}`}>
+                {title}
+              </span>
+            </div>
+
+            <div className="mt-auto min-w-0 min-h-[50px] flex items-center pb-1">
+              <div className={`h-9 w-full rounded-full flex items-center justify-center gap-1.5 bg-gradient-to-br ${styles.circle} ${styles.hover} text-white shadow-lg ${styles.shadow} transition-all`}>
+                <Plus size={14} strokeWidth={3} />
+                <span className="text-[10px] font-black uppercase tracking-widest">{action}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
 function isBundlePurchasableStock(stock, source = 'onhand') {
   if (!stock || stock.order?.orderId || !stockMatchesDealSource(stock, source)) return false;
   return !stock.isReserved || stock.reservationType === 'admin';
@@ -728,47 +803,54 @@ export default function Kits() {
 
           <main className="min-w-350 mx-auto px-4 md:px-8">
             <div className="grid grid-cols-2 sm:grid-cols-4 sm:portrait:grid-cols-3 md:grid-cols-4 md:portrait:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-3 items-start justify-items-center">
-              {isAdmin && isAdminView && (
-                <div className="h-[2em] w-full h-full p-0">
-                  <div className="grid gap-2 h-full w-full grid-cols-2 grid-rows-2">
-                    <button onClick={() => setIsAddKitModalOpen(true)} className="flex flex-col items-center justify-center p-6 h-full bg-blue-600/10 dark:bg-blue-600/20 border-2 border-dashed border-blue-600/20 dark:border-blue-500/40 hover:border-blue-600/50 rounded-[2.1rem] transition-all group">
-                      <div className="relative flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-tr from-blue-600 to-cyan-400 text-white shadow-xl shadow-blue-600/20 mb-2">
-                        <Plus size={24} className="group-hover:rotate-12 transition-transform" />
-                      </div>
-                      <span className="text-[10px] font-black uppercase tracking-widest text-blue-600 dark:text-blue-400">Add Kit</span>
-                    </button>
-                    <button onClick={() => setIsAddDealModalOpen(true)} className="flex flex-col items-center justify-center p-6 h-full bg-emerald-600/10 dark:bg-emerald-600/20 border-2 border-dashed border-emerald-600/20 dark:border-emerald-500/40 hover:border-emerald-600/50 rounded-[2.1rem] transition-all group">
-                      <div className="relative flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-tr from-emerald-600 to-lime-400 text-white shadow-xl shadow-emerald-600/20 mb-2">
-                        <Gift size={24} className="group-hover:rotate-12 transition-transform" />
-                      </div>
-                      <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 dark:text-emerald-400">New Deal</span>
-                    </button>
-                    <button onClick={() => setIsSupplierBalancesModalOpen(true)} className="flex flex-col items-center justify-center p-6 h-full bg-amber-600/10 dark:bg-amber-600/20 border-2 border-dashed border-amber-600/20 dark:border-amber-500/40 hover:border-amber-600/50 rounded-[2.1rem] transition-all group">
-                      <div className="relative flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-tr from-amber-600 to-yellow-400 text-white shadow-xl shadow-amber-600/20 mb-2">
-                        <Wallet size={24} className="group-hover:rotate-12 transition-transform" />
-                      </div>
-                      <span className="text-[10px] font-black uppercase tracking-widest text-amber-600 dark:text-amber-400">Balances</span>
-                    </button>
-                    <button onClick={() => setIsSalesDashboardModalOpen(true)} className="flex flex-col items-center justify-center p-6 h-full bg-indigo-600/10 dark:bg-indigo-600/20 border-2 border-dashed border-indigo-600/20 dark:border-indigo-500/40 hover:border-indigo-600/50 rounded-[2.1rem] transition-all group">
-                      <div className="relative flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-tr from-indigo-600 to-violet-400 text-white shadow-xl shadow-indigo-600/20 mb-2">
-                        <TrendingUp size={24} className="group-hover:rotate-12 transition-transform" />
-                      </div>
-                      <span className="text-[10px] font-black uppercase tracking-widest text-indigo-600 dark:text-indigo-400 text-center leading-tight">Sales<br/>Dashboard</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-
               {/* --- Section Divider: Deals --- */}
-              {filteredDeals.length > 0 && (
-                <div className={`col-span-full w-full sticky z-[80] bg-neutral-50/90 dark:bg-[#0a0a0a]/90 backdrop-blur-md py-3 transition-all duration-300 ${
+              {(filteredDeals.length > 0 || (isAdmin && isAdminView)) && (
+                <div className={`col-span-full w-full -mx-4 md:-mx-8 px-4 md:px-8 sticky z-[80] bg-neutral-50/90 dark:bg-[#0a0a0a]/90 backdrop-blur-md py-3 transition-all duration-300 ${
                   showSearchBar ? 'top-[116px] sm:top-[120px]' : 'top-[56px] sm:top-[60px]'
-                } flex items-center gap-3`}>
+                } flex items-center gap-3 w-[calc(100%+2rem)] md:w-[calc(100%+4rem)]`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Deals</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                 </div>
               )}
+
+              {isAdmin && isAdminView && (
+                <>
+                  <KitAdminToolCard
+                    onClick={() => setIsAddKitModalOpen(true)}
+                    icon={Plus}
+                    title="Add Kit"
+                    action="Add Kit"
+                    tone="blue"
+                    shadow={isDarkMode ? 'shadow-[0_8px_30px_rgba(0,0,0,0.5)]' : 'shadow-[0_4px_12px_rgba(0,0,0,0.05)]'}
+                  />
+                  <KitAdminToolCard
+                    onClick={() => setIsAddDealModalOpen(true)}
+                    icon={Gift}
+                    title="New Deal"
+                    action="Create"
+                    tone="emerald"
+                    shadow={isDarkMode ? 'shadow-[0_8px_30px_rgba(0,0,0,0.5)]' : 'shadow-[0_4px_12px_rgba(0,0,0,0.05)]'}
+                  />
+                  <KitAdminToolCard
+                    onClick={() => setIsSupplierBalancesModalOpen(true)}
+                    icon={Wallet}
+                    title="Balances"
+                    action="View"
+                    tone="amber"
+                    shadow={isDarkMode ? 'shadow-[0_8px_30px_rgba(0,0,0,0.5)]' : 'shadow-[0_4px_12px_rgba(0,0,0,0.05)]'}
+                  />
+                  <KitAdminToolCard
+                    onClick={() => setIsSalesDashboardModalOpen(true)}
+                    icon={TrendingUp}
+                    title="Sales Dashboard"
+                    action="Open"
+                    tone="indigo"
+                    shadow={isDarkMode ? 'shadow-[0_8px_30px_rgba(0,0,0,0.5)]' : 'shadow-[0_4px_12px_rgba(0,0,0,0.05)]'}
+                  />
+                </>
+              )}
+
               {filteredDeals.map(deal => {
                 if (!deal) return null;
                 const orderedKitIds = [
@@ -850,9 +932,9 @@ export default function Kits() {
 
               {/* --- Section Divider: Available Kits --- */}
               {kitGroups.available.length > 0 && (
-                <div className={`col-span-full w-full sticky z-[80] bg-neutral-50/90 dark:bg-[#0a0a0a]/90 backdrop-blur-md py-3 transition-all duration-300 ${
+                <div className={`col-span-full w-full -mx-4 md:-mx-8 px-4 md:px-8 sticky z-[80] bg-neutral-50/90 dark:bg-[#0a0a0a]/90 backdrop-blur-md py-3 transition-all duration-300 ${
                   showSearchBar ? 'top-[116px] sm:top-[120px]' : 'top-[56px] sm:top-[60px]'
-                } flex items-center gap-3`}>
+                } flex items-center gap-3 w-[calc(100%+2rem)] md:w-[calc(100%+4rem)]`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Available Kits</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
@@ -890,9 +972,9 @@ export default function Kits() {
 
               {/* --- Section Divider: Collection --- */}
               {kitGroups.collection.length > 0 && (
-                <div className={`col-span-full w-full sticky z-[80] bg-neutral-50/90 dark:bg-[#0a0a0a]/90 backdrop-blur-md py-3 transition-all duration-300 ${
+                <div className={`col-span-full w-full -mx-4 md:-mx-8 px-4 md:px-8 sticky z-[80] bg-neutral-50/90 dark:bg-[#0a0a0a]/90 backdrop-blur-md py-3 transition-all duration-300 ${
                   showSearchBar ? 'top-[116px] sm:top-[120px]' : 'top-[56px] sm:top-[60px]'
-                } flex items-center gap-3`}>
+                } flex items-center gap-3 w-[calc(100%+2rem)] md:w-[calc(100%+4rem)]`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Collection</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
@@ -930,9 +1012,9 @@ export default function Kits() {
 
               {/* --- Section Divider: Out of Stock --- */}
               {kitGroups.outOfStock.length > 0 && (
-                <div className={`col-span-full w-full sticky z-[80] bg-neutral-50/90 dark:bg-[#0a0a0a]/90 backdrop-blur-md py-3 transition-all duration-300 ${
+                <div className={`col-span-full w-full -mx-4 md:-mx-8 px-4 md:px-8 sticky z-[80] bg-neutral-50/90 dark:bg-[#0a0a0a]/90 backdrop-blur-md py-3 transition-all duration-300 ${
                   showSearchBar ? 'top-[116px] sm:top-[120px]' : 'top-[56px] sm:top-[60px]'
-                } flex items-center gap-3`}>
+                } flex items-center gap-3 w-[calc(100%+2rem)] md:w-[calc(100%+4rem)]`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Out of Stock</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />

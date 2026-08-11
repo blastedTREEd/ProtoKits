@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import PageTemplate from './PageTemplate';
 import { useStore } from '../store/useStore';
+import { useTheme } from '../context/ThemeContext';
 import { Library, Search, Loader2 } from 'lucide-react';
 import ProjectCard from '../components/calculator/ProjectCard';
 import LoadingState from '../components/common/LoadingState';
 
-export default function Blueprints({ isDarkMode }) {
+export default function Blueprints() {
+  const { isDarkMode } = useTheme();
   const blueprints = useStore((state) => state.blueprints);
   const basket = useStore((state) => state.basket);
   const addProjectToBasket = useStore((state) => state.addProjectToBasket);

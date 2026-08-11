@@ -156,6 +156,11 @@ function isOnHandStock(stock) {
   return status === 'onhand' || status === 'on hand';
 }
 
+function isPreOrderStock(stock) {
+  const status = String(stock?.status || '').toLowerCase();
+  return status.includes('pre') || status.includes('batch');
+}
+
 function getStockCostPrice(stock) {
   const value = Number(stock?.costPrice);
   return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
@@ -469,6 +474,13 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   const availableCount = useMemo(() => {
     return visibleStocks.length;
   }, [visibleStocks]);
+
+  const availabilityCounts = useMemo(() => ({
+    // Count all releasable stock, not just the currently public subset. This
+    // keeps pre-order totals independent of ETA/release timing and free-shipping flags.
+    onhand: publicReleasableStocks.filter(isOnHandStock).length,
+    preorder: publicReleasableStocks.filter(isPreOrderStock).length
+  }), [publicReleasableStocks]);
   
   const sellPrice = useMemo(() => {
     const available = visibleStocks.filter(s => !s.isReserved && !s.order?.orderId);
@@ -1183,12 +1195,21 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       className: 'bg-emerald-500 text-white border-emerald-400 shadow-lg flex items-center gap-1'
     });
   }
-  if (availableCount > 0) {
-    gridStatusBadges.push({
-      label: `${availableCount} Available`,
-      isAvailabilityCount: true,
-      className: 'bg-emerald-500 text-white border-emerald-400 shadow-lg'
-    });
+  if (availabilityCounts.onhand > 0 || availabilityCounts.preorder > 0) {
+    if (availabilityCounts.onhand > 0) {
+      gridStatusBadges.push({
+        label: `${availabilityCounts.onhand} ONHAND`,
+        isAvailabilityCount: true,
+        className: 'bg-emerald-500 text-white border-emerald-400 shadow-lg'
+      });
+    }
+    if (availabilityCounts.onhand === 0 && availabilityCounts.preorder > 0) {
+      gridStatusBadges.push({
+        label: `${availabilityCounts.preorder} PRE-ORDER`,
+        isAvailabilityCount: true,
+        className: 'bg-blue-500 text-white border-blue-400 shadow-lg'
+      });
+    }
   }
   if (isExclusiveToBundle) {
     gridStatusBadges.push({
