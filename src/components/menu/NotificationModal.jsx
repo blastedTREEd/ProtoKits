@@ -231,7 +231,7 @@ export default function NotificationModal({
         style={panelStyle}
         className={`fixed z-[150] animate-in fade-in slide-in-from-top-2 duration-200 ${isFullscreen ? 'w-full max-w-none sm:max-w-sm' : 'w-[390px] max-w-[calc(100vw-5rem)]'}`}
       >
-        <div className={`${isFullscreen ? 'h-full rounded-none' : 'rounded-[1.5rem]'} overflow-hidden border shadow-[0_24px_70px_rgba(0,0,0,0.22)] backdrop-blur-2xl backdrop-saturate-150 ${isDarkMode ? 'border-white/15 bg-neutral-900/80' : 'border-white/60 bg-white/80'}`}>
+        <div className={`${isFullscreen ? 'h-full rounded-none' : 'rounded-[1.5rem]'} overflow-hidden border shadow-[0_24px_70px_rgba(0,0,0,0.22)] ${isDarkMode ? 'border-white/10 bg-[#0a0a0a]' : 'border-black/10 bg-white'}`}>
           <div
             style={listStyle}
             className={`${isFullscreen ? 'h-full max-h-full' : 'max-h-[min(68vh,560px)]'} overscroll-contain overflow-y-auto p-2`}

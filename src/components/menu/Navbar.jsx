@@ -818,7 +818,7 @@ return (
 
               {isProfileOpen && (
                 <div ref={profileModalRef} style={profilePanelStyle} className={`fixed animate-in fade-in slide-in-from-top-2 duration-200 ${isProfileFullscreen ? 'w-screen' : 'w-72'}`}>
-                  <div className={`${isProfileFullscreen ? 'h-full max-h-full w-full max-w-none rounded-none overscroll-contain sm:ml-auto sm:max-w-sm' : 'max-h-[calc(100dvh-5rem)] rounded-[2rem]'} overflow-y-auto shadow-2xl border ${isDarkMode ? 'bg-neutral-900/95 border-white/10' : 'bg-white/95 border-black/5'} backdrop-blur-xl`}>
+                  <div className={`${isProfileFullscreen ? 'h-full max-h-full w-full max-w-none rounded-none overscroll-contain sm:ml-auto sm:max-w-sm' : 'max-h-[calc(100dvh-5rem)] rounded-[2rem]'} overflow-y-auto border shadow-2xl ${isDarkMode ? 'border-white/10 bg-[#0a0a0a]' : 'border-black/10 bg-white'}`}>
                     
                     <div className="p-6 flex flex-col items-center text-center space-y-3 border-b border-black/5 dark:border-white/5">
                       <div 

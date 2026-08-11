@@ -70,7 +70,7 @@ Closing the panel does not restore the counter. The counter appears again only w
 
 - Mobile and landscape-tablet notification panels use the full available panel height below the compact navbar and lock page scrolling while allowing internal list scrolling.
 - Desktop notifications remain a navbar-anchored dropdown; scrolling outside closes the dropdown.
-- The notification surface uses a translucent, blurred glass treatment consistent with the profile panel.
+- The notification and profile surfaces use solid theme-controlled backgrounds on every viewport: white in light mode and the app's black surface in dark mode, with matching theme borders.
 - Selecting a notification marks that order version as read and opens the matching record on the Orders page.
 
 ### Commerce notification sources
