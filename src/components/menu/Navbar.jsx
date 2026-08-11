@@ -19,7 +19,36 @@ import PaymentSettingsModal from './PaymentSettingsModal';
 import LoginPromptModal from './LoginPromptModal';
 import WelcomeModal from './WelcomeModal';
 import NotificationModal from './NotificationModal';
+import { getNotificationVersion } from './notificationUtils';
 import StoriesManagerModal from './StoriesManagerModal';
+
+const notificationStateStorageKey = (stateType, userId) => `snorlaxgarage:notification-${stateType}:${userId}`;
+const clearBrowserNotificationCounter = () => {
+  document.title = document.title.replace(/^\(\d+\)\s*/, '');
+};
+
+const loadNotificationVersions = (stateType, userId) => {
+  if (!userId) return {};
+
+  try {
+    const storedValue = window.localStorage.getItem(notificationStateStorageKey(stateType, userId));
+    const parsedValue = storedValue ? JSON.parse(storedValue) : {};
+    return parsedValue && typeof parsedValue === 'object' && !Array.isArray(parsedValue) ? parsedValue : {};
+  } catch (error) {
+    console.warn(`SG LOG: Unable to load notification ${stateType} state:`, error);
+    return {};
+  }
+};
+
+const saveNotificationVersions = (stateType, userId, versions) => {
+  if (!userId) return;
+
+  try {
+    window.localStorage.setItem(notificationStateStorageKey(stateType, userId), JSON.stringify(versions));
+  } catch (error) {
+    console.warn(`SG LOG: Unable to save notification ${stateType} state:`, error);
+  }
+};
 
 export default function Navbar({ isCompact: scrolledCompact }) {
   const { isDarkMode, toggleTheme } = useTheme();
@@ -57,6 +86,8 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
   const [notificationOrders, setNotificationOrders] = useState([]);
+  const [notificationReadVersions, setNotificationReadVersions] = useState({});
+  const [notificationSeenVersions, setNotificationSeenVersions] = useState({});
   const [notificationAnchorTop, setNotificationAnchorTop] = useState(null);
   const [isPickupPointOpen, setIsPickupPointOpen] = useState(false);
   const [isPaymentSettingsOpen, setIsPaymentSettingsOpen] = useState(false);
@@ -89,6 +120,25 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   const profilePhotoURL = user?.photoURL || auth.currentUser?.photoURL || '';
   const adminRingClass = 'bg-gradient-to-br from-amber-300 via-yellow-400 to-orange-500 shadow-lg shadow-yellow-500/25';
   const customerRingClass = 'bg-gradient-to-br from-[#0866FF] to-[#00CFFF]';
+  const unseenNotificationCount = notificationOrders.reduce((count, order) => (
+    notificationSeenVersions[order.id] === getNotificationVersion(order) ? count : count + 1
+  ), 0);
+
+  useEffect(() => {
+    setNotificationReadVersions(loadNotificationVersions('reads', user?.uid));
+    setNotificationSeenVersions(loadNotificationVersions('seen', user?.uid));
+  }, [user?.uid]);
+
+  useEffect(() => {
+    const titleWithoutCounter = document.title.replace(/^\(\d+\)\s*/, '');
+    document.title = !isNotificationModalOpen && unseenNotificationCount > 0
+      ? `(${unseenNotificationCount}) ${titleWithoutCounter}`
+      : titleWithoutCounter;
+
+    return () => {
+      clearBrowserNotificationCounter();
+    };
+  }, [unseenNotificationCount, isNotificationModalOpen]);
 
   useEffect(() => {
     if (!isProfileOpen) {
@@ -246,6 +296,15 @@ useEffect(() => {
 
   const handleOpenNotificationOrder = (order) => {
     if (!order?.id) return;
+
+    setNotificationReadVersions((currentReadVersions) => {
+      const nextReadVersions = {
+        ...currentReadVersions,
+        [order.id]: getNotificationVersion(order)
+      };
+      saveNotificationVersions('reads', user?.uid, nextReadVersions);
+      return nextReadVersions;
+    });
     setIsNotificationModalOpen(false);
     navigate('/orders', { state: { openOrderId: order.id } });
   };
@@ -268,6 +327,15 @@ useEffect(() => {
     }
 
     setIsProfileOpen(false);
+    setNotificationSeenVersions((currentSeenVersions) => {
+      const nextSeenVersions = { ...currentSeenVersions };
+      notificationOrders.forEach((order) => {
+        nextSeenVersions[order.id] = getNotificationVersion(order);
+      });
+      saveNotificationVersions('seen', user?.uid, nextSeenVersions);
+      return nextSeenVersions;
+    });
+    clearBrowserNotificationCounter();
     openAfterLandingNavbarCompacts(() => {
       setNotificationAnchorTop(navbarRef.current?.getBoundingClientRect().bottom ?? null);
       setIsNotificationModalOpen(true);
@@ -595,9 +663,9 @@ return (
                   className={`${isDarkMode ? 'text-white' : 'text-neutral-900'} group-hover:text-garage-blue transition-all duration-300`}
                 />
               )}
-              {notificationOrders.length > 0 && !isNotificationModalOpen && (
+              {unseenNotificationCount > 0 && !isNotificationModalOpen && (
                 <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full border border-white bg-red-500 px-1 text-[9px] font-black leading-none text-white dark:border-neutral-900">
-                  {notificationOrders.length > 99 ? '99+' : notificationOrders.length}
+                  {unseenNotificationCount > 99 ? '99+' : unseenNotificationCount}
                 </span>
               )}
             </button>
@@ -900,6 +968,7 @@ return (
       onClose={() => setIsNotificationModalOpen(false)}
       isDarkMode={isDarkMode}
       orders={notificationOrders}
+      readVersions={notificationReadVersions}
       onOpenOrder={handleOpenNotificationOrder}
       isFullscreen={isProfileFullscreen}
       navbarHeight={specs.h}

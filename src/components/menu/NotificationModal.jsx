@@ -8,17 +8,11 @@ import {
   Truck,
   XCircle
 } from 'lucide-react';
-
-const toMillis = (value) => {
-  if (!value) return 0;
-  if (typeof value?.toMillis === 'function') return value.toMillis();
-  if (typeof value === 'object' && typeof value.seconds === 'number') return value.seconds * 1000;
-  if (value instanceof Date) return value.getTime();
-  const parsed = new Date(value).getTime();
-  return Number.isNaN(parsed) ? 0 : parsed;
-};
-
-const getActivityTime = (order) => toMillis(order.lastUpdated) || toMillis(order.createdAt);
+import {
+  getNotificationActivityTime,
+  getNotificationVersion,
+  notificationValueToMillis
+} from './notificationUtils';
 
 const getStatusDetails = (status) => {
   const normalized = String(status || '').trim().toLowerCase();
@@ -89,7 +83,7 @@ const getStatusDetails = (status) => {
 };
 
 const formatActivityTime = (value) => {
-  const milliseconds = toMillis(value);
+  const milliseconds = notificationValueToMillis(value);
   if (!milliseconds) return '';
 
   return new Intl.DateTimeFormat('en-PH', {
@@ -113,6 +107,7 @@ export default function NotificationModal({
   onClose,
   isDarkMode,
   orders = [],
+  readVersions = {},
   onOpenOrder,
   isFullscreen = false,
   navbarHeight = '60px',
@@ -124,7 +119,7 @@ export default function NotificationModal({
     orders.forEach((order) => {
       if (order?.id) uniqueOrders.set(order.id, order);
     });
-    return [...uniqueOrders.values()].sort((a, b) => getActivityTime(b) - getActivityTime(a));
+    return [...uniqueOrders.values()].sort((a, b) => getNotificationActivityTime(b) - getNotificationActivityTime(a));
   }, [orders]);
 
   useEffect(() => {
@@ -219,13 +214,14 @@ export default function NotificationModal({
               const StatusIcon = details.icon;
               const activityTime = order.lastUpdated || order.createdAt;
               const orderSummary = getOrderSummary(order);
+              const isUnread = readVersions[order.id] !== getNotificationVersion(order);
 
               return (
                 <button
                   key={order.id}
                   type="button"
                   onClick={() => onOpenOrder?.(order)}
-                  className="group relative flex w-full items-start gap-3 overflow-hidden rounded-2xl px-3 py-3 text-left transition-colors hover:bg-blue-500/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  className={`group relative flex w-full items-start gap-3 overflow-hidden rounded-2xl px-3 py-3 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${isUnread ? 'bg-blue-500/10 hover:bg-blue-500/15 dark:bg-blue-500/15 dark:hover:bg-blue-500/20' : 'hover:bg-blue-500/5'}`}
                 >
                   <span className={`absolute bottom-3 left-0 top-3 w-1 rounded-full ${details.accent}`} />
                   <span className={`ml-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${details.iconClass}`}>
