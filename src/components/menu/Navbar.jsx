@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   Sun, Moon, ShoppingBasket, Home, X, ShelvingUnit,
   CircleUserRound, Settings, LogOut, ContactRound,
-  Shield, ShieldCheck, Box, Printer, ClipboardList, UserPlus, PackageOpen, Truck, Bell, CreditCard, CircleX
+  Shield, ShieldCheck, Box, Printer, ClipboardList, UserPlus, PackageOpen, Truck, Bell, CreditCard
 } from 'lucide-react';
 import { FcGoogle } from 'react-icons/fc';
 import { FaFacebook } from 'react-icons/fa';
@@ -580,13 +580,13 @@ return (
         <div className="flex items-center justify-end z-[120] ml-auto gap-2 lg:gap-4">
             <button
               onClick={handleOpenNotifications}
-              className={`${isNotificationModalOpen ? 'p-1 scale-110' : 'p-2 scale-100'} rounded-full transition-all duration-300 group relative`}
+              className="group relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-all duration-300"
               aria-label={isNotificationModalOpen ? 'Close notifications' : 'Open notifications'}
             >
               {isNotificationModalOpen ? (
-                <div className="rounded-full bg-red-500/10 p-[2px] transition-all duration-300">
-                  <div className="overflow-hidden rounded-full border-2 border-red-500 transition-colors">
-                    <CircleX size={specs.utilIcon - 4} className="text-red-500" />
+                <div className="rounded-full bg-neutral-500 p-[2px] shadow-sm transition-all duration-300">
+                  <div className="overflow-hidden rounded-full border-2 border-neutral-500 bg-neutral-500 transition-colors">
+                    <X size={specs.utilIcon - 4} strokeWidth={2.5} className="text-white" />
                   </div>
                 </div>
               ) : (
@@ -633,11 +633,11 @@ return (
                 className={`p-1 transition-all duration-300 relative group ${isProfileOpen ? 'scale-110' : 'scale-100'}`}
               >
                 <div 
-                  className={`rounded-full p-[2px] transition-all duration-300 ${isProfileOpen ? 'bg-red-500/10' : (isAdmin && isAdminView ? adminRingClass : 'bg-transparent group-hover:bg-gradient-to-br group-hover:from-[#0866FF] group-hover:to-[#00CFFF]')}`}
+                  className={`rounded-full p-[2px] transition-all duration-300 ${isProfileOpen ? 'bg-neutral-500 shadow-sm' : (isAdmin && isAdminView ? adminRingClass : 'bg-transparent group-hover:bg-gradient-to-br group-hover:from-[#0866FF] group-hover:to-[#00CFFF]')}`}
                 >
-                  <div className={`rounded-full overflow-hidden border-2 transition-colors ${isProfileOpen ? 'border-red-500' : (isAdmin && isAdminView ? 'border-white dark:border-neutral-900' : 'border-transparent group-hover:border-white dark:group-hover:border-neutral-900')}`}>
+                  <div className={`rounded-full overflow-hidden border-2 transition-colors ${isProfileOpen ? 'border-neutral-500 bg-neutral-500' : (isAdmin && isAdminView ? 'border-white dark:border-neutral-900' : 'border-transparent group-hover:border-white dark:group-hover:border-neutral-900')}`}>
                     {isProfileOpen ? (
-                        <CircleX size={specs.utilIcon - 4} className="text-red-500" />
+                        <X size={specs.utilIcon - 4} strokeWidth={2.5} className="text-white" />
                     ) : (isAdmin && isAdminView) ? (
                       garageInfo?.logoURL ? (
                         <img 
