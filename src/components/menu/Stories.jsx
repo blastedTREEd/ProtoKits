@@ -71,7 +71,11 @@ export default function Stories({ isCompact, hideImmediately = false }) {
   useEffect(() => {
     const handleProfileOpen = () => setActiveStoryIndex(null);
     window.addEventListener('profileFullscreenOpen', handleProfileOpen);
-    return () => window.removeEventListener('profileFullscreenOpen', handleProfileOpen);
+    window.addEventListener('notificationFullscreenOpen', handleProfileOpen);
+    return () => {
+      window.removeEventListener('profileFullscreenOpen', handleProfileOpen);
+      window.removeEventListener('notificationFullscreenOpen', handleProfileOpen);
+    };
   }, []);
 
   // Filter out draft stories for non-admin viewers

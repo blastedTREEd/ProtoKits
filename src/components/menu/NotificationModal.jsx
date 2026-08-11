@@ -128,7 +128,7 @@ export default function NotificationModal({
   }, [orders]);
 
   useEffect(() => {
-    if (!isOpen) return undefined;
+    if (!isOpen || isFullscreen) return undefined;
 
     const handleOutsideScroll = (event) => {
       if (panelRef.current?.contains(event.target)) return;
@@ -145,18 +145,47 @@ export default function NotificationModal({
       document.removeEventListener('touchmove', handleOutsideScroll, { capture: true });
       window.removeEventListener('scroll', handlePageScroll);
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, isFullscreen, onClose]);
+
+  useEffect(() => {
+    if (!isOpen || !isFullscreen) return undefined;
+
+    const scrollY = window.scrollY;
+    const previousBodyStyle = {
+      position: document.body.style.position,
+      top: document.body.style.top,
+      width: document.body.style.width,
+      overflow: document.body.style.overflow,
+      overscrollBehavior: document.body.style.overscrollBehavior
+    };
+
+    window.dispatchEvent(new Event('notificationFullscreenOpen'));
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.width = '100%';
+    document.body.style.overflow = 'hidden';
+    document.body.style.overscrollBehavior = 'none';
+
+    return () => {
+      document.body.style.position = previousBodyStyle.position;
+      document.body.style.top = previousBodyStyle.top;
+      document.body.style.width = previousBodyStyle.width;
+      document.body.style.overflow = previousBodyStyle.overflow;
+      document.body.style.overscrollBehavior = previousBodyStyle.overscrollBehavior;
+      window.scrollTo(0, scrollY);
+      window.dispatchEvent(new Event('notificationFullscreenClose'));
+    };
+  }, [isOpen, isFullscreen]);
 
   if (!isOpen) return null;
 
   const hasMeasuredAnchor = Number.isFinite(anchorTop);
-  const measuredTop = hasMeasuredAnchor ? `${anchorTop}px` : navbarHeight;
   const panelStyle = isFullscreen
     ? {
-        top: measuredTop,
+        top: navbarHeight,
         right: 0,
         bottom: 0,
-        height: hasMeasuredAnchor ? `calc(100dvh - ${anchorTop}px)` : `calc(100dvh - ${navbarHeight})`
+        height: `calc(100dvh - ${navbarHeight})`
       }
     : {
         top: hasMeasuredAnchor ? `${anchorTop + 8}px` : `calc(${navbarHeight} + 8px)`,
@@ -168,12 +197,12 @@ export default function NotificationModal({
 
   return (
     <>
-      <div className="fixed inset-0 z-[140]" onClick={onClose} />
+      <div className="fixed inset-0 z-[100]" onClick={onClose} />
 
       <div
         ref={panelRef}
         style={panelStyle}
-        className={`fixed z-[150] animate-in fade-in slide-in-from-top-2 duration-200 ${isFullscreen ? 'w-full max-w-sm' : 'w-[390px] max-w-[calc(100vw-5rem)]'}`}
+        className={`fixed z-[150] animate-in fade-in slide-in-from-top-2 duration-200 ${isFullscreen ? 'w-full max-w-none sm:max-w-sm' : 'w-[390px] max-w-[calc(100vw-5rem)]'}`}
       >
         <div className={`${isFullscreen ? 'h-full rounded-none' : 'rounded-[1.5rem]'} overflow-hidden border shadow-2xl backdrop-blur-xl ${isDarkMode ? 'border-white/10 bg-neutral-900/95' : 'border-black/5 bg-white/95'}`}>
           <div

@@ -74,12 +74,14 @@ const isKnownRoute = (pathname) => KNOWN_PATHS.some(p => p === '/' ? pathname ==
 const Layout = ({ children }) => {
   const [isCompact, setIsCompact] = useState(false);
   const [isProfileFullscreenOpen, setIsProfileFullscreenOpen] = useState(false);
+  const [isNotificationFullscreenOpen, setIsNotificationFullscreenOpen] = useState(false);
   const location = useLocation();
   const { isAdmin } = useStore();
+  const isFullscreenNavOpen = isProfileFullscreenOpen || isNotificationFullscreenOpen;
 
   useEffect(() => {
     const handleScroll = () => {
-      if (isProfileFullscreenOpen) return;
+      if (isFullscreenNavOpen) return;
       const isNotHome = location.pathname !== "/";
       const isScrolled = window.scrollY > 5;
       setIsCompact(isNotHome || isScrolled);
@@ -88,7 +90,7 @@ const Layout = ({ children }) => {
     window.addEventListener('scroll', handleScroll);
     handleScroll(); 
     return () => window.removeEventListener('scroll', handleScroll);
-  }, [location.pathname, isProfileFullscreenOpen]);
+  }, [location.pathname, isFullscreenNavOpen]);
 
   useEffect(() => {
     const handleProfileFullscreenOpen = () => {
@@ -97,25 +99,33 @@ const Layout = ({ children }) => {
     };
     const handleProfileFullscreenClose = () => {
       setIsProfileFullscreenOpen(false);
-      const isNotHome = location.pathname !== "/";
-      const isScrolled = window.scrollY > 5;
-      setIsCompact(isNotHome || isScrolled);
+    };
+    const handleNotificationFullscreenOpen = () => {
+      setIsNotificationFullscreenOpen(true);
+      setIsCompact(true);
+    };
+    const handleNotificationFullscreenClose = () => {
+      setIsNotificationFullscreenOpen(false);
     };
 
     window.addEventListener('profileFullscreenOpen', handleProfileFullscreenOpen);
     window.addEventListener('profileFullscreenClose', handleProfileFullscreenClose);
+    window.addEventListener('notificationFullscreenOpen', handleNotificationFullscreenOpen);
+    window.addEventListener('notificationFullscreenClose', handleNotificationFullscreenClose);
 
     return () => {
       window.removeEventListener('profileFullscreenOpen', handleProfileFullscreenOpen);
       window.removeEventListener('profileFullscreenClose', handleProfileFullscreenClose);
+      window.removeEventListener('notificationFullscreenOpen', handleNotificationFullscreenOpen);
+      window.removeEventListener('notificationFullscreenClose', handleNotificationFullscreenClose);
     };
-  }, [location.pathname]);
+  }, []);
 
   return (
     <div className="min-h-screen flex flex-col">
       {isKnownRoute(location.pathname) && (
         <>
-          <Stories isCompact={location.pathname !== "/" || isProfileFullscreenOpen} hideImmediately={isProfileFullscreenOpen} />
+          <Stories isCompact={location.pathname !== "/" || isFullscreenNavOpen} hideImmediately={isFullscreenNavOpen} />
           <Navbar isCompact={isCompact} />
         </>
       )}

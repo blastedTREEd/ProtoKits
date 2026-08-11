@@ -250,9 +250,38 @@ useEffect(() => {
     navigate('/orders', { state: { openOrderId: order.id } });
   };
 
+  const openAfterLandingNavbarCompacts = (openPanel) => {
+    const needsCompactScroll = location.pathname === '/' && !isDesktop && window.scrollY <= 40;
+    if (!needsCompactScroll) {
+      openPanel();
+      return;
+    }
+
+    window.scrollTo({ top: 48, left: 0, behavior: 'auto' });
+    window.requestAnimationFrame(openPanel);
+  };
+
   const handleOpenNotifications = () => {
-    setNotificationAnchorTop(navbarRef.current?.getBoundingClientRect().bottom ?? null);
-    setIsNotificationModalOpen(true);
+    if (isNotificationModalOpen) {
+      setIsNotificationModalOpen(false);
+      return;
+    }
+
+    setIsProfileOpen(false);
+    openAfterLandingNavbarCompacts(() => {
+      setNotificationAnchorTop(navbarRef.current?.getBoundingClientRect().bottom ?? null);
+      setIsNotificationModalOpen(true);
+    });
+  };
+
+  const handleToggleProfile = () => {
+    if (isProfileOpen) {
+      setIsProfileOpen(false);
+      return;
+    }
+
+    setIsNotificationModalOpen(false);
+    openAfterLandingNavbarCompacts(() => setIsProfileOpen(true));
   };
 
   useEffect(() => {
@@ -549,12 +578,24 @@ return (
         </div>
 
         <div className="flex items-center justify-end z-[120] ml-auto gap-2 lg:gap-4">
-            <button onClick={handleOpenNotifications} className="p-2 rounded-full transition-all group relative">
-              <Bell 
-                size={specs.utilIcon} 
-                className={`${isDarkMode ? 'text-white' : 'text-neutral-900'} group-hover:text-garage-blue transition-all duration-300`} 
-              />
-              {notificationOrders.length > 0 && (
+            <button
+              onClick={handleOpenNotifications}
+              className={`${isNotificationModalOpen ? 'p-1 scale-110' : 'p-2 scale-100'} rounded-full transition-all duration-300 group relative`}
+              aria-label={isNotificationModalOpen ? 'Close notifications' : 'Open notifications'}
+            >
+              {isNotificationModalOpen ? (
+                <div className="rounded-full bg-red-500/10 p-[2px] transition-all duration-300">
+                  <div className="overflow-hidden rounded-full border-2 border-red-500 transition-colors">
+                    <CircleX size={specs.utilIcon - 4} className="text-red-500" />
+                  </div>
+                </div>
+              ) : (
+                <Bell
+                  size={specs.utilIcon}
+                  className={`${isDarkMode ? 'text-white' : 'text-neutral-900'} group-hover:text-garage-blue transition-all duration-300`}
+                />
+              )}
+              {notificationOrders.length > 0 && !isNotificationModalOpen && (
                 <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full border border-white bg-red-500 px-1 text-[9px] font-black leading-none text-white dark:border-neutral-900">
                   {notificationOrders.length > 99 ? '99+' : notificationOrders.length}
                 </span>
@@ -588,7 +629,7 @@ return (
               <button 
                 ref={profileBtnRef}
                 id="nav-login-trigger"
-                onClick={() => setIsProfileOpen(!isProfileOpen)}
+                onClick={handleToggleProfile}
                 className={`p-1 transition-all duration-300 relative group ${isProfileOpen ? 'scale-110' : 'scale-100'}`}
               >
                 <div 
@@ -631,7 +672,7 @@ return (
 
               {isProfileOpen && (
                 <div ref={profileModalRef} style={profilePanelStyle} className={`fixed animate-in fade-in slide-in-from-top-2 duration-200 ${isProfileFullscreen ? 'w-screen' : 'w-72'}`}>
-                  <div className={`${isProfileFullscreen ? 'h-full max-h-full rounded-none overscroll-contain ml-auto max-w-sm' : 'max-h-[calc(100dvh-5rem)] rounded-[2rem]'} overflow-y-auto shadow-2xl border ${isDarkMode ? 'bg-neutral-900/95 border-white/10' : 'bg-white/95 border-black/5'} backdrop-blur-xl`}>
+                  <div className={`${isProfileFullscreen ? 'h-full max-h-full w-full max-w-none rounded-none overscroll-contain sm:ml-auto sm:max-w-sm' : 'max-h-[calc(100dvh-5rem)] rounded-[2rem]'} overflow-y-auto shadow-2xl border ${isDarkMode ? 'bg-neutral-900/95 border-white/10' : 'bg-white/95 border-black/5'} backdrop-blur-xl`}>
                     
                     <div className="p-6 flex flex-col items-center text-center space-y-3 border-b border-black/5 dark:border-white/5">
                       <div 
