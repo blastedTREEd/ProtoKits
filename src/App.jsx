@@ -249,16 +249,16 @@ const RouterContent = () => {
 
   return (
     <>
-      {isNavigating || showLoading ? (
+      {(isNavigating || showLoading) && (
          <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-white/50 dark:bg-black/50 backdrop-blur-sm">
             <LoadingState {...loadingDetails} />
          </div>
-      ) : (
-        <Suspense fallback={
-          <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-white/50 backdrop-blur-sm dark:bg-black/50">
-            <LoadingState {...loadingDetails} />
-          </div>
-        }>
+      )}
+      <Suspense fallback={
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-white/50 backdrop-blur-sm dark:bg-black/50">
+          <LoadingState {...loadingDetails} />
+        </div>
+      }>
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/kits" element={<Kits />} />
@@ -294,7 +294,6 @@ const RouterContent = () => {
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
-      )}
     </>
   );
 };

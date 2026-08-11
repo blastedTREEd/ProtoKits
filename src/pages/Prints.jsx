@@ -307,7 +307,7 @@ export default function Prints({ isDarkMode }) {
           </div>
         </div>
 
-        <main className="max-w-full mx-auto px-4 md:px-8 mt-4">
+        <main className="max-w-full mx-auto px-4 md:px-8">
           {isLoading && totalMatches === 0 ? (
             <LoadingState message="Loading projects..." />
           ) : (

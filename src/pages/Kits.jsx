@@ -726,7 +726,7 @@ export default function Kits() {
             </div>
           </div>
 
-          <main className="min-w-350 mx-auto px-4 md:px-8 mt-4">
+          <main className="min-w-350 mx-auto px-4 md:px-8">
             <div className="grid grid-cols-2 sm:grid-cols-4 sm:portrait:grid-cols-3 md:grid-cols-4 md:portrait:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-3 items-start justify-items-center">
               {isAdmin && isAdminView && (
                 <div className="h-[2em] w-full h-full p-0">
