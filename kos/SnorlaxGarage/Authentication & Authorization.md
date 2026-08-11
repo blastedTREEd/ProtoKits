@@ -60,3 +60,40 @@ Multiple components render options conditionally based on the user's role:
 - **Project Rates & Breakdown:** The `Rates` editing tab in `ProjectCost` and the detailed line-item costing in `CostBreakdown` are rendered only if `isAdmin` is true.
 - **Admin Indicators:** A floating viewport screen-size indicator (e.g. `XL`, `LG`, `MD`, `MOBILE`) is rendered at the bottom left of the window when `isAdmin` is true to assist in debugging layouts.
 - **Calculation Mandate:** To ensure the correct computation of checkout values, `ProjectCost.jsx` always runs the `CostBreakdown` engine under the hood for all users, but wraps it in a `<div className="hidden">` element if the user is a non-admin. This calculates totals without exposing proprietary rates.
+
+---
+
+## 🔐 5. Firebase Credential Handling
+
+The React/Vite client uses only the Firebase browser SDK and its public web-client configuration in `src/firebase/firebase.js`. Browser configuration identifies the Firebase project but does not grant administrative access by itself.
+
+Firebase Admin SDK credentials follow stricter rules:
+
+- Admin service-account JSON files must never be stored in the repository, `src`, `public`, build output, or Obsidian notes.
+- Admin credentials must never be assigned to a `VITE_` environment variable because Vite exposes those values to browser bundles.
+- A replacement Admin credential is required only by a trusted backend or maintenance script that uses `firebase-admin`.
+- Backend credentials must be stored outside the project or in the deployment provider's encrypted secret manager.
+- Service accounts must receive only the minimum IAM permissions needed by their backend workload.
+- `.gitignore` blocks `firebase-adminsdk-*.json` and the previously used Admin credential filename as defense in depth.
+
+### Credential Incident Resolution — August 11, 2026
+
+A Firebase Admin SDK credential was discovered in historical commits reachable from GitHub. The remediation was completed in this order:
+
+1. The exposed Google Cloud service-account key was deleted and therefore revoked.
+2. A replacement key was created outside the repository for backend-only use.
+3. `git-filter-repo` removed the Admin JSON from every reachable commit on `main`.
+4. The rewritten `main` branch was force-pushed with lease protection.
+5. Development resumed from a fresh clone instead of the clone containing the old Git objects.
+6. The fresh clone and all reachable history were rescanned for private keys, provider tokens, JWTs, embedded credentials, and hardcoded secrets.
+
+Final audit result: the local `main` branch matches `origin/main`; no Admin credential file, private-key marker, or high-confidence secret remains in the current tree or reachable history. The Firebase web API key remains in client configuration by design.
+
+### Pre-Push Security Checklist
+
+- Review `git status --short` and staged file names before pushing.
+- Never force-add a file ignored as a credential.
+- Keep generated keys outside all Git working directories and documentation vaults.
+- Rotate a credential immediately if it is committed; deleting the file in a later commit is insufficient.
+- Rewrite affected history only after revoking the credential, then require fresh clones so old history is not reintroduced.
+- Keep GitHub secret scanning and push protection enabled when available.

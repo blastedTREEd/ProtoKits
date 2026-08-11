@@ -15,6 +15,7 @@ Select a section below to explore the inner workings of the platform:
   * Facebook OAuth Flow via Firebase.
   * Dynamic Firestore whitelist matching for Admin verification.
   * State management of roles (`isAdmin` / `isAdminView`).
+  * Firebase client/Admin credential boundaries, rotation procedure, and pre-push secret checks.
 
 ### 🧮 Calculations & Core Engines
 * **[[Cost Estimation Engine]]**
