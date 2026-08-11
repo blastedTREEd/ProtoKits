@@ -216,7 +216,7 @@ useEffect(() => {
   return () => window.removeEventListener('scroll', handleScroll);
 }, [lastScrollY, forceHide, location.pathname]);
 
-  const isCompactMode = location.pathname !== "/" || scrolledCompact || lastScrollY > 40 || isMobile;
+  const isCompactMode = location.pathname !== "/" || scrolledCompact || lastScrollY > 40 || isStoriesManagerOpen || isMobile;
 
   const handleNavClick = (path) => {
     if (location.pathname === path) {

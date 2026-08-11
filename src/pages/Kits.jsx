@@ -804,7 +804,7 @@ export default function Kits() {
           <main className="min-w-350 mx-auto px-4 md:px-8">
             <div className="grid grid-cols-2 sm:grid-cols-4 sm:portrait:grid-cols-3 md:grid-cols-4 md:portrait:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-3 items-start justify-items-center">
               {/* --- Section Divider: Deals --- */}
-              {(filteredDeals.length > 0 || (isAdmin && isAdminView)) && (
+              {filteredDeals.length > 0 && (
                 <div className={`col-span-full w-full -mx-4 md:-mx-8 px-4 md:px-8 sticky z-[80] bg-neutral-50/90 dark:bg-[#0a0a0a]/90 backdrop-blur-md py-3 transition-all duration-300 ${
                   showSearchBar ? 'top-[116px] sm:top-[120px]' : 'top-[56px] sm:top-[60px]'
                 } flex items-center gap-3 w-[calc(100%+2rem)] md:w-[calc(100%+4rem)]`}>

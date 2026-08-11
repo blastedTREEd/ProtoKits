@@ -1201,27 +1201,14 @@ const renderEditorFormButtons = () => (
   return (
     <AnimatePresence>
       {isOpen && (
-<div className="fixed inset-0 z-[300] flex overflow-hidden overscroll-none md:items-center md:justify-center md:p-6">
-  
+<div className="fixed inset-x-0 bottom-0 top-[56px] z-[300] flex justify-center overflow-hidden overscroll-none bg-neutral-200/80 dark:bg-black/80 sm:top-[60px]">
+  {/* Full-page manager workspace beneath the app navbar */}
   <Motion.div 
-    initial={{ opacity: 0 }} 
-    animate={{ opacity: 1 }} 
-    exit={{ opacity: 0 }} 
-    className="absolute inset-0 bg-black/60 backdrop-blur-xl" 
-    onClick={mode === 'list' ? onClose : resetForm} 
-  />
-
-  {/* 2. Main Modal: Force full-screen dimensions on mobile */}
-  <Motion.div 
-    initial={{ y: "100%", opacity: 0 }} 
-    animate={{ y: 0, opacity: 1 }} 
-    exit={{ y: "100%", opacity: 0 }}
-    transition={{ type: "spring", damping: 25, stiffness: 400 }}
-    // Mobile: w-full h-full, no rounding, no borders. 
-    // Desktop: apply standard constraints.
-    className={`relative w-full h-full ${mode === 'list' ? 'md:h-[85vh]' : 'md:h-auto'} md:w-full md:max-w-3xl bg-white dark:bg-neutral-900 shadow-2xl overflow-hidden overscroll-none flex flex-col transition-all duration-300 md:max-h-[95vh] md:rounded-[2.5rem] md:border ${
-      isSplitLayout ? 'md:max-w-5xl' : 'md:max-w-3xl'
-    }`}
+    initial={{ x: 40, opacity: 0 }} 
+    animate={{ x: 0, opacity: 1 }} 
+    exit={{ x: 40, opacity: 0 }}
+    transition={{ type: "spring", damping: 30, stiffness: 420 }}
+    className="relative flex h-full w-full max-w-7xl flex-col overflow-hidden overscroll-none border-x border-black/5 bg-white shadow-2xl dark:border-white/5 dark:bg-neutral-900"
   >
 
             {/* MOBILE STICKY/ABSOLUTE HEADER */}
@@ -1240,8 +1227,9 @@ const renderEditorFormButtons = () => (
               <div className="absolute top-4 right-4 flex justify-end items-center">
                 <button 
                   type="button"
-                  onClick={(e) => { e.stopPropagation(); mode === 'list' ? onClose() : resetForm(); }} 
+                  onClick={(e) => { e.stopPropagation(); resetForm(); onClose(); }} 
                   className="p-2 rounded-full backdrop-blur-md border transition-all shadow-lg bg-black/25 text-white border-white/10 hover:bg-black/40 z-[250]"
+                  aria-label="Close Manage Stories"
                 >
                   <X size={20} />
                 </button>
@@ -1252,8 +1240,9 @@ const renderEditorFormButtons = () => (
             <div className={`${isSplitLayout ? 'block' : 'hidden'} absolute top-4 right-4 z-[220]`}>
               <button 
                 type="button"
-                onClick={(e) => { e.stopPropagation(); mode === 'list' ? onClose() : resetForm(); }} 
-                className="p-2 rounded-full backdrop-blur-md border transition-all shadow-lg bg-black/20 text-white border-white/10 hover:bg-black/40"
+                onClick={(e) => { e.stopPropagation(); resetForm(); onClose(); }} 
+                className="rounded-full border border-black/10 bg-white/90 p-2 text-neutral-600 shadow-lg backdrop-blur-md transition-all hover:bg-white hover:text-neutral-950 dark:border-white/10 dark:bg-black/40 dark:text-white/80 dark:hover:bg-black/60 dark:hover:text-white"
+                aria-label="Close Manage Stories"
               >
                 <X size={20} />
               </button>
