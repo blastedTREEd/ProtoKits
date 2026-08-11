@@ -125,7 +125,27 @@ export default function NotifyList() {
 
   const offerRows = useMemo(() => {
     if (!isReleaseMode) {
-      return myNotifyList.map((item) => ({ type: 'offer', key: item.id, item }));
+      const sent = [];
+      const accepted = [];
+      myNotifyList.forEach((item) => {
+        const status = getOfferStatus(item);
+        if (status === 'released') {
+          accepted.push(item);
+        } else {
+          sent.push(item);
+        }
+      });
+
+      const rows = [];
+      if (sent.length > 0) {
+        rows.push({ type: 'separator', key: 'sent', label: 'Sent Offers', tone: 'sent' });
+        sent.forEach((item) => rows.push({ type: 'offer', key: item.id, item }));
+      }
+      if (accepted.length > 0) {
+        rows.push({ type: 'separator', key: 'accepted', label: 'Accepted (Released Kits)', tone: 'accepted' });
+        accepted.forEach((item) => rows.push({ type: 'offer', key: item.id, item }));
+      }
+      return rows;
     }
 
     const reasonable = [];
@@ -248,20 +268,38 @@ export default function NotifyList() {
               <p className="font-bold mb-6">Your offers list is empty.</p>
             </div>
           ) : (
-            <div className="space-y-0">
-              {offerRows.map(row => {
+            <div className="flex flex-col">
+              {offerRows.map((row, index) => {
                 if (row.type === 'separator') {
-                  const isReasonable = row.tone === 'reasonable';
+                  const toneColors = {
+                    reasonable: {
+                      line: 'via-emerald-500',
+                      text: 'from-emerald-500 to-cyan-500'
+                    },
+                    unreasonable: {
+                      line: 'via-amber-500',
+                      text: 'from-amber-500 to-red-500'
+                    },
+                    sent: {
+                      line: 'via-blue-500',
+                      text: 'from-blue-500 to-indigo-500'
+                    },
+                    accepted: {
+                      line: 'via-emerald-500',
+                      text: 'from-emerald-500 to-cyan-500'
+                    }
+                  };
+                  const colors = toneColors[row.tone] || toneColors.sent;
                   return (
                     <div
                       key={row.key}
-                      className="sticky top-[110px] z-[80] -mx-4 flex items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md dark:bg-[#0a0a0a]/90 md:-mx-8 md:px-8"
+                      className="sticky top-[110px] z-[80] -mx-4 flex items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md dark:bg-[#0a0a0a]/90"
                     >
-                      <div className={`h-px flex-1 bg-gradient-to-r from-transparent ${isReasonable ? 'via-emerald-500' : 'via-amber-500'} to-transparent`} />
-                      <span className={`select-none bg-gradient-to-r ${isReasonable ? 'from-emerald-500 to-cyan-500' : 'from-amber-500 to-red-500'} bg-clip-text text-[12px] font-black uppercase tracking-[0.2em] text-transparent`}>
+                      <div className={`h-px flex-1 bg-gradient-to-r from-transparent ${colors.line} to-transparent`} />
+                      <span className={`select-none bg-gradient-to-r ${colors.text} bg-clip-text text-[12px] font-black uppercase tracking-[0.2em] text-transparent`}>
                         {row.label}
                       </span>
-                      <div className={`h-px flex-1 bg-gradient-to-r from-transparent ${isReasonable ? 'via-emerald-500' : 'via-amber-500'} to-transparent`} />
+                      <div className={`h-px flex-1 bg-gradient-to-r from-transparent ${colors.line} to-transparent`} />
                     </div>
                   );
                 }
@@ -282,11 +320,14 @@ export default function NotifyList() {
                 const shelfItem = offerPricing.shelfItem;
                 const maxSell = kit?.stocks ? Math.max(...Object.values(kit.stocks).map(s => Number(s.sellPrice || 0))) : Number(kit?.sellPrice || 0);
 
+                const prevRow = index > 0 ? offerRows[index - 1] : null;
+                const isAfterOffer = prevRow?.type === 'offer';
+
                 return (
                   <div
                     key={item.id}
                     onClick={() => toggleSelection(item.id)}
-                    className={`p-3 rounded-2xl border-2 cursor-pointer flex gap-4 items-center transition-all duration-300 ${isSelected ? 'border-blue-500 shadow-lg' : 'border-black/5 dark:border-white/5'} ${status === 'expired' ? 'opacity-60' : ''} bg-white dark:bg-neutral-900`}
+                    className={`p-3 rounded-2xl border-2 cursor-pointer flex gap-4 items-center transition-all duration-300 ${isSelected ? 'border-blue-500 shadow-lg' : 'border-black/5 dark:border-white/5'} ${status === 'expired' ? 'opacity-60' : ''} bg-white dark:bg-neutral-900 ${isAfterOffer ? 'mt-4' : 'mt-0'}`}
                   >
                     <div className="flex items-center justify-center">
                       {displayImage ? (
