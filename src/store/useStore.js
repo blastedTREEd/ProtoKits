@@ -113,10 +113,12 @@ const releaseStockTarget = async (kitId, stockKey, orderDocId, order = {}) => {
     [`stocks.${stockKey}.isReserved`]: false,
     [`stocks.${stockKey}.reservedAt`]: null,
     [`stocks.${stockKey}.reservedBy`]: null,
+    [`stocks.${stockKey}.availableAt`]: serverTimestamp(),
     [`stocks.${stockKey}.reservationType`]: deleteField(),
     [`stocks.${stockKey}.reservedByDealId`]: deleteField(),
     [`stocks.${stockKey}.order`]: deleteField(),
     hasAvailableStock: hasAvailable,
+    lastAvailableAt: serverTimestamp(),
     lastUpdated: serverTimestamp()
   });
   return true;
@@ -236,6 +238,7 @@ export const useStore = create(
       _isInitialAuthChecked: false,
       _activePath: typeof window !== 'undefined' ? window.location.pathname : '/',
       _backgroundListenersStarted: false,
+      _datasetListenerKeys: {},
       _prioUnsubs: [],
       _bgUnsubs: [],
       lastVisibleKit: null,
@@ -257,6 +260,8 @@ export const useStore = create(
       isSpectralMode: true,
       isSyncing: false,
       syncStatus: 'Syncing Profile',
+      authAttemptId: 0,
+      authRetry: null,
       storiesHeight: 0,
       unsubPrintResources: null,
       setStoriesHeight: (height) => set({ storiesHeight: height }),
@@ -281,6 +286,44 @@ export const useStore = create(
 
       setLoading: (loading) => set({ isLoading: loading }),
       setToastMessage: (message) => set({ toastMessage: message }),
+      beginAuthAttempt: (retry) => {
+        const authAttemptId = get().authAttemptId + 1;
+        set({
+          authAttemptId,
+          authRetry: retry,
+          isSyncing: true,
+          syncStatus: 'Authorizing Session'
+        });
+        return authAttemptId;
+      },
+      isAuthAttemptActive: (authAttemptId) => (
+        get().authAttemptId === authAttemptId && get().isSyncing
+      ),
+      setAuthAttemptStatus: (authAttemptId, syncStatus) => {
+        if (get().authAttemptId !== authAttemptId) return false;
+        set({ authRetry: null, syncStatus });
+        return true;
+      },
+      failAuthAttempt: (authAttemptId, error) => {
+        if (!get().isAuthAttemptActive(authAttemptId)) return false;
+        const retryableCodes = new Set([
+          'auth/popup-blocked',
+          'auth/popup-closed-by-user',
+          'auth/cancelled-popup-request'
+        ]);
+        const canRetry = retryableCodes.has(error?.code);
+        set(canRetry
+          ? { isSyncing: true, syncStatus: 'Authorization interrupted' }
+          : { isSyncing: false, authRetry: null }
+        );
+        return canRetry;
+      },
+      cancelAuthAttempt: () => set((state) => ({
+        authAttemptId: state.authAttemptId + 1,
+        authRetry: null,
+        isSyncing: false,
+        syncStatus: 'Authentication cancelled'
+      })),
       toggleSpectralMode: () => set((state) => ({ isSpectralMode: !state.isSpectralMode })),
       refreshKitOrder: () => set((state) => ({ kits: sortKitsByAvailability(state.kits) })),
       setAdminView: (isEnabled) => {
@@ -322,6 +365,10 @@ export const useStore = create(
         const ds = get()._loadedDatasets;
         const req = get()._getPageRequirements(pathname);
         set({ _activePath: pathname });
+
+        if (get()._isInitialAuthChecked) {
+          get().startBackgroundListeners();
+        }
 
         // User profile must always be loaded
         if (!ds.userProfile) { set({ isLoading: true }); return; }
@@ -368,33 +415,35 @@ export const useStore = create(
       },
 
       startBackgroundListeners: () => {
-        if (get()._backgroundListenersStarted) return;
         set({ _backgroundListenersStarted: true });
 
         const ds = get()._loadedDatasets;
+        const req = get()._getPageRequirements(get()._activePath);
+        const listenerKeys = get()._datasetListenerKeys || {};
         const unsubs = [];
+        const markListener = (key, isActive = true) => {
+          set((state) => ({
+            _datasetListenerKeys: { ...state._datasetListenerKeys, [key]: isActive }
+          }));
+        };
 
         // 1. Stories (if not already prioritized)
-        if (!ds.stories) {
-          const initialStoriesQuery = query(collection(db, "stories"), orderBy("order", "asc"), limit(20));
+        if (req.stories && !ds.stories && !listenerKeys.stories) {
+          const initialStoriesQuery = query(collection(db, "stories"), orderBy("order", "asc"));
           const unsub = onSnapshot(initialStoriesQuery, (snap) => {
             set({ stories: snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) });
             get().markLoaded('stories');
-            
-            const bgStoriesQuery = query(collection(db, "stories"), orderBy("order", "asc"));
-            const unsubFull = onSnapshot(bgStoriesQuery, (bgSnap) => {
-              set({ stories: bgSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) });
-            }, (err) => console.error("SG LOG: Background Stories subscription error:", err));
-            set((state) => ({ _bgUnsubs: [...state._bgUnsubs, unsubFull] }));
           }, (err) => {
             console.error("SG LOG: Stories subscription error:", err);
+            markListener('stories', false);
             get().markLoaded('stories');
           });
+          markListener('stories');
           unsubs.push(unsub);
         }
 
         // 2. Kits (if not already prioritized) — fetch ALL kits directly
-        if (!ds.kits) {
+        if (!ds.kits && !listenerKeys.kits) {
           const allKitsQuery = query(collection(db, "kits"), orderBy("lastUpdated", "desc"));
           const unsub = onSnapshot(allKitsQuery, (snap) => {
             const allKits = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -406,13 +455,15 @@ export const useStore = create(
             get().syncAllDeals();
           }, (err) => {
             console.error("SG LOG: Kits subscription error:", err);
+            markListener('kits', false);
             get().markLoaded('kits');
           });
+          markListener('kits');
           unsubs.push(unsub);
         }
 
         // 3. Blueprints (if not already prioritized)
-        if (!ds.prints) {
+        if (req.prints && !ds.prints && !listenerKeys.prints) {
           const unsub = onSnapshot(collection(db, "blueprints"), (snap) => {
             set({ 
               blueprints: docsToArray(snap),
@@ -421,37 +472,43 @@ export const useStore = create(
             get().markLoaded('prints');
           }, (err) => {
             console.error("SG LOG: Blueprints subscription error:", err);
+            markListener('prints', false);
             get().markLoaded('prints');
           });
+          markListener('prints');
           unsubs.push(unsub);
         }
 
         // 4. Shelf (if not already prioritized)
-        if (!ds.shelf && get().isAdmin) {
+        if (req.shelf && !ds.shelf && get().isAdmin && !listenerKeys.shelf) {
           const unsub = onSnapshot(collection(db, "shelf"), (snap) => {
             const items = snap.docs.map(doc => ({ ...doc.data(), basketId: doc.id }));
             set({ shelf: items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()) });
             get().markLoaded('shelf');
           }, (err) => {
             console.error("SG LOG: Shelf subscription error:", err);
+            markListener('shelf', false);
             get().markLoaded('shelf');
           });
           if (get().unsubShelf) get().unsubShelf();
           set({ unsubShelf: unsub });
+          markListener('shelf');
         }
 
 
 
         // 6. Deals (if not already prioritized)
-        if (!ds.deals) {
+        if (!ds.deals && !listenerKeys.deals) {
           const unsubDeals = onSnapshot(collection(db, "deals"), (snap) => {
             set({ deals: docsToArray(snap) });
             get().markLoaded('deals');
             get().syncAllDeals();
           }, (err) => {
             console.error("SG LOG: Background Deals subscription error:", err);
+            markListener('deals', false);
             get().markLoaded('deals');
           });
+          markListener('deals');
           unsubs.push(unsubDeals);
         }
 
@@ -483,6 +540,7 @@ export const useStore = create(
             set({ 
               _prioUnsubs: [], 
               _bgUnsubs: [], 
+              _datasetListenerKeys: {},
               _backgroundListenersStarted: false,
               isLoading: true,
               _loadedDatasets: { userProfile: false, stories: false, kits: false, deals: false, orders: false, basket: false, shelf: false, prints: false }
@@ -504,20 +562,16 @@ export const useStore = create(
 
             // 1. Home priority -> Stories (public data — start immediately)
             if (currentReq.stories) {
-              const initialStoriesQuery = query(collection(db, "stories"), orderBy("order", "asc"), limit(20));
+              const initialStoriesQuery = query(collection(db, "stories"), orderBy("order", "asc"));
               const unsub = onSnapshot(initialStoriesQuery, (snap) => {
                 set({ stories: snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) });
                 get().markLoaded('stories');
-                
-                const bgStoriesQuery = query(collection(db, "stories"), orderBy("order", "asc"));
-                const unsubFull = onSnapshot(bgStoriesQuery, (bgSnap) => {
-                  set({ stories: bgSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) });
-                }, (err) => console.error("SG LOG: Background Stories subscription error:", err));
-                set((state) => ({ _prioUnsubs: [...state._prioUnsubs, unsubFull] }));
               }, (err) => {
                 console.error("SG LOG: Stories subscription error:", err);
+                set((state) => ({ _datasetListenerKeys: { ...state._datasetListenerKeys, stories: false } }));
                 get().markLoaded('stories');
               });
+              set((state) => ({ _datasetListenerKeys: { ...state._datasetListenerKeys, stories: true } }));
               set((state) => ({ _prioUnsubs: [...state._prioUnsubs, unsub] }));
             }
 
@@ -534,8 +588,10 @@ export const useStore = create(
                 get().syncAllDeals();
               }, (err) => {
                 console.error("SG LOG: Kits subscription error:", err);
+                set((state) => ({ _datasetListenerKeys: { ...state._datasetListenerKeys, kits: false } }));
                 get().markLoaded('kits');
               });
+              set((state) => ({ _datasetListenerKeys: { ...state._datasetListenerKeys, kits: true } }));
               set((state) => ({ _prioUnsubs: [...state._prioUnsubs, unsub] }));
             }
 
@@ -547,8 +603,10 @@ export const useStore = create(
                 get().syncAllDeals();
               }, (err) => {
                 console.error("SG LOG: Deals priority subscription error:", err);
+                set((state) => ({ _datasetListenerKeys: { ...state._datasetListenerKeys, deals: false } }));
                 get().markLoaded('deals');
               });
+              set((state) => ({ _datasetListenerKeys: { ...state._datasetListenerKeys, deals: true } }));
               set((state) => ({ _prioUnsubs: [...state._prioUnsubs, unsub] }));
             }
 
@@ -562,8 +620,10 @@ export const useStore = create(
                 get().markLoaded('prints');
               }, (err) => {
                 console.error("SG LOG: Blueprints priority error:", err);
+                set((state) => ({ _datasetListenerKeys: { ...state._datasetListenerKeys, prints: false } }));
                 get().markLoaded('prints');
               });
+              set((state) => ({ _datasetListenerKeys: { ...state._datasetListenerKeys, prints: true } }));
               set((state) => ({ _prioUnsubs: [...state._prioUnsubs, unsub] }));
             }
           } else {
@@ -602,10 +662,12 @@ export const useStore = create(
                 get().markLoaded('shelf');
               }, (err) => {
                 console.error("SG LOG: Shelf subscription error:", err);
+                set((state) => ({ _datasetListenerKeys: { ...state._datasetListenerKeys, shelf: false } }));
                 get().markLoaded('shelf');
               });
               if (get().unsubShelf) get().unsubShelf();
               set({ unsubShelf: unsub });
+              set((state) => ({ _datasetListenerKeys: { ...state._datasetListenerKeys, shelf: true } }));
             }
           });
         });
@@ -634,7 +696,7 @@ export const useStore = create(
 
           const bgUnsubs = get()._bgUnsubs || [];
           bgUnsubs.forEach(unsub => unsub && unsub());
-          set({ _bgUnsubs: [], _backgroundListenersStarted: false });
+          set({ _bgUnsubs: [], _datasetListenerKeys: {}, _backgroundListenersStarted: false });
 
           if (get().unsubUser) get().unsubUser();
           if (get().unsubShelf) get().unsubShelf();
@@ -1011,6 +1073,7 @@ export const useStore = create(
           let isExistingKit = false;
           let existingCreatedAt = null;
           let existingRestockedAt = null;
+          let existingLastAvailableAt = null;
 
           if (oldKitId && oldKitId !== targetKitId) {
               console.log("SG DEBUG: ID change detected. Old:", oldKitId, "New:", targetKitId);
@@ -1021,6 +1084,7 @@ export const useStore = create(
                   stocks = oldData.stocks || {};
                   existingCreatedAt = oldData.createdAt || null;
                   existingRestockedAt = oldData.lastRestockedAt || null;
+                  existingLastAvailableAt = oldData.lastAvailableAt || null;
                   console.log("SG DEBUG: Deleting old document:", oldKitId);
                   await deleteDoc(oldKitRef);
                   set((state) => ({ kits: state.kits.filter(k => k.id !== oldKitId) }));
@@ -1034,11 +1098,12 @@ export const useStore = create(
                   stocks = existingData.stocks || {};
                   existingCreatedAt = existingData.createdAt || null;
                   existingRestockedAt = existingData.lastRestockedAt || null;
+                  existingLastAvailableAt = existingData.lastAvailableAt || null;
                   console.log("SG DEBUG: Found existing kit with targetKitId. stocks count:", Object.keys(stocks).length);
               }
           }
 
-          const isRestock = !!newStock;
+          const isRestock = Boolean(newStock && (!stockUpdateKey || !stocks[stockUpdateKey]));
           // Compute stockKey ONCE so both blocks use the same key
           const resolvedStockKey = (!updateMasterOnly && newStock) ? (stockUpdateKey || `stock_${Date.now()}`) : null;
 
@@ -1055,6 +1120,7 @@ export const useStore = create(
             lastUpdated: serverTimestamp(), 
             createdAt: existingCreatedAt || serverTimestamp(),
             lastRestockedAt: isRestock ? serverTimestamp() : existingRestockedAt,
+            lastAvailableAt: isRestock ? serverTimestamp() : existingLastAvailableAt,
             searchName: masterInfo.name.toLowerCase(),
             hasAvailableStock: hasAvailable
           };
@@ -1063,9 +1129,9 @@ export const useStore = create(
           await setDoc(kitRef, isExistingKit ? cleanMaster : { ...cleanMaster, stocks }, { merge: true });
 
           if (resolvedStockKey) {
-            await updateDoc(kitRef, { 
+            await updateDoc(kitRef, {
               [`stocks.${resolvedStockKey}`]: stocks[resolvedStockKey],
-              hasAvailableStock: hasAvailable 
+              hasAvailableStock: hasAvailable
             });
           }
           console.log("SG DEBUG: addKit operation successful.");
@@ -1328,6 +1394,11 @@ export const useStore = create(
           await updateDoc(kitRef, { 
             [`stocks.${stockKey}.isReserved`]: isReserved, 
             [`stocks.${stockKey}.reservedAt`]: isReserved ? serverTimestamp() : null,
+            ...(!isReserved ? {
+              [`stocks.${stockKey}.availableAt`]: serverTimestamp(),
+              lastAvailableAt: serverTimestamp(),
+              lastUpdated: serverTimestamp()
+            } : {}),
             hasAvailableStock: hasAvailable
           });
         } else {
@@ -1361,8 +1432,10 @@ export const useStore = create(
                 [`stocks.${key}.isReserved`]: false,
                 [`stocks.${key}.reservedBy`]: null,
                 [`stocks.${key}.reservedAt`]: null,
+                [`stocks.${key}.availableAt`]: serverTimestamp(),
                 [`stocks.${key}.reservationType`]: deleteField(),
                 [`stocks.${key}.reservedByDealId`]: deleteField(),
+                lastAvailableAt: serverTimestamp(),
                 lastUpdated: serverTimestamp()
               });
               hasChanges = true;
@@ -1515,6 +1588,13 @@ export const useStore = create(
         if (get().unsubShelf) get().unsubShelf();
         if (get().unsubAdmin) get().unsubAdmin();
         if (get().unsubBasket) get().unsubBasket();
+        set((state) => ({
+          unsubUser: null,
+          unsubShelf: null,
+          unsubAdmin: null,
+          unsubBasket: null,
+          _datasetListenerKeys: { ...state._datasetListenerKeys, shelf: false }
+        }));
 
         if (!sgUser) {
           console.log("DEBUG: No sgUser found, switching to guest mode.");
@@ -1920,8 +2000,11 @@ export const useStore = create(
                 [`stocks.${item.stockKey}.isReserved`]: false, 
                 [`stocks.${item.stockKey}.reservedBy`] : null, 
                 [`stocks.${item.stockKey}.reservedAt`]: null, 
+                [`stocks.${item.stockKey}.availableAt`]: serverTimestamp(),
                 [`stocks.${item.stockKey}.reservationType`]: deleteField(),
-                hasAvailableStock: hasAvailable
+                hasAvailableStock: hasAvailable,
+                lastAvailableAt: serverTimestamp(),
+                lastUpdated: serverTimestamp()
               });
             }
           } else {
@@ -2504,8 +2587,10 @@ export const useStore = create(
                 [`stocks.${key}.isReserved`]: false,
                 [`stocks.${key}.reservedBy`]: null,
                 [`stocks.${key}.reservedAt`]: null,
+                [`stocks.${key}.availableAt`]: serverTimestamp(),
                 [`stocks.${key}.reservationType`]: deleteField(),
                 [`stocks.${key}.reservedByDealId`]: deleteField(),
+                lastAvailableAt: serverTimestamp(),
                 lastUpdated: serverTimestamp()
               });
               hasChanges = true;

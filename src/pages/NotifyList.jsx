@@ -4,6 +4,7 @@ import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
 import LoadingState from '../components/common/LoadingState';
+import { getCheckoutPaymentFees } from '../utils/paymentSettings';
 
 function resolveImage(idOrUrl, imagesArray) {
   if (!idOrUrl) return '';
@@ -43,13 +44,32 @@ function getStatusClass(status) {
   return 'bg-blue-500/10 text-blue-600 border-blue-500/20';
 }
 
+function getOfferCostDetails(item, kits, shelf, additionalCharges) {
+  const kit = (kits || []).find((entry) => entry.id === item?.kitId);
+  const shelfItem = (shelf || []).find((entry) => entry.id === item?.kitId);
+  const shelfStock = shelfItem?.stockKey ? kit?.stocks?.[shelfItem.stockKey] : null;
+  const fallbackCosts = Object.values(kit?.stocks || {})
+    .filter((stock) => stock?.isReserved && stock?.reservationType === 'admin' && !stock?.order?.orderId)
+    .map((stock) => Number(stock?.costPrice || 0));
+  const costPrice = Number(shelfStock?.costPrice ?? shelfItem?.costPrice ?? Math.max(0, ...fallbackCosts)) || 0;
+  const floorPrice = costPrice + additionalCharges;
+
+  return {
+    shelfItem,
+    costPrice,
+    floorPrice,
+    isReasonable: Number(item?.targetPrice || 0) > floorPrice
+  };
+}
+
 export default function NotifyList() {
   const { isDarkMode } = useTheme();
   const {
     user, isAdmin, isAdminView, notifyList,
     deleteFromNotifyList, kits, shelf,
     subscribeNotifyList, isLoading,
-    updateOfferPrice, declineOffer, releaseOffer, setToastMessage
+    updateOfferPrice, declineOffer, releaseOffer, setToastMessage,
+    shippingSettings
   } = useStore();
 
   const [selectedIds, setSelectedIds] = useState([]);
@@ -58,6 +78,10 @@ export default function NotifyList() {
   const [editingPrice, setEditingPrice] = useState('');
 
   const isReleaseMode = isAdmin && isAdminView;
+  const checkoutAdditionalCharges = useMemo(() => {
+    const { handlingFee, installmentFee, transferFee } = getCheckoutPaymentFees({ shippingSettings });
+    return handlingFee + installmentFee + transferFee;
+  }, [shippingSettings]);
 
   useEffect(() => {
     const unsubscribe = subscribeNotifyList();
@@ -77,7 +101,18 @@ export default function NotifyList() {
 
   const myNotifyList = useMemo(() => {
     const statusWeight = { pending: 0, declined: 1, expired: 2, released: 3 };
-    const visible = isReleaseMode ? notifyList : (user ? notifyList.filter(n => n.uid === user.uid) : []);
+    const collectionKitIds = new Set(
+      (kits || [])
+        .filter((kit) => Object.values(kit?.stocks || {}).some((stock) => (
+          stock?.isReserved
+          && stock?.reservationType === 'admin'
+          && !stock?.order?.orderId
+        )))
+        .map((kit) => kit.id)
+    );
+    const visible = isReleaseMode
+      ? notifyList.filter((item) => getOfferStatus(item) === 'pending' && collectionKitIds.has(item.kitId))
+      : (user ? notifyList.filter((item) => item.uid === user.uid) : []);
     return [...visible].sort((a, b) => {
       const aStatus = getOfferStatus(a);
       const bStatus = getOfferStatus(b);
@@ -86,7 +121,31 @@ export default function NotifyList() {
       }
       return dateToMillis(b.updatedAt || b.createdAt) - dateToMillis(a.updatedAt || a.createdAt);
     });
-  }, [notifyList, user, isReleaseMode]);
+  }, [isReleaseMode, kits, notifyList, user]);
+
+  const offerRows = useMemo(() => {
+    if (!isReleaseMode) {
+      return myNotifyList.map((item) => ({ type: 'offer', key: item.id, item }));
+    }
+
+    const reasonable = [];
+    const unreasonable = [];
+    myNotifyList.forEach((item) => {
+      const pricing = getOfferCostDetails(item, kits, shelf, checkoutAdditionalCharges);
+      (pricing.isReasonable ? reasonable : unreasonable).push(item);
+    });
+
+    const rows = [];
+    if (reasonable.length > 0) {
+      rows.push({ type: 'separator', key: 'reasonable', label: 'Reasonable Offers', tone: 'reasonable' });
+      reasonable.forEach((item) => rows.push({ type: 'offer', key: item.id, item }));
+    }
+    if (unreasonable.length > 0) {
+      rows.push({ type: 'separator', key: 'unreasonable', label: 'Unreasonable Offers', tone: 'unreasonable' });
+      unreasonable.forEach((item) => rows.push({ type: 'offer', key: item.id, item }));
+    }
+    return rows;
+  }, [checkoutAdditionalCharges, isReleaseMode, kits, myNotifyList, shelf]);
 
   const toggleSelection = (id) => {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
@@ -180,7 +239,7 @@ export default function NotifyList() {
           </div>
         </div>
 
-        <div className="flex-grow max-w-7xl mx-auto w-full p-4 md:p-8 pb-32 md:pb-8">
+        <div className="flex-grow max-w-7xl mx-auto w-full px-4 pb-4 ">
           {isLoading ? (
             <LoadingState message="Loading offers" detail="Checking active offers and admin release windows." />
           ) : myNotifyList.length === 0 ? (
@@ -189,8 +248,25 @@ export default function NotifyList() {
               <p className="font-bold mb-6">Your offers list is empty.</p>
             </div>
           ) : (
-            <div className="space-y-4">
-              {myNotifyList.map(item => {
+            <div className="space-y-0">
+              {offerRows.map(row => {
+                if (row.type === 'separator') {
+                  const isReasonable = row.tone === 'reasonable';
+                  return (
+                    <div
+                      key={row.key}
+                      className="sticky top-[110px] z-[80] -mx-4 flex items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md dark:bg-[#0a0a0a]/90 md:-mx-8 md:px-8"
+                    >
+                      <div className={`h-px flex-1 bg-gradient-to-r from-transparent ${isReasonable ? 'via-emerald-500' : 'via-amber-500'} to-transparent`} />
+                      <span className={`select-none bg-gradient-to-r ${isReasonable ? 'from-emerald-500 to-cyan-500' : 'from-amber-500 to-red-500'} bg-clip-text text-[12px] font-black uppercase tracking-[0.2em] text-transparent`}>
+                        {row.label}
+                      </span>
+                      <div className={`h-px flex-1 bg-gradient-to-r from-transparent ${isReasonable ? 'via-emerald-500' : 'via-amber-500'} to-transparent`} />
+                    </div>
+                  );
+                }
+
+                const item = row.item;
                 const kit = kits.find(k => k.id === item.kitId);
                 const isSelected = selectedIds.includes(item.id);
                 const displayImage = resolveImage(kit?.image, kit?.images);
@@ -202,8 +278,8 @@ export default function NotifyList() {
                 const isEditing = editingId === item.id;
                 const isFinal = status === 'released';
                 const canEdit = !isReleaseMode && !isFinal;
-                const shelfItem = shelf.find(s => s.id === item.kitId);
-                const maxCost = kit?.stocks ? Math.max(...Object.values(kit.stocks).map(s => Number(s.costPrice || 0))) : 0;
+                const offerPricing = getOfferCostDetails(item, kits, shelf, checkoutAdditionalCharges);
+                const shelfItem = offerPricing.shelfItem;
                 const maxSell = kit?.stocks ? Math.max(...Object.values(kit.stocks).map(s => Number(s.sellPrice || 0))) : Number(kit?.sellPrice || 0);
 
                 return (
@@ -287,7 +363,8 @@ export default function NotifyList() {
                             <p className={`text-[11px] font-black ${shelfItem ? 'text-emerald-600' : 'text-red-500'}`}>
                               {shelfItem ? 'Shelf ready' : 'Not on shelf'}
                             </p>
-                            <p className="text-[11px] font-black text-amber-600">Cost PHP {maxCost.toLocaleString()}</p>
+                            <p className="text-[11px] font-black text-amber-600">Cost PHP {offerPricing.costPrice.toLocaleString()}</p>
+                            <p className="text-[11px] font-black text-blue-600">Floor PHP {offerPricing.floorPrice.toLocaleString()}</p>
                             <p className="text-[11px] font-black text-emerald-600">Sell PHP {maxSell.toLocaleString()}</p>
                           </>
                         )}

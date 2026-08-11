@@ -35,11 +35,12 @@ A "Kit" (`kits` collection) represents a specific 3D-printed product or assembly
 ---
 
 ## 🔀 2. Stable Grid Sorting Algorithm
-To deliver a premium shopping experience, the platform groups and displays kits dynamically based on availability. To prevent layout flickering during real-time syncs, a stable caching algorithm is used:
+To deliver a premium shopping experience, the platform groups and displays kits dynamically based on availability. Non-latest sorting uses stable caching to prevent layout flickering during real-time syncs, while the default **Latest** view responds immediately to inventory availability events:
 
 ### 🧩 Sorting Hierarchy Groups
 1. **Group 3 (In-Stock):** Kits that have at least one stock unit available for purchase (unreserved & unsold).
-   - *Tie-breaker:* Sorted by the count of available stock units (highest first), then by `lastUpdated` timestamp.
+   - *Latest order:* Sorted by `lastAvailableAt`, with `lastRestockedAt`, `createdAt`, and `lastUpdated` as legacy fallbacks. New stock and stock released from the admin shelf therefore move to the beginning of **Available Kits**.
+   - *Other sorts:* Price, alphabetical, and availability choices continue to use their selected ordering.
 2. **Group 2 (Reserved / On Shelf):** Kits that have stock units, but all are currently reserved.
    - *Tie-breaker:* Sorted by `lastUpdated` timestamp.
 3. **Group 1 (Sold Out):** Kits that have no stock units, or all stock units have been sold.

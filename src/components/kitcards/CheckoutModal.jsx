@@ -1746,15 +1746,16 @@ const baseTotal = useMemo(() => {
   }, [user, isNoDetailsMode, updateUserProfile, buildProfileUpdates, setAddressStatus]);
 
   const handleGoogleLogin = async () => {
+    const authAttemptId = useStore.getState().beginAuthAttempt(() => handleGoogleLogin());
     try {
       // Save current checkout progress AND delivery details before logging in
       localStorage.setItem('sg_pending_checkout', JSON.stringify(checkoutDataRef.current));
       localStorage.setItem('sg_pending_delivery', JSON.stringify(deliveryDataRef.current));
       
       setIsCheckoutLoginPending(true);
-      useStore.setState({ isSyncing: true, syncStatus: 'Authorizing Session' });
       const result = await signInWithPopup(auth, googleProvider);
-      useStore.setState({ syncStatus: 'Syncing Profile' });
+      if (!useStore.getState().isAuthAttemptActive(authAttemptId)) return;
+      useStore.getState().setAuthAttemptStatus(authAttemptId, 'Syncing Profile');
       
       // Store user details in Firestore
       await setDoc(doc(db, 'users', result.user.uid), {
@@ -1767,8 +1768,10 @@ const baseTotal = useMemo(() => {
 
     } catch (err) {
       console.error(err);
-      setIsCheckoutLoginPending(false);
-      useStore.setState({ isSyncing: false });
+      const canRetry = useStore.getState().failAuthAttempt(authAttemptId, err);
+      if (!canRetry && useStore.getState().authAttemptId === authAttemptId) {
+        setIsCheckoutLoginPending(false);
+      }
     }
   };
 

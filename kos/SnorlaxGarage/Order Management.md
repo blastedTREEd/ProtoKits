@@ -80,10 +80,28 @@ The same notification feed also derives live customer alerts from kits, basket i
 - **Last stock:** Triggered when a kit currently in the customer's basket has exactly one publicly available, unreserved stock remaining.
 - **Bundle ends today:** Triggered when a basket kit belongs to an active, fulfillable bundle whose `validUntil` date is the current local day and whose deadline has not passed.
 - **Back in stock:** Triggered when a watched kit previously observed without public stock becomes available. Watched kits come from active customer hunts and basket items that reached zero stock. This covers new admin stock, cancelled-order stock releases, and stock released from the admin shelf.
+- **Offer accepted:** Triggered when an admin releases a collection item at the customer's offer price. The notification names the released item and price, opens the matching product when selected, and disappears if the customer later deletes the offer record. A same-item back-in-stock alert is suppressed to avoid showing duplicate release notifications.
 
 Commerce notifications use stable item IDs and event versions, participate in the same read/seen counters as order notifications, and open the relevant product route when selected. They also work for guests using the guest basket: last-stock and bundle-ending alerts are derived directly from its items, while restock alerts apply to guest basket items previously observed at zero stock. Guest notification state is stored under a browser-local guest scope. Account-based **Notify Me** hunts and order notifications remain available only to signed-in customers.
 
 Out-of-stock history is stored per signed-in user or guest scope in browser `localStorage` so a later restock can be recognized across reloads on the same browser.
+
+### Admin notification scope
+
+Admin view uses a separate notification scope and read/seen history from the administrator's public customer view. It intentionally shows only actionable records:
+
+- **Receipts to validate:** Orders whose status is `Validating` and which contain either a submitted `receipt` or `balanceReceipt`. Selecting the notification opens that exact order on the Orders page.
+- **Collection offers:** Active pending/hunting offers whose kit still contains an unfulfilled admin-reserved stock entry (`isReserved: true`, `reservationType: "admin"`). Selecting the notification opens the Offers page.
+
+Offer lifecycle is shared by the admin notification feed and Offers page:
+
+- When a customer deletes an offer, its `hunts` document is deleted, so it disappears from the admin notification feed and admin Offers page through their live snapshots.
+- When an admin declines an offer, the document remains marked `declined` so the customer can see the result, but it is immediately excluded from the admin's actionable offer queue.
+- When an admin releases an item, the document remains marked `released` so the customer receives the **Offer accepted** notification while the record exists.
+- Released, expired, declined, deleted, and no-longer-on-collection offers are not shown in admin view.
+- Active admin offers are separated into **Reasonable Offers** first and **Unreasonable Offers** second. An offer is reasonable only when `targetPrice > stock costPrice + handlingFee + installmentFee + transferFee`; an equal or lower offer is unreasonable. The cost is taken from the exact shelf stock that would be released, and each separator is hidden when its section has no offers.
+
+Customer order updates, basket stock alerts, bundle reminders, and customer restock alerts are excluded while admin view is active. Switching back to public view restores the administrator's normal customer notification feed without mixing its read state with admin actions.
 
 ### Checkout access during maintenance
 

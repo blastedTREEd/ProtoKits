@@ -12,7 +12,19 @@ To eliminate loading flashes (content flickering) in React, the store tracks pag
 - **`_getPageRequirements(pathname)`**: Returns a map of database collections necessary for the requested route.
 - **`checkPageReady(pathname)`**: Evaluates if the current route's required datasets have finished downloading.
 - **`_loadedDatasets`**: A state dictionary tracking loading statuses (e.g. `userProfile: true`, `kits: true`, `orders: false`).
-- **`startBackgroundListeners()`**: Initiates background listeners (`onSnapshot`) once the initial page datasets are ready.
+- **`startBackgroundListeners()`**: Ensures the live listeners required by the active route exist without creating a second listener for an already subscribed dataset.
+- **`_datasetListenerKeys`**: Tracks active catalog listeners so route changes and auth callbacks cannot subscribe to the same collection twice.
+
+### Firestore cache and listener ownership
+
+- Firestore uses persistent IndexedDB caching with `persistentLocalCache()` and `persistentMultipleTabManager()`. Cached snapshots can therefore satisfy the loading gate immediately while the SDK reconnects in the background, including across browser tabs.
+- Firestore transport uses the SDK's automatic long-polling detection. Forced long-polling is intentionally disabled because it degrades performance on browsers that can use the normal streaming transport.
+- `stories` has one ordered live query and is subscribed only when the landing page is visited.
+- `blueprints` is subscribed only on `/prints` and `/blueprints`.
+- `shelf` is subscribed only for an administrator on shelf/admin-basket routes.
+- `kits` and `deals` remain global live listeners because basket stock, restock, and last-day deal notifications must update on every page.
+- The public Orders page owns the user's order query while it is mounted; the navbar reuses that store data instead of opening a duplicate notification query.
+- The first snapshot marks a dataset loaded even when it contains zero documents. An empty collection is valid data and must not leave the loading overlay visible.
 
 ---
 

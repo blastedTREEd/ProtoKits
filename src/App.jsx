@@ -12,6 +12,7 @@ import LoadingState from './components/common/LoadingState';
 import Toast from './components/common/Toast';
 import { useStore } from './store/useStore';
 import { motion as Motion, AnimatePresence } from 'framer-motion';
+import { RefreshCw, X } from 'lucide-react';
 
 const Landing = lazy(() => import('./pages/Landing'));
 const Kits = lazy(() => import('./pages/Kits'));
@@ -168,11 +169,6 @@ const RouterContent = () => {
   const _loadedDatasets = useStore((state) => state._loadedDatasets);
   const _getPageRequirements = useStore((state) => state._getPageRequirements);
   const isAdminView = useStore((state) => state.isAdminView);
-  const user = useStore((state) => state.user);
-  const stories = useStore((state) => state.stories) || [];
-  const kits = useStore((state) => state.kits) || [];
-  const deals = useStore((state) => state.deals) || [];
-  const blueprints = useStore((state) => state.blueprints) || [];
 
   // Keep _activePath in sync and trigger background listeners when ready
   useLayoutEffect(() => {
@@ -189,17 +185,16 @@ const RouterContent = () => {
   const ds = _loadedDatasets;
   // For unknown routes (404), skip data loading gate entirely — render immediately
   const isKnown = isKnownRoute(location.pathname);
-  const isGuest = !user;
   const showLoading = isKnown && (
     isLoading ||
     !ds.userProfile ||
-    (req.stories && (!ds.stories || (isGuest && stories.length === 0))) ||
-    (req.kits && (!ds.kits || (isGuest && kits.length === 0))) ||
-    (req.deals && (!ds.deals || (isGuest && deals.length === 0))) ||
+    (req.stories && !ds.stories) ||
+    (req.kits && !ds.kits) ||
+    (req.deals && !ds.deals) ||
     (req.orders && !ds.orders) ||
     (req.basket && !ds.basket) ||
     (req.shelf && !ds.shelf) ||
-    (req.prints && (!ds.prints || (isGuest && blueprints.length === 0)))
+    (req.prints && !ds.prints)
   );
   const loadingDetails = getLoadingDetails({
     pathname: location.pathname,
@@ -270,6 +265,11 @@ const SyncOverlay = () => {
   const isSyncing = useStore((state) => state.isSyncing);
   const syncStatus = useStore((state) => state.syncStatus);
   const isAdminView = useStore((state) => state.isAdminView);
+  const authRetry = useStore((state) => state.authRetry);
+  const cancelAuthAttempt = useStore((state) => state.cancelAuthAttempt);
+  const normalizedStatus = String(syncStatus || '').toLowerCase();
+  const isAuthorizing = normalizedStatus.includes('authoriz');
+  const authNeedsRetry = normalizedStatus.includes('interrupted');
 
   return (
     <AnimatePresence>
@@ -285,6 +285,32 @@ const SyncOverlay = () => {
               message={getSyncMessage(syncStatus, location.pathname, { isAdminView })}
               className="py-0"
             />
+            {authNeedsRetry && (
+              <p className="max-w-xs text-center text-[11px] font-bold text-neutral-500 dark:text-neutral-400">
+                The login window was closed or blocked. Retry the login or cancel to return to the page.
+              </p>
+            )}
+            {isAuthorizing && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => authRetry?.()}
+                  disabled={!authRetry}
+                  className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <RefreshCw size={13} />
+                  Retry Login
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelAuthAttempt}
+                  className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-white/80 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-neutral-600 transition hover:bg-white dark:border-white/10 dark:bg-neutral-900/80 dark:text-neutral-300 dark:hover:bg-neutral-900"
+                >
+                  <X size={13} />
+                  Cancel
+                </button>
+              </div>
+            )}
           </div>
         </Motion.div>
       )}

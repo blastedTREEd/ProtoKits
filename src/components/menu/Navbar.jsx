@@ -90,7 +90,11 @@ export default function Navbar({ isCompact: scrolledCompact }) {
 
   const activeBasket = user ? ((isAdmin && isAdminView) ? shelf : basket) : guestBasket;
   const notificationBasket = user ? basket : guestBasket;
-  const notificationOwnerKey = user?.uid || 'guest';
+  const isAdminNotificationView = Boolean(isAdmin && isAdminView);
+  const notificationOwnerKey = user?.uid
+    ? `${user.uid}${isAdminNotificationView ? ':admin' : ''}`
+    : 'guest';
+  const usesOrdersPageSubscription = location.pathname === '/orders' && !isAdminNotificationView;
 
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
@@ -137,14 +141,56 @@ export default function Navbar({ isCompact: scrolledCompact }) {
       kits,
       deals,
       basket: notificationBasket,
-      hunts: user?.uid ? notificationHunts : [],
+      hunts: user?.uid && !isAdminNotificationView ? notificationHunts : [],
       outOfStockKitIds,
       now: notificationNow
     })
-  ), [deals, kits, notificationBasket, notificationHunts, notificationNow, outOfStockKitIds, user?.uid]);
+  ), [deals, isAdminNotificationView, kits, notificationBasket, notificationHunts, notificationNow, outOfStockKitIds, user?.uid]);
+  const effectiveNotificationOrders = usesOrdersPageSubscription ? orders : notificationOrders;
+  const adminReceiptNotifications = useMemo(() => (
+    effectiveNotificationOrders
+      .filter((order) => (
+        String(order?.status || '').trim().toLowerCase() === 'validating'
+        && Boolean(order?.receipt || order?.balanceReceipt)
+      ))
+      .map((order) => ({
+        ...order,
+        notificationKind: 'admin_receipt',
+        notificationLabel: 'Validate',
+        message: `A receipt from ${order.buyerName || 'a customer'} needs validation.`
+      }))
+  ), [effectiveNotificationOrders]);
+  const adminOfferNotifications = useMemo(() => {
+    const collectionKitIds = new Set(
+      (kits || [])
+        .filter((kit) => Object.values(kit?.stocks || {}).some((stock) => (
+          stock?.isReserved
+          && stock?.reservationType === 'admin'
+          && !stock?.order?.orderId
+        )))
+        .map((kit) => kit.id)
+    );
+
+    return (notificationHunts || [])
+      .filter((offer) => isActiveHunt(offer, notificationNow) && collectionKitIds.has(offer?.kitId))
+      .map((offer) => ({
+        ...offer,
+        id: `admin-offer:${offer.id}`,
+        sourceId: offer.id,
+        notificationKind: 'admin_offer',
+        notificationLabel: 'Offer',
+        notificationVersion: `admin-offer:${offer.id}:${Number(offer.targetPrice || 0)}:${offer.updatedAt?.seconds || offer.updatedAt || offer.createdAt?.seconds || offer.createdAt || ''}`,
+        title: `Offer from ${offer.userName || 'customer'}`,
+        message: `${offer.userName || 'A customer'} offered ₱${Number(offer.targetPrice || 0).toLocaleString('en-PH')} for ${offer.kitName || 'a collection item'}.`,
+        summary: offer.kitName || '',
+        lastUpdated: offer.updatedAt || offer.createdAt
+      }));
+  }, [kits, notificationHunts, notificationNow]);
   const allNotifications = useMemo(() => (
-    [...notificationOrders, ...commerceNotifications]
-  ), [commerceNotifications, notificationOrders]);
+    isAdminNotificationView
+      ? [...adminReceiptNotifications, ...adminOfferNotifications]
+      : [...effectiveNotificationOrders, ...commerceNotifications]
+  ), [adminOfferNotifications, adminReceiptNotifications, commerceNotifications, effectiveNotificationOrders, isAdminNotificationView]);
   const unseenNotificationCount = allNotifications.reduce((count, notification) => (
     notificationSeenVersions[notification.id] === getNotificationVersion(notification) ? count : count + 1
   ), 0);
@@ -163,7 +209,7 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   useEffect(() => {
     const kitMap = new Map((kits || []).map((kit) => [kit.id, kit]));
     const basketKitIds = [...new Set((notificationBasket || []).map((item) => item?.id).filter(Boolean))];
-    const activeHuntKitIds = (user?.uid ? notificationHunts : [])
+    const activeHuntKitIds = (user?.uid && !isAdminNotificationView ? notificationHunts : [])
       .filter((hunt) => isActiveHunt(hunt, notificationNow))
       .map((hunt) => hunt?.kitId)
       .filter(Boolean);
@@ -189,7 +235,7 @@ export default function Navbar({ isCompact: scrolledCompact }) {
       saveNotificationVersions('out-of-stock', notificationOwnerKey, nextKitIds);
       return nextKitIds;
     });
-  }, [kits, notificationBasket, notificationHunts, notificationNow, notificationOwnerKey, user?.uid]);
+  }, [isAdminNotificationView, kits, notificationBasket, notificationHunts, notificationNow, notificationOwnerKey, user?.uid]);
 
   useEffect(() => {
     const titleWithoutCounter = document.title.replace(/^\(\d+\)\s*/, '');
@@ -340,25 +386,34 @@ useEffect(() => {
       return undefined;
     }
 
+    if (usesOrdersPageSubscription) {
+      setNotificationOrders([]);
+      return undefined;
+    }
+
     setNotificationOrders([]);
-    const notificationQuery = query(collection(db, 'orders'), where('userId', '==', user.uid));
+    const notificationQuery = isAdminNotificationView
+      ? query(collection(db, 'orders'), where('status', '==', 'Validating'))
+      : query(collection(db, 'orders'), where('userId', '==', user.uid));
     return onSnapshot(notificationQuery, (snapshot) => {
       setNotificationOrders(snapshot.docs.map((orderDoc) => ({ id: orderDoc.id, ...orderDoc.data() })));
     }, (error) => {
       console.error('SG LOG: Notification subscription error:', error);
     });
-  }, [user?.uid]);
+  }, [isAdminNotificationView, user?.uid, usesOrdersPageSubscription]);
 
   useEffect(() => {
     if (!user?.uid) return undefined;
 
-    const huntQuery = query(collection(db, 'hunts'), where('uid', '==', user.uid));
+    const huntQuery = isAdminNotificationView
+      ? query(collection(db, 'hunts'), where('status', 'in', ['pending', 'hunting']))
+      : query(collection(db, 'hunts'), where('uid', '==', user.uid));
     return onSnapshot(huntQuery, (snapshot) => {
       setNotificationHunts(snapshot.docs.map((huntDoc) => ({ id: huntDoc.id, ...huntDoc.data() })));
     }, (error) => {
       console.error('SG LOG: Hunt notification subscription error:', error);
     });
-  }, [user?.uid]);
+  }, [isAdminNotificationView, user?.uid]);
 
   const handleNavClick = (path) => {
     if (location.pathname === path) {
@@ -380,6 +435,14 @@ useEffect(() => {
       return nextReadVersions;
     });
     setIsNotificationModalOpen(false);
+    if (notification.notificationKind === 'admin_offer') {
+      navigate('/notify-list');
+      return;
+    }
+    if (notification.notificationKind === 'admin_receipt') {
+      navigate('/orders', { state: { openOrderId: notification.id } });
+      return;
+    }
     if (notification.notificationKind && notification.kitId) {
       navigate(`/kits/${encodeURIComponent(notification.kitId)}`);
       return;
@@ -442,25 +505,27 @@ useEffect(() => {
   }, [isNotificationModalOpen]);
 
   const handleLogin = async () => {
+    const authAttemptId = useStore.getState().beginAuthAttempt(() => handleLogin());
     try {
       setAuthError(null);
-      useStore.setState({ isSyncing: true, syncStatus: 'Authorizing Session' });
       await signInWithPopup(auth, fbProvider);
-      useStore.setState({ syncStatus: 'Syncing Profile' });
+      if (!useStore.getState().isAuthAttemptActive(authAttemptId)) return;
+      useStore.getState().setAuthAttemptStatus(authAttemptId, 'Syncing Profile');
       setIsProfileOpen(false);
     } catch (err) {
       console.error(err);
       setAuthError('Authentication failed');
-      useStore.setState({ isSyncing: false });
+      useStore.getState().failAuthAttempt(authAttemptId, err);
     }
   };
 
   const handleGoogleLogin = async () => {
+    const authAttemptId = useStore.getState().beginAuthAttempt(() => handleGoogleLogin());
     try {
       setAuthError(null);
-      useStore.setState({ isSyncing: true, syncStatus: 'Authorizing Session' });
       const result = await signInWithPopup(auth, googleProvider);
-      useStore.setState({ syncStatus: 'Syncing Profile' });
+      if (!useStore.getState().isAuthAttemptActive(authAttemptId)) return;
+      useStore.getState().setAuthAttemptStatus(authAttemptId, 'Syncing Profile');
       
       // Store user details in Firestore
       const { doc, setDoc, serverTimestamp } = await import('firebase/firestore');
@@ -476,7 +541,7 @@ useEffect(() => {
     } catch (err) {
       console.error(err);
       setAuthError('Authentication failed');
-      useStore.setState({ isSyncing: false });
+      useStore.getState().failAuthAttempt(authAttemptId, err);
     }
   };
 
@@ -1048,6 +1113,7 @@ return (
       orders={allNotifications}
       readVersions={notificationReadVersions}
       onOpenOrder={handleOpenNotificationOrder}
+      emptyLabel={isAdminNotificationView ? 'No admin updates yet' : 'No order updates yet'}
       isFullscreen={isProfileFullscreen}
       navbarHeight={specs.h}
       anchorTop={notificationAnchorTop}

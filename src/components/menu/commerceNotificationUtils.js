@@ -57,11 +57,29 @@ export const buildCommerceNotifications = ({
   const kitMap = new Map(kits.map((kit) => [kit.id, kit]));
   const basketKitIds = [...new Set(basket.map((item) => item?.id).filter(Boolean))];
   const activeHunts = hunts.filter((hunt) => isActiveHunt(hunt, now));
+  const releasedHunts = hunts.filter((hunt) => String(hunt?.status || '').trim().toLowerCase() === 'released');
+  const releasedKitIds = new Set(releasedHunts.map((hunt) => hunt?.kitId).filter(Boolean));
   const watchedKitIds = new Set([
     ...basketKitIds,
     ...activeHunts.map((hunt) => hunt?.kitId).filter(Boolean)
   ]);
   const notifications = [];
+
+  releasedHunts.forEach((hunt) => {
+    const kit = kitMap.get(hunt.kitId);
+    const activityTime = hunt.releasedAt || hunt.updatedAt || hunt.createdAt || now;
+    notifications.push({
+      id: `offer-released:${hunt.id}`,
+      notificationKind: 'offer_released',
+      notificationVersion: `offer-released:${hunt.id}:${Number(hunt.targetPrice || 0)}:${notificationValueToMillis(activityTime)}`,
+      notificationLabel: 'Offer accepted',
+      title: 'Item released',
+      message: `${hunt.kitName || kit?.name || 'Your requested item'} was released for ₱${Number(hunt.targetPrice || 0).toLocaleString('en-PH')}.`,
+      summary: hunt.kitName || kit?.name || '',
+      kitId: hunt.kitId,
+      lastUpdated: activityTime
+    });
+  });
 
   basketKitIds.forEach((kitId) => {
     const kit = kitMap.get(kitId);
@@ -118,6 +136,7 @@ export const buildCommerceNotifications = ({
   });
 
   watchedKitIds.forEach((kitId) => {
+    if (releasedKitIds.has(kitId)) return;
     if (!outOfStockKitIds[kitId]) return;
     const kit = kitMap.get(kitId);
     const availableStocks = getAvailableStockEntries(kit);

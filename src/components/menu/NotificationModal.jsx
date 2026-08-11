@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import {
   AlertTriangle,
+  BadgeDollarSign,
   Bell,
   CheckCircle2,
   ChevronRight,
@@ -8,6 +9,7 @@ import {
   Gift,
   Package,
   PackageCheck,
+  ReceiptText,
   Truck,
   XCircle
 } from 'lucide-react';
@@ -18,6 +20,33 @@ import {
 } from './notificationUtils';
 
 const getStatusDetails = (notification) => {
+  if (notification?.notificationKind === 'admin_receipt') {
+    return {
+      message: notification.message || 'A submitted receipt needs validation.',
+      icon: ReceiptText,
+      accent: 'bg-violet-500',
+      iconClass: 'bg-violet-500/10 text-violet-600'
+    };
+  }
+
+  if (notification?.notificationKind === 'admin_offer') {
+    return {
+      message: notification.message || 'A customer sent an offer for a collection item.',
+      icon: BadgeDollarSign,
+      accent: 'bg-emerald-500',
+      iconClass: 'bg-emerald-500/10 text-emerald-600'
+    };
+  }
+
+  if (notification?.notificationKind === 'offer_released') {
+    return {
+      message: notification.message || 'Your offer was accepted and the item was released.',
+      icon: BadgeDollarSign,
+      accent: 'bg-emerald-500',
+      iconClass: 'bg-emerald-500/10 text-emerald-600'
+    };
+  }
+
   if (notification?.notificationKind === 'low_stock') {
     return {
       message: notification.message,
@@ -141,6 +170,7 @@ export default function NotificationModal({
   orders = [],
   readVersions = {},
   onOpenOrder,
+  emptyLabel = 'No order updates yet',
   isFullscreen = false,
   navbarHeight = '60px',
   anchorTop = null
@@ -239,7 +269,7 @@ export default function NotificationModal({
             {notifications.length === 0 ? (
               <div className="py-12 text-center text-neutral-400">
                 <Bell size={40} className="mx-auto mb-4" strokeWidth={1} />
-                <p className="text-[10px] font-black uppercase tracking-widest">No order updates yet</p>
+                <p className="text-[10px] font-black uppercase tracking-widest">{emptyLabel}</p>
               </div>
             ) : notifications.map((order) => {
               const details = getStatusDetails(order);

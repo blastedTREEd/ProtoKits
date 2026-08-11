@@ -282,8 +282,7 @@ export default function Kits() {
     };
 
     const getTime = (kit) => {
-      if (isAdmin && isAdminView) return kit?.lastUpdated ? (typeof kit.lastUpdated.toMillis === 'function' ? kit.lastUpdated.toMillis() : new Date(kit.lastUpdated).getTime()) : 0;
-      const val = kit?.lastRestockedAt || kit?.createdAt || kit?.lastUpdated;
+      const val = kit?.lastAvailableAt || kit?.lastRestockedAt || kit?.createdAt || kit?.lastUpdated;
       if (!val) return 0;
       if (typeof val.toMillis === 'function') return val.toMillis();
       if (val.seconds) return val.seconds * 1000;
@@ -406,6 +405,15 @@ export default function Kits() {
             _statusOrder: statusOrder
         };
     });
+
+    // Latest view follows public availability events. Newly stocked kits and
+    // stocks returned from the admin shelf move to the front immediately.
+    if (!searchTerm && sortType === 'latest') {
+      return [...processedKits].sort((a, b) => {
+        if (a._statusOrder !== b._statusOrder) return b._statusOrder - a._statusOrder;
+        return b._time - a._time;
+      });
+    }
 
     // --- Stable sort logic: mag-re-sort lang kapag nagbago ang sort criteria (search, sortType, view) ---
     const currentSortCriteria = `${searchTerm}||${sortType}||${isAdminView}`;

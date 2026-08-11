@@ -4,11 +4,12 @@ Snorlax Garage implements a secure, role-based access system to distinguish betw
 
 ---
 
-## 🔑 1. Facebook Authentication Flow
+## 🔑 1. Firebase Authentication Flow
 User authentication is managed via **Firebase Authentication**:
-- **Provider:** Facebook Authentication.
-- **Login Trigger:** Initiated on the `Landing.jsx` page.
-- **Session Restoration:** Managed asynchronously on application startup by checking `auth.onAuthStateChanged(...)` in `App.jsx`.
+- **Providers:** Google and Facebook popup authentication.
+- **Login Triggers:** Available from the navbar/profile flow, account settings, and Google login in checkout.
+- **Session Restoration:** `fetchInitialData()` registers `auth.onAuthStateChanged(...)` and delegates profile, role, basket, and project synchronization to the Zustand store.
+- **Interrupted Popup Recovery:** If a popup is closed or blocked, the authentication overlay remains available with **Retry Login** and **Cancel** actions. Retry starts a fresh provider attempt; cancel invalidates the current attempt so a late popup result cannot continue the app-side login flow.
 
 ---
 

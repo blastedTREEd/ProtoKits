@@ -239,26 +239,28 @@ export default function AccountSettingsModal({ isOpen, onClose }) {
   }, [zipCode, barangay, city, province, lat, lng, isOpen, performGeocoding, lastGeocoded]);
 
   const handleLogin = async () => {
+    const authAttemptId = useStore.getState().beginAuthAttempt(() => handleLogin());
     try { 
       setAuthError(null); 
-      useStore.setState({ isSyncing: true, syncStatus: 'Authorizing Session' });
       await signInWithPopup(auth, fbProvider);
-      useStore.setState({ syncStatus: 'Syncing Profile' });
+      if (!useStore.getState().isAuthAttemptActive(authAttemptId)) return;
+      useStore.getState().setAuthAttemptStatus(authAttemptId, 'Syncing Profile');
     } catch (err) { 
       setAuthError(err.message); 
-      useStore.setState({ isSyncing: false });
+      useStore.getState().failAuthAttempt(authAttemptId, err);
     }
   };
 
   const handleGoogleLogin = async () => {
+    const authAttemptId = useStore.getState().beginAuthAttempt(() => handleGoogleLogin());
     try { 
       setAuthError(null); 
-      useStore.setState({ isSyncing: true, syncStatus: 'Authorizing Session' });
       await signInWithPopup(auth, googleProvider);
-      useStore.setState({ syncStatus: 'Syncing Profile' });
+      if (!useStore.getState().isAuthAttemptActive(authAttemptId)) return;
+      useStore.getState().setAuthAttemptStatus(authAttemptId, 'Syncing Profile');
     } catch (err) { 
       setAuthError(err.message); 
-      useStore.setState({ isSyncing: false });
+      useStore.getState().failAuthAttempt(authAttemptId, err);
     }
   };
 
