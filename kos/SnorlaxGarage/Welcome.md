@@ -32,6 +32,7 @@ Select a section below to explore the inner workings of the platform:
 * **[[Order Management]]**
   * Orders checkout flows and dynamic payment fees (`handlingFee`, `installmentFee`, `transferFee`).
   * Stock reservation release (`releaseOrderStocks`) for cancelled orders.
+  * Real-time order notifications, unread highlighting, and seen-update counters.
 
 ### 🗄️ Architecture & Databases
 * **[[Data & Store Architecture]]**

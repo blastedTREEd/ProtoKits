@@ -41,3 +41,33 @@ The release operation is handled by the `releaseOrderStocks` action in the Zusta
    - Update the kit's `lastUpdated` timestamp.
 3. **Safety Sweep:**
    To guarantee no stock is left locked in a "ghost reservation" state, the system performs a sweep over the active list of kits in memory, locating any stock unit whose `order.orderDocId` matches the cancelled order, and triggers `releaseStockTarget` on them.
+
+---
+
+## 4. Customer Order Notifications
+
+The navbar notification system is backed directly by the signed-in customer's live Firestore `orders` query. It renders one notification per order, sorted by the most recent `lastUpdated` timestamp with `createdAt` as fallback. When an order document is deleted, its notification disappears automatically.
+
+### Update identity
+
+Each notification update is identified by a version composed of:
+
+- The order's `lastUpdated` timestamp, falling back to `createdAt`.
+- The normalized order `status`.
+
+This allows an order that was previously viewed to become new again whenever its status or update timestamp changes.
+
+### Read state versus seen state
+
+These states are intentionally separate and are stored per Firebase user in browser `localStorage`:
+
+- **Read:** Set only when the customer clicks that specific notification. Unread rows remain blue-highlighted. A newer order version highlights the row again.
+- **Seen:** Set for all current notifications when the customer opens the notification panel. Seen state clears the navbar badge and the `(N)` browser-tab title counter without removing row highlights.
+
+Closing the panel does not restore the counter. The counter appears again only when a new order is created or an existing order receives a newer version. Because these states are browser-local, they persist across reloads on that browser but do not synchronize across devices.
+
+### Responsive panel behavior
+
+- Mobile and landscape-tablet notification panels use the full available panel height below the compact navbar and lock page scrolling while allowing internal list scrolling.
+- Desktop notifications remain a navbar-anchored dropdown; scrolling outside closes the dropdown.
+- Selecting a notification marks that order version as read and opens the matching record on the Orders page.
