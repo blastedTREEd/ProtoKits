@@ -170,16 +170,22 @@ useEffect(() => {
     const handleForceHide = () => { setForceHide(true); setShowBottomNav(false); };
     const handleForceShow = () => { setForceHide(false); setShowBottomNav(true); };
     const handleOpenLoginPrompt = () => setIsLoginPromptOpen(true);
+    const handleOpenStoriesManager = () => {
+      setIsStoriesManagerOpen(true);
+      setIsProfileOpen(false);
+    };
 
     window.addEventListener('resize', handleResize);
     window.addEventListener('hideNavbar', handleForceHide);
     window.addEventListener('showNavbar', handleForceShow);
     window.addEventListener('openLoginPrompt', handleOpenLoginPrompt);
+    window.addEventListener('openStoriesManager', handleOpenStoriesManager);
     return () => {
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('hideNavbar', handleForceHide);
       window.removeEventListener('showNavbar', handleForceShow);
       window.removeEventListener('openLoginPrompt', handleOpenLoginPrompt);
+      window.removeEventListener('openStoriesManager', handleOpenStoriesManager);
     };
   }, []);
 useEffect(() => {

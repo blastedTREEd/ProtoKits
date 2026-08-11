@@ -4,9 +4,29 @@ import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { useStore } from '../../store/useStore';
 
 const SYNC_GLOW_COLORS = ['#0066ff', '#ff3b30', '#34c759', '#ffcc00', '#af52de', '#ff7a00', '#00c7be'];
+// Stories strip above the navbar.
+const SHOW_STORIES_STRIP = true;
 
 function getRandomSyncColor() {
   return SYNC_GLOW_COLORS[Math.floor(Math.random() * SYNC_GLOW_COLORS.length)];
+}
+
+function formatStoryDate(value) {
+  if (!value) return 'Recently';
+
+  const date = typeof value?.toDate === 'function'
+    ? value.toDate()
+    : typeof value?.seconds === 'number'
+      ? new Date(value.seconds * 1000)
+      : new Date(value);
+
+  if (Number.isNaN(date.getTime())) return 'Recently';
+
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
 }
 
 export default function Stories({ isCompact, hideImmediately = false }) {
@@ -20,6 +40,11 @@ export default function Stories({ isCompact, hideImmediately = false }) {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
   useEffect(() => {
+    if (!SHOW_STORIES_STRIP) {
+      setStoriesHeight(0);
+      return undefined;
+    }
+
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         setStoriesHeight(entry.contentRect.height);
@@ -53,6 +78,18 @@ export default function Stories({ isCompact, hideImmediately = false }) {
   const activeStories = React.useMemo(() => {
     return (stories || []).filter(story => !story.isDraft);
   }, [stories]);
+
+  // Open a story directly when a highlight tile is selected in the homepage grid.
+  useEffect(() => {
+    const handleHighlightOpen = (event) => {
+      const storyId = event.detail?.storyId;
+      const storyIndex = activeStories.findIndex((story) => story.id === storyId);
+      if (storyIndex !== -1) setActiveStoryIndex(storyIndex);
+    };
+
+    window.addEventListener('openStoryHighlight', handleHighlightOpen);
+    return () => window.removeEventListener('openStoryHighlight', handleHighlightOpen);
+  }, [activeStories]);
 
   // Preview navigation handlers — operate on active stories (real published data only)
   const handlePrev = useCallback(() => {
@@ -108,7 +145,7 @@ export default function Stories({ isCompact, hideImmediately = false }) {
 
   return (
     <>
-      <div 
+      {SHOW_STORIES_STRIP && <div 
         ref={containerRef}
         className={`
         relative z-40 border-b border-white/10 overflow-hidden w-full
@@ -171,7 +208,7 @@ export default function Stories({ isCompact, hideImmediately = false }) {
             ))}
           </div>
         </div>
-      </div>
+      </div>}
 
       {/* ====== STORY PREVIEW MODAL ====== */}
       <AnimatePresence>
@@ -182,7 +219,7 @@ export default function Stories({ isCompact, hideImmediately = false }) {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/80 backdrop-blur-xl"
+              className="absolute inset-0 bg-neutral-900/35 backdrop-blur-xl dark:bg-black/80"
               onClick={() => setActiveStoryIndex(null)}
             />
 
@@ -193,14 +230,18 @@ export default function Stories({ isCompact, hideImmediately = false }) {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.92 }}
               transition={{ type: "spring", damping: 30, stiffness: 400 }}
+              style={isMobile ? undefined : {
+                width: 'min(92vw, 92vh, 796px)',
+                aspectRatio: '1 / 1'
+              }}
               className={
                 isMobile
                   ? "relative w-full h-full bg-neutral-950 flex flex-col"
-                  : "relative max-w-md w-full aspect-[9/16] rounded-3xl overflow-hidden shadow-2xl bg-neutral-900 border border-white/10 flex flex-col"
+                  : "relative rounded-3xl overflow-hidden shadow-2xl bg-white dark:bg-neutral-950"
               }
             >
               {/* Story Image / Background */}
-              <div className="absolute inset-0 overflow-hidden">
+              <div className="absolute inset-0 overflow-hidden md:right-[43.75%] md:w-[56.25%]">
                 {activeStory.backgroundImage ? (
                   <img 
                     src={activeStory.backgroundImage} 
@@ -224,13 +265,13 @@ export default function Stories({ isCompact, hideImmediately = false }) {
                   />
                 )}
                 {/* Top gradient for header readability */}
-                <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-transparent to-transparent z-[5]" />
+                <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-transparent to-transparent z-[5] md:hidden" />
                 {/* Bottom gradient — heavier dark shadow for description */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 via-30% to-transparent z-[5]" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 via-30% to-transparent z-[5] md:hidden" />
               </div>
 
               {/* Overlays Container (Stickers, Masks, Texts) */}
-              <div className="absolute inset-0 pointer-events-none overflow-hidden z-10">
+              <div className="absolute inset-0 pointer-events-none overflow-hidden z-10 md:right-[43.75%] md:w-[56.25%]">
                 {/* Render Stickers (Polaroids & Masks) */}
                 {(activeStory.stickers || []).map((st) => {
                   const isPolaroid = st.type === 'mask' ? false : true;
@@ -302,13 +343,17 @@ export default function Stories({ isCompact, hideImmediately = false }) {
               {/* Close Button — z-30 so it stays ABOVE navigation zones */}
               <button 
                 onClick={(e) => { e.stopPropagation(); setActiveStoryIndex(null); }}
-                className="absolute top-5 right-5 z-30 p-2 rounded-full bg-black/40 backdrop-blur-md border border-white/10 text-white/80 hover:text-white hover:bg-black/60 transition-all shadow-lg"
+                className={`absolute top-5 right-5 z-30 p-2 rounded-full backdrop-blur-md border transition-all shadow-lg ${
+                  isMobile
+                    ? 'bg-black/40 border-white/10 text-white/80 hover:text-white hover:bg-black/60'
+                    : 'bg-white/90 border-black/10 text-neutral-600 hover:text-neutral-950 hover:bg-white dark:bg-black/40 dark:border-white/10 dark:text-white/80 dark:hover:text-white dark:hover:bg-black/60'
+                }`}
               >
                 <X size={20} />
               </button>
 
               {/* Top Header — profile pic, page name */}
-              <div className="relative z-10 flex items-center gap-3 p-5 pt-6 pr-14">
+              <div className="relative z-10 flex items-center gap-3 p-5 pt-6 pr-14 md:absolute md:left-0 md:top-0 md:w-[56.25%]">
                 <div className="w-10 h-10 rounded-full border-2 border-white/60 bg-white/20 backdrop-blur-md overflow-hidden shadow-lg flex-shrink-0">
                   <img 
                     src={displayImg} 
@@ -322,13 +367,13 @@ export default function Stories({ isCompact, hideImmediately = false }) {
                     {garageInfo?.name || 'SNORLAX GARAGE'}
                   </h3>
                   <span className="text-[9px] font-bold text-white/50 uppercase tracking-widest">
-                    Story {activeStoryIndex + 1} of {activeStories.length}
+                    {formatStoryDate(activeStory.createdAt || activeStory.lastUpdated)}
                   </span>
                 </div>
               </div>
 
               {/* Progress Bars */}
-              <div className="relative z-10 flex gap-1 px-5 mb-auto">
+              <div className="relative z-10 flex gap-1 px-5 mb-auto md:absolute md:left-0 md:top-[90px] md:w-[56.25%] md:mb-0">
                 {activeStories.map((_, idx) => (
                   <button 
                     key={idx}
@@ -351,7 +396,7 @@ export default function Stories({ isCompact, hideImmediately = false }) {
                   <ChevronLeft size={20} strokeWidth={2.5} />
                 </button>
               </div>
-              <div className="absolute right-4 top-1/2 -translate-y-1/2 z-20">
+              <div className="absolute right-4 top-1/2 -translate-y-1/2 z-20 md:right-[calc(43.75%+1rem)]">
                 <button
                   onClick={(e) => { e.stopPropagation(); handleNext(); }}
                   disabled={activeStories.length <= 1}
@@ -365,12 +410,12 @@ export default function Stories({ isCompact, hideImmediately = false }) {
               </div>
 
               {/* Bottom Content — title, description with strong dark gradient */}
-              <div className="relative z-10 p-6 pb-8 mt-auto">
-                <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white leading-tight drop-shadow-lg">
+              <div className="relative z-10 p-6 pb-8 mt-auto md:absolute md:inset-y-0 md:right-0 md:mt-0 md:flex md:w-[43.75%] md:flex-col md:justify-start md:overflow-y-auto md:border-l md:border-black/5 md:bg-white md:p-6 md:pt-24 md:dark:border-white/10 md:dark:bg-neutral-950">
+                <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white leading-tight drop-shadow-lg md:text-neutral-950 dark:text-white">
                   {activeStory.label}
                 </h2>
                 {activeStory.description && (
-                  <p className="text-sm text-white/80 mt-2 leading-relaxed font-medium max-w-sm drop-shadow-md">
+                  <p className="text-sm text-white/80 mt-2 leading-relaxed font-medium max-w-sm drop-shadow-md md:text-neutral-600 dark:text-white/80">
                     {activeStory.description}
                   </p>
                 )}

@@ -111,54 +111,11 @@ const Layout = ({ children }) => {
     };
   }, [location.pathname]);
 
-  useEffect(() => {
-    if (location.pathname !== "/" || isCompact || isProfileFullscreenOpen) return undefined;
-
-    let startY = null;
-    let consumed = false;
-
-    const collapseStories = () => {
-      if (consumed) return;
-      consumed = true;
-      setIsCompact(true);
-      window.dispatchEvent(new Event('closeProfileDropdown'));
-      if (window.scrollY !== 0) window.scrollTo(0, 0);
-    };
-
-    const handleWheel = (event) => {
-      if (Math.abs(event.deltaY) < 2) return;
-      event.preventDefault();
-      collapseStories();
-    };
-
-    const handleTouchStart = (event) => {
-      startY = event.touches?.[0]?.clientY ?? null;
-    };
-
-    const handleTouchMove = (event) => {
-      if (startY === null) return;
-      const currentY = event.touches?.[0]?.clientY ?? startY;
-      if (Math.abs(currentY - startY) < 8) return;
-      event.preventDefault();
-      collapseStories();
-    };
-
-    window.addEventListener('wheel', handleWheel, { passive: false });
-    window.addEventListener('touchstart', handleTouchStart, { passive: true });
-    window.addEventListener('touchmove', handleTouchMove, { passive: false });
-
-    return () => {
-      window.removeEventListener('wheel', handleWheel);
-      window.removeEventListener('touchstart', handleTouchStart);
-      window.removeEventListener('touchmove', handleTouchMove);
-    };
-  }, [location.pathname, isCompact, isProfileFullscreenOpen]);
-
   return (
     <div className="min-h-screen flex flex-col">
       {isKnownRoute(location.pathname) && (
         <>
-          <Stories isCompact={isCompact || isProfileFullscreenOpen} hideImmediately={isProfileFullscreenOpen} />
+          <Stories isCompact={location.pathname !== "/" || isProfileFullscreenOpen} hideImmediately={isProfileFullscreenOpen} />
           <Navbar isCompact={isCompact} />
         </>
       )}

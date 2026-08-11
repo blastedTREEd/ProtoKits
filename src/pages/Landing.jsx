@@ -3,6 +3,7 @@ import { useLocation, Link } from 'react-router-dom';
 import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
 import { useStore } from '../store/useStore';
+import Highlights from '../components/menu/Highlights';
 // eslint-disable-next-line no-unused-vars
 import { motion, useScroll, useTransform } from 'framer-motion';
 
@@ -12,7 +13,12 @@ export default function Home() {
   const location = useLocation();
   const containerRef = useRef(null);
   
-  const isOpen = shippingSettings?.paymentSettings?.maintenanceMode === false;
+  const paymentSettings = shippingSettings?.paymentSettings;
+  const maintenanceInvalidTypes = paymentSettings?.maintenanceInvalidTypes || {};
+  const isUnderMaintenance = paymentSettings?.maintenanceMode === true
+    && maintenanceInvalidTypes.kit !== false
+    && maintenanceInvalidTypes.prints !== false;
+  const isOpen = !isUnderMaintenance;
   const { scrollYProgress } = useScroll({
     target: containerRef,
     offset: ["start start", "end start"]
@@ -97,7 +103,7 @@ export default function Home() {
               border-garage-blue/30
               bg-garage-blue/10
               text-garage-blue
-              text-[10px]
+              text-[12px]
               font-black
               tracking-[0.35em]
               uppercase
@@ -147,6 +153,9 @@ export default function Home() {
 
         </div>
       </section>
+
+      {/* SECTION 2: HIGHLIGHTS */}
+      <Highlights />
       </div>
     </PageTemplate>
   );
