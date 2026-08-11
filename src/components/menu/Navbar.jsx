@@ -11,7 +11,7 @@ import { FaFacebook } from 'react-icons/fa';
 import { useTheme } from '../../context/ThemeContext';
 import { useStore } from '../../store/useStore';
 import { signOut, signInWithPopup } from 'firebase/auth'; 
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, onSnapshot, query, where } from 'firebase/firestore';
 import { auth, fbProvider, googleProvider, db } from '../../firebase/firebase';
 import AccountSettingsModal from './AccountSettingsModal';
 import FulfillmentModal from './FulfillmentModal';
@@ -56,6 +56,7 @@ export default function Navbar({ isCompact: scrolledCompact }) {
 
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
+  const [notificationOrders, setNotificationOrders] = useState([]);
   const [isPickupPointOpen, setIsPickupPointOpen] = useState(false);
   const [isPaymentSettingsOpen, setIsPaymentSettingsOpen] = useState(false);
   const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
@@ -218,12 +219,33 @@ useEffect(() => {
 
   const isCompactMode = location.pathname !== "/" || scrolledCompact || lastScrollY > 40 || isStoriesManagerOpen || isMobile;
 
+  useEffect(() => {
+    if (!user?.uid) {
+      setNotificationOrders([]);
+      return undefined;
+    }
+
+    setNotificationOrders([]);
+    const notificationQuery = query(collection(db, 'orders'), where('userId', '==', user.uid));
+    return onSnapshot(notificationQuery, (snapshot) => {
+      setNotificationOrders(snapshot.docs.map((orderDoc) => ({ id: orderDoc.id, ...orderDoc.data() })));
+    }, (error) => {
+      console.error('SG LOG: Notification subscription error:', error);
+    });
+  }, [user?.uid]);
+
   const handleNavClick = (path) => {
     if (location.pathname === path) {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } else {
       navigate(path);
     }
+  };
+
+  const handleOpenNotificationOrder = (order) => {
+    if (!order?.id) return;
+    setIsNotificationModalOpen(false);
+    navigate('/orders', { state: { openOrderId: order.id } });
   };
 
   const handleLogin = async () => {
@@ -514,7 +536,11 @@ return (
                 size={specs.utilIcon} 
                 className={`${isDarkMode ? 'text-white' : 'text-neutral-900'} group-hover:text-garage-blue transition-all duration-300`} 
               />
-              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border border-white dark:border-neutral-900"></span>
+              {notificationOrders.length > 0 && (
+                <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full border border-white bg-red-500 px-1 text-[9px] font-black leading-none text-white dark:border-neutral-900">
+                  {notificationOrders.length > 99 ? '99+' : notificationOrders.length}
+                </span>
+              )}
             </button>
 
             <button key={user?.uid || 'guest'} onClick={() => { 
@@ -810,7 +836,13 @@ return (
           </div>
         )}
 
-    <NotificationModal isOpen={isNotificationModalOpen} onClose={() => setIsNotificationModalOpen(false)} isDarkMode={isDarkMode} />
+    <NotificationModal
+      isOpen={isNotificationModalOpen}
+      onClose={() => setIsNotificationModalOpen(false)}
+      isDarkMode={isDarkMode}
+      orders={notificationOrders}
+      onOpenOrder={handleOpenNotificationOrder}
+    />
 
     <WelcomeModal 
       isOpen={Boolean(user && isProfileIncomplete)} 

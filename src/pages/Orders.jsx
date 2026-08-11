@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
@@ -227,8 +228,53 @@ const getShippingFlags = (order) => {
   };
 };
 
+const normalizeShippingValue = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+
+const isOrderSelfBooking = (order, settings) => {
+  if (!order) return false;
+  if (order.isSelfBooking === true || getShippingFlags(order).isLalamoveSelf) return true;
+
+  const shippingMethods = settings?.shippingMethods || {};
+  const savedMethod = normalizeShippingValue(order.shippingMethod);
+  if (savedMethod.includes('selfbooking')) return true;
+
+  const storedMethodKey = order.shippingMethodKey;
+  const storedSuboptionKey = order.shippingSuboptionKey;
+  const storedSuboption = shippingMethods?.[storedMethodKey]?.suboptions?.[storedSuboptionKey];
+  if (storedSuboption?.isSelfBooking === true) return true;
+
+  return Object.entries(shippingMethods).some(([methodKey, methodConfig]) => {
+    const normalizedMethodKey = normalizeShippingValue(methodKey);
+    if (!normalizedMethodKey || !savedMethod.startsWith(normalizedMethodKey)) return false;
+
+    return Object.entries(methodConfig?.suboptions || {}).some(([suboptionKey, suboption]) => {
+      if (suboption?.isSelfBooking !== true) return false;
+      const normalizedSuboptionKey = normalizeShippingValue(suboptionKey);
+      const normalizedLabel = normalizeShippingValue(suboption.label || suboptionKey);
+      return (normalizedSuboptionKey && savedMethod.includes(normalizedSuboptionKey))
+        || (normalizedLabel && savedMethod.includes(normalizedLabel));
+    });
+  });
+};
+
+const hasValidatedFirstReceipt = (order) => {
+  if (!order?.receipt) return false;
+
+  const isReservationOrPartial = ['reservation', 'partial'].includes(String(order.paymentPlan || '').toLowerCase())
+    || order.isReservation
+    || order.isPartial;
+
+  if (!isReservationOrPartial) return order.status !== 'Validating';
+
+  return order.status !== 'Validating'
+    || Boolean(order.balanceReceipt)
+    || Number(order.buyerPaid || 0) > 0;
+};
+
 export default function Orders() {
   const { isDarkMode } = useTheme();
+  const location = useLocation();
+  const navigate = useNavigate();
   const { user, isAdmin, isAdminView, kits, createDummyUser, assignStockToOrder, cancelOrder, confirmOrderPayment, uploadReceipt, updateOrderDetails, updateOrderStatus, rates, orders, usersList, createOrder, deleteOrder, isLoading, subscribeOrders, subscribeUsersList, loadPrintResources, shippingSettings, garageInfo, cleanUpCancelledOrders, setToastMessage } = useStore();
   const isAdminMode = isAdmin && isAdminView;
   
@@ -496,6 +542,25 @@ export default function Orders() {
     if (targetTab) setActiveTab(targetTab);
   }, [getTargetTabForOrder]);
 
+  const notificationOrderId = location.state?.openOrderId;
+
+  useEffect(() => {
+    if (!notificationOrderId || orders.length === 0) return;
+    const notificationOrder = orders.find((order) => order.id === notificationOrderId);
+    if (!notificationOrder) return;
+
+    moveOrderToTargetTab(notificationOrder);
+    setSelectedOrder(notificationOrder);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.pathname, moveOrderToTargetTab, navigate, notificationOrderId, orders]);
+
+  const selectedOrderId = selectedOrder?.id;
+  useEffect(() => {
+    if (!selectedOrderId) return;
+    const currentOrder = orders.find((order) => order.id === selectedOrderId);
+    setSelectedOrder(currentOrder || null);
+  }, [orders, selectedOrderId]);
+
   const availableStocks = useMemo(() => {
     if (!manualOrderData.selectedKitId || !kits) return [];
     const kit = kits.find(k => k.id === manualOrderData.selectedKitId);
@@ -583,16 +648,17 @@ export default function Orders() {
   const handleSaveCustomerTrackingLink = async () => {
     if (!selectedOrder) return;
     if (!customerTrackingLink.trim()) {
-      alert("Please input a valid Lalamove tracking URL.");
+      alert("Please enter the courier tracking number or tracking URL.");
       return;
     }
     try {
-      await updateOrderDetails(selectedOrder.id, { customerTrackingLink });
-      alert("Lalamove tracking URL saved!");
-      setSelectedOrder(prev => ({ ...prev, customerTrackingLink }));
+      const trackingInfo = customerTrackingLink.trim();
+      await updateOrderDetails(selectedOrder.id, { customerTrackingLink: trackingInfo });
+      alert("Courier tracking information saved!");
+      setSelectedOrder(prev => ({ ...prev, customerTrackingLink: trackingInfo }));
     } catch (e) {
       console.error(e);
-      alert("Failed to save tracking URL.");
+      alert("Failed to save tracking information.");
     }
   };
 
@@ -1036,9 +1102,8 @@ export default function Orders() {
     const rd = order?.receiverDetails || {};
     const flags = getShippingFlags(order);
     const addressParts = [rd.houseNo, rd.houseDetails, rd.subdivision, rd.barangay, rd.city, rd.province, rd.zipCode].filter(Boolean);
-    // Admin: palaging makikita ang exact address ng pickup point.
-    // User: makikita lang ang vague address (walang house no.) hanggang ma-validate ng admin ang receipts.
-    const paymentVerified = !['Reserved', 'Waiting', 'Validating'].includes(order?.status);
+    // Admin always sees the exact pickup point. Customers only see it after all validated payments clear the balance.
+    const paymentVerified = hasValidatedFirstReceipt(order) && calculateBalance(order) <= 0;
     const showExactAddress = isAdminMode || paymentVerified;
     const rawPickupAddress = showExactAddress
       ? (order?.pickupDetails?.exactAddress || order?.pickupDetails?.publicAddress || order?.pickupLocation)
@@ -1066,8 +1131,8 @@ export default function Orders() {
       display: location || 'No details',
       schedule: order?.preferredSchedule || '',
       landmark: rd.landmark || '',
-      lat: rd.lat || (showExactAddress ? (order?.pickupDetails?.exactLat || order?.pickupDetails?.lat) : order?.pickupDetails?.lat) || null,
-      lng: rd.lng || (showExactAddress ? (order?.pickupDetails?.exactLng || order?.pickupDetails?.lng) : order?.pickupDetails?.lng) || null,
+      lat: (showExactAddress ? order?.pickupDetails?.exactLat : null) || rd.lat || order?.pickupDetails?.lat || null,
+      lng: (showExactAddress ? order?.pickupDetails?.exactLng : null) || rd.lng || order?.pickupDetails?.lng || null,
       lbcBranch: rd.lbcBranch
     };
   };
@@ -1151,6 +1216,10 @@ export default function Orders() {
   const activeTabData = tabData.find((tab) => tab.id === activeTab) || tabData[0];
   const visibleOrders = activeTabData?.orders || [];
   const selectedShippingFlags = selectedOrder ? getShippingFlags(selectedOrder) : {};
+  const selectedIsSelfBooking = isOrderSelfBooking(selectedOrder, shippingSettings);
+  const selectedPaymentFullyValidated = Boolean(
+    selectedOrder && hasValidatedFirstReceipt(selectedOrder) && calculateBalance(selectedOrder) <= 0
+  );
   const selectedLogistics = selectedOrder ? getBuyerAddressDetails(selectedOrder) : {};
   const selectedTotals = selectedOrder ? getOrderTotals(selectedOrder) : {};
   const hasStlWithDesignService = selectedOrder?.items?.some(item => 
@@ -1184,10 +1253,17 @@ export default function Orders() {
           appliedInstallmentFee: selectedOrder.appliedInstallmentFee || 0
         }];
 
-    const detailPaymentVerified = !['Reserved', 'Waiting', 'Validating'].includes(selectedOrder?.status);
+    const detailPaymentVerified = selectedPaymentFullyValidated;
     const detailShowExact = isAdminMode || detailPaymentVerified;
-    const mapLat = selectedLogistics.lat || (detailShowExact ? (selectedOrder.pickupDetails?.exactLat || selectedOrder.pickupDetails?.lat) : selectedOrder.pickupDetails?.lat);
-    const mapLng = selectedLogistics.lng || (detailShowExact ? (selectedOrder.pickupDetails?.exactLng || selectedOrder.pickupDetails?.lng) : selectedOrder.pickupDetails?.lng);
+    const isPickupMap = selectedShippingFlags.isMeetup || selectedShippingFlags.isSelfPickup || selectedShippingFlags.usesPickupPoint;
+    const pickupMapLat = detailShowExact
+      ? (selectedOrder.pickupDetails?.exactLat || selectedOrder.pickupDetails?.lat)
+      : selectedOrder.pickupDetails?.lat;
+    const pickupMapLng = detailShowExact
+      ? (selectedOrder.pickupDetails?.exactLng || selectedOrder.pickupDetails?.lng)
+      : selectedOrder.pickupDetails?.lng;
+    const mapLat = (isPickupMap ? pickupMapLat : null) || selectedLogistics.lat;
+    const mapLng = (isPickupMap ? pickupMapLng : null) || selectedLogistics.lng;
     const itemsSubtotal = detailItems.reduce((acc, item) => {
       const sellPrice = Number(item.sellPrice || item.price || 0);
       const installmentFee = Number(item.appliedInstallmentFee || 0);
@@ -1195,11 +1271,11 @@ export default function Orders() {
       return acc + (sellPrice + installmentFee) * qty;
     }, 0) || selectedTotals.itemTotal || Number(selectedOrder.totalPrice || selectedOrder.price || 0);
     const isBalanceApplicable = ['reservation', 'partial', 'pre-order'].includes(selectedOrder.paymentPlan) || selectedOrder.isPreOrder || selectedTotals.balance > 0;
-    const showTrackingSection = activeTab === 'to_ship' || ['Preparing', 'Ready for Pickup', 'Ready for Meetup', 'Arrived', 'To Ship'].includes(selectedOrder.status);
+    const isFirstReceiptValidated = hasValidatedFirstReceipt(selectedOrder);
+    const showTrackingSection = isFirstReceiptValidated && ((
+      selectedIsSelfBooking && !['Completed', 'Cancelled'].includes(selectedOrder.status)
+    ) || activeTab === 'to_ship' || ['Preparing', 'Ready for Pickup', 'Ready for Meetup', 'Arrived', 'To Ship'].includes(selectedOrder.status));
     const isReservationOrPartial = ['reservation', 'partial'].includes(String(selectedOrder.paymentPlan || '').toLowerCase()) || selectedOrder.isReservation || selectedOrder.isPartial;
-    const isDpValidated = selectedOrder.receipt && (selectedOrder.status !== 'Validating' || selectedOrder.balanceReceipt || Number(selectedOrder.buyerPaid || 0) > 0);
-    const isFullValidated = !isReservationOrPartial && selectedOrder.receipt && selectedOrder.status !== 'Validating';
-    const isFirstReceiptValidated = isReservationOrPartial ? isDpValidated : isFullValidated;
     const isBalValidated = selectedOrder.balanceReceipt && selectedOrder.status !== 'Validating';
 
     const isOrderInvalid = Boolean(selectedOrder.isMaintenanceOrder);
@@ -1328,9 +1404,9 @@ export default function Orders() {
                   </span>
                 )}
               </span>
-              {!isAdminMode && (selectedShippingFlags.usesPickupPoint || selectedShippingFlags.usesMeetupLocation) && ['Reserved', 'Waiting', 'Validating'].includes(selectedOrder.status) && (
+              {!isAdminMode && (selectedShippingFlags.usesPickupPoint || selectedShippingFlags.usesMeetupLocation) && !selectedPaymentFullyValidated && (
                 <span className="text-[13px] font-black uppercase text-amber-600 dark:text-amber-500 mt-1 leading-tight">
-                   * Complete pickup details to be available once payment receipt is validated.
+                   * Complete pickup details will be available once all balances are cleared.
                 </span>
               )}
             </div>
@@ -1338,9 +1414,9 @@ export default function Orders() {
             {/* Tracking / Inputs */}
             {showTrackingSection && (
               <div className="pt-2 border-t border-black/5 dark:border-white/5 flex flex-col">
-                <span className="text-[13px] font-black uppercase mb-2 tracking-wider">Logistics & Tracking Info</span>
+                <span className="text-[13px] font-black uppercase mb-2 tracking-wider">Courier Tracking Info</span>
                 {/* Admin: Tracking input when no tracking saved yet */}
-                {isAdminMode && selectedOrder.status !== 'Cancelled' && !selectedOrder.trackingNo ? (
+                {isAdminMode && !selectedIsSelfBooking && selectedOrder.status !== 'Cancelled' && !selectedOrder.trackingNo ? (
                   <div className="space-y-3">
                     <input 
                       className="w-full p-3 rounded-xl border bg-white dark:bg-[#121212] border-black/10 dark:border-white/10 text-xs font-black uppercase"
@@ -1373,23 +1449,36 @@ export default function Orders() {
                     </button>
                   </div>
 
-                ) : !isAdminMode && selectedShippingFlags.isLalamoveSelf && !['Completed', 'Cancelled'].includes(selectedOrder.status) ? (
-                  /* Customer: Self-booking input for Lalamove tracking URL */
+                ) : !isAdminMode && selectedIsSelfBooking && !['Completed', 'Cancelled'].includes(selectedOrder.status) ? (
+                  selectedOrder.status !== 'Ready for Pickup' ? (
+                    <div>
+                      <p className="text-[13px] font-black uppercase leading-tight text-amber-600 dark:text-amber-500">
+                        * Please arrange your booking once the order is ready for pickup.
+                      </p>
+                    </div>
+                  ) : (
+                  /* Customer: tracking input for courier self-booking once ready */
                   <div className="space-y-3">
                     {selectedOrder.customerTrackingLink && (
-                      <a 
-                        href={selectedOrder.customerTrackingLink}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-[14px] font-black text-blue-600 hover:underline break-all block"
-                      >
-                        {selectedOrder.customerTrackingLink}
-                      </a>
+                      /^https?:\/\//i.test(selectedOrder.customerTrackingLink) ? (
+                        <a 
+                          href={selectedOrder.customerTrackingLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block break-all text-[14px] font-black text-blue-600 hover:underline"
+                        >
+                          {selectedOrder.customerTrackingLink}
+                        </a>
+                      ) : (
+                        <p className="break-all text-[14px] font-black uppercase text-blue-600 dark:text-blue-500">
+                          {selectedOrder.customerTrackingLink}
+                        </p>
+                      )
                     )}
                     <input 
-                      type="url"
+                      type="text"
                       className="w-full p-3 rounded-xl border bg-white dark:bg-[#121212] border-black/10 dark:border-white/10 text-xs font-semibold"
-                      placeholder="https://web.lalamove.com/..."
+                      placeholder="TRACKING NO. / COURIER URL"
                       value={customerTrackingLink}
                       onChange={(e) => setCustomerTrackingLink(e.target.value)}
                     />
@@ -1397,9 +1486,10 @@ export default function Orders() {
                       onClick={handleSaveCustomerTrackingLink}
                       className="w-full py-3 bg-blue-600 text-white rounded-xl text-[12px] font-black uppercase tracking-widest shadow-lg shadow-blue-600/20 active:scale-95 transition-all"
                     >
-                      {selectedOrder.customerTrackingLink ? 'Update Tracking URL' : 'Save Tracking URL'}
+                      {selectedOrder.customerTrackingLink ? 'Update Tracking Info' : 'Save Tracking Info'}
                     </button>
                   </div>
+                  )
 
                 ) : (
                   /* Read-only: Display tracking info */
@@ -1420,17 +1510,23 @@ export default function Orders() {
                         </p>
                       )
                     ) : selectedOrder.customerTrackingLink ? (
-                      <a 
-                        href={selectedOrder.customerTrackingLink}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-[14px] font-black text-blue-600 hover:underline break-all block"
-                      >
-                        {selectedOrder.customerTrackingLink}
-                      </a>
+                      /^https?:\/\//i.test(selectedOrder.customerTrackingLink) ? (
+                        <a 
+                          href={selectedOrder.customerTrackingLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block break-all text-[14px] font-black text-blue-600 hover:underline"
+                        >
+                          {selectedOrder.customerTrackingLink}
+                        </a>
+                      ) : (
+                        <p className="break-all text-[14px] font-black uppercase text-blue-600 dark:text-blue-500">
+                          {selectedOrder.customerTrackingLink}
+                        </p>
+                      )
                     ) : (
                       <p className="text-[14px] font-black uppercase text-blue-600 dark:text-blue-500">
-                        {selectedOrder.status === 'Cancelled' ? 'N/A' : selectedShippingFlags.isLalamoveSelf ? 'Pending Customer Booking' : 'Pending'}
+                        {selectedOrder.status === 'Cancelled' ? 'N/A' : 'Pending'}
                       </p>
                     )}
                     {selectedShippingFlags.needsAdminShipping && (
@@ -2204,30 +2300,26 @@ export default function Orders() {
                             {isItemsExpanded ? 'Hide items' : `Show ${hiddenItemCount} more`}
                           </button>
                         )}
-                        {isAdminMode && (
-                          <>
-                          <span className="inline-flex whitespace-nowrap text-[12px] font-black px-2 py-0.5 rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400 uppercase tracking-wider">
-                            {shippingMethodLabel}
+                        <span className="inline-flex whitespace-nowrap text-[12px] font-black px-2 py-0.5 rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400 uppercase tracking-wider">
+                          {shippingMethodLabel}
+                        </span>
+                        {o.paymentPlan && o.paymentPlan !== 'full' ? (
+                          <span className="inline-flex whitespace-nowrap text-[12px] font-black px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-500 uppercase tracking-wider">
+                            {o.paymentPlan === 'partial' ? 'Partial' : o.paymentPlan === 'reservation' ? 'Reservation' : 'Installment'}
                           </span>
-                          {o.paymentPlan && o.paymentPlan !== 'full' ? (
-                            <span className="inline-flex whitespace-nowrap text-[12px] font-black px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-500 uppercase tracking-wider">
-                              {o.paymentPlan === 'partial' ? 'Partial' : o.paymentPlan === 'reservation' ? 'Reservation' : 'Installment'}
-                            </span>
-                          ) : (
-                            <span className="inline-flex whitespace-nowrap text-[12px] font-black px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 uppercase tracking-wider">
-                              Full Pay
-                            </span>
-                          )}
-                          {o.paymentMethod && (
-                            <span className={`inline-flex whitespace-nowrap text-[12px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider ${
-                              o.paymentMethod === 'GCash' ? 'bg-blue-500/10 text-blue-500' :
-                              o.paymentMethod === 'Cash'  ? 'bg-amber-500/10 text-amber-600' :
-                              'bg-neutral-500/10 text-neutral-500'
-                            }`}>
-                              {o.paymentMethod}
-                            </span>
-                          )}
-                          </>
+                        ) : (
+                          <span className="inline-flex whitespace-nowrap text-[12px] font-black px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 uppercase tracking-wider">
+                            Full Pay
+                          </span>
+                        )}
+                        {o.paymentMethod && (
+                          <span className={`inline-flex whitespace-nowrap text-[12px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider ${
+                            o.paymentMethod === 'GCash' ? 'bg-blue-500/10 text-blue-500' :
+                            o.paymentMethod === 'Cash'  ? 'bg-amber-500/10 text-amber-600' :
+                            'bg-neutral-500/10 text-neutral-500'
+                          }`}>
+                            {o.paymentMethod}
+                          </span>
                         )}
                       </div>
                       <div className="shrink-0 text-right">

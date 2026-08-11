@@ -1890,6 +1890,8 @@ const handleFinalizeOrder = async () => {
           const subConfig = methodConfig?.suboptions?.[subKey];
           return subConfig?.isSelfBooking === true;
         })(),
+        shippingMethodKey: checkoutData.shippingMethod || null,
+        shippingSuboptionKey: checkoutData.selectedSuboption || checkoutData.customSuboption || null,
         shippingMethod: (checkoutData.selectedSuboption || checkoutData.customSuboption)
           ? `${checkoutData.shippingMethod} (${storeAdmin?.shippingMethods?.[checkoutData.shippingMethod]?.suboptions?.[checkoutData.selectedSuboption || checkoutData.customSuboption]?.label || checkoutData.selectedSuboption || checkoutData.customSuboption || 'Standard'})`
           : requiredFields.includes(13) && checkoutData.lbcBranch
