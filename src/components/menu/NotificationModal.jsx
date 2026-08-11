@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import {
   Bell,
   CheckCircle2,
@@ -108,7 +108,17 @@ const getOrderSummary = (order) => {
   return items.length > 1 ? `${firstItem} +${items.length - 1} more` : firstItem;
 };
 
-export default function NotificationModal({ isOpen, onClose, isDarkMode, orders = [], onOpenOrder }) {
+export default function NotificationModal({
+  isOpen,
+  onClose,
+  isDarkMode,
+  orders = [],
+  onOpenOrder,
+  isFullscreen = false,
+  navbarHeight = '60px',
+  anchorTop = null
+}) {
+  const panelRef = useRef(null);
   const notifications = useMemo(() => {
     const uniqueOrders = new Map();
     orders.forEach((order) => {
@@ -117,29 +127,59 @@ export default function NotificationModal({ isOpen, onClose, isDarkMode, orders 
     return [...uniqueOrders.values()].sort((a, b) => getActivityTime(b) - getActivityTime(a));
   }, [orders]);
 
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    const handleOutsideScroll = (event) => {
+      if (panelRef.current?.contains(event.target)) return;
+      onClose?.();
+    };
+    const handlePageScroll = () => onClose?.();
+
+    document.addEventListener('wheel', handleOutsideScroll, { capture: true, passive: true });
+    document.addEventListener('touchmove', handleOutsideScroll, { capture: true, passive: true });
+    window.addEventListener('scroll', handlePageScroll, { passive: true });
+
+    return () => {
+      document.removeEventListener('wheel', handleOutsideScroll, { capture: true });
+      document.removeEventListener('touchmove', handleOutsideScroll, { capture: true });
+      window.removeEventListener('scroll', handlePageScroll);
+    };
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
+
+  const hasMeasuredAnchor = Number.isFinite(anchorTop);
+  const measuredTop = hasMeasuredAnchor ? `${anchorTop}px` : navbarHeight;
+  const panelStyle = isFullscreen
+    ? {
+        top: measuredTop,
+        right: 0,
+        bottom: 0,
+        height: hasMeasuredAnchor ? `calc(100dvh - ${anchorTop}px)` : `calc(100dvh - ${navbarHeight})`
+      }
+    : {
+        top: hasMeasuredAnchor ? `${anchorTop + 8}px` : `calc(${navbarHeight} + 8px)`,
+        right: '2.5rem'
+      };
+  const listStyle = !isFullscreen && hasMeasuredAnchor
+    ? { maxHeight: `min(68vh, 560px, calc(100dvh - ${anchorTop + 24}px))` }
+    : undefined;
 
   return (
     <>
       <div className="fixed inset-0 z-[140]" onClick={onClose} />
 
-      <div className="fixed right-3 top-[68px] z-[150] w-[calc(100vw-1.5rem)] max-w-[390px] animate-in fade-in slide-in-from-top-2 duration-200 sm:right-5 lg:right-[max(1.25rem,calc((100vw-1280px)/2+1.25rem))]">
-        <div className={`overflow-hidden rounded-[1.5rem] border shadow-2xl backdrop-blur-xl ${isDarkMode ? 'border-white/10 bg-neutral-900/95' : 'border-black/5 bg-white/95'}`}>
-          <div className="flex items-center justify-between border-b border-black/5 px-5 py-4 dark:border-white/5">
-            <div className="flex items-center gap-3">
-              <div className="rounded-full bg-blue-600/10 p-2 text-blue-600">
-                <Bell size={18} />
-              </div>
-              <div>
-                <h3 className="text-[12px] font-black uppercase italic tracking-widest text-neutral-900 dark:text-white">Order Updates</h3>
-                <p className="mt-0.5 text-[9px] font-bold uppercase tracking-wider text-neutral-400">
-                  {notifications.length} {notifications.length === 1 ? 'order' : 'orders'}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="max-h-[min(68vh,560px)] overflow-y-auto p-2">
+      <div
+        ref={panelRef}
+        style={panelStyle}
+        className={`fixed z-[150] animate-in fade-in slide-in-from-top-2 duration-200 ${isFullscreen ? 'w-full max-w-sm' : 'w-[390px] max-w-[calc(100vw-5rem)]'}`}
+      >
+        <div className={`${isFullscreen ? 'h-full rounded-none' : 'rounded-[1.5rem]'} overflow-hidden border shadow-2xl backdrop-blur-xl ${isDarkMode ? 'border-white/10 bg-neutral-900/95' : 'border-black/5 bg-white/95'}`}>
+          <div
+            style={listStyle}
+            className={`${isFullscreen ? 'h-full max-h-full' : 'max-h-[min(68vh,560px)]'} overscroll-contain overflow-y-auto p-2`}
+          >
             {notifications.length === 0 ? (
               <div className="py-12 text-center text-neutral-400">
                 <Bell size={40} className="mx-auto mb-4" strokeWidth={1} />

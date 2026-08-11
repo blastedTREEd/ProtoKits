@@ -316,45 +316,48 @@ export default function Orders() {
     return () => clearInterval(interval);
   }, [user, cleanUpCancelledOrders]);
 
-  const toggleOrderSelection = (e, id) => {
+  const toggleOrderSelection = (e, order) => {
     e.stopPropagation();
+    if (!order?.isMaintenanceOrder) return;
     setSelectedOrders(prev => 
-      prev.includes(id) ? prev.filter(oid => oid !== id) : [...prev, id]
+      prev.includes(order.id) ? prev.filter(oid => oid !== order.id) : [...prev, order.id]
     );
   };
 
   const toggleSelectAll = () => {
-    if (selectedOrders.length === visibleOrders.length && visibleOrders.length > 0) {
+    const invalidOrderIds = visibleOrders
+      .filter(order => order.isMaintenanceOrder)
+      .map(order => order.id);
+
+    if (invalidOrderIds.length > 0 && invalidOrderIds.every(id => selectedOrders.includes(id))) {
       setSelectedOrders([]);
     } else {
-      setSelectedOrders(visibleOrders.map(o => o.id));
+      setSelectedOrders(invalidOrderIds);
     }
   };
 
   const handleBatchDelete = async () => {
-    const selectedOrderObjects = visibleOrders.filter(o => selectedOrders.includes(o.id));
-    const cashCount = selectedOrderObjects.filter(o => o.paymentMethod === 'Cash').length;
-    const installmentCount = selectedOrderObjects.filter(o => o.paymentPlan && o.paymentPlan !== 'full').length;
-
-    let breakdown = '';
-    if (cashCount > 0) breakdown += `\n• ${cashCount} Cash order${cashCount > 1 ? 's' : ''}`;
-    if (installmentCount > 0) breakdown += `\n• ${installmentCount} Installment order${installmentCount > 1 ? 's' : ''}`;
-    const warningLine = (cashCount > 0 || installmentCount > 0)
-      ? `\n\n⚠️ Includes special payment orders:${breakdown}`
-      : '';
+    const selectedInvalidOrders = visibleOrders.filter(order => (
+      selectedOrders.includes(order.id) && order.isMaintenanceOrder
+    ));
+    const selectedCount = selectedInvalidOrders.length;
+    if (selectedCount === 0) return;
 
     const confirmed = window.confirm(
-      `Permanently DELETE ${selectedOrders.length} order${selectedOrders.length > 1 ? 's' : ''}?${warningLine}\n\nThis cannot be undone.`
+      `Cancel and permanently delete ${selectedCount} invalid order${selectedCount > 1 ? 's' : ''}?\n\nStock will be released. This cannot be undone.`
     );
     if (confirmed) {
       try {
-        await Promise.all(selectedOrders.map(id => deleteOrder(id)));
+        await Promise.all(selectedInvalidOrders.map(async (order) => {
+          await cancelOrder(order.id);
+          await deleteOrder(order.id);
+        }));
         setSelectedOrders([]);
         setIsMultiSelectEnabled(false);
-        alert(`Successfully deleted ${selectedOrders.length} order${selectedOrders.length > 1 ? 's' : ''}.`);
+        alert(`Cancelled and deleted ${selectedCount} invalid order${selectedCount > 1 ? 's' : ''}.`);
       } catch (err) {
-        console.error("SG LOG: Batch delete error:", err);
-        alert("Failed to delete some orders.");
+        console.error("SG LOG: Invalid order cleanup error:", err);
+        alert("Failed to cancel and delete some invalid orders.");
       }
     }
   };
@@ -1215,6 +1218,7 @@ export default function Orders() {
 
   const activeTabData = tabData.find((tab) => tab.id === activeTab) || tabData[0];
   const visibleOrders = activeTabData?.orders || [];
+  const visibleInvalidOrders = visibleOrders.filter(order => order.isMaintenanceOrder);
   const selectedShippingFlags = selectedOrder ? getShippingFlags(selectedOrder) : {};
   const selectedIsSelfBooking = isOrderSelfBooking(selectedOrder, shippingSettings);
   const selectedPaymentFullyValidated = Boolean(
@@ -2217,15 +2221,19 @@ export default function Orders() {
                     key={o.id}
                     onClick={(e) => {
                       if (isMultiSelectEnabled) {
-                        toggleOrderSelection(e, o.id);
+                        toggleOrderSelection(e, o);
                       } else {
                         setSelectedOrder(o);
                       }
                     }}
-                    className={`p-3 rounded-2xl border-2 cursor-pointer flex flex-col gap-3 transition-all duration-200 ${
+                    className={`p-3 rounded-2xl border-2 flex flex-col gap-3 transition-all duration-200 ${
+                      isMultiSelectEnabled && !isCardInvalid ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+                    } ${
                       isSelected
                         ? 'border-blue-500 shadow-lg shadow-blue-500/10'
-                        : 'border-black/5 dark:border-white/5 hover:border-black/15 dark:hover:border-white/15'
+                        : isMultiSelectEnabled && !isCardInvalid
+                          ? 'border-black/5 dark:border-white/5'
+                          : 'border-black/5 dark:border-white/5 hover:border-black/15 dark:hover:border-white/15'
                     } bg-white dark:bg-neutral-900`}
                   >
 
@@ -2346,13 +2354,13 @@ export default function Orders() {
 
               {/* LEFT: Select All (only when multi-select is active and there are orders) */}
               <div className="flex items-center gap-3 min-w-0">
-                {isMultiSelectEnabled && visibleOrders.length > 0 && (
+                {isMultiSelectEnabled && visibleInvalidOrders.length > 0 && (
                   <button
                     type="button"
                     onClick={toggleSelectAll}
                     className="text-[10px] font-black uppercase tracking-widest text-blue-600 hover:opacity-70 transition-opacity animate-in fade-in duration-200 whitespace-nowrap"
                   >
-                    {selectedOrders.length === visibleOrders.length && visibleOrders.length > 0 ? 'Deselect All' : 'Select All'}
+                    {selectedOrders.length === visibleInvalidOrders.length ? 'Deselect All' : 'Select All Invalid'}
                   </button>
                 )}
               </div>
@@ -2367,7 +2375,7 @@ export default function Orders() {
                     className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-xl font-black uppercase text-[10px] tracking-widest transition-all shadow-lg shadow-red-500/20 active:scale-95 animate-in zoom-in-95 duration-200"
                   >
                     <Trash2 size={14} />
-                    <span>Delete ({selectedOrders.length})</span>
+                    <span>Cancel & Delete ({selectedOrders.length})</span>
                   </button>
                 ) : (
                   <button

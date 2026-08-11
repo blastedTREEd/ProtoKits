@@ -53,7 +53,7 @@ export default function LoadingState({
       </div>
 
       <div className="text-center">
-        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-900/50 dark:text-white/50">
+        <p className="text-[12px] font-black uppercase tracking-[0.3em] text-neutral-900/50 dark:text-white/50">
           {message}
         </p>
       </div>

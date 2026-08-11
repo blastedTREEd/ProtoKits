@@ -9,7 +9,7 @@ import { motion, useScroll, useTransform } from 'framer-motion';
 
 export default function Home() {
   const { isDarkMode } = useTheme();
-  const { shippingSettings } = useStore();
+  const { shippingSettings, isLoading } = useStore();
   const location = useLocation();
   const containerRef = useRef(null);
   
@@ -19,6 +19,8 @@ export default function Home() {
     && maintenanceInvalidTypes.kit !== false
     && maintenanceInvalidTypes.prints !== false;
   const isOpen = !isUnderMaintenance;
+  const garageStatusText = isLoading ? "OPENING" : (isOpen ? "NOW OPEN" : "UNDER MAINTENANCE");
+  const isOpeningOrOpen = isLoading || isOpen;
   const { scrollYProgress } = useScroll({
     target: containerRef,
     offset: ["start start", "end start"]
@@ -129,8 +131,8 @@ export default function Home() {
           >
             THE GARAGE IS
             <br />
-            <span className={isOpen ? "text-garage-blue" : "text-red-500 text-4xl sm:text-5xl md:text-6xl lg:text-7xl"}>
-              {isOpen ? "NOW OPEN" : "UNDER MAINTENANCE"} 
+            <span className={isOpeningOrOpen ? "text-garage-blue" : "text-red-500 text-4xl sm:text-5xl md:text-6xl lg:text-7xl"}>
+              {garageStatusText}
             </span>
           </h1>
 

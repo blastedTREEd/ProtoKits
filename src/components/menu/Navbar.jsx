@@ -57,6 +57,7 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
   const [notificationOrders, setNotificationOrders] = useState([]);
+  const [notificationAnchorTop, setNotificationAnchorTop] = useState(null);
   const [isPickupPointOpen, setIsPickupPointOpen] = useState(false);
   const [isPaymentSettingsOpen, setIsPaymentSettingsOpen] = useState(false);
   const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
@@ -79,6 +80,7 @@ export default function Navbar({ isCompact: scrolledCompact }) {
 
   const profileModalRef = useRef(null);
   const profileBtnRef = useRef(null);
+  const navbarRef = useRef(null);
 
   const isMobile = windowWidth < 640;
   const isDesktop = windowWidth >= 1024;
@@ -217,7 +219,7 @@ useEffect(() => {
   return () => window.removeEventListener('scroll', handleScroll);
 }, [lastScrollY, forceHide, location.pathname]);
 
-  const isCompactMode = location.pathname !== "/" || scrolledCompact || lastScrollY > 40 || isStoriesManagerOpen || isMobile;
+  const isCompactMode = location.pathname !== "/" || scrolledCompact || lastScrollY > 40 || isStoriesManagerOpen || isNotificationModalOpen || isMobile;
 
   useEffect(() => {
     if (!user?.uid) {
@@ -247,6 +249,22 @@ useEffect(() => {
     setIsNotificationModalOpen(false);
     navigate('/orders', { state: { openOrderId: order.id } });
   };
+
+  const handleOpenNotifications = () => {
+    setNotificationAnchorTop(navbarRef.current?.getBoundingClientRect().bottom ?? null);
+    setIsNotificationModalOpen(true);
+  };
+
+  useEffect(() => {
+    if (!isNotificationModalOpen) return undefined;
+
+    const updateNotificationAnchor = () => {
+      setNotificationAnchorTop(navbarRef.current?.getBoundingClientRect().bottom ?? null);
+    };
+
+    window.addEventListener('resize', updateNotificationAnchor);
+    return () => window.removeEventListener('resize', updateNotificationAnchor);
+  }, [isNotificationModalOpen]);
 
   const handleLogin = async () => {
     try {
@@ -438,7 +456,7 @@ return (
       </defs>
     </svg>
 
-    <nav style={{ height: specs.h }} className={`sticky top-0 z-[110] w-full transition-all duration-500 border-b ${isDarkMode ? 'bg-[#0a0a0a]/80 border-white/10' : 'bg-white/80 border-black/10'} backdrop-blur-md`}>
+    <nav ref={navbarRef} style={{ height: specs.h }} className={`sticky top-0 z-[110] w-full transition-all duration-500 border-b ${isDarkMode ? 'bg-[#0a0a0a]/80 border-white/10' : 'bg-white/80 border-black/10'} backdrop-blur-md`}>
       <div className="h-full mx-auto flex items-center px-4 lg:px-10 relative max-w-[1440px]">
         {isMobile ? (
           <div className="flex items-center h-full z-[120] shrink-0 relative">
@@ -531,7 +549,7 @@ return (
         </div>
 
         <div className="flex items-center justify-end z-[120] ml-auto gap-2 lg:gap-4">
-            <button onClick={() => setIsNotificationModalOpen(true)} className="p-2 rounded-full transition-all group relative">
+            <button onClick={handleOpenNotifications} className="p-2 rounded-full transition-all group relative">
               <Bell 
                 size={specs.utilIcon} 
                 className={`${isDarkMode ? 'text-white' : 'text-neutral-900'} group-hover:text-garage-blue transition-all duration-300`} 
@@ -842,6 +860,9 @@ return (
       isDarkMode={isDarkMode}
       orders={notificationOrders}
       onOpenOrder={handleOpenNotificationOrder}
+      isFullscreen={isProfileFullscreen}
+      navbarHeight={specs.h}
+      anchorTop={notificationAnchorTop}
     />
 
     <WelcomeModal 
