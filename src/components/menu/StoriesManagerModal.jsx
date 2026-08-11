@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Maximize2, X, Plus, Trash2, Edit, ChevronUp, ChevronDown, Upload, Image as ImageIcon, Loader2, Save, RotateCw, ZoomIn, BookImage, VenetianMask, Type as TypeOutline, Palette, ALargeSmall, BookOpen, Book, Notebook, NotebookPen, Hand, ChevronLeft } from 'lucide-react';
 import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { useStore } from '../../store/useStore';
@@ -67,6 +67,8 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
   // Form states
   const [label, setLabel] = useState('');
   const [description, setDescription] = useState('');
+  const [destination, setDestination] = useState('');
+  const [items, setItems] = useState('');
   const [value, setValue] = useState(() => getRandomStoryColor()); // Glow color used by story cards
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
@@ -848,9 +850,12 @@ const handleBgPointerDown = (e) => {
     });
   };
 
-  const resetForm = () => {
+  const resetForm = useCallback(() => {
+    setEditingStory(null);
     setLabel('');
     setDescription('');
+    setDestination('');
+    setItems('');
     setValue(getRandomStoryColor());
     setBackgroundImage('');
     setStickers([]);
@@ -869,12 +874,14 @@ const handleBgPointerDown = (e) => {
     setEditorView('canvas');
     pointerCacheRef.current.clear();
     initialGestureRef.current = null;
-  };
+  }, []);
 
-  const handleEditClick = (story) => {
+  const handleEditClick = useCallback((story) => {
     setEditingStory(story);
     setLabel(story.label || '');
     setDescription(story.description || '');
+    setDestination(story.destination || '');
+    setItems(story.items || '');
     setValue(story.value || getRandomStoryColor());
     
     setBackgroundImage(story.backgroundImage || '');
@@ -893,11 +900,31 @@ const handleBgPointerDown = (e) => {
     setEditorView('canvas');
     
     setMode('edit');
-  };
+  }, []);
+
+  useEffect(() => {
+    const handleOpenRequest = (event) => {
+      const request = event.detail || {};
+
+      if (request.mode === 'add') {
+        resetForm();
+        setMode('add');
+      } else if (request.mode === 'edit' && request.story) {
+        handleEditClick(request.story);
+      } else if (request.mode === 'list') {
+        resetForm();
+      }
+    };
+
+    window.addEventListener('openStoriesManager', handleOpenRequest);
+    return () => window.removeEventListener('openStoriesManager', handleOpenRequest);
+  }, [handleEditClick, resetForm]);
 
   const storyPayload = useMemo(() => ({
     label: label.trim(),
     description: description.trim(),
+    destination: destination.trim(),
+    items: items.trim(),
     value,
     backgroundImage,
     bgImageSize,
@@ -906,7 +933,7 @@ const handleBgPointerDown = (e) => {
     bgOffset,
     stickers,
     texts
-  }), [label, description, value, backgroundImage, bgImageSize, bgZoom, bgRotation, bgOffset, stickers, texts]);
+  }), [label, description, destination, items, value, backgroundImage, bgImageSize, bgZoom, bgRotation, bgOffset, stickers, texts]);
 
   const estimatedStorySize = useMemo(() => {
     try {
@@ -1485,6 +1512,16 @@ const renderEditorFormButtons = () => (
                       <div className="space-y-1">
                         <label className="text-[10px] font-black uppercase tracking-wider text-neutral-400">Description</label>
                         <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="ENTER STORY DESCRIPTION" rows={3} className="w-full p-4 rounded-2xl bg-neutral-50 dark:bg-white/5 border text-xs focus:outline-none focus:border-garage-blue resize-none" maxLength={300} />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black uppercase tracking-wider text-neutral-400">Destination</label>
+                        <input type="text" value={destination} onChange={(e) => setDestination(e.target.value)} placeholder="E.G. SANTA ROSA, LAGUNA" className="w-full p-4 rounded-2xl bg-neutral-50 dark:bg-white/5 border text-xs font-semibold focus:outline-none focus:border-garage-blue" maxLength={120} />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black uppercase tracking-wider text-neutral-400">Items</label>
+                        <input type="text" value={items} onChange={(e) => setItems(e.target.value)} placeholder="E.G. HG GUNDAM VIDAR" className="w-full p-4 rounded-2xl bg-neutral-50 dark:bg-white/5 border text-xs font-semibold focus:outline-none focus:border-garage-blue" maxLength={180} />
                       </div>
 
                     </div>

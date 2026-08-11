@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Image as ImageIcon, Plus } from 'lucide-react';
+import { BookImage, Image as ImageIcon, Plus } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 
 function getStoryTime(value) {
@@ -56,11 +56,20 @@ export default function Highlights() {
   }, [stories]);
 
   const handleCreateHighlight = () => {
-    window.dispatchEvent(new Event('openStoriesManager'));
+    window.dispatchEvent(new CustomEvent('openStoriesManager', { detail: { mode: 'add' } }));
+  };
+
+  const handleManageHighlights = () => {
+    window.dispatchEvent(new CustomEvent('openStoriesManager', { detail: { mode: 'list' } }));
   };
 
   const handleOpenHighlight = (storyId) => {
     window.dispatchEvent(new CustomEvent('openStoryHighlight', { detail: { storyId } }));
+  };
+
+  const handleEditHighlight = (event, story) => {
+    event.stopPropagation();
+    window.dispatchEvent(new CustomEvent('openStoriesManager', { detail: { mode: 'edit', story } }));
   };
 
   return (
@@ -74,6 +83,16 @@ export default function Highlights() {
               </h2>
             </div>
           </div>
+          {canManageStories && (
+            <button
+              type="button"
+              onClick={handleManageHighlights}
+              className="inline-flex self-start items-center gap-2 rounded-full border border-garage-blue/20 bg-garage-blue/10 px-4 py-2 text-[12px] font-black uppercase tracking-[0.16em] text-garage-blue transition-all hover:border-garage-blue/40 hover:bg-garage-blue/15 sm:self-auto"
+            >
+              <BookImage size={16} strokeWidth={2} />
+              Manage
+            </button>
+          )}
         </div>
 
         {highlights.length > 0 || canManageStories ? (
@@ -102,41 +121,56 @@ export default function Highlights() {
               const storyDate = getStoryTime(story.createdAt || story.lastUpdated);
 
               return (
-                <button
-                  type="button"
+                <div
                   key={story.id}
-                  onClick={() => handleOpenHighlight(story.id)}
                   className="group relative aspect-square overflow-hidden rounded-2xl bg-neutral-200 shadow-sm ring-1 ring-black/[0.05] transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl hover:shadow-blue-500/10 dark:bg-neutral-900 dark:ring-white/[0.08]"
-                  aria-label={`View highlight: ${story.label || 'Untitled highlight'}`}
                 >
-                  {image ? (
-                    <img
-                      src={image}
-                      alt={story.label || 'Garage highlight'}
-                      className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-105"
-                    />
-                  ) : (
-                    <div
-                      className="absolute inset-0"
-                      style={{
-                        background: `linear-gradient(135deg, ${story.value || '#0866ff'} 0%, #111827 100%)`,
-                      }}
-                    />
-                  )}
-
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-black/15 opacity-80 transition-opacity duration-300 group-hover:opacity-100" />
-
-                  <div className="absolute inset-x-0 bottom-0 p-3 text-left sm:p-4">
-                    <h3 className="line-clamp-2 text-sm font-black uppercase leading-tight tracking-tight text-white sm:text-base">
-                      {story.label || 'Untitled highlight'}
-                    </h3>
-                    {storyDate > 0 && (
-                      <time className=" block text-[11px] font-bold uppercase tracking-[0.18em] text-white">
-                        {new Date(storyDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      </time>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenHighlight(story.id)}
+                    className="absolute inset-0 w-full text-left"
+                    aria-label={`View highlight: ${story.label || 'Untitled highlight'}`}
+                  >
+                    {image ? (
+                      <img
+                        src={image}
+                        alt={story.label || 'Garage highlight'}
+                        className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-105"
+                      />
+                    ) : (
+                      <div
+                        className="absolute inset-0"
+                        style={{
+                          background: `linear-gradient(135deg, ${story.value || '#0866ff'} 0%, #111827 100%)`,
+                        }}
+                      />
                     )}
-                  </div>
-                </button>
+
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-black/15 opacity-80 transition-opacity duration-300 group-hover:opacity-100" />
+
+                    <div className="absolute inset-x-0 bottom-0 p-3 text-left sm:p-4">
+                      <h3 className="line-clamp-2 text-sm font-black uppercase leading-tight tracking-tight text-white sm:text-base">
+                        {story.label || 'Untitled highlight'}
+                      </h3>
+                      {storyDate > 0 && (
+                        <time className="block text-[11px] font-bold uppercase tracking-[0.18em] text-white">
+                          {new Date(storyDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </time>
+                      )}
+                    </div>
+                  </button>
+
+                  {canManageStories && (
+                    <button
+                      type="button"
+                      onClick={(event) => handleEditHighlight(event, story)}
+                      className="absolute right-2 top-2 z-20 rounded-full border border-white/20 bg-gradient-to-br from-amber-500 to-amber-600 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-white shadow-lg transition-all hover:scale-110"
+                      aria-label={`Edit highlight: ${story.label || 'Untitled highlight'}`}
+                    >
+                      Edit
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>

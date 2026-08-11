@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   Sun, Moon, ShoppingBasket, Home, X, ShelvingUnit,
   CircleUserRound, Settings, LogOut, ContactRound,
-  Shield, ShieldCheck, Box, Printer, ClipboardList, UserPlus, PackageOpen, Truck, Bell, CreditCard, CircleX, BookImage
+  Shield, ShieldCheck, Box, Printer, ClipboardList, UserPlus, PackageOpen, Truck, Bell, CreditCard, CircleX
 } from 'lucide-react';
 import { FcGoogle } from 'react-icons/fc';
 import { FaFacebook } from 'react-icons/fa';
@@ -698,10 +698,6 @@ return (
                                 <span className="text-[12px] font-black uppercase tracking-widest text-left leading-tight">
                                   {isCheckingInventory ? 'Checking Inventory...' : 'Check Inventory'}
                                 </span>
-                              </button>
-                              <button onClick={() => { setIsStoriesManagerOpen(true); setIsProfileOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-colors ${isDarkMode ? 'hover:bg-white/5 text-white' : 'hover:bg-black/5 text-neutral-900'}`}>
-                                <BookImage size={18} className="opacity-40" />
-                                <span className="text-[12px] font-black uppercase tracking-widest text-left leading-tight">Manage Stories</span>
                               </button>
                             </>
                           ) : (

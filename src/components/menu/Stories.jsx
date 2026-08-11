@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, MapPin, Package } from 'lucide-react';
 import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { useStore } from '../../store/useStore';
 
@@ -347,8 +347,8 @@ export default function Stories({ isCompact, hideImmediately = false }) {
               </button>
 
               {/* Top Header — profile pic, page name */}
-              <div className="relative z-10 flex items-center gap-3 p-5 pt-6 pr-14 md:absolute md:left-0 md:top-0 md:w-[56.25%]">
-                <div className="w-10 h-10 rounded-full border-2 border-white/60 bg-white/20 backdrop-blur-md overflow-hidden shadow-lg flex-shrink-0">
+              <div className="relative z-20 flex items-center gap-3 p-5 pt-6 pr-14 md:absolute md:left-[56.25%] md:top-0 md:w-[43.75%]">
+                <div className="w-10 h-10 rounded-full border-2 border-white/60 bg-white/20 backdrop-blur-md overflow-hidden shadow-lg flex-shrink-0 md:border-garage-blue/50">
                   <img 
                     src={displayImg} 
                     alt="SG" 
@@ -357,22 +357,23 @@ export default function Stories({ isCompact, hideImmediately = false }) {
                   />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className="text-sm font-black italic uppercase tracking-tight text-white leading-none drop-shadow-lg truncate">
-                    {garageInfo?.name || 'SNORLAX GARAGE'}
+                  <h3 className="text-md font-black italic uppercase tracking-tight leading-none drop-shadow-lg truncate">
+                    <span className="text-neutral-950 dark:text-white">SNORLAX</span>
+                    <span className="text-garage-blue">GARAGE</span>
                   </h3>
-                  <span className="text-[9px] font-bold text-white/50 uppercase tracking-widest">
+                  <span className="text-[13px] font-bold text-white uppercase tracking-widest md:text-neutral-500 md:dark:text-neutral-400">
                     {formatStoryDate(activeStory.createdAt || activeStory.lastUpdated)}
                   </span>
                 </div>
               </div>
 
               {/* Progress Bars */}
-              <div className="relative z-10 flex gap-1 px-5 mb-auto md:absolute md:left-0 md:top-[90px] md:w-[56.25%] md:mb-0">
+              <div className="relative z-20 flex gap-1 px-5 mb-auto md:absolute md:left-[56.25%] md:top-[90px] md:w-[43.75%] md:mb-0">
                 {activeStories.map((_, idx) => (
                   <button 
                     key={idx}
                     onClick={(e) => { e.stopPropagation(); setActiveStoryIndex(idx); }}
-                    className={`h-0.5 flex-1 rounded-full transition-all duration-300 cursor-pointer hover:h-1 ${idx === activeStoryIndex ? 'bg-white' : 'bg-white/20 hover:bg-white/40'}`}
+                    className={`h-0.5 flex-1 rounded-full transition-all duration-300 cursor-pointer hover:h-1 ${idx === activeStoryIndex ? 'bg-white md:bg-garage-blue' : 'bg-white/20 hover:bg-white/40 md:bg-neutral-200 md:hover:bg-neutral-300 md:dark:bg-white/20 md:dark:hover:bg-white/40'}`}
                   />
                 ))}
               </div>
@@ -404,7 +405,7 @@ export default function Stories({ isCompact, hideImmediately = false }) {
               </div>
 
               {/* Bottom Content — title, description with strong dark gradient */}
-              <div className="relative z-10 p-6 pb-8 mt-auto md:absolute md:inset-y-0 md:right-0 md:mt-0 md:flex md:w-[43.75%] md:flex-col md:justify-start md:overflow-y-auto md:border-l md:border-black/5 md:bg-white md:p-6 md:pt-24 md:dark:border-white/10 md:dark:bg-neutral-950">
+              <div className="relative z-10 p-6 pb-8 mt-auto md:absolute md:inset-y-0 md:right-0 md:mt-0 md:flex md:w-[43.75%] md:flex-col md:justify-start md:overflow-y-auto md:border-l md:border-black/5 md:bg-white md:p-6 md:pt-[108px] md:dark:border-white/10 md:dark:bg-neutral-950">
                 <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white leading-tight drop-shadow-lg md:text-neutral-950 dark:text-white">
                   {activeStory.label}
                 </h2>
@@ -412,6 +413,28 @@ export default function Stories({ isCompact, hideImmediately = false }) {
                   <p className="text-sm text-white/80 mt-2 leading-relaxed font-medium max-w-sm drop-shadow-md md:text-neutral-600 dark:text-white/80">
                     {activeStory.description}
                   </p>
+                )}
+                {(activeStory.destination || activeStory.items) && (
+                  <dl className="mt-4 space-y-3 border-t border-white/20 pt-4 md:border-black/10 md:dark:border-white/10">
+                    {activeStory.destination && (
+                      <div className="flex items-start gap-3">
+                        <MapPin size={16} className="mt-0.5 shrink-0 text-garage-blue" />
+                        <div className="min-w-0">
+                          <dt className="text-[9px] font-black uppercase tracking-[0.18em] text-white/50 md:text-neutral-400 md:dark:text-white/50">Destination</dt>
+                          <dd className="mt-0.5 text-sm font-semibold leading-snug text-white md:text-neutral-700 md:dark:text-white">{activeStory.destination}</dd>
+                        </div>
+                      </div>
+                    )}
+                    {activeStory.items && (
+                      <div className="flex items-start gap-3">
+                        <Package size={16} className="mt-0.5 shrink-0 text-garage-blue" />
+                        <div className="min-w-0">
+                          <dt className="text-[9px] font-black uppercase tracking-[0.18em] text-white/50 md:text-neutral-400 md:dark:text-white/50">Items</dt>
+                          <dd className="mt-0.5 text-sm font-semibold leading-snug text-white md:text-neutral-700 md:dark:text-white">{activeStory.items}</dd>
+                        </div>
+                      </div>
+                    )}
+                  </dl>
                 )}
               </div>
             </Motion.div>
