@@ -7,11 +7,18 @@ import {
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
 
 const getKitTimestamp = (kit) => {
-  const value = kit?.lastUpdated;
-  if (!value) return 0;
-  if (typeof value.toMillis === 'function') return value.toMillis();
-  if (value.seconds) return value.seconds * 1000;
-  return new Date(value).getTime() || 0;
+  const timestamps = [
+    kit?.lastAvailableAt,
+    kit?.lastRestockedAt,
+    kit?.createdAt,
+    kit?.lastUpdated
+  ].map(val => {
+    if (!val) return 0;
+    if (typeof val.toMillis === 'function') return val.toMillis();
+    if (val.seconds) return val.seconds * 1000;
+    return new Date(val).getTime() || 0;
+  });
+  return Math.max(...timestamps, 0);
 };
 
 const getAvailableStockCount = (kit) => {

@@ -1227,13 +1227,39 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       className: 'bg-red-500 text-white border-red-400 shadow-lg'
     });
   } else if (availableCount <= 0 && isCollectionOnly) {
+    let labelVal = 'Collection';
+    if (!isAdminView) {
+      const reservedStocks = stockList.filter(s => s.isReserved);
+      const onHandCount = reservedStocks.filter(isOnHandStock).length;
+      const preOrderCount = reservedStocks.filter(isPreOrderStock).length;
+      if (onHandCount > 0 && preOrderCount > 0) {
+        labelVal = `${onHandCount} ONHAND / ${preOrderCount} PRE-ORDER`;
+      } else if (onHandCount > 0) {
+        labelVal = `${onHandCount} ONHAND`;
+      } else if (preOrderCount > 0) {
+        labelVal = `${preOrderCount} PRE-ORDER`;
+      }
+    }
     gridStatusBadges.push({
-      label: 'Collection',
+      label: labelVal,
       className: 'bg-red-500 text-white border-red-400 shadow-lg'
     });
   } else if (availableCount <= 0 && stockList.some(s => s.isReserved)) {
+    let labelVal = 'NOT FOR SALE';
+    if (!isAdminView) {
+      const reservedStocks = stockList.filter(s => s.isReserved);
+      const onHandCount = reservedStocks.filter(isOnHandStock).length;
+      const preOrderCount = reservedStocks.filter(isPreOrderStock).length;
+      if (onHandCount > 0 && preOrderCount > 0) {
+        labelVal = `${onHandCount} ONHAND / ${preOrderCount} PRE-ORDER`;
+      } else if (onHandCount > 0) {
+        labelVal = `${onHandCount} ONHAND`;
+      } else if (preOrderCount > 0) {
+        labelVal = `${preOrderCount} PRE-ORDER`;
+      }
+    }
     gridStatusBadges.push({
-      label: isAdminView ? `${stockList.filter(s => s.isReserved).length} Reserved` : 'NOT FOR SALE',
+      label: isAdminView ? `${stockList.filter(s => s.isReserved).length} Reserved` : labelVal,
       className: `${isAdminView ? 'bg-blue-500 text-white border-blue-400' : 'bg-red-500 text-white border-red-400'} shadow-lg`
     });
   } else if (availableCount <= 0) {
