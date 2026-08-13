@@ -424,7 +424,7 @@ export default function Basket() {
             </div>
           </div>
         </div>
-        <div className={`flex-grow max-w-7xl mx-auto w-full p-4 md:p-8 pb-32 md:pb-8`}>
+        <div className={`flex-grow max-w-7xl mx-auto w-full px-4 md:px-8 pb-32`}>
           {isLoading ? (
             <LoadingState message={isAdmin && isAdminView ? "Loading Collection" : "Loading Basket"} />
           ) : activeBasket.length === 0 ? (
@@ -437,8 +437,8 @@ export default function Basket() {
               <p className="font-bold mb-6">{isAdmin && isAdminView ? "The shelf is empty.." : "Your basket is empty.."}</p>
             </div>
           ) : (
-            <div className="space-y-4">
-              {basketRows.map((row) => {
+            <div className="flex flex-col">
+              {basketRows.map((row, index) => {
                 if (row.type === 'separator') {
                   return (
                     <div
@@ -455,6 +455,7 @@ export default function Basket() {
                 }
 
                 const { item } = row;
+                const previousRow = basketRows[index - 1];
                 const isSelected = item.basketIds.some(bid => activeSelection.includes(bid));
                 const kit = kits.find(k => k.id === item.id);
                 
@@ -495,7 +496,7 @@ export default function Basket() {
                   <div 
                     key={uniqueGroupKey} 
                     onClick={() => item.basketIds.forEach(toggleSelection)}
-                    className={cardClasses}
+                    className={`${cardClasses} ${previousRow?.type === 'item' ? 'mt-4' : ''}`}
                   >
                     <div className="flex items-center justify-center">
                       {displayImage ? (
