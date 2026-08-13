@@ -7,6 +7,7 @@ import PageTemplate from './PageTemplate';
 import LoginPromptModal from '../components/menu/LoginPromptModal';
 import LoadingState from '../components/common/LoadingState';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
+import { isOfferCheckoutActive } from '../utils/offerUtils';
 // Resolves an image ID to its URL from the images array.
 // Backward compatible: if the value is already a URL (base64 or http), returns it directly.
 function resolveImage(idOrUrl, imagesArray) {
@@ -31,6 +32,12 @@ export default function Basket() {
     guestBasket, isLoading, setLoginModalOpen, shippingSettings, loadMissingKits, keepOneOfEachToShelf
   } = useStore();
   const [isKeepingOnes, setIsKeepingOnes] = useState(false);
+  const [offerNow, setOfferNow] = useState(0);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setOfferNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -63,7 +70,7 @@ export default function Basket() {
       return Number(item.projectData?.sellPrice || item.price || 0);
     }
     const kit = kits.find(k => k.id === item.id);
-    const stockSellPrice = Number(kit?.stocks?.[item.stockKey]?.sellPrice || 0);
+    const stockSellPrice = Number(item.offerPrice || kit?.stocks?.[item.stockKey]?.sellPrice || 0);
     const basePrice = stockSellPrice > 0 ? stockSellPrice : Number(item.sellPrice || item.price || 0);
     return basePrice + installmentFee;
   }, [kits, installmentFee]);
@@ -72,7 +79,7 @@ export default function Basket() {
     // Return displayPrice (final price)
     if (item.type === 'project') return Number(item.projectData?.displayPrice || item.projectData?.sellPrice || item.price || 0);
     const kit = kits.find(k => k.id === item.id);
-    const stockSellPrice = Number(kit?.stocks?.[item.stockKey]?.sellPrice || 0);
+    const stockSellPrice = Number(item.offerPrice || kit?.stocks?.[item.stockKey]?.sellPrice || 0);
     return stockSellPrice > 0 ? stockSellPrice : Number(item.price || 0);
   }, [kits]);
 
@@ -136,7 +143,7 @@ export default function Basket() {
         const eta = stock?.eta ? `-${stock.eta.toLowerCase().replace(/\s+/g, '-')}` : '';
         const batchIdentifier = `${status}${eta}`;
         
-        const key = `${item.id}-${batchIdentifier}`;
+        const key = `${item.id}-${batchIdentifier}-${item.offerId || 'standard'}`;
         
         if (!acc[key]) acc[key] = { ...item, qty: 0, basketIds: [], batchKey: batchIdentifier };
         acc[key].qty += 1;
@@ -156,15 +163,20 @@ export default function Basket() {
             return sBatch === batchIdentifier && !s.isReserved && !s.order?.orderId;
         }).length;
 
+        const isActiveOffer = isOfferCheckoutActive(item, offerNow);
         const isReservedByOthers = (item.status === 'reserved'); 
-        const availableLimit = isReservedByOthers ? 0 : availableInBatch; 
+        const availableLimit = item.offerId
+          ? (isActiveOffer ? 1 : 0)
+          : (isReservedByOthers ? 0 : availableInBatch);
         if (item.qty > availableLimit) {
             isValid = false;
             const key = `${item.id}-${batchIdentifier}`;
             const unit = item.status === 'onhand' ? 'stock' : 'slot';
             const unitType = availableLimit === 1 ? unit : `${unit}s`;
-            itemRules[key] = { 
-                message: `${availableLimit} ${unitType} left`, 
+            itemRules[key] = {
+                message: item.offerId && !isActiveOffer
+                  ? 'Offer checkout window expired'
+                  : `${availableLimit} ${unitType} left`,
                 status: 'error',
                 limit: availableLimit 
             };
@@ -178,7 +190,7 @@ export default function Basket() {
     }
 
     return { isValid, itemRules, totalPrice, selectedItems };
-  }, [activeBasket, activeSelection, kits, getBasketDisplayPrice]);
+  }, [activeBasket, activeSelection, kits, getBasketDisplayPrice, offerNow]);
 
   const shelfStats = useMemo(() => {
     if (!isAdmin || !isAdminView) return null;
@@ -314,7 +326,7 @@ export default function Basket() {
 
       // Use ONLY basket data to determine the group.
       // Do NOT use live stock data here.
-      const key = `${item.id}-${item.stockKey}`;
+      const key = `${item.id}-${item.stockKey}-${item.offerId || 'standard'}`;
 
       if (!acc[key]) {
         acc[key] = {
@@ -428,7 +440,7 @@ export default function Basket() {
                 const shelfCostPrice = Number(item.costPrice ?? stock?.costPrice ?? 0);
                 const shelfSellPrice = Number(item.sellPrice ?? stock?.sellPrice ?? getBasketDisplayPrice(item));
                 
-                const uniqueGroupKey = `${item.id}-${item.batchKey}`;
+                const uniqueGroupKey = `${item.id}-${item.batchKey}-${item.offerId || 'standard'}`;
                 const itemError = validation.itemRules[uniqueGroupKey];
                 
                 const cardClasses = `p-3 rounded-2xl border-2 cursor-pointer flex gap-4 items-center transition-all duration-300 ${
@@ -503,18 +515,18 @@ export default function Basket() {
                                 {item.qty === 1 ? <Trash2 size={14} /> : <Minus size={14} strokeWidth={3} />}
                             </button>
                             <span className="font-black text-[11px] w-4 text-center">{item.qty}</span>
-                            <button 
-                                onClick={(e) => { 
-                                  e.stopPropagation(); 
-                                  addProjectToBasket(item.projectData); 
-                                }} 
+                            <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  addProjectToBasket(item.projectData);
+                                }}
                                 className="w-6 h-6 flex items-center justify-center rounded-full bg-white dark:bg-neutral-700 transition-colors hover:text-blue-500"
                                 title="Increase quantity"
                             >
                               <Plus size={15} strokeWidth={3} />
                             </button>
                         </div>}
-                        
+
                         {/* Quantity Controls for Kit */}
                         {item.type !== 'project' && <div className="ml-auto flex items-center gap-3 bg-neutral-100 dark:bg-neutral-800 rounded-full px-2 py-1">
                             <button
@@ -525,8 +537,8 @@ export default function Basket() {
                                 {item.qty === 1 ? <Trash2 size={14} /> : <Minus size={14} strokeWidth={3} />}
                             </button>
                             <span className="font-black text-[14px] w-4 text-center">{item.qty}</span>
-                            <button 
-                                onClick={(e) => { e.stopPropagation(); addToBasket(item); }} 
+                            <button
+                                onClick={(e) => { e.stopPropagation(); addToBasket(item); }}
                                 className="w-6 h-6 flex items-center justify-center rounded-full bg-white dark:bg-neutral-700 transition-colors hover:text-blue-500"
                                 title="Increase quantity"
                             >
@@ -629,7 +641,7 @@ export default function Basket() {
                         });
 
                         const flaggedKeys = Object.keys(validation.itemRules);
-                        const hasSelectedIssues = selectedItems.some(i => flaggedKeys.includes(`${i.id}-${i.batchKey}`));
+                        const hasSelectedIssues = selectedItems.some(i => flaggedKeys.includes(`${i.id}-${i.batchKey}-${i.offerId || 'standard'}`));
                         const uniqueBatches = Array.from(new Set(selectedItems.filter(i => i.type !== 'project').map(i => i.batchKey)));
                         const hasBatchConflict = uniqueBatches.length > 1;
 
@@ -652,7 +664,7 @@ export default function Basket() {
                                           const stock = kit?.stocks?.[item.stockKey];
                                           const status = stock?.status?.toLowerCase() || 'default';
                                           const eta = stock?.eta ? `-${stock.eta.toLowerCase().replace(/\s+/g, '-')}` : '';
-                                          return `${item.id}-${status}${eta}` === key;
+                                          return `${item.id}-${status}${eta}-${item.offerId || 'standard'}` === key;
                                         });
                                         if (matchingItemsInBasket.length > limit) {
                                           const excessCount = matchingItemsInBasket.length - limit;

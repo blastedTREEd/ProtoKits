@@ -238,6 +238,7 @@ export const useStore = create(
       blueprints: [],
       deals: [],
       notifyList: [],
+      userOffers: [],
       orders: [],
       usersList: [],
       adminsList: [],
@@ -276,6 +277,7 @@ export const useStore = create(
       authRetry: null,
       storiesHeight: 0,
       unsubPrintResources: null,
+      unsubOffers: null,
       setStoriesHeight: (height) => set({ storiesHeight: height }),
 
       cleanupFilamentsStockNo: async () => {
@@ -717,6 +719,7 @@ export const useStore = create(
           if (get().unsubShelf) get().unsubShelf();
           if (get().unsubAdmin) get().unsubAdmin();
           if (get().unsubBasket) get().unsubBasket();
+          if (get().unsubOffers) get().unsubOffers();
 
           const unsubPrint = get().unsubPrintResources;
           if (unsubPrint) {
@@ -1576,7 +1579,13 @@ export const useStore = create(
           expiresAt,
           updatedAt: serverTimestamp(),
           declinedAt: deleteField(),
-          declinedBy: deleteField()
+          declinedBy: deleteField(),
+          releasedAt: deleteField(),
+          releasedBy: deleteField(),
+          offerAcceptedAt: deleteField(),
+          offerExpiresAt: deleteField(),
+          releasedStockKey: deleteField(),
+          completedAt: deleteField()
         }, { merge: true });
       },
 
@@ -1592,19 +1601,37 @@ export const useStore = create(
       },
 
       releaseOffer: async (offer) => {
-        const { shelf, updateStockPrice, removeFromBasket, user } = get();
+        const { shelf, user } = get();
         if (!offer?.id || !offer?.kitId) return;
         const shelfItem = (shelf || []).find(s => s.id === offer.kitId);
-        if (shelfItem) {
-          await updateStockPrice(offer.kitId, shelfItem.stockKey, offer.targetPrice);
-          await removeFromBasket(shelfItem.basketId);
-        }
+        const acceptedAt = Date.now();
         await setDoc(doc(db, "hunts", offer.id), {
           status: 'released',
           releasedAt: serverTimestamp(),
+          offerAcceptedAt: serverTimestamp(),
+          offerExpiresAt: new Date(acceptedAt + (12 * 60 * 60 * 1000)).toISOString(),
+          releasedStockKey: shelfItem?.stockKey || null,
           releasedBy: user?.uid || 'admin',
           updatedAt: serverTimestamp()
         }, { merge: true });
+      },
+
+      completeAcceptedOffer: async ({ offerId, kitId, stockKey, offerPrice }) => {
+        const price = Number(offerPrice);
+        if (!offerId || !kitId || !stockKey || !Number.isFinite(price) || price <= 0) return;
+
+        const batch = writeBatch(db);
+        batch.update(doc(db, 'kits', kitId), {
+          [`stocks.${stockKey}.sellPrice`]: price,
+          lastUpdated: serverTimestamp()
+        });
+        batch.set(doc(db, 'hunts', offerId), {
+          status: 'completed',
+          completedAt: serverTimestamp(),
+          completedOfferPrice: price,
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+        await batch.commit();
       },
 
       huntKit: async (kit, targetPrice) => {
@@ -1655,11 +1682,13 @@ export const useStore = create(
         if (get().unsubShelf) get().unsubShelf();
         if (get().unsubAdmin) get().unsubAdmin();
         if (get().unsubBasket) get().unsubBasket();
+        if (get().unsubOffers) get().unsubOffers();
         set((state) => ({
           unsubUser: null,
           unsubShelf: null,
           unsubAdmin: null,
           unsubBasket: null,
+          unsubOffers: null,
           _datasetListenerKeys: { ...state._datasetListenerKeys, shelf: false }
         }));
 
@@ -1667,7 +1696,7 @@ export const useStore = create(
           console.log("DEBUG: No sgUser found, switching to guest mode.");
           const guestProjectVault = JSON.parse(localStorage.getItem('sg_guest_project_vault') || '[]');
           const guestBasket = JSON.parse(localStorage.getItem('sg_guest_basket') || '[]');
-          set({ user: null, isAdmin: false, isAdminView: false, usersList: [], projectVault: guestProjectVault, guestBasket, shelf: [], unsubUser: null, unsubShelf: null, unsubAdmin: null, unsubBasket: null, syncStatus: 'Restoring local basket' });
+          set({ user: null, isAdmin: false, isAdminView: false, usersList: [], projectVault: guestProjectVault, guestBasket, shelf: [], userOffers: [], unsubUser: null, unsubShelf: null, unsubAdmin: null, unsubBasket: null, unsubOffers: null, syncStatus: 'Restoring local basket' });
           
           get().markLoaded('userProfile');
           get().markLoaded('basket');
@@ -1792,13 +1821,20 @@ export const useStore = create(
             get().markLoaded('basket');
         });
 
+        const unsubOffers = onSnapshot(query(collection(db, 'hunts'), where('uid', '==', sgUser.uid)), (offersSnap) => {
+          set({ userOffers: docsToArray(offersSnap) });
+        }, (err) => {
+          console.error("SG LOG: Offers subscription error:", err);
+          set({ userOffers: [] });
+        });
+
         let unsubAdmin = null;
         if (isActuallyAdmin) {
           unsubAdmin = onSnapshot(doc(db, 'admins', sgUser.uid), (snap) => {
             set({ adminData: snap.exists() ? snap.data() : null });
           });
         }
-        set({ unsubUser, unsubAdmin, unsubBasket });
+        set({ unsubUser, unsubAdmin, unsubBasket, unsubOffers });
       },
 
       updateUserProfile: async (uid, data) => { await updateDoc(doc(db, 'users', uid), data); },
@@ -1952,15 +1988,19 @@ export const useStore = create(
         });
 
         const stock = kit.stocks[targetKey];
+        const offerPrice = Number(itemData.offerPrice);
+        const basePrice = Number.isFinite(offerPrice) && offerPrice > 0
+          ? offerPrice
+          : Number(stock.sellPrice || 0);
         const clean = { 
           id: kit.id, 
           name: (itemData.name || kit.name || '').replace(/\s*\(Pre-Order\)\s*$/i, ''), 
           image: itemData.image || kit.image || '',
           brand: itemData.brand || kit.brand || '',
           specs: itemData.specs || kit.specs || {},
-          price: Number(stock.sellPrice || 0) + hFee + iFee + tFee, 
+          price: basePrice + hFee + iFee + tFee,
           costPrice: Number(stock.costPrice || 0),
-          sellPrice: Number(stock.sellPrice || 0),
+          sellPrice: basePrice,
           status: stock.status || 'onhand',
           eta: stock.eta || '',
           appliedHandlingFee: hFee, 
@@ -1970,6 +2010,11 @@ export const useStore = create(
           type: itemData.type || 'kit', 
           basketId, 
           minDownpayment: stock.minDownpayment || 0,
+          offerId: itemData.offerId || null,
+          offerStatus: itemData.offerStatus || null,
+          offerPrice: Number.isFinite(offerPrice) && offerPrice > 0 ? offerPrice : null,
+          offerExpiresAt: itemData.offerExpiresAt || null,
+          offerAcceptedAt: itemData.offerAcceptedAt || null,
           createdAt: new Date().toISOString() 
         };
 
@@ -2280,14 +2325,28 @@ export const useStore = create(
         const data = snap.data();
         const stock = data.stocks?.[stockKey];
         if (!stock) return { success: false };
+        let canUseAcceptedOffer = false;
+        if (options.offerId) {
+          const offerSnap = await getDoc(doc(db, 'hunts', options.offerId));
+          const offer = offerSnap.exists() ? offerSnap.data() : null;
+          const offerExpiresAt = offer?.offerExpiresAt ? new Date(offer.offerExpiresAt).getTime() : 0;
+          canUseAcceptedOffer = Boolean(
+            options.allowAcceptedOffer
+            && offer?.uid === uid
+            && offer?.kitId === kitId
+            && offer?.status === 'released'
+            && offer?.releasedStockKey === stockKey
+            && offerExpiresAt > Date.now()
+          );
+        }
         const canUseAdminShelfStock = options.allowAdminShelf && stock.isReserved && stock.reservationType === 'admin' && !stock.order?.orderId;
-        if (stock.isReserved && stock.reservedBy !== uid && !canUseAdminShelfStock) return { success: false };
+        if (stock.isReserved && stock.reservedBy !== uid && !canUseAdminShelfStock && !canUseAcceptedOffer) return { success: false };
 
         const stocks = { ...data.stocks };
         if (stocks[stockKey]) {
           stocks[stockKey].isReserved = true;
           stocks[stockKey].reservedBy = uid;
-          if (canUseAdminShelfStock) delete stocks[stockKey].reservationType;
+          if (canUseAdminShelfStock || canUseAcceptedOffer) delete stocks[stockKey].reservationType;
         }
         const hasAvailable = Object.values(stocks).some(s => !s.order?.orderId && !s.isReserved);
 
@@ -2295,7 +2354,7 @@ export const useStore = create(
           [`stocks.${stockKey}.isReserved`]: true,
           [`stocks.${stockKey}.reservedBy`]: uid,
           [`stocks.${stockKey}.reservedAt`]: serverTimestamp(),
-          ...(canUseAdminShelfStock ? { [`stocks.${stockKey}.reservationType`]: deleteField() } : {}),
+          ...((canUseAdminShelfStock || canUseAcceptedOffer) ? { [`stocks.${stockKey}.reservationType`]: deleteField() } : {}),
           lastUpdated: serverTimestamp(),
           hasAvailableStock: hasAvailable
         });

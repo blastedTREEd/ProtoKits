@@ -74,6 +74,15 @@ const getStatusDetails = (notification) => {
     };
   }
 
+  if (notification?.notificationKind === 'offer_missed') {
+    return {
+      message: notification.message || 'Your accepted offer checkout window has expired.',
+      icon: Clock3,
+      accent: 'bg-orange-500',
+      iconClass: 'bg-orange-500/10 text-orange-600'
+    };
+  }
+
   const status = notification?.status;
   const normalized = String(status || '').trim().toLowerCase();
 
@@ -156,11 +165,27 @@ const formatActivityTime = (value) => {
 };
 
 const getOrderSummary = (order) => {
-  if (order?.summary) return order.summary;
-  const items = Array.isArray(order.items) ? order.items : [];
-  const firstItem = items[0]?.name || items[0]?.projectData?.name || order.item || '';
+  if (order?.notificationKind) return order.summary || '';
+
+  const items = Array.isArray(order?.items) && order.items.length > 0
+    ? order.items
+    : (order?.item || order?.name || order?.summary ? [order] : []);
+  const firstItem = items[0]?.name
+    || items[0]?.kitName
+    || items[0]?.projectData?.name
+    || items[0]?.productName
+    || order?.item
+    || order?.name
+    || order?.summary
+    || '';
   if (!firstItem) return '';
-  return items.length > 1 ? `${firstItem} +${items.length - 1} more` : firstItem;
+
+  const totalUnits = items.reduce((total, item) => {
+    const quantity = Number(item?.quantity);
+    return total + (Number.isFinite(quantity) && quantity > 0 ? quantity : 1);
+  }, 0);
+
+  return totalUnits > 1 ? `${firstItem} +${totalUnits - 1} more` : firstItem;
 };
 
 export default function NotificationModal({
@@ -277,6 +302,10 @@ export default function NotificationModal({
               const activityTime = order.lastUpdated || order.createdAt;
               const orderSummary = getOrderSummary(order);
               const isUnread = readVersions[order.id] !== getNotificationVersion(order);
+              const isStockAlert = ['back_in_stock', 'low_stock'].includes(order.notificationKind);
+              const headline = isStockAlert
+                ? 'HURRY!'
+                : (order.orderId || order.title || 'Notification');
 
               return (
                 <button
@@ -291,20 +320,20 @@ export default function NotificationModal({
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center justify-between gap-2">
-                      <span className="truncate text-[12px] font-black uppercase italic text-neutral-900 dark:text-white">
-                        {order.orderId || order.title || 'Notification'}
+                      <span className="truncate text-[13px] font-black uppercase italic text-neutral-900 dark:text-white">
+                        {headline}
                       </span>
-                      <span className="shrink-0 text-[9px] font-black uppercase tracking-wider text-blue-600">
+                      <span className="shrink-0 text-[11px] font-black uppercase tracking-wider text-blue-600">
                         {order.notificationLabel || order.status || 'Updated'}
                       </span>
                     </span>
-                    <span className="mt-1 block text-[11px] font-semibold leading-4 text-neutral-600 dark:text-neutral-300">
+                    <span className="mt-1 block text-[12px] font-semibold leading-4 text-neutral-600 dark:text-neutral-300">
                       {details.message}
                     </span>
                     {orderSummary && (
-                      <span className="mt-1 block truncate text-[10px] font-medium text-neutral-400">{orderSummary}</span>
+                      <span className="mt-1 block truncate text-[11px] font-medium text-neutral-400">{orderSummary}</span>
                     )}
-                    <span className="mt-1.5 block text-[9px] font-bold uppercase tracking-wider text-neutral-400">
+                    <span className="mt-1.5 block text-[11px] font-bold uppercase tracking-wider text-neutral-400">
                       {formatActivityTime(activityTime)}
                     </span>
                   </span>

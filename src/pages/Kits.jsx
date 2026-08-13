@@ -17,6 +17,7 @@ import LoginPromptModal from '../components/menu/LoginPromptModal';
 import LoadingState from '../components/common/LoadingState';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
 import { distributeRoundedBundlePrices } from '../utils/bundlePricing';
+import { isOfferCheckoutActive } from '../utils/offerUtils';
 
 // --- Spectral gradient helpers (mirrored from ProductCard) ---
 const SPECTRAL_GRADIENTS = [
@@ -175,7 +176,7 @@ export default function Kits() {
   const { 
     isAdmin, isAdminView, kits: storeKits, deals, 
     isLoading, addKit, isInventoryAuditOpen, setInventoryAuditOpen,
-    user, setLoginModalOpen,
+    user, userOffers, setLoginModalOpen,
     shippingSettings
   } = useStore();
 
@@ -242,7 +243,29 @@ export default function Kits() {
   // Infinite Scroll States
   const [showSkeletons, setShowSkeletons] = useState(false);
 
+  const [offerClock, setOfferClock] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setOfferClock(Date.now()), 30000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   const sentinelRef = useRef(null);
+  const userId = user?.uid;
+
+  const activeOfferKitIds = useMemo(() => {
+    if (isAdminView || !userId) return new Set();
+
+    return new Set((userOffers || [])
+      .filter(offer => (
+        offer?.uid === userId
+        && offer?.kitId
+        && offer?.releasedStockKey
+        && offer?.status === 'released'
+        && isOfferCheckoutActive(offer, offerClock)
+      ))
+      .map(offer => offer.kitId));
+  }, [isAdminView, offerClock, userId, userOffers]);
 
   useEffect(() => {
     if (isLoading) {
@@ -298,6 +321,13 @@ export default function Kits() {
     };
 
     let filtered = [...storeKits];
+
+    // Active accepted offers get their own Deals section card so users can
+    // reach the limited checkout window quickly instead of finding them in
+    // the normal collection list.
+    if (activeOfferKitIds.size > 0) {
+      filtered = filtered.filter(kit => !activeOfferKitIds.has(kit.id));
+    }
 
     if (searchTerm) {
       const searchWords = searchTerm.toLowerCase().replace(/[-&]/g, ' ').split(/\s+/).filter(Boolean);
@@ -464,7 +494,7 @@ export default function Kits() {
     // Hindi nagbago ang sort criteria — gamitin ang cached order para hindi mag-jump ang cards
     const kitMap = new Map(processedKits.map(k => [k.id, k]));
     return stableSortCache.ids.map(id => kitMap.get(id)).filter(Boolean);
-  }, [storeKits, isAdmin, isAdminView, searchTerm, sortType, stableSortCache]);
+  }, [activeOfferKitIds, storeKits, isAdmin, isAdminView, searchTerm, sortType, stableSortCache]);
 
   useEffect(() => {
     const currentSortCriteria = `${searchTerm}||${sortType}||${isAdminView}`;
@@ -484,10 +514,23 @@ export default function Kits() {
   }, [allFilteredKits, displayLimit]);
 
   const visibleKitsWithRouteSelection = useMemo(() => {
-    if (!routeKitId || visibleKits.some(kit => kit.id === routeKitId)) return visibleKits;
+    if (!routeKitId || activeOfferKitIds.has(routeKitId) || visibleKits.some(kit => kit.id === routeKitId)) return visibleKits;
     const routeKit = (storeKits || []).find(kit => kit.id === routeKitId);
     return routeKit ? [routeKit, ...visibleKits] : visibleKits;
-  }, [routeKitId, storeKits, visibleKits]);
+  }, [activeOfferKitIds, routeKitId, storeKits, visibleKits]);
+
+  const activeOfferKits = useMemo(() => {
+    const search = searchTerm.trim().toLowerCase();
+    return (storeKits || []).filter(kit => {
+      if (!activeOfferKitIds.has(kit.id)) return false;
+      if (!search) return true;
+      return [kit.name, kit.brand, kit.series, kit.specs?.line, kit.specs?.scale]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .includes(search);
+    });
+  }, [activeOfferKitIds, searchTerm, storeKits]);
 
   // --- Grupo-grupo ang kits ayon sa status para sa section dividers ---
   const kitGroups = useMemo(() => {
@@ -702,7 +745,8 @@ export default function Kits() {
   const handleBuyNowFromCard = (item) => {
     console.log("handleBuyNowFromCard called with:", item);
     const isPreOrder = item.stock?.status?.toLowerCase().includes('pre') || item.stock?.status?.toLowerCase().includes('batch');
-    const price = item.stock?.sellPrice ? (Number(item.stock.sellPrice) + handlingFee + installmentFee + transferFee) : item.displayPrice;
+    const basePrice = Number(item.offerPrice || item.stock?.sellPrice || 0);
+    const price = basePrice > 0 ? (basePrice + handlingFee + installmentFee + transferFee) : item.displayPrice;
     const itemData = {
       ...item.kit,
       stockKey: item.stock?.key,
@@ -712,6 +756,12 @@ export default function Kits() {
       minDownpayment: item.stock?.minDownpayment,
       name: item.kit?.name || '',
       price,
+      sellPrice: basePrice || item.displayPrice,
+      offerId: item.offerId,
+      offerStatus: item.offerStatus,
+      offerPrice: item.offerPrice,
+      offerExpiresAt: item.offerExpiresAt,
+      offerAcceptedAt: item.offerAcceptedAt,
       appliedHandlingFee: handlingFee,
       appliedInstallmentFee: installmentFee,
       appliedTransferFee: transferFee,
@@ -826,7 +876,7 @@ export default function Kits() {
           <main className="min-w-350 mx-auto px-4 md:px-8">
             <div className="grid grid-cols-2 sm:grid-cols-4 sm:portrait:grid-cols-3 md:grid-cols-4 md:portrait:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-3 items-start justify-items-center">
               {/* --- Section Divider: Deals --- */}
-              {filteredDeals.length > 0 && (
+              {(filteredDeals.length > 0 || activeOfferKits.length > 0) && (
                 <div className={`col-span-full w-full -mx-4 md:-mx-8 px-4 md:px-8 sticky z-[80] bg-neutral-50/90 dark:bg-[#0a0a0a]/90 backdrop-blur-md py-3 transition-all duration-300 ${
                   showSearchBar ? 'top-[116px] sm:top-[120px]' : 'top-[56px] sm:top-[60px]'
                 } flex items-center gap-3 w-[calc(100%+2rem)] md:w-[calc(100%+4rem)]`}>
@@ -835,6 +885,36 @@ export default function Kits() {
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                 </div>
               )}
+
+              {activeOfferKits.map((kit) => {
+                const isUpdating = kitToEdit?.id === kit.id;
+                return (
+                  <div
+                    key={`active-offer-${kit.id}`}
+                    ref={(node) => {
+                      if (node) kitCardRefs.current.set(kit.id, node);
+                      else kitCardRefs.current.delete(kit.id);
+                    }}
+                    className={`w-full h-full transition-opacity duration-500 ${isUpdating ? 'opacity-30' : 'opacity-100'}`}
+                  >
+                    {isUpdating ? (
+                      <KitSkeleton />
+                    ) : (
+                      <ProductCard
+                        kit={kit}
+                        onBuyNowClick={handleBuyNowFromCard}
+                        onDealCheckout={handleDealCheckout}
+                        onEdit={handleEditKit}
+                        onEditDeal={(deal) => {
+                          setDealToEdit(deal);
+                          setIsAddDealModalOpen(true);
+                        }}
+                        routeKitId={routeKitId}
+                      />
+                    )}
+                  </div>
+                );
+              })}
 
               {isAdmin && isAdminView && (
                 <>

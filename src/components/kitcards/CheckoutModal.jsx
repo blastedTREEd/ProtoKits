@@ -53,6 +53,9 @@ const getCheckoutItemBasePrice = (item, kit, fees = {}) => {
     return toCheckoutNumber(item.projectData?.sellPrice || item.sellPrice || item.price);
   }
 
+  const offerPrice = toCheckoutNumber(item.offerPrice);
+  if (offerPrice > 0) return offerPrice;
+
   const storedPrice = toCheckoutNumber(item.price);
   if (item.isBundleItem && storedPrice > 0) return storedPrice;
 
@@ -537,7 +540,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   const isPage = variant === 'page';
   const { isDarkMode } = useTheme();
   const { 
-    user, reserveStockForCheckout, createOrder, isAdmin, isAdminView,
+    user, reserveStockForCheckout, createOrder, completeAcceptedOffer, isAdmin, isAdminView,
     removeFromBasket, kits, shelf, uploadReceipt, rates, updateUserProfile,
     adminsList, fetchAdmins, assignStockToOrder, adminData, garageInfo, setLoginModalOpen, orders,
     updateOrderDetails
@@ -1818,16 +1821,21 @@ const handleFinalizeOrder = async () => {
         const stock = kitSnap.data().stocks[item.stockKey];
         if (!stock) throw new Error(`Stock variant for ${item.id} no longer exists.`);
         
+        const isAcceptedOffer = Boolean(item.offerId && item.offerPrice);
         const canUseAdminShelfStock = item.allowShelfBundle && stock.isReserved && stock.reservationType === 'admin' && !stock.order?.orderId;
-        if (stock.isReserved && stock.reservedBy !== checkoutUid && !canUseAdminShelfStock) {
+        if (stock.isReserved && stock.reservedBy !== checkoutUid && !canUseAdminShelfStock && !isAcceptedOffer) {
           throw new Error(`Item "${item.name}" was just taken by someone else.`);
         }
         
-        const result = await reserveStockForCheckout(item.id, item.stockKey, checkoutUid, { allowAdminShelf: item.allowShelfBundle });
+        const result = await reserveStockForCheckout(item.id, item.stockKey, checkoutUid, {
+          allowAdminShelf: item.allowShelfBundle,
+          allowAcceptedOffer: isAcceptedOffer,
+          offerId: item.offerId || null
+        });
         if (!result?.success) {
           throw new Error(`Item "${item.name}" was just taken by someone else.`);
         }
-        if (canUseAdminShelfStock) {
+        if (canUseAdminShelfStock || isAcceptedOffer) {
           const shelfItem = (shelf || []).find(entry => entry.id === item.id && entry.stockKey === item.stockKey);
           if (shelfItem?.basketId) await deleteDoc(doc(db, 'shelf', shelfItem.basketId));
         }
@@ -1871,6 +1879,9 @@ const handleFinalizeOrder = async () => {
           appliedHandlingFee: item.appliedHandlingFee || 0,
           appliedInstallmentFee: item.appliedInstallmentFee || 0,
           appliedTransferFee: item.appliedTransferFee || 0,
+          offerId: item.offerId || null,
+          offerPrice: item.offerPrice || null,
+          offerExpiresAt: item.offerExpiresAt || null,
           isFreeShippingEligible: item.isFreeShippingEligible || false,
           freeShippingUntil: item.freeShippingUntil || '',
           freeShippingMethod: item.freeShippingMethod || 'All',
@@ -1994,6 +2005,20 @@ const handleFinalizeOrder = async () => {
             orderDocId: docId 
           });
         }
+      }
+
+      const completedOffers = new Map();
+      checkoutItems.forEach((item) => {
+        if (!item.offerId || !item.offerPrice || completedOffers.has(item.offerId)) return;
+        completedOffers.set(item.offerId, item);
+      });
+      if (completeAcceptedOffer) {
+        await Promise.all([...completedOffers.values()].map((item) => completeAcceptedOffer({
+          offerId: item.offerId,
+          kitId: item.id,
+          stockKey: item.stockKey,
+          offerPrice: item.offerPrice
+        })));
       }
       
       setCreatedOrderIds([docId]);

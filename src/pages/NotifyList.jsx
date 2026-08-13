@@ -21,7 +21,7 @@ function dateToMillis(value) {
 }
 
 function getOfferStatus(item) {
-  const expiresAt = dateToMillis(item.expiresAt);
+  const expiresAt = dateToMillis(item.status === 'released' && item.offerExpiresAt ? item.offerExpiresAt : item.expiresAt);
   if (!['released', 'declined'].includes(item.status) && expiresAt && expiresAt <= Date.now()) {
     return 'expired';
   }
@@ -29,7 +29,7 @@ function getOfferStatus(item) {
 }
 
 function getDaysLeft(item) {
-  const expiresAt = dateToMillis(item.expiresAt);
+  const expiresAt = dateToMillis(item.status === 'released' && item.offerExpiresAt ? item.offerExpiresAt : item.expiresAt);
   if (!expiresAt) return '14 days';
   const diff = expiresAt - Date.now();
   if (diff <= 0) return 'Expired';
@@ -184,7 +184,7 @@ export default function NotifyList() {
   };
 
   const handleBulkRelease = async () => {
-    if (!window.confirm(`Release ${selectedIds.length} selected kit(s) using their offer prices?`)) return;
+    if (!window.confirm(`Accept ${selectedIds.length} selected offer(s) using their sent prices?`)) return;
     for (const id of selectedIds) {
       const item = notifyList.find(n => n.id === id);
       if (!item) continue;
@@ -230,7 +230,7 @@ export default function NotifyList() {
           <div className="max-w-7xl mx-auto px-4 md:px-8 h-full flex items-center justify-between">
             <div className="flex items-center gap-4">
               {myNotifyList.length > 0 && (
-                <button onClick={toggleSelectAll} className="text-[11px] font-black uppercase tracking-widest opacity-50 hover:opacity-100">
+                <button onClick={toggleSelectAll} className="text-[12px] font-black uppercase tracking-widest opacity-50 hover:opacity-100">
                   {selectedIds.length === myNotifyList.length ? 'Unselect All' : 'Select All'}
                 </button>
               )}
@@ -238,13 +238,13 @@ export default function NotifyList() {
             <div className="flex items-center gap-4">
               {selectedIds.length > 0 && (
                 <>
-                  <span className="text-[11px] font-black uppercase tracking-widest">{selectedIds.length} SELECTED</span>
+                  <span className="text-[12px] font-black uppercase tracking-widest">{selectedIds.length} SELECTED</span>
                   {isReleaseMode ? (
                     <>
                       <button onClick={handleBulkDecline} className="flex items-center gap-1 text-red-500 hover:bg-red-500/10 px-3 py-1.5 rounded-lg transition-colors" title="Decline selected">
                         <XCircle size={16} />
                       </button>
-                      <button onClick={handleBulkRelease} className="flex items-center gap-1 text-emerald-600 hover:bg-emerald-500/10 px-3 py-1.5 rounded-lg transition-colors" title="Release selected">
+                      <button onClick={handleBulkRelease} className="flex items-center gap-1 text-emerald-600 hover:bg-emerald-500/10 px-3 py-1.5 rounded-lg transition-colors" title="Accept selected">
                         <CheckCircle2 size={16} />
                       </button>
                     </>
@@ -296,7 +296,7 @@ export default function NotifyList() {
                       className="sticky top-[110px] z-[80] -mx-4 flex items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md dark:bg-[#0a0a0a]/90"
                     >
                       <div className={`h-px flex-1 bg-gradient-to-r from-transparent ${colors.line} to-transparent`} />
-                      <span className={`select-none bg-gradient-to-r ${colors.text} bg-clip-text text-[12px] font-black uppercase tracking-[0.2em] text-transparent`}>
+                      <span className={`select-none bg-gradient-to-r ${colors.text} bg-clip-text text-[13px] font-black uppercase tracking-[0.2em] text-transparent`}>
                         {row.label}
                       </span>
                       <div className={`h-px flex-1 bg-gradient-to-r from-transparent ${colors.line} to-transparent`} />
@@ -319,6 +319,7 @@ export default function NotifyList() {
                 const offerPricing = getOfferCostDetails(item, kits, shelf, checkoutAdditionalCharges);
                 const shelfItem = offerPricing.shelfItem;
                 const maxSell = kit?.stocks ? Math.max(...Object.values(kit.stocks).map(s => Number(s.sellPrice || 0))) : Number(kit?.sellPrice || 0);
+                const sellPrice = Number(shelfItem?.sellPrice ?? kit?.stocks?.[shelfItem?.stockKey]?.sellPrice ?? maxSell);
 
                 const prevRow = index > 0 ? offerRows[index - 1] : null;
                 const isAfterOffer = prevRow?.type === 'offer';
@@ -352,12 +353,12 @@ export default function NotifyList() {
 
                     <div className="flex-1 flex flex-col gap-3 min-w-0 min-h-[80px] justify-center">
                       <div className="flex flex-col justify-center">
-                        <p className="font-bold text-sm leading-tight line-clamp-1 md:line-clamp-2">{displayName}</p>
-                        <p className="text-[11px] uppercase font-black opacity-40 tracking-widest leading-tight mt-0.5">
+                        <p className="font-bold text-[14px] leading-tight line-clamp-1 md:line-clamp-2">{displayName}</p>
+                        <p className="text-[13px] uppercase font-black opacity-40 tracking-widest leading-tight mt-0.5">
                           {[brand, line, scale].filter(Boolean).join(' / ')}
                         </p>
                         {isReleaseMode && item.userName && (
-                          <p className="text-[10px] font-black uppercase tracking-widest opacity-40 mt-0.5">{item.userName}</p>
+                          <p className="text-[12px] font-black uppercase tracking-widest opacity-40 mt-0.5">{item.userName}</p>
                         )}
                       </div>
 
@@ -379,21 +380,21 @@ export default function NotifyList() {
                           </div>
                         ) : (
                           <>
-                            <p className={`font-black text-[12px] ${isSelected ? 'text-emerald-600' : 'text-neutral-900 dark:text-white'}`}>
-                              PHP {Number(item.targetPrice || 0).toLocaleString()}
+                            <p className={`font-black text-[13px] ${isSelected ? 'text-emerald-600' : 'text-neutral-900 dark:text-white'}`}>
+                              SENT OFFER PHP {Number(item.targetPrice || 0).toLocaleString()}
                             </p>
-                            <p className={`text-[11px] font-black uppercase px-2 py-0.5 rounded-md truncate max-w-[120px] border ${getStatusClass(status)}`}>
+                            <p className={`text-[12px] font-black uppercase px-2 py-0.5 rounded-md truncate max-w-[120px] border ${getStatusClass(status)}`}>
                               {status}
                             </p>
-                            <p className="inline-flex items-center gap-1 text-[10px] font-black uppercase opacity-40">
-                              <Clock3 size={12} /> {getDaysLeft(item)}
+                            <p className="inline-flex items-center gap-1 text-[12px] font-black uppercase opacity-40">
+                              <Clock3 size={13} /> {getDaysLeft(item)}
                             </p>
                             {canEdit && (
                               <button
                                 onClick={(e) => { e.stopPropagation(); startEdit(item); }}
-                                className="inline-flex items-center gap-1 rounded-lg bg-blue-500/10 px-2 py-1 text-[10px] font-black uppercase text-blue-600"
+                                className="inline-flex items-center gap-1 rounded-lg bg-blue-500/10 px-2 py-1 text-[12px] font-black uppercase text-blue-600"
                               >
-                                <Pencil size={12} /> Edit Price
+                                <Pencil size={13} /> Edit Price
                               </button>
                             )}
                           </>
@@ -401,12 +402,11 @@ export default function NotifyList() {
 
                         {isReleaseMode && (
                           <>
-                            <p className={`text-[11px] font-black ${shelfItem ? 'text-emerald-600' : 'text-red-500'}`}>
+                            <p className={`text-[12px] font-black ${shelfItem ? 'text-emerald-600' : 'text-red-500'}`}>
                               {shelfItem ? 'Shelf ready' : 'Not on shelf'}
                             </p>
-                            <p className="text-[11px] font-black text-amber-600">Cost PHP {offerPricing.costPrice.toLocaleString()}</p>
-                            <p className="text-[11px] font-black text-blue-600">Floor PHP {offerPricing.floorPrice.toLocaleString()}</p>
-                            <p className="text-[11px] font-black text-emerald-600">Sell PHP {maxSell.toLocaleString()}</p>
+                            <p className="text-[12px] font-black text-amber-600">COST PRICE PHP {offerPricing.costPrice.toLocaleString()}</p>
+                            <p className="text-[12px] font-black text-emerald-600">SELL PRICE PHP {sellPrice.toLocaleString()}</p>
                           </>
                         )}
                       </div>
@@ -427,27 +427,27 @@ export default function NotifyList() {
             <div className="max-w-7xl mx-auto h-full px-4 md:px-8 flex items-center justify-between">
               {selectedIds.length === 0 ? (
                 <div className="w-full flex justify-center items-center h-[40px]">
-                  <span className="text-[10px] md:text-[12px] font-black uppercase tracking-[0.2em] opacity-90">
-                    {isReleaseMode ? 'Select offers to release or decline' : 'Select items to remove'}
+                  <span className="text-[12px] font-black uppercase tracking-[0.2em] opacity-90">
+                    {isReleaseMode ? 'Select offers to accept or decline' : 'Select items to remove'}
                   </span>
                 </div>
               ) : (
                 <div className="flex items-center justify-between w-full md:justify-end md:gap-6">
                   <div className="flex flex-col items-start md:items-end justify-center">
-                    <span className="text-[10px] font-black uppercase opacity-40 leading-none mb-1">Selected</span>
-                    <span className="text-lg md:text-xl font-black italic leading-none">{selectedIds.length} item{selectedIds.length > 1 ? 's' : ''}</span>
+                    <span className="text-[12px] font-black uppercase opacity-40 leading-none mb-1">Selected</span>
+                    <span className="text-[14px] font-black italic leading-none">{selectedIds.length} item{selectedIds.length > 1 ? 's' : ''}</span>
                   </div>
                   {isReleaseMode ? (
                     <div className="flex items-center gap-2">
-                      <button onClick={handleBulkDecline} className="px-6 py-3.5 rounded-full font-black uppercase tracking-widest text-xs transition-all bg-red-500 text-white shadow-lg shadow-red-500/20 hover:scale-105">
+                      <button onClick={handleBulkDecline} className="px-6 py-3.5 rounded-full font-black uppercase tracking-widest text-[12px] transition-all bg-red-500 text-white shadow-lg shadow-red-500/20 hover:scale-105">
                         Decline
                       </button>
-                      <button onClick={handleBulkRelease} className="px-6 py-3.5 rounded-full font-black uppercase tracking-widest text-xs transition-all bg-emerald-600 text-white shadow-lg shadow-emerald-500/20 hover:scale-105">
-                        Release
+                      <button onClick={handleBulkRelease} className="px-6 py-3.5 rounded-full font-black uppercase tracking-widest text-[12px] transition-all bg-emerald-600 text-white shadow-lg shadow-emerald-500/20 hover:scale-105">
+                        Accept
                       </button>
                     </div>
                   ) : (
-                    <button onClick={handleBulkDelete} className="px-10 py-3.5 rounded-full font-black uppercase tracking-widest text-xs transition-all bg-red-500 text-white shadow-lg shadow-red-500/20 hover:scale-105">
+                    <button onClick={handleBulkDelete} className="px-10 py-3.5 rounded-full font-black uppercase tracking-widest text-[12px] transition-all bg-red-500 text-white shadow-lg shadow-red-500/20 hover:scale-105">
                       Remove Selected
                     </button>
                   )}

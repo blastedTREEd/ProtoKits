@@ -57,13 +57,40 @@ export const buildCommerceNotifications = ({
   const kitMap = new Map(kits.map((kit) => [kit.id, kit]));
   const basketKitIds = [...new Set(basket.map((item) => item?.id).filter(Boolean))];
   const activeHunts = hunts.filter((hunt) => isActiveHunt(hunt, now));
-  const releasedHunts = hunts.filter((hunt) => String(hunt?.status || '').trim().toLowerCase() === 'released');
+  const releasedHunts = hunts.filter((hunt) => (
+    String(hunt?.status || '').trim().toLowerCase() === 'released'
+    && !hunt?.completedAt
+    && (!notificationValueToMillis(hunt?.offerExpiresAt) || notificationValueToMillis(hunt.offerExpiresAt) > now)
+  ));
+  const missedOffers = hunts.filter((hunt) => {
+    const expiresAt = notificationValueToMillis(hunt?.offerExpiresAt);
+    return String(hunt?.status || '').trim().toLowerCase() === 'released'
+      && !hunt?.completedAt
+      && expiresAt > 0
+      && expiresAt <= now;
+  });
   const releasedKitIds = new Set(releasedHunts.map((hunt) => hunt?.kitId).filter(Boolean));
   const watchedKitIds = new Set([
     ...basketKitIds,
     ...activeHunts.map((hunt) => hunt?.kitId).filter(Boolean)
   ]);
   const notifications = [];
+
+  missedOffers.forEach((offer) => {
+    const kit = kitMap.get(offer.kitId);
+    const expiry = offer.offerExpiresAt || offer.updatedAt || now;
+    notifications.push({
+      id: `offer-missed:${offer.id}`,
+      notificationKind: 'offer_missed',
+      notificationVersion: `offer-missed:${offer.id}:${notificationValueToMillis(expiry)}`,
+      notificationLabel: 'Missed checkout',
+      title: 'Offer expired',
+      message: `Your accepted offer for ${offer.kitName || kit?.name || 'this kit'} expired before checkout.`,
+      summary: offer.kitName || kit?.name || '',
+      kitId: offer.kitId,
+      lastUpdated: expiry
+    });
+  });
 
   releasedHunts.forEach((hunt) => {
     const kit = kitMap.get(hunt.kitId);

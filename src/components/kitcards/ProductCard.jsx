@@ -10,6 +10,7 @@ import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
 import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
 import { distributeRoundedBundlePrices } from '../../utils/bundlePricing';
+import { formatOfferCountdown, isOfferCheckoutActive } from '../../utils/offerUtils';
 
 // Resolves an image ID to its URL from the images array.
 // Backward compatible: if the value is already a URL (base64 or http), returns it directly.
@@ -18,6 +19,19 @@ function resolveImage(idOrUrl, imagesArray) {
   if (idOrUrl.startsWith('data:') || idOrUrl.startsWith('http')) return idOrUrl;
   const match = (imagesArray || []).find(img => img.id === idOrUrl);
   return match?.url || '';
+}
+
+function formatOfferBadgeLabel(expiry, now) {
+  const remainingMs = new Date(expiry).getTime() - now;
+  if (!Number.isFinite(remainingMs) || remainingMs <= 0) return '';
+
+  const remainingMinutes = Math.ceil(remainingMs / (60 * 1000));
+  if (remainingMinutes < 60) {
+    return `${remainingMinutes} MINUTE${remainingMinutes === 1 ? '' : 'S'} LEFT`;
+  }
+
+  const remainingHours = Math.floor(remainingMinutes / 60);
+  return `${remainingHours} HR${remainingHours === 1 ? '' : 'S'} LEFT`;
 }
 
 const Gallery = ({ galleryImages, galleryIndex, setGalleryIndex, handleTouchStart, handleTouchEnd, className, thumbnailsContainerRef }) => {
@@ -357,7 +371,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   
   const { 
     addToBasket, removeFromBasket, isAdmin, 
-    isAdminView, shelf, deals, kits: allKits,
+    isAdminView, shelf, deals, kits: allKits, userOffers,
     setPendingBasketItem, setLoginModalOpen, user,
     huntKit,
     shippingSettings,
@@ -435,6 +449,29 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       return !isSold && !isReserved && !isOnShelf;
     });
   }, [stockList, shelf, kitId, isAdmin, isAdminView]);
+
+  const acceptedOffer = useMemo(() => {
+    if (isAdminView || !user?.uid || !kitId) return null;
+    return (userOffers || []).find((offer) => (
+      offer?.uid === user.uid
+      && offer?.kitId === kitId
+      && offer?.status === 'released'
+      && isOfferCheckoutActive(offer, now || Date.now())
+      && offer?.releasedStockKey
+    )) || null;
+  }, [isAdminView, kitId, now, user?.uid, userOffers]);
+
+  const acceptedOfferStock = useMemo(() => {
+    if (!acceptedOffer?.releasedStockKey) return null;
+    const stock = stockList.find(item => item.key === acceptedOffer.releasedStockKey);
+    if (!stock || stock.order?.orderId) return null;
+    return stock;
+  }, [acceptedOffer, stockList]);
+
+  const acceptedOfferPrice = Number(acceptedOffer?.targetPrice || 0);
+  const offerCountdown = acceptedOffer && now > 0
+    ? formatOfferCountdown(acceptedOffer.offerExpiresAt, now)
+    : '';
 
   const hasReserved = useMemo(() => {
     return stockList.some(s => s.isReserved && !s.order?.orderId);
@@ -607,12 +644,33 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     }));
   }, [bundleDealDetails]);
 
+  const acceptedOfferGroup = useMemo(() => {
+    if (!acceptedOffer || !acceptedOfferStock) return null;
+    return {
+      key: `accepted-offer-${acceptedOffer.id}`,
+      label: getAvailabilityGroupLabel(acceptedOfferStock),
+      items: [acceptedOfferStock],
+      isOnHand: isOnHandStock(acceptedOfferStock),
+      eta: acceptedOfferStock.eta,
+      tag: 'acceptedOffer',
+      offer: acceptedOffer
+    };
+  }, [acceptedOffer, acceptedOfferStock]);
+
   const availabilityGroups = useMemo(() => {
-    const stockGroups = isAdmin && isAdminView
+    const baseStockGroups = isAdmin && isAdminView
       ? groupedVariants
       : (isCollectionOnly ? collectionGroupedVariants : groupedVariants);
-    return [...stockGroups, ...bundleDealGroups];
-  }, [isAdmin, isAdminView, groupedVariants, collectionGroupedVariants, isCollectionOnly, bundleDealGroups]);
+    const stockGroups = acceptedOfferStock
+      ? baseStockGroups
+        .map(group => ({
+          ...group,
+          items: group.items.filter(item => item.key !== acceptedOfferStock.key)
+        }))
+        .filter(group => group.items.length > 0)
+      : baseStockGroups;
+    return [...(acceptedOfferGroup ? [acceptedOfferGroup] : []), ...stockGroups, ...bundleDealGroups];
+  }, [acceptedOfferGroup, acceptedOfferStock, isAdmin, isAdminView, groupedVariants, collectionGroupedVariants, isCollectionOnly, bundleDealGroups]);
   const visibleAvailabilityGroups = useMemo(() => {
     return availabilityGroups.filter(group => group.tag !== 'bundleDeal');
   }, [availabilityGroups]);
@@ -627,13 +685,13 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     return selectableAvailabilityGroups.find(group => group.key === selectedGroupLabel) || null;
   }, [selectableAvailabilityGroups, selectedGroupLabel]);
 
-  const isSelectedCollectionGroup = selectedAvailabilityGroup?.tag === 'collection';
+  const isSelectedCollectionGroup = ['collection', 'acceptedOffer'].includes(selectedAvailabilityGroup?.tag);
   const selectedBundleDealDetails = selectedAvailabilityGroup?.dealDetails || null;
   const conditionDetailsStock = selectedBundleDealDetails?.currentKitStock || selectedStock;
   const selectedShelfItem = useMemo(() => {
-    if (!isSelectedCollectionGroup || !selectedStock) return null;
+    if (!isSelectedCollectionGroup || !selectedStock || selectedAvailabilityGroup?.tag === 'acceptedOffer') return null;
     return (shelf || []).find(item => item.id === kitId && item.stockKey === selectedStock.key) || null;
-  }, [isSelectedCollectionGroup, selectedStock, shelf, kitId]);
+  }, [isSelectedCollectionGroup, selectedAvailabilityGroup?.tag, selectedStock, shelf, kitId]);
 
   const isExclusiveToBundle = useMemo(() => {
     if (!kitId || !Array.isArray(deals)) return false;
@@ -799,11 +857,13 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     setModalKitHistory([]);
     setGalleryIndex(0);
     lastManualActionTime.current = Date.now();
-    if (selectableAvailabilityGroups.length > 0) {
+    if (acceptedOfferGroup) {
+        handleSelectGroup(acceptedOfferGroup);
+    } else if (selectableAvailabilityGroups.length > 0) {
         handleSelectGroup(selectableAvailabilityGroups[0]);
     }
     setIsProfileOpen(true);
-  }, [cardKit, handleSelectGroup, selectableAvailabilityGroups, setToastMessage]);
+  }, [acceptedOfferGroup, cardKit, handleSelectGroup, selectableAvailabilityGroups, setToastMessage]);
 
   const handleOpenIncludedKit = useCallback((includedKit, event) => {
     event?.stopPropagation();
@@ -975,6 +1035,10 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
 
   const getBuyLabel = useCallback(() => {
     if (isAdmin && isAdminView) return shelfItem ? "RELEASE STOCK" : "KEEP NOW";
+    if (acceptedOfferStock && acceptedOffer) {
+      const status = acceptedOfferStock.status?.toLowerCase() || '';
+      return (status.includes('pre') || status.includes('batch')) ? "PRE-ORDER" : "BUY NOW";
+    }
     if (selectedAvailabilityGroup?.tag === 'collection') return "NOTIFY ME";
     if (selectedAvailabilityGroup?.tag === 'bundleDeal') return "GRAB DEAL";
     if (availableCount <= 0) return "NOTIFY ME";
@@ -988,12 +1052,14 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     if (hasOnhand) return "BUY NOW";
     const hasPreorder = visibleStocks.some(s => (s.status?.toLowerCase().includes('pre') || s.status?.toLowerCase().includes('batch')) && !s.isReserved && !s.order?.orderId);
     return hasPreorder ? "PRE-ORDER" : "BUY NOW";
-  }, [isAdmin, isAdminView, shelfItem, selectedAvailabilityGroup, selectedStock, visibleStocks, availableCount]);
+  }, [acceptedOffer, acceptedOfferStock, isAdmin, isAdminView, shelfItem, selectedAvailabilityGroup, selectedStock, visibleStocks, availableCount]);
 
   const getAddtoCartLabel = useCallback(() => "ADD TO BASKET", []);
   const addToCartLabel = getAddtoCartLabel();
 
   const getDefaultCartStock = useCallback(() => {
+    if (acceptedOfferStock && acceptedOffer) return acceptedOfferStock;
+
     // Logic for Admin View
     if (isAdmin && isAdminView) {
       const adminKeepableStocks = stockList.filter(s => {
@@ -1019,18 +1085,33 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     const publicStock = visibleStocks[0] || publicReleasableStocks[0];
     if (publicStock) return publicStock;
     return stockList.find(s => !s.order?.orderId) || stockList[0] || null;
-  }, [isAdmin, isAdminView, visibleStocks, publicReleasableStocks, stockList, shelf, kitId, user]);
+  }, [acceptedOffer, acceptedOfferStock, isAdmin, isAdminView, visibleStocks, publicReleasableStocks, stockList, shelf, kitId, user]);
+
+  const getAcceptedOfferFields = (stock) => {
+    if (!acceptedOffer || !acceptedOfferStock || stock?.key !== acceptedOfferStock.key) return {};
+    return {
+      offerId: acceptedOffer.id,
+      offerStatus: 'released',
+      offerPrice: acceptedOfferPrice,
+      offerExpiresAt: acceptedOffer.offerExpiresAt,
+      offerAcceptedAt: acceptedOffer.offerAcceptedAt || acceptedOffer.releasedAt
+    };
+  };
 
   const handleAddToCart = () => {
     const stockForBasket = selectedAvailabilityGroup?.tag === 'bundleDeal'
       ? (visibleStocks[0] || publicReleasableStocks[0] || getDefaultCartStock())
       : (selectedStock || getDefaultCartStock());
     if (!stockForBasket) return;
+    const offerFields = getAcceptedOfferFields(stockForBasket);
+    const basePrice = offerFields.offerPrice || Number(stockForBasket.sellPrice || 0);
     addToBasket({
       ...kit,
       stockKey: stockForBasket.key,
       selectedStockId: stockForBasket.timestamp,
-      price: Number(stockForBasket.sellPrice || 0) + handlingFee + installmentFee + transferFee,
+      price: basePrice + handlingFee + installmentFee + transferFee,
+      sellPrice: basePrice,
+      ...offerFields,
       appliedHandlingFee: handlingFee,
       appliedInstallmentFee: installmentFee,
       appliedTransferFee: transferFee,
@@ -1112,17 +1193,21 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     if (!finalStock) return;
 
     if (onBuyNowClick) {
-      onBuyNowClick({ kit, stock: finalStock, displayPrice });
+      onBuyNowClick({ kit, stock: finalStock, displayPrice, ...getAcceptedOfferFields(finalStock) });
       if (window.location.pathname !== productPath) {
         closeProductModal();
       }
     } else {
       if (!user) {
+        const offerFields = getAcceptedOfferFields(finalStock);
+        const basePrice = offerFields.offerPrice || Number(finalStock.sellPrice || 0);
         setPendingBasketItem({
           ...kit,
           stockKey: finalStock.key,
           selectedStockId: finalStock.timestamp,
-          price: Number(finalStock.sellPrice || 0) + handlingFee + installmentFee + transferFee,
+          price: basePrice + handlingFee + installmentFee + transferFee,
+          sellPrice: basePrice,
+          ...offerFields,
           appliedHandlingFee: handlingFee,
           appliedInstallmentFee: installmentFee,
           appliedTransferFee: transferFee,
@@ -1137,11 +1222,15 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
         closeProductModal();
         return;
       }
+      const offerFields = getAcceptedOfferFields(finalStock);
+      const basePrice = offerFields.offerPrice || Number(finalStock.sellPrice || 0);
       addToBasket({
         ...kit,
         stockKey: finalStock.key,
         selectedStockId: finalStock.timestamp,
-        price: Number(finalStock.sellPrice || 0) + handlingFee + installmentFee + transferFee,
+        price: basePrice + handlingFee + installmentFee + transferFee,
+        sellPrice: basePrice,
+        ...offerFields,
         appliedHandlingFee: handlingFee,
         appliedInstallmentFee: installmentFee,
         appliedTransferFee: transferFee,
@@ -1184,14 +1273,23 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   const isNotifyState = buyLabel === 'NOTIFY ME' && !isAdminView && !isPendingRelease && availableCount === 0;
   const gridUnavailableLabel = isCollectionOnly ? "SEND OFFER!" : hasReserved ? "LET'S DEAL!" : "NOTIFY ME!";
   const gridUnavailableClass = hasReserved ? 'text-blue-500' : 'text-red-500';
-  const modalLowestPrice = Number(selectedBundleDealDetails?.currentItemPrice || sellPrice || 0);
-  const modalReferencePrice = selectedBundleDealDetails ? Number(lowestPrice || 0) : displayPrice;
+  const modalLowestPrice = acceptedOfferPrice > 0
+    ? acceptedOfferPrice
+    : Number(selectedBundleDealDetails?.currentItemPrice || sellPrice || 0);
+  const modalReferencePrice = acceptedOfferPrice > 0
+    ? acceptedOfferPrice + handlingFee + transferFee + installmentFee
+    : (selectedBundleDealDetails ? Number(lowestPrice || 0) : displayPrice);
   const activeBundleDeal = selectedBundleDealDetails?.deal || null;
   const activeBundleItemPrice = Number(selectedBundleDealDetails?.currentItemPrice || 0);
   const activeBundlePrice = Number(selectedBundleDealDetails?.bundlePrice || activeBundleDeal?.bundlePrice || 0);
   const isAdminBundleDealSelected = isAdmin && isAdminView && selectedAvailabilityGroup?.tag === 'bundleDeal' && activeBundleDeal;
   const isPublicOfferMode = !isAdminView && (isCollectionOnly || isSelectedCollectionGroup || isNotifyState);
-  const showPublicModalPrice = !isAdminView && !isPublicOfferMode;
+  const showPublicModalPrice = !isAdminView && (!isPublicOfferMode || Boolean(acceptedOffer));
+  const isActiveAcceptedOffer = isCollectionOnly
+    && Boolean(acceptedOffer && acceptedOfferStock && offerCountdown && offerCountdown !== 'EXPIRED');
+  const activeOfferBadgeLabel = isActiveAcceptedOffer
+    ? formatOfferBadgeLabel(acceptedOffer.offerExpiresAt, now)
+    : '';
   const gridStatusBadges = [];
   if (isEarlyAccess) {
     gridStatusBadges.push({
@@ -1203,6 +1301,13 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     gridStatusBadges.push({
       label: 'Free Shipping',
       className: 'bg-emerald-500 text-white border-emerald-400 shadow-lg flex items-center gap-1'
+    });
+  }
+  if (isActiveAcceptedOffer) {
+    gridStatusBadges.push({
+      label: activeOfferBadgeLabel,
+      isActiveDeal: true,
+      className: 'bg-red-500 text-white border-red-400 shadow-lg'
     });
   }
   if (availabilityCounts.onhand > 0 || availabilityCounts.preorder > 0) {
@@ -1279,6 +1384,8 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     });
   }
   const sortedGridStatusBadges = [...gridStatusBadges].sort((a, b) => {
+    if (a.isActiveDeal && !b.isActiveDeal) return -1;
+    if (!a.isActiveDeal && b.isActiveDeal) return 1;
     if (a.isAvailabilityCount && !b.isAvailabilityCount) return 1;
     if (!a.isAvailabilityCount && b.isAvailabilityCount) return -1;
     return b.label.length - a.label.length;
@@ -1286,7 +1393,8 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   const renderAvailabilityGroupButton = (group) => {
     const isSelected = selectedGroupLabel === (group.key || group.label);
     const availableCountInGroup = group.items.filter(s => !s.isReserved && !s.order?.orderId).length;
-    const isCollectionGroup = group.tag === 'collection';
+    const isAcceptedOfferGroup = group.tag === 'acceptedOffer';
+    const isCollectionGroup = group.tag === 'collection' || isAcceptedOfferGroup;
     const isBundleDealGroup = group.tag === 'bundleDeal';
     const isFullyReserved = !isCollectionGroup && availableCountInGroup === 0;
 
@@ -1391,7 +1499,16 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                     <div className="flex items-baseline gap-1 w-full min-w-0">
                       {!isAdminView && (
                         <>
-                          {(availableCount > 0 && !isExclusiveToBundle) ? (
+                          {(isActiveAcceptedOffer && acceptedOfferPrice > 0) ? (
+                            <>
+                              <span className="text-[13px] lg:text-[13px] font-black italic tracking-tighter leading-none text-blue-600 dark:text-blue-400 shrink-0">
+                                ₱{acceptedOfferPrice.toLocaleString()}
+                              </span>
+                              <span className="text-[12px] lg:text-[12px] font-black italic tracking-tighter line-through shrink-0">
+                                ₱{(acceptedOfferPrice + handlingFee + transferFee + installmentFee).toLocaleString()}
+                              </span>
+                            </>
+                          ) : (availableCount > 0 && !isExclusiveToBundle) ? (
                             <>
                               <span className="text-[13px] lg:text-[13px] font-black italic tracking-tighter leading-none text-amber-500 dark:text-amber-500 shrink-0">
                                 ₱{lowestPrice.toLocaleString()}
@@ -1792,6 +1909,15 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                   </div>
 
                   <div className={`w-full bottom-0 p-2 border-t shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] ${isDarkMode ? 'bg-black/80 border-white/10' : 'bg-white/80 border-black/5'} backdrop-blur-md z-[210] flex-none`}>
+                    <div className={`grid transition-all duration-300 ease-in-out overflow-hidden ${acceptedOffer && acceptedOfferStock && selectedStock?.key === acceptedOfferStock.key && offerCountdown !== 'EXPIRED' ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+                      <div className="overflow-hidden">
+                        <div className="w-full mb-2 bg-red-500 rounded-lg p-1.5 flex items-center justify-center backdrop-blur-sm">
+                          <span className="text-white font-black italic uppercase tracking-[0.2em] text-[11px] drop-shadow-md">
+                            OFFER ENDS IN {offerCountdown}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
                     <div className={`grid transition-all duration-300 ease-in-out overflow-hidden ${selectedStock && selectedStock.isFreeShippingEligible && (!selectedStock.freeShippingUntil || now < new Date(selectedStock.freeShippingUntil).getTime()) ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
                         <div className="overflow-hidden">
                             <div className="w-full mb-2 bg-emerald-500 rounded-lg p-1.5 flex items-center justify-center backdrop-blur-sm">
