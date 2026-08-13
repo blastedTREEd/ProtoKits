@@ -85,6 +85,7 @@ export default function Navbar({ isCompact: scrolledCompact }) {
     migrateKitScaleToSpecs,
     findKitIdMismatches,
     fixKitIdMismatches,
+    fixInventoryConditionDefaults,
     loadOrdersOnce,
   } = useStore();
 
@@ -565,6 +566,7 @@ const handleInventoryAudit = async () => {
     // 1. Fetch FULL inventory for a thorough check
     const snap = await getDocs(collection(db, "kits"));
     const allKits = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const conditionDefaultsAdded = await fixInventoryConditionDefaults(allKits);
 
     if (!orders?.length) await loadOrdersOnce();
     const latestOrders = useStore.getState().orders || orders || [];
@@ -575,7 +577,11 @@ const handleInventoryAudit = async () => {
     const idMismatches = findKitIdMismatches(allKits);
 
     if (!issues.length && !scaleMigrations.length && !idMismatches.length) {
-      alert('Inventory check complete. Lahat ay sumusunod sa format at walang stale data.');
+      alert(
+        conditionDefaultsAdded > 0
+          ? `Inventory check complete. Added condition defaults to ${conditionDefaultsAdded} stock${conditionDefaultsAdded === 1 ? '' : 's'}.`
+          : 'Inventory check complete. Lahat ay sumusunod sa format at walang stale data.'
+      );
       return;
     }
 
@@ -610,7 +616,7 @@ const handleInventoryAudit = async () => {
     if (scaleMigrations.length) await migrateKitScaleToSpecs(scaleMigrations);
     if (idMismatches.length) await fixKitIdMismatches(idMismatches);
 
-    alert(`Done. Fixed ${issues.length} stocks, ${scaleMigrations.length} scales, and ${idMismatches.length} kit IDs.`);
+    alert(`Done. Fixed ${issues.length} stocks, ${scaleMigrations.length} scales, ${idMismatches.length} kit IDs, and added condition defaults to ${conditionDefaultsAdded} stock${conditionDefaultsAdded === 1 ? '' : 's'}.`);
     setIsProfileOpen(false);
   } catch (err) {
     console.error('Inventory audit failed:', err);

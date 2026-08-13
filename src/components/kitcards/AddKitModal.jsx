@@ -24,6 +24,11 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useStore } from '../../store/useStore';
+import {
+  PRE_ORDER_BOX_CONDITION,
+  PRE_ORDER_KIT_CONDITION,
+  withStockConditionDefaults
+} from '../../utils/stockConditions';
 
 const DEFAULT_MASTER = {
   name: '',
@@ -1008,12 +1013,15 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
   };
 
   const updateStockCondition = (field, value) => {
-    setStockForm((prev) => ({ ...prev, [field]: value.toUpperCase() }));
+    setStockForm((prev) => withStockConditionDefaults({
+      ...prev,
+      [field]: value.toUpperCase()
+    }));
   };
 
   const handleStatusChange = (status) => {
     const normalizedStatus = normalizeStockStatus(status);
-    setStockForm((prev) => ({
+    setStockForm((prev) => withStockConditionDefaults({
       ...prev,
       status: normalizedStatus,
       eta: normalizedStatus === 'Onhand' ? '' : prev.eta,
@@ -1021,7 +1029,10 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       isFreeShippingEligible: normalizedStatus === 'Onhand' ? false : prev.isFreeShippingEligible,
       freeShippingUntil: normalizedStatus === 'Onhand' ? '' : prev.freeShippingUntil,
       freeShippingMethod: normalizedStatus === 'Onhand' ? 'All' : prev.freeShippingMethod,
-      freeShippingSuboption: normalizedStatus === 'Onhand' ? 'All' : prev.freeShippingSuboption
+      freeShippingSuboption: normalizedStatus === 'Onhand' ? 'All' : prev.freeShippingSuboption,
+      ...(normalizedStatus === 'Pre-Order'
+        ? { boxCondition: PRE_ORDER_BOX_CONDITION, kitCondition: PRE_ORDER_KIT_CONDITION }
+        : {})
     }));
   };
 
@@ -1128,7 +1139,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
 
     setEditingStockKey('');
     setStockMode('new');
-    setStockForm({
+    setStockForm(withStockConditionDefaults({
       ...DEFAULT_STOCK,
       status: latestEta ? 'Pre-Order' : 'Onhand',
       eta: latestEta,
@@ -1136,7 +1147,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       boxImage: masterForm.image || '',
       kitImage: '',
       stockImages: []
-    });
+    }));
   };
 
   const handleEditStock = (stockItem) => {
@@ -1144,7 +1155,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
     const legacyConditions = extractLegacyConditions(stockItem);
     setEditingStockKey(stockItem.key || '');
     setStockMode('edit');
-    setStockForm({
+    setStockForm(withStockConditionDefaults({
       status: normalizedStatus,
       eta: stockItem.eta || '',
       costPrice: stockItem.costPrice ?? '',
@@ -1165,7 +1176,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       freeShippingUntil: stockItem.freeShippingUntil || '',
       freeShippingMethod: stockItem.freeShippingMethod || 'All',
       freeShippingSuboption: stockItem.freeShippingSuboption || 'All'
-    });
+    }));
   };
 
   const cancelEditStock = () => {
@@ -1185,7 +1196,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
     const legacyConditions = extractLegacyConditions(stockItem);
     setEditingStockKey('');
     setStockMode('new');
-    setStockForm({
+    setStockForm(withStockConditionDefaults({
       status: normalizedStatus,
       eta: stockItem.eta || '',
       costPrice: stockItem.costPrice ?? '',
@@ -1207,7 +1218,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       freeShippingUntil: stockItem.freeShippingUntil || '',
       freeShippingMethod: stockItem.freeShippingMethod || 'All',
       freeShippingSuboption: stockItem.freeShippingSuboption || 'All'
-    });
+    }));
   };
 
   const onDeleteStock = async (stockItem) => {
@@ -1424,7 +1435,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       
       const existingStock = editingStockKey ? (selectedExistingKit?.stocks?.[editingStockKey] || {}) : {};
       
-      payload.newStock = {
+      payload.newStock = withStockConditionDefaults({
         ...existingStock,
         status: stockForm.status,
         eta: stockForm.eta.trim().toUpperCase(),
@@ -1433,8 +1444,8 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
         sellPrice: normalizeNumber(stockForm.sellPrice),
         minDownpayment: normalizeNumber(stockForm.minDownpayment),
         publicReleaseDate: stockForm.publicReleaseDate || '',
-        boxCondition: normalizeConditionSuggestion(stockForm.boxCondition),
-        kitCondition: normalizeConditionSuggestion(stockForm.kitCondition),
+        boxCondition: normalizeConditionSuggestion(stockForm.boxCondition || (stockForm.status === 'Pre-Order' ? PRE_ORDER_BOX_CONDITION : '')),
+        kitCondition: normalizeConditionSuggestion(stockForm.kitCondition || (stockForm.status === 'Pre-Order' ? PRE_ORDER_KIT_CONDITION : '')),
         issueDescription: stockForm.issueDescription.trim(),
         stockImages: (stockForm.stockImages || []).map((image) => ({
           id: image.id,
@@ -1448,7 +1459,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
         freeShippingMethod: stockForm.isFreeShippingEligible ? (stockForm.freeShippingMethod || 'All') : '',     
         freeShippingSuboption: stockForm.isFreeShippingEligible ? (stockForm.freeShippingSuboption || 'All') : '', 
         timestamp: existingStock.timestamp || Date.now()
-      };
+      });
     }
 
     try {
@@ -1525,8 +1536,12 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       minDownpayment: sanitizeRealNumberInput(
         getBatchValue(row, 'MINIMUM DOWNPAYMENT', 'DOWNPAYMENT') || stockForm.minDownpayment || '350'
       ),
-      // boxCondition: normalizeConditionSuggestion(getBatchValue(row, 'BOX CONDITION') || stockForm.boxCondition),
-      // kitCondition: normalizeConditionSuggestion(getBatchValue(row, 'KIT CONDITION') || stockForm.kitCondition),
+      boxCondition: normalizeConditionSuggestion(
+        getBatchValue(row, 'BOX CONDITION') || (status === 'Pre-Order' ? PRE_ORDER_BOX_CONDITION : '')
+      ),
+      kitCondition: normalizeConditionSuggestion(
+        getBatchValue(row, 'KIT CONDITION') || (status === 'Pre-Order' ? PRE_ORDER_KIT_CONDITION : '')
+      ),
       keepNow: getBatchValue(row, 'KEEP NOW'),
       // orderId: getBatchValue(row, 'ORDER ID'),
       targetId: createKitTargetId(name, grade, ratio, brand)
@@ -1559,6 +1574,15 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
         }
         if (field === 'status') {
           next.status = normalizeStockStatus(value);
+          if (next.status === 'Pre-Order') {
+            next.boxCondition = PRE_ORDER_BOX_CONDITION;
+            next.kitCondition = PRE_ORDER_KIT_CONDITION;
+          }
+          if (next.status === 'Onhand') {
+            const normalizedOnhand = withStockConditionDefaults(next);
+            next.boxCondition = normalizedOnhand.boxCondition;
+            next.kitCondition = normalizedOnhand.kitCondition;
+          }
           if (next.status === 'Onhand') {
             next.eta = '';
             next.paidToSupplier = next.paidToSupplier || next.costPrice;
@@ -1628,8 +1652,8 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
         sellPrice: normalizeNumber(row.sellPrice),
         minDownpayment: normalizeNumber(row.minDownpayment || '350'),
         publicReleaseDate: stockForm.publicReleaseDate || '',
-        boxCondition: normalizeConditionSuggestion(row.boxCondition),
-        kitCondition: normalizeConditionSuggestion(row.kitCondition),
+        boxCondition: normalizeConditionSuggestion(row.boxCondition || (status === 'Pre-Order' ? PRE_ORDER_BOX_CONDITION : '')),
+        kitCondition: normalizeConditionSuggestion(row.kitCondition || (status === 'Pre-Order' ? PRE_ORDER_KIT_CONDITION : '')),
         stockImages: [],
         boxImage: '',
         kitImage: '',

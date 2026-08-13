@@ -21,7 +21,7 @@ To eliminate loading flashes (content flickering) in React, the store tracks pag
 - Firestore transport uses the SDK's automatic long-polling detection. Forced long-polling is intentionally disabled because it degrades performance on browsers that can use the normal streaming transport.
 - `stories` has one ordered live query and is subscribed only when the landing page is visited.
 - `blueprints` is subscribed only on `/prints` and `/blueprints`.
-- `shelf` is subscribed only for an administrator on shelf/admin-basket routes.
+- `shelf` is subscribed for administrators on every route because the navbar and kit cards use live shelf state for collection counts and badges.
 - `kits` and `deals` remain global live listeners because basket stock, restock, and last-day deal notifications must update on every page.
 - The public Orders page owns the user's order query while it is mounted; the navbar reuses that store data instead of opening a duplicate notification query.
 - The first snapshot marks a dataset loaded even when it contains zero documents. An empty collection is valid data and must not leave the loading overlay visible.

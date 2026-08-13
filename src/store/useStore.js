@@ -5,6 +5,10 @@ import {
   collection, onSnapshot, doc, query, orderBy, where, limit, getDocs, getDoc, setDoc, updateDoc, deleteDoc, deleteField, serverTimestamp, addDoc, writeBatch
 } from 'firebase/firestore';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
+import {
+  withInventoryConditionDefaults,
+  withStockConditionDefaults
+} from '../utils/stockConditions';
 
 const getKitTimestamp = (kit) => {
   const timestamps = [
@@ -355,14 +359,17 @@ export const useStore = create(
 
       // Helper: determines which datasets a given pathname needs
       _getPageRequirements: (pathname) => {
-        const { isAdmin, isAdminView } = get();
+        const { isAdmin } = get();
         return {
           stories: pathname === '/' || pathname === '',
           kits: pathname.startsWith('/kits'),
           deals: pathname.startsWith('/kits'),
           orders: pathname === '/orders',
           basket: pathname === '/basket' || pathname === '/shelf',
-          shelf: (pathname === '/shelf' && isAdmin) || (pathname === '/basket' && isAdmin && isAdminView),
+          // Admin shelf state is also consumed by the navbar and the kit cards.
+          // Keep its live listener active on every admin route so collection
+          // badges/counts do not depend on opening the shelf page first.
+          shelf: isAdmin,
           prints: pathname === '/prints' || pathname === '/blueprints'
         };
       },
@@ -1063,6 +1070,7 @@ export const useStore = create(
         console.log("SG DEBUG: addKit store action triggered with data:", kitData);
         try {
           const { stockUpdateKey, newStock, updateMasterOnly, id: oldKitId, ...masterInfo } = kitData;
+          const normalizedNewStock = newStock ? withStockConditionDefaults(newStock) : newStock;
           const parts = [];
           const b = (masterInfo.brand || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
           if (b) parts.push(b);
@@ -1110,12 +1118,12 @@ export const useStore = create(
               }
           }
 
-          const isRestock = Boolean(newStock && (!stockUpdateKey || !stocks[stockUpdateKey]));
+          const isRestock = Boolean(normalizedNewStock && (!stockUpdateKey || !stocks[stockUpdateKey]));
           // Compute stockKey ONCE so both blocks use the same key
-          const resolvedStockKey = (!updateMasterOnly && newStock) ? (stockUpdateKey || `stock_${Date.now()}`) : null;
+          const resolvedStockKey = (!updateMasterOnly && normalizedNewStock) ? (stockUpdateKey || `stock_${Date.now()}`) : null;
 
           if (resolvedStockKey) {
-            stocks[resolvedStockKey] = { ...newStock, key: resolvedStockKey, lastUpdated: timing };
+            stocks[resolvedStockKey] = { ...normalizedNewStock, key: resolvedStockKey, lastUpdated: timing };
             console.log("SG DEBUG: Variant added/updated. Key:", resolvedStockKey);
           }
           
@@ -1278,6 +1286,37 @@ export const useStore = create(
             });
           }
         }
+      },
+
+      fixInventoryConditionDefaults: async (kits = []) => {
+        let updatedStockCount = 0;
+
+        for (const kit of kits) {
+          const updates = {};
+
+          Object.entries(kit?.stocks || {}).forEach(([stockKey, stock]) => {
+            const nextStock = withInventoryConditionDefaults(stock, kit);
+            if (nextStock.boxCondition !== stock.boxCondition) {
+              updates[`stocks.${stockKey}.boxCondition`] = nextStock.boxCondition;
+            }
+            if (nextStock.kitCondition !== stock.kitCondition) {
+              updates[`stocks.${stockKey}.kitCondition`] = nextStock.kitCondition;
+            }
+
+            if (nextStock.boxCondition !== stock.boxCondition || nextStock.kitCondition !== stock.kitCondition) {
+              updatedStockCount += 1;
+            }
+          });
+
+          if (Object.keys(updates).length > 0) {
+            await updateDoc(doc(db, 'kits', kit.id), {
+              ...updates,
+              lastUpdated: serverTimestamp()
+            });
+          }
+        }
+
+        return updatedStockCount;
       },
 
       findMisalignedStocks: (kits, orders = []) => {
