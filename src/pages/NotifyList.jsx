@@ -271,8 +271,8 @@ export default function NotifyList() {
               <p className="font-bold mb-6">Your offers list is empty.</p>
             </div>
           ) : (
-            <div className="flex flex-col">
-              {offerRows.map((row, index) => {
+            <div className="space-y-4">
+              {offerRows.map((row) => {
                 if (row.type === 'separator') {
                   const toneColors = {
                     reasonable: {
@@ -296,7 +296,7 @@ export default function NotifyList() {
                   return (
                     <div
                       key={row.key}
-                      className="sticky top-[110px] z-[80] -mx-4 flex items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md dark:bg-[#0a0a0a]/90"
+                      className="first:mt-4 sticky top-[110px] z-[80] -mx-4 flex items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md dark:bg-[#0a0a0a]/90"
                     >
                       <div className={`h-px flex-1 bg-gradient-to-r from-transparent ${colors.line} to-transparent`} />
                       <span className={`select-none bg-gradient-to-r ${colors.text} bg-clip-text text-[13px] font-black uppercase tracking-[0.2em] text-transparent`}>
@@ -324,14 +324,11 @@ export default function NotifyList() {
                 const maxSell = kit?.stocks ? Math.max(...Object.values(kit.stocks).map(s => Number(s.sellPrice || 0))) : Number(kit?.sellPrice || 0);
                 const sellPrice = Number(shelfItem?.sellPrice ?? kit?.stocks?.[shelfItem?.stockKey]?.sellPrice ?? maxSell);
 
-                const prevRow = index > 0 ? offerRows[index - 1] : null;
-                const isAfterOffer = prevRow?.type === 'offer';
-
                 return (
                   <div
                     key={item.id}
                     onClick={() => toggleSelection(item.id)}
-                    className={`p-3 rounded-2xl border-2 cursor-pointer flex gap-4 items-center transition-all duration-300 ${isSelected ? 'border-blue-500 shadow-lg' : 'border-black/5 dark:border-white/5'} ${status === 'expired' ? 'opacity-60' : ''} bg-white dark:bg-neutral-900 ${isAfterOffer ? 'mt-4' : 'mt-0'}`}
+                    className={`p-3 rounded-2xl border-2 cursor-pointer flex gap-4 items-center transition-all duration-300 ${isSelected ? 'border-blue-500 shadow-lg' : 'border-black/5 dark:border-white/5'} ${status === 'expired' ? 'opacity-60' : ''} bg-white dark:bg-neutral-900`}
                   >
                     <div className="flex items-center justify-center">
                       {displayImage ? (

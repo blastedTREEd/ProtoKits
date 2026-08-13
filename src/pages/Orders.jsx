@@ -1226,6 +1226,21 @@ export default function Orders() {
   const activeTabData = tabData.find((tab) => tab.id === activeTab) || tabData[0];
   const visibleOrders = activeTabData?.orders || [];
   const visibleInvalidOrders = visibleOrders.filter(order => order.isMaintenanceOrder);
+  const orderRows = (() => {
+    const validOrders = [];
+    const invalidOrders = [];
+
+    visibleOrders.forEach((order) => {
+      (order.isMaintenanceOrder ? invalidOrders : validOrders).push(order);
+    });
+
+    return [
+      ...(validOrders.length > 0 ? [{ type: 'separator', key: 'valid', label: 'Valid Orders' }] : []),
+      ...validOrders.map((order) => ({ type: 'order', key: order.id, order })),
+      ...(invalidOrders.length > 0 ? [{ type: 'separator', key: 'invalid', label: 'Invalid Orders' }] : []),
+      ...invalidOrders.map((order) => ({ type: 'order', key: order.id, order }))
+    ];
+  })();
   const selectedShippingFlags = selectedOrder ? getShippingFlags(selectedOrder) : {};
   const selectedIsSelfBooking = isOrderSelfBooking(selectedOrder, shippingSettings);
   const selectedPaymentFullyValidated = Boolean(
@@ -2123,7 +2138,23 @@ export default function Orders() {
                   <p className="font-black uppercase tracking-widest text-sm">Ready for your next build?</p>
                 </div>
               )}
-              {visibleOrders.map(o => {
+              {orderRows.map((row) => {
+                if (row.type === 'separator') {
+                  return (
+                    <div
+                      key={row.key}
+                      className="sticky top-[116px] z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md dark:bg-[#0a0a0a]/90 md:top-[120px] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8"
+                    >
+                      <div className="h-px flex-1 bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
+                      <span className="select-none bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-[11px] font-black uppercase tracking-[0.2em] text-transparent">
+                        {row.label}
+                      </span>
+                      <div className="h-px flex-1 bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
+                    </div>
+                  );
+                }
+
+                const o = row.order;
                 const isSelected = selectedOrders.includes(o.id);
                 const orderItems = Array.isArray(o.items) && o.items.length > 0 ? o.items : [o];
                 const { total: orderGrandTotal } = getOrderTotals(o);

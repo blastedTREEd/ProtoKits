@@ -437,13 +437,13 @@ export default function Basket() {
               <p className="font-bold mb-6">{isAdmin && isAdminView ? "The shelf is empty.." : "Your basket is empty.."}</p>
             </div>
           ) : (
-            <div className="flex flex-col">
+            <div className="space-y-4">
               {basketRows.map((row, index) => {
                 if (row.type === 'separator') {
                   return (
                     <div
                       key={row.key}
-                      className="sticky top-[110px] z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md dark:bg-[#0a0a0a]/90 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8"
+                      className={`sticky top-[110px] z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md dark:bg-[#0a0a0a]/90 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${index === 0 ? 'mt-4' : ''}`}
                     >
                       <div className="h-px flex-1 bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                       <span className="select-none bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-[11px] font-black uppercase tracking-[0.2em] text-transparent">
@@ -455,7 +455,6 @@ export default function Basket() {
                 }
 
                 const { item } = row;
-                const previousRow = basketRows[index - 1];
                 const isSelected = item.basketIds.some(bid => activeSelection.includes(bid));
                 const kit = kits.find(k => k.id === item.id);
                 
@@ -496,7 +495,7 @@ export default function Basket() {
                   <div 
                     key={uniqueGroupKey} 
                     onClick={() => item.basketIds.forEach(toggleSelection)}
-                    className={`${cardClasses} ${previousRow?.type === 'item' ? 'mt-4' : ''}`}
+                    className={cardClasses}
                   >
                     <div className="flex items-center justify-center">
                       {displayImage ? (
