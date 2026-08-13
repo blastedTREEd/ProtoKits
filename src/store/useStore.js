@@ -259,6 +259,7 @@ export const useStore = create(
       isBanned: false,
       isProfileIncomplete: false,
       isAdminView: false,
+      isInventoryAuditOpen: false,
       user: null,
       basket: [],
       guestBasket: [],
@@ -1287,6 +1288,7 @@ export const useStore = create(
           }
         }
       },
+      setInventoryAuditOpen: (isOpen) => set({ isInventoryAuditOpen: isOpen }),
 
       fixInventoryConditionDefaults: async (kits = []) => {
         let updatedStockCount = 0;
@@ -1317,6 +1319,25 @@ export const useStore = create(
         }
 
         return updatedStockCount;
+      },
+
+      applyInventoryConditionFixes: async (fixes = []) => {
+        const updatesByKit = new Map();
+
+        fixes.forEach((fix) => {
+          if (!fix?.kitId || !fix?.stockKey) return;
+          const updates = updatesByKit.get(fix.kitId) || {};
+          if (fix.boxCondition) updates[`stocks.${fix.stockKey}.boxCondition`] = fix.boxCondition;
+          if (fix.kitCondition) updates[`stocks.${fix.stockKey}.kitCondition`] = fix.kitCondition;
+          if (Object.keys(updates).length > 0) updatesByKit.set(fix.kitId, updates);
+        });
+
+        for (const [kitId, updates] of updatesByKit.entries()) {
+          await updateDoc(doc(db, 'kits', kitId), {
+            ...updates,
+            lastUpdated: serverTimestamp()
+          });
+        }
       },
 
       findMisalignedStocks: (kits, orders = []) => {

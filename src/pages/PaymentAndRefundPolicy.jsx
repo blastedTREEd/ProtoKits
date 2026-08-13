@@ -3,7 +3,7 @@ import PageTemplate from './PageTemplate';
 import { useTheme } from '../context/ThemeContext';
 import { useStore } from '../store/useStore';
 
-export default function PaymentRefund() {
+export default function PaymentRefund({ isModal = false }) {
   const { isDarkMode } = useTheme();
   const shippingSettings = useStore((state) => state.shippingSettings);
   const paymentSettings = shippingSettings?.paymentSettings || {};
@@ -12,7 +12,7 @@ export default function PaymentRefund() {
   const projectSettleDays = Number(paymentSettings.projectSettleDays ?? 10);
 
   return (
-    <PageTemplate isDarkMode={isDarkMode}>
+    <PageTemplate isDarkMode={isDarkMode} compact={isModal}>
       <div className={`max-w-3xl mx-auto p-6 md:p-12 text-left space-y-8 ${isDarkMode ? 'text-neutral-200' : 'text-neutral-800'}`}>
         {/* HEADER */}
         <div>

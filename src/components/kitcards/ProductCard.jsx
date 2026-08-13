@@ -215,6 +215,16 @@ function getBundleKitPrice(deal, dealKit, allKits = [], fallbackExclusivePercent
   return target ? target.finalPrice : null;
 }
 
+function getBundleSavedAmount(deal) {
+  if (!deal) return 0;
+  const storedDiscount = Number(deal.discountAmount);
+  if (Number.isFinite(storedDiscount) && storedDiscount > 0) return storedDiscount;
+
+  const totalSell = Number(deal.totalSell || 0);
+  const bundlePrice = Number(deal.bundlePrice || 0);
+  return Math.max(0, totalSell - bundlePrice);
+}
+
 function parseDealDate(value) {
   if (!value) return null;
   const [datePart, timePart = '00:00'] = value.split('T');
@@ -1722,17 +1732,17 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                             </p>
                                           </div>
                                           <div className="text-right shrink-0">
-                                            <p className="text-[14px] font-black italic text-emerald-600">&#8369;{bundleKitPrice.toLocaleString()}</p>
+                                            <p className="text-[16px] font-black italic text-emerald-600">&#8369;{bundleKitPrice.toLocaleString()}</p>
                                             {referencePrice > 0 && referencePrice !== bundleKitPrice && (
-                                              <p className="mt-0.5 text-[14px] font-black line-through text-black">&#8369;{referencePrice.toLocaleString()}</p>
+                                              <p className="mt-0.5 text-[15px] font-black line-through text-black">&#8369;{referencePrice.toLocaleString()}</p>
                                             )}
                                           </div>
                                         </div>
                                       );
                                     })}
                                     <div className="flex justify-end pt-2">
-                                      <p className="text-[12px] font-black uppercase leading-none text-emerald-600">
-                                        Save &#8369;{Math.max(0, lowestPrice - activeBundleItemPrice).toLocaleString()}
+                                      <p className="text-[16px] font-black uppercase leading-none text-emerald-600">
+                                        Save &#8369;{getBundleSavedAmount(deal).toLocaleString()}
                                       </p>
                                     </div>
                                   </div>

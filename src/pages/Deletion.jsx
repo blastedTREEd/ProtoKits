@@ -2,11 +2,11 @@ import React from 'react';
 import PageTemplate from './PageTemplate';
 import { useTheme } from '../context/ThemeContext';
 
-export default function Deletion() {
+export default function Deletion({ isModal = false }) {
   const { isDarkMode } = useTheme();
 
   return (
-    <PageTemplate isDarkMode={isDarkMode}>
+    <PageTemplate isDarkMode={isDarkMode} compact={isModal}>
       <div className={`max-w-3xl mx-auto p-6 md:p-12 text-left space-y-6 ${isDarkMode ? 'text-neutral-200' : 'text-neutral-800'}`}>
         {/* HEADER */}
         <div>

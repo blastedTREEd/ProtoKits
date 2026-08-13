@@ -14,6 +14,7 @@ import {
   Image as ImageIcon,
   Loader2,
   PackagePlus,
+  PackageSearch,
   Save,
   Search,
   Tag,
@@ -24,6 +25,7 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useStore } from '../../store/useStore';
+import InventoryAuditModal from './InventoryAuditModal';
 import {
   PRE_ORDER_BOX_CONDITION,
   PRE_ORDER_KIT_CONDITION,
@@ -679,6 +681,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
   const [batchPreviewRows, setBatchPreviewRows] = useState([]);
   const [batchFileName, setBatchFileName] = useState('');
   const [isMasterListView, setIsMasterListView] = useState(false);
+  const [isInventoryView, setIsInventoryView] = useState(false);
   const [masterSearchQuery, setMasterSearchQuery] = useState('');
   const [selectedMasterIds, setSelectedMasterIds] = useState([]);
   const [bulkUpdateParam, setBulkUpdateParam] = useState('brand');
@@ -877,6 +880,8 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       setSavedSnapshot('');
       setBatchPreviewRows([]);
       setBatchFileName('');
+      setIsMasterListView(false);
+      setIsInventoryView(false);
       return;
     }
 
@@ -924,8 +929,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       if (field === 'name') {
         setShowSearchResults(true);
       }
-      const updatedValue = typeof value === 'string' ? value.toUpperCase() : value;
-      return { ...prev, [field]: updatedValue };
+      return { ...prev, [field]: value };
     });
   };
 
@@ -999,13 +1003,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
   };
 
   const updateStock = (field, value) => {
-    setStockForm((prev) => {
-      let updatedValue = value;
-      if (typeof value === 'string' && ['eta', 'boxCondition', 'kitCondition', 'issueDescription'].includes(field)) {
-        updatedValue = value.toUpperCase();
-      }
-      return { ...prev, [field]: updatedValue };
-    });
+    setStockForm((prev) => ({ ...prev, [field]: value }));
   };
 
   const updateStockNumber = (field, value) => {
@@ -1015,7 +1013,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
   const updateStockCondition = (field, value) => {
     setStockForm((prev) => withStockConditionDefaults({
       ...prev,
-      [field]: value.toUpperCase()
+      [field]: value
     }));
   };
 
@@ -1037,17 +1035,13 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
   };
 
   const handleEtaChange = (value) => {
-    setStockForm((prev) => ({
-      ...prev,
-      eta: formatEtaFromMonthCode(value)
-    }));
+    updateStock('eta', value);
   };
 
-  const handleEtaFocus = () => {
-    if (!stockForm.eta) return;
+  const handleEtaBlur = () => {
     setStockForm((prev) => ({
       ...prev,
-      eta: ''
+      eta: prev.eta ? formatEtaFromMonthCode(prev.eta) : ''
     }));
   };
 
@@ -1864,8 +1858,8 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
   } uppercase`;
 
   return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/70 p-0 md:p-4 backdrop-blur-sm">
-        <div data-add-kit-modal-root className={`relative flex h-full md:h-[94dvh] w-full md:w-[min(96vw,1600px)] min-h-0 flex-col overflow-hidden rounded-none md:rounded-[2rem] border-0 md:border text-left shadow-2xl ${panelClass}`}>
+    <div className="pointer-events-none fixed inset-0 z-[300] flex items-start justify-center" role="dialog" aria-modal="true" aria-label="Add kit inventory">
+        <div data-add-kit-modal-root className={`pointer-events-auto relative mt-[56px] flex h-[calc(100dvh-56px)] w-full max-w-7xl min-h-0 flex-col overflow-hidden border-x border-t text-left shadow-2xl sm:mt-[60px] sm:h-[calc(100dvh-60px)] ${panelClass}`}>
             {/* Mobile sticky close button (same pattern as ProductCard and AddDealModal) */}
             <div className="sticky top-0 z-[220] w-full h-0 overflow-visible md:hidden">
               <div className="absolute top-4 right-4 flex justify-end items-center">
@@ -1875,24 +1869,41 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
               </div>
             </div>
             <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-white/10 px-5 py-4 sm:px-6">
-            <div className="flex items-center gap-4">
+            <div className="flex min-w-0 flex-1 items-center gap-4">
                 <div className="rounded-2xl bg-blue-600 p-3 text-white shadow-lg shadow-blue-600/20">
                 <PackagePlus size={20} />
                 </div>
-                <div className="text-left">
-                <h2 className="text-lg font-black uppercase italic tracking-tight">
-                    Add Kit Inventory
-                </h2>
-                <p className="mt-1 text-[10px] font-black uppercase tracking-[0.25em] opacity-45">
-                    Master details first, stock entry second
-                </p>
-                </div>
+                {isMasterListView ? (
+                  <div className="min-w-0 w-full max-w-[420px] text-left">
+                    <div className="relative">
+                      <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 opacity-35" />
+                      <input
+                        value={masterSearchQuery}
+                        onChange={(e) => setMasterSearchQuery(e.target.value)}
+                        placeholder="Search by name, brand, or series..."
+                        className={`${inputClass} h-10 pl-10`}
+                      />
+                    </div>
+                    <p className="mt-1 text-[12px] font-bold opacity-55">
+                      {masterListFiltered.length} kits in database
+                    </p>
+                  </div>
+                ) : (
+                  <div className="text-left">
+                    <h2 className="text-lg font-black uppercase italic tracking-tight">
+                      Kit Entry
+                    </h2>
+                  </div>
+                )}
             </div>
             <div className="flex items-center gap-2">
             <button
                 type="button"
-                onClick={() => setIsMasterListView(!isMasterListView)}
-                className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-all ${
+                onClick={() => {
+                  setIsInventoryView(false);
+                  setIsMasterListView(!isMasterListView);
+                }}
+                className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2 text-[11px] font-black uppercase tracking-widest transition-all ${
                     isMasterListView 
                     ? 'border-blue-500 bg-blue-500 text-white shadow-lg shadow-blue-500/20' 
                     : 'border-white/10 opacity-75 hover:border-blue-500 hover:text-blue-500'
@@ -1903,9 +1914,24 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
             </button>
             <button
                 type="button"
+                onClick={() => {
+                  setIsMasterListView(false);
+                  setIsInventoryView((current) => !current);
+                }}
+                className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2 text-[11px] font-black uppercase tracking-widest transition-all ${
+                    isInventoryView
+                    ? 'border-cyan-500 bg-cyan-500 text-white shadow-lg shadow-cyan-500/20'
+                    : 'border-white/10 opacity-75 hover:border-cyan-500 hover:text-cyan-500'
+                }`}
+            >
+                <PackageSearch size={14} />
+                Inventory
+            </button>
+            <button
+                type="button"
                 onClick={() => batchUploadRef.current?.click()}
                 disabled={isBatchUploading}
-                className="flex items-center justify-center gap-2 rounded-xl border border-white/10 px-4 py-2 text-[10px] font-black uppercase tracking-widest opacity-75 transition-all hover:border-emerald-500 hover:text-emerald-500 disabled:opacity-40"
+                className="flex items-center justify-center gap-2 rounded-xl border border-white/10 px-4 py-2 text-[11px] font-black uppercase tracking-widest opacity-75 transition-all hover:border-emerald-500 hover:text-emerald-500 disabled:opacity-40"
             >
                 {isBatchUploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
                 Batch
@@ -1921,7 +1947,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                 type="button"
                 onClick={handleSave}
                 disabled={isSaving || !hasUnsavedChanges}
-                className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/20 transition-all active:scale-95 disabled:cursor-not-allowed disabled:bg-neutral-400 disabled:shadow-none disabled:opacity-45"
+                className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-[11px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/20 transition-all active:scale-95 disabled:cursor-not-allowed disabled:bg-neutral-400 disabled:shadow-none disabled:opacity-45"
             >
                 {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
                 Save
@@ -1937,33 +1963,14 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
             </div>
 
             <div className="grid min-h-0 flex-1 gap-0 overflow-hidden">
-                <div className="min-h-0 min-w-0 overflow-y-auto p-4 sm:p-6 lg:p-8">
+                <div className={`min-h-0 min-w-0 p-4 sm:p-6 lg:p-8 ${isMasterListView || isInventoryView ? 'overflow-hidden' : 'overflow-y-auto'}`}>
                     {isMasterListView ? (
-                        <section className="h-full flex flex-col gap-4">
-                            <div className="flex flex-wrap items-center justify-between gap-4">
-                                <div className="text-left">
-                                    <h3 className="text-sm font-black uppercase tracking-[0.2em] text-blue-600">
-                                        Existing Master List
-                                    </h3>
-                                    <p className="mt-1 text-[10px] font-bold opacity-55">
-                                        Showing {masterListFiltered.length} kits from your database
-                                    </p>
-                                </div>
-                                <div className="flex flex-wrap items-center gap-3">
-                                    <div className="relative flex-1 min-w-[200px]">
-                                        <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 opacity-35" />
-                                        <input
-                                            value={masterSearchQuery}
-                                            onChange={(e) => setMasterSearchQuery(e.target.value)}
-                                            placeholder="Search by name, brand, or series..."
-                                            className={`${inputClass} pl-10 h-10`}
-                                        />
-                                    </div>
-                                    
-                                    {selectedMasterIds.length > 0 && (
-                                        <div className="flex items-center gap-2">
+                        <section className="flex h-full min-h-0 flex-col gap-3">
+                            {selectedMasterIds.length > 0 && (
+                                <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
+                                    <div className="flex items-center gap-2">
                                             <select 
-                                                className="h-10 rounded-xl border border-white/10 bg-black/5 px-2 text-[10px] font-black uppercase tracking-widest outline-none"
+                                                className="h-10 rounded-xl border border-white/10 bg-black/5 px-2 text-[12px] font-black uppercase tracking-widest outline-none"
                                                 value={bulkUpdateParam}
                                                 onChange={(e) => setBulkUpdateParam(e.target.value)}
                                             >
@@ -1976,13 +1983,13 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                 placeholder="New value..."
                                                 value={bulkUpdateValue}
                                                 onChange={(e) => setBulkUpdateValue(e.target.value)}
-                                                className="h-10 w-32 rounded-xl border border-white/10 bg-black/5 px-3 text-[10px] font-black uppercase tracking-widest outline-none"
+                                                className="h-10 w-32 rounded-xl border border-white/10 bg-black/5 px-3 text-[12px] font-black uppercase tracking-widest outline-none"
                                             />
                                             {bulkUpdateValue.trim() ? (
                                                 <button
                                                     type="button"
                                                     onClick={handleBulkUpdate}
-                                                    className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 h-10 text-[10px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/20 transition-all active:scale-95 whitespace-nowrap"
+                                                    className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 h-10 text-[11px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/20 transition-all active:scale-95 whitespace-nowrap"
                                                 >
                                                     <Save size={14} />
                                                     Update
@@ -1991,19 +1998,31 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                 <button
                                                     type="button"
                                                     onClick={handleBulkDeleteMasters}
-                                                    className="flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2 h-10 text-[10px] font-black uppercase tracking-widest text-white shadow-lg shadow-red-600/20 transition-all active:scale-95 whitespace-nowrap"
+                                                    className="flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2 h-10 text-[11px] font-black uppercase tracking-widest text-white shadow-lg shadow-red-600/20 transition-all active:scale-95 whitespace-nowrap"
                                                 >
                                                     <Trash2 size={14} />
                                                     Delete ({selectedMasterIds.length})
                                                 </button>
                                             )}
-                                        </div>
-                                    )}
+                                    </div>
                                 </div>
-                            </div>
+                            )}
 
-                            <div className="flex-1 overflow-auto rounded-2xl border border-white/10">
-                                <table className="w-full border-collapse text-left text-[10px]">
+                            <div className="min-h-0 flex-1 overflow-auto rounded-2xl border border-white/10">
+                                <table className="min-w-full table-fixed border-collapse text-left text-[12px]">
+                                    <colgroup>
+                                        <col className="w-[4%]" />
+                                        <col className="w-[8%]" />
+                                        <col className="w-[25%]" />
+                                        <col className="w-[12%]" />
+                                        <col className="w-[11%]" />
+                                        <col className="w-[7%]" />
+                                        <col className="w-[7%]" />
+                                        <col className="w-[7%]" />
+                                        <col className="w-[7%]" />
+                                        <col className="w-[6%]" />
+                                        <col className="w-[6%]" />
+                                    </colgroup>
                                     <thead className="sticky top-0 z-10 bg-blue-600 text-white">
                                         <tr>
                                             <th className="px-4 py-3">
@@ -2015,7 +2034,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                 />
                                             </th>
                                             {['Photo', 'Kit Name', 'Brand', 'Series', 'Line', 'Scale', 'Cost', 'Sell', 'Variants', ''].map((header) => (
-                                                <th key={header} className="px-4 py-3 text-[9px] font-black uppercase tracking-[0.2em]">
+                                                <th key={header} className="px-4 py-3 text-[12px] font-black uppercase tracking-[0.2em]">
                                                     {header}
                                                 </th>
                                             ))}
@@ -2055,7 +2074,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                     <td className="px-4 py-2 font-bold opacity-60">{Number(costPrice).toLocaleString()}</td>
                                                     <td className="px-4 py-2 font-bold opacity-60 text-emerald-500">{Number(sellPrice).toLocaleString()}</td>
                                                     <td className="px-4 py-2">
-                                                        <span className="rounded-full bg-blue-500/20 px-2 py-0.5 text-[8px] font-black text-blue-400">
+                                                        <span className="rounded-full bg-blue-500/20 px-2 py-0.5 text-[12px] font-black text-blue-400">
                                                             {Object.keys(kit.stocks || {}).length}
                                                         </span>
                                                     </td>
@@ -2066,7 +2085,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                                 applyKitToForm(kit);
                                                                 setIsMasterListView(false);
                                                             }}
-                                                            className="rounded-lg bg-blue-600 px-3 py-1.5 text-[8px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/20 transition-all active:scale-95"
+                                                            className="rounded-lg bg-blue-600 px-3 py-1.5 text-[11px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/20 transition-all active:scale-95"
                                                         >
                                                             Edit
                                                         </button>
@@ -2078,6 +2097,12 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                 </table>
                             </div>
                         </section>
+                    ) : isInventoryView ? (
+                        <InventoryAuditModal
+                          isOpen
+                          embedded
+                          onClose={() => setIsInventoryView(false)}
+                        />
                     ) : (
                         <>
                             {batchPreviewRows.length > 0 && (
@@ -2739,7 +2764,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                 <input
                                                 value={stockForm.eta}
                                                 onChange={(event) => handleEtaChange(event.target.value)}
-                                                onFocus={handleEtaFocus}
+                                                onBlur={handleEtaBlur}
                                                 placeholder={stockForm.status === 'Onhand' ? 'AVAILABLE' : 'MAY'}
                                                 className={inputClass}
                                                 disabled={stockForm.status === 'Onhand'}
@@ -3060,6 +3085,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                   )}
                 </div>
             </div>
+
         </div>
       </div>
 )}

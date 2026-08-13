@@ -12,6 +12,7 @@ import AddDealModal from '../components/kitcards/AddDealModal';
 import DealDetailsModal from '../components/kitcards/DealDetailsModal';
 import SupplierBalancesModal from '../components/kitcards/SupplierBalancesModal';
 import SalesDashboardModal from '../components/kitcards/SalesDashboardModal';
+import InventoryAuditModal from '../components/kitcards/InventoryAuditModal';
 import LoginPromptModal from '../components/menu/LoginPromptModal';
 import LoadingState from '../components/common/LoadingState';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
@@ -173,7 +174,7 @@ function isBundlePurchasableStock(stock, source = 'onhand') {
 export default function Kits() {
   const { 
     isAdmin, isAdminView, kits: storeKits, deals, 
-    isLoading, addKit,
+    isLoading, addKit, isInventoryAuditOpen, setInventoryAuditOpen,
     user, setLoginModalOpen,
     shippingSettings
   } = useStore();
@@ -1138,6 +1139,7 @@ export default function Kits() {
           />
           <SupplierBalancesModal isOpen={isSupplierBalancesModalOpen} onClose={() => setIsSupplierBalancesModalOpen(false)} />
           <SalesDashboardModal isOpen={isSalesDashboardModalOpen} onClose={() => setIsSalesDashboardModalOpen(false)} />
+          <InventoryAuditModal isOpen={isInventoryAuditOpen} onClose={() => setInventoryAuditOpen(false)} />
           <LoginPromptModal isOpen={isLoginPromptOpen} onClose={() => setIsLoginPromptOpen(false)} onLogin={() => { setLoginModalOpen(true); setIsLoginPromptOpen(false); }} onContinue={() => { setIsLoginPromptOpen(false); openCheckoutPage(itemsForCheckout, true); }} continueLabel="Check Price & Shipping" />
 
       </div>

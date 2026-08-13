@@ -124,15 +124,22 @@ const CANCELLED_ORDER_DELETE_WINDOW_MS = 10 * 60 * 1000;
 
 function DeletionTimer({ completedAt, onExpire, onDelete, children }) {
   const [timeLeft, setTimeLeft] = useState('');
-  const [fallbackStart] = useState(() => Date.now());
   const hasExpiredRef = useRef(false);
   useEffect(() => {
     const calculateTime = () => {
-      const timestampStart = completedAt?.seconds ? completedAt.seconds * 1000 : new Date(completedAt).getTime();
+      const timestampStart = completedAt?.toMillis
+        ? completedAt.toMillis()
+        : completedAt?.seconds
+          ? completedAt.seconds * 1000
+          : new Date(completedAt).getTime();
       const hasValidTimestamp = !Number.isNaN(timestampStart);
       const timestampEnd = timestampStart + CANCELLED_ORDER_DELETE_WINDOW_MS;
-      const start = hasValidTimestamp && timestampEnd > Date.now() ? timestampStart : fallbackStart;
-      const end = start + CANCELLED_ORDER_DELETE_WINDOW_MS;
+      if (!hasValidTimestamp) {
+        setTimeLeft('—');
+        return;
+      }
+
+      const end = timestampEnd;
       const now = Date.now();
       const diff = end - now;
       if (diff <= 0) {
@@ -151,7 +158,7 @@ function DeletionTimer({ completedAt, onExpire, onDelete, children }) {
     calculateTime();
     const interval = setInterval(calculateTime, 1000);
     return () => clearInterval(interval);
-  }, [completedAt, fallbackStart, onExpire]);
+  }, [completedAt, onExpire]);
   
   if (typeof children === 'function') {
     return children(timeLeft);
@@ -1336,7 +1343,7 @@ export default function Orders() {
               );
               if (selectedOrder.isMaintenanceOrder && ['Completed', 'Cancelled'].includes(selectedOrder.status)) return (
                 <DeletionTimer
-                  completedAt={selectedOrder.completedAt || selectedOrder.cancelledAt || selectedOrder.lastUpdated}
+                  completedAt={selectedOrder.completedAt || selectedOrder.cancelledAt || selectedOrder.lastUpdated || selectedOrder.createdAt}
                   onExpire={() => handleDeleteOrderNow(selectedOrder.id)}
                 >
                   {(timeLeft) => (
@@ -2131,7 +2138,7 @@ export default function Orders() {
                   .trim() || 'N/A';
                 const orderStatusIndicator = o.isMaintenanceOrder && ['Completed', 'Cancelled'].includes(o.status) ? (
                   <DeletionTimer
-                    completedAt={o.completedAt || o.cancelledAt || o.lastUpdated}
+                    completedAt={o.completedAt || o.cancelledAt || o.lastUpdated || o.createdAt}
                     onExpire={() => handleDeleteOrderNow(o.id)}
                   >
                     {(timeLeft) => (

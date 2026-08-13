@@ -211,7 +211,7 @@ function DealDatePicker({
           className="rounded-xl border border-white/10 p-2 transition-all hover:bg-white/5"><ChevronRight size={14} /></button>
       </div>
 
-      <div className="mb-2 grid grid-cols-7 gap-1 text-center text-[9px] font-black uppercase tracking-widest opacity-45">
+      <div className="mb-2 grid grid-cols-7 gap-1 text-center text-[12px] font-black uppercase tracking-widest opacity-45">
         {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, i) => (<span key={`${day}-${i}`}>{day}</span>))}
       </div>
 
@@ -242,10 +242,10 @@ function DealDatePicker({
       <div className="mt-4 flex gap-2">
         {allowClear && (
           <button type="button" onClick={() => { onChange(''); setIsOpen(false); }}
-            className="flex-1 rounded-xl border border-white/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest opacity-70 transition-all hover:bg-white/5">Clear</button>
+            className="flex-1 rounded-xl border border-white/10 px-3 py-2 text-[11px] font-black uppercase tracking-widest opacity-70 transition-all hover:bg-white/5">Clear</button>
         )}
         <button type="button" onClick={() => setIsOpen(false)}
-          className="flex-1 rounded-xl bg-blue-600 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/20">Done</button>
+          className="flex-1 rounded-xl bg-blue-600 px-3 py-2 text-[11px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/20">Done</button>
       </div>
     </div>
   );
@@ -629,8 +629,8 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
   const allSelected = deals && deals.length > 0 && selectedDealIds.length === deals.length;
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-0 md:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
-      <div className="bg-[var(--color-surface)] border-0 md:border border-[var(--color-border)] w-full h-full md:h-auto md:max-w-5xl md:max-h-[90vh] rounded-none md:rounded-[2.5rem] flex flex-col shadow-2xl overflow-hidden text-[var(--color-text-main)]">
+    <div className="pointer-events-none fixed inset-0 z-[300] flex items-start justify-center" role="dialog" aria-modal="true" aria-label="Deal entry">
+      <div className="pointer-events-auto relative mt-[56px] flex h-[calc(100dvh-56px)] w-full max-w-7xl min-h-0 flex-col overflow-hidden border-x border-t bg-[var(--color-surface)] text-[var(--color-text-main)] shadow-2xl sm:mt-[60px] sm:h-[calc(100dvh-60px)]">
         
         {/* Mobile sticky close button (same pattern as ProductCard) */}
         <div className="sticky top-0 z-[220] w-full h-0 overflow-visible md:hidden">
@@ -649,7 +649,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
             </div>
             <div>
               <h2 className="text-lg font-black uppercase italic leading-none">{activeEditId ? 'Refine Deal' : 'Deal Architect'}</h2>
-              <span className="text-[10px] font-black uppercase tracking-widest text-blue-500 opacity-80 mt-1 block">Bundles & Conditional Sales</span>
+              <span className="text-[12px] font-black uppercase tracking-widest text-blue-500 opacity-80 mt-1 block">Bundles & Conditional Sales</span>
             </div>
           </div>
           {/* Desktop close button */}
@@ -661,14 +661,14 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
           <button 
             type="button"
             onClick={() => setMobileTab('creator')} 
-            className={`flex-1 py-3 text-center text-[10px] font-black uppercase tracking-wider transition-all border-b-2 ${mobileTab === 'creator' ? 'border-blue-600 text-blue-500 bg-blue-500/5' : 'border-transparent opacity-65'}`}
+            className={`flex-1 py-3 text-center text-[11px] font-black uppercase tracking-wider transition-all border-b-2 ${mobileTab === 'creator' ? 'border-blue-600 text-blue-500 bg-blue-500/5' : 'border-transparent opacity-65'}`}
           >
             {activeEditId ? 'Edit Deal' : 'New Deal'}
           </button>
           <button 
             type="button"
             onClick={() => setMobileTab('list')} 
-            className={`flex-1 py-3 text-center text-[10px] font-black uppercase tracking-wider transition-all border-b-2 ${mobileTab === 'list' ? 'border-blue-600 text-blue-500 bg-blue-500/5' : 'border-transparent opacity-65'}`}
+            className={`flex-1 py-3 text-center text-[11px] font-black uppercase tracking-wider transition-all border-b-2 ${mobileTab === 'list' ? 'border-blue-600 text-blue-500 bg-blue-500/5' : 'border-transparent opacity-65'}`}
           >
             Active List ({deals?.length || 0})
           </button>
@@ -679,25 +679,25 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
           {/* ══ Left Column - Creator Panel ══ */}
           <div className={`w-full md:w-6/12 p-4 md:p-6 md:border-r border-[var(--color-border)] space-y-5 overflow-y-auto custom-scrollbar ${mobileTab === 'creator' ? 'block' : 'hidden md:block'}`}>
              <div className="space-y-2 text-left">
-                <label className="text-[10px] font-black uppercase tracking-widest opacity-40 ml-2">Select Strategy</label>
+                <label className="text-[12px] font-black uppercase tracking-widest opacity-40 ml-2">Select Strategy</label>
                 <div className="grid grid-cols-2 gap-2">
                    <button onClick={() => { setDealType('bundle_only'); setSelectedKitIds([]); setExclusiveKitIds([]); }} className={`py-3 rounded-2xl border flex flex-col items-center gap-1 transition-all ${dealType === 'bundle_only' ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg' : 'bg-black/5 border-[var(--color-border)] opacity-60'}`}>
-                      <Lock size={16} /> <span className="text-[8px] font-black uppercase">Bundle Deal</span>
+                      <Lock size={16} /> <span className="text-[11px] font-black uppercase">Bundle Deal</span>
                    </button>
                    <button onClick={() => { setDealType('mutually_exclusive'); setSelectedKitIds([]); setExclusiveKitIds([]); }} className={`py-3 rounded-2xl border flex flex-col items-center gap-1 transition-all ${dealType === 'mutually_exclusive' ? 'bg-red-600 border-red-600 text-white shadow-lg' : 'bg-black/5 border-[var(--color-border)] opacity-60'}`}>
-                      <Ban size={16} /> <span className="text-[8px] font-black uppercase">Mut. Excl</span>
+                      <Ban size={16} /> <span className="text-[11px] font-black uppercase">Mut. Excl</span>
                    </button>
                 </div>
              </div>
 
              <div className="space-y-4">
                 <div className="space-y-1 text-left">
-                   <label className="text-[10px] font-black uppercase tracking-widest opacity-40 ml-2">Deal Name</label>
+                   <label className="text-[12px] font-black uppercase tracking-widest opacity-40 ml-2">Deal Name</label>
                    <input value={dealName} onChange={e => setDealName(e.target.value)} placeholder="E.G. PROMO PACK" className="w-full bg-black/5 border border-[var(--color-border)] rounded-2xl px-4 py-3 text-xs font-bold outline-none focus:border-blue-500 uppercase text-[var(--color-text-main)]" />
                 </div>
 
                 <div className="space-y-1 text-left relative">
-                   <label className="text-[10px] font-black uppercase tracking-widest opacity-40 ml-2">Search & Add Kits</label>
+                   <label className="text-[12px] font-black uppercase tracking-widest opacity-40 ml-2">Search & Add Kits</label>
                    <div className="relative">
                       <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 opacity-30" />
                       <input value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Type kit name..." className="w-full bg-black/5 border border-[var(--color-border)] rounded-2xl pl-10 pr-4 py-3 text-xs font-bold outline-none focus:border-blue-500 text-[var(--color-text-main)]" />
@@ -719,9 +719,9 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                          }} className={`p-3 flex items-center gap-3 cursor-pointer transition-colors border-b border-neutral-500/10 last:border-b-0 ${hasPurchasableStock ? 'hover:bg-blue-500/10' : 'bg-red-500/10 hover:bg-red-500/20 opacity-60'}`}>
                            <img src={resolveImage(kit.image, kit.images)} className="w-8 h-8 rounded object-cover bg-white" alt="" />
                            <div className="flex-1 text-left">
-                             <p className={`text-[10px] font-black uppercase leading-tight truncate ${!hasPurchasableStock ? 'text-red-500' : ''}`}>{kit.name}</p>
-                             <p className="text-[8px] font-bold opacity-50 mt-0.5 uppercase truncate">{[kit.brand, kit.specs?.line].filter(Boolean).join(' / ') || 'No brand or line'}</p>
-                             <p className={`text-[8px] font-bold mt-0.5 ${!hasPurchasableStock ? 'text-red-400' : 'opacity-40'}`}>{hasPurchasableStock ? `₱${(kit.sellPrice || 0).toLocaleString()}` : 'NO STOCK'}</p>
+                             <p className={`text-[12px] font-black uppercase leading-tight truncate ${!hasPurchasableStock ? 'text-red-500' : ''}`}>{kit.name}</p>
+                             <p className="text-[12px] font-bold opacity-50 mt-0.5 uppercase truncate">{[kit.brand, kit.specs?.line].filter(Boolean).join(' / ') || 'No brand or line'}</p>
+                             <p className={`text-[12px] font-bold mt-0.5 ${!hasPurchasableStock ? 'text-red-400' : 'opacity-40'}`}>{hasPurchasableStock ? `₱${(kit.sellPrice || 0).toLocaleString()}` : 'NO STOCK'}</p>
                            </div>
                            <Plus size={14} className={hasPurchasableStock ? 'opacity-40' : 'opacity-20 text-red-400'} />
                          </div>
@@ -739,10 +739,10 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                           {/* Card Preview Column */}
                           <div className="space-y-1">
                             <div className="flex items-center justify-between gap-3 px-1">
-                              <label className="text-[10px] font-black uppercase tracking-widest opacity-40 flex items-center gap-1.5">
+                              <label className="text-[12px] font-black uppercase tracking-widest opacity-40 flex items-center gap-1.5">
                                 <ImageIcon size={10} /> Card Preview
                               </label>
-                              <span className="text-[8px] font-black uppercase tracking-widest opacity-35">Highest onhand</span>
+                              <span className="text-[12px] font-black uppercase tracking-widest opacity-35">Highest onhand</span>
                             </div>
                             <div className="aspect-square w-full max-w-[150px] rounded-2xl bg-white dark:bg-black/20 border border-[var(--color-border)] p-2">
                               <div className="grid h-full w-full grid-cols-2 grid-rows-2 gap-2">
@@ -762,7 +762,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
 
                           {/* Discount Input Column */}
                           <div className="space-y-1 flex flex-col justify-end pb-1">
-                            <label className="text-[10px] font-black uppercase tracking-widest opacity-40 ml-2">Discount Amount (₱)</label>
+                            <label className="text-[12px] font-black uppercase tracking-widest opacity-40 ml-2">Discount Amount (₱)</label>
                             <input type="number" value={discountAmount} onChange={e => setDiscountAmount(e.target.value)} placeholder="0.00" className="w-full bg-blue-600/10 border border-blue-600/30 rounded-2xl px-4 py-4 text-sm font-black text-blue-500 outline-none focus:border-blue-500" />
                           </div>
                         </div>
@@ -770,8 +770,8 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                         {/* Inclusions */}
                         <div className="min-w-0 space-y-2">
                           <div className="flex items-center justify-between gap-3 px-2">
-                            <label className="text-[10px] font-black uppercase tracking-widest opacity-40">Inclusions ({selectedKitsData.length})</label>
-                            <span className="text-[8px] font-black uppercase tracking-widest opacity-30">Drag to reorder / X to remove</span>
+                            <label className="text-[12px] font-black uppercase tracking-widest opacity-40">Inclusions ({selectedKitsData.length})</label>
+                            <span className="text-[12px] font-black uppercase tracking-widest opacity-30">Drag to reorder / X to remove</span>
                           </div>
                           {getOrderedKits(kits, previewKitIds).map((kit, index) => {
                             const stock = getHighestOnhandStock(kit);
@@ -789,11 +789,11 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                             >
                               <GripVertical size={14} className="shrink-0 opacity-40" />
                               <img src={resolveImage(kit.image, kit.images)} className="h-7 w-7 rounded-lg object-cover bg-white" alt="" />
-                              <span className="min-w-0 flex-1 truncate text-[9px] font-black uppercase">{kit.name}</span>
+                              <span className="min-w-0 flex-1 truncate text-[12px] font-black uppercase">{kit.name}</span>
                               <div className="shrink-0 text-right leading-tight mr-1">
-                                <span className="block text-[8px] font-black uppercase text-emerald-500">SELL ₱{Number(stock.sellPrice || kit.sellPrice || 0).toLocaleString()}</span>
-                                <span className="block text-[8px] font-black uppercase opacity-35">COST ₱{Number(stock.costPrice || 0).toLocaleString()}</span>
-                                <span className="block text-[8px] font-black uppercase text-blue-500">DEAL ₱{Number(discountRow?.finalPrice || stock.sellPrice || kit.sellPrice || 0).toLocaleString()}</span>
+                                <span className="block text-[12px] font-black uppercase text-emerald-500">SELL ₱{Number(stock.sellPrice || kit.sellPrice || 0).toLocaleString()}</span>
+                                <span className="block text-[12px] font-black uppercase opacity-35">COST ₱{Number(stock.costPrice || 0).toLocaleString()}</span>
+                                <span className="block text-[12px] font-black uppercase text-blue-500">DEAL ₱{Number(discountRow?.finalPrice || stock.sellPrice || kit.sellPrice || 0).toLocaleString()}</span>
                               </div>
                               <button
                                 type="button"
@@ -806,7 +806,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                   );
                                 }}
                                 onDragStart={(event) => event.preventDefault()}
-                                className={`shrink-0 h-7 px-2 rounded-lg text-[8px] font-black uppercase tracking-wider italic transition-all ${
+                                className={`shrink-0 h-7 px-2 rounded-lg text-[11px] font-black uppercase tracking-wider italic transition-all ${
                                   isExclusive
                                     ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20 active:scale-95'
                                     : 'bg-black/5 dark:bg-white/5 text-[var(--color-text-main)] opacity-50 hover:opacity-100 hover:bg-black/10'
@@ -833,14 +833,14 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                       </div>
                     )}
                     <div className="hidden space-y-1 text-left">
-                      <label className="text-[10px] font-black uppercase tracking-widest opacity-40 ml-2">Discount Amount (₱)</label>
+                      <label className="text-[12px] font-black uppercase tracking-widest opacity-40 ml-2">Discount Amount (₱)</label>
                       <input type="number" value={discountAmount} onChange={e => setDiscountAmount(e.target.value)} placeholder="0.00" className="w-full bg-blue-600/10 border border-blue-600/30 rounded-2xl px-4 py-4 text-sm font-black text-blue-500 outline-none focus:border-blue-500" />
                     </div>
 
                     {/* Validity Date Pickers */}
                     <div className="order-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1 text-left">
-                        <label className="text-[10px] font-black uppercase tracking-widest opacity-40 ml-2 flex items-center gap-1.5">
+                        <label className="text-[12px] font-black uppercase tracking-widest opacity-40 ml-2 flex items-center gap-1.5">
                           <Calendar size={10} /> Valid From
                         </label>
                         <DealDatePicker
@@ -852,7 +852,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                         />
                       </div>
                       <div className="space-y-1 text-left">
-                        <label className="text-[10px] font-black uppercase tracking-widest opacity-40 ml-2 flex items-center gap-1.5">
+                        <label className="text-[12px] font-black uppercase tracking-widest opacity-40 ml-2 flex items-center gap-1.5">
                           <Calendar size={10} /> Valid Until
                         </label>
                         <DealDatePicker
@@ -867,24 +867,24 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
 
                     <div className="order-4 bg-black/5 rounded-2xl p-4 flex flex-col gap-2 text-left border border-white/5">
                        <div className="flex justify-between items-center text-emerald-500">
-                          <span className="text-[8px] font-black uppercase tracking-wider">Exclusive Discount Share</span>
-                          <span className="text-[10px] font-black italic">{exclusiveDiscountPercent}%</span>
+                          <span className="text-[12px] font-black uppercase tracking-wider">Exclusive Discount Share</span>
+                          <span className="text-[12px] font-black italic">{exclusiveDiscountPercent}%</span>
                        </div>
                        <div className="flex justify-between items-center opacity-40">
-                          <span className="text-[8px] font-black uppercase">Standard Combined Sell</span>
-                          <span className="text-[10px] font-bold">₱{financialSummary.totalSell.toLocaleString()}</span>
+                          <span className="text-[12px] font-black uppercase">Standard Combined Sell</span>
+                          <span className="text-[12px] font-bold">₱{financialSummary.totalSell.toLocaleString()}</span>
                        </div>
                        <div className="flex justify-between items-center opacity-40">
-                          <span className="text-[8px] font-black uppercase">Combined Cost</span>
-                          <span className="text-[10px] font-bold">₱{financialSummary.totalCost.toLocaleString()}</span>
+                          <span className="text-[12px] font-black uppercase">Combined Cost</span>
+                          <span className="text-[12px] font-bold">₱{financialSummary.totalCost.toLocaleString()}</span>
                        </div>
                        <div className="flex justify-between items-center text-blue-500">
-                          <span className="text-[8px] font-black uppercase tracking-wider">Promo Discount</span>
-                          <span className="text-[10px] font-black italic">-₱{(parseFloat(discountAmount) || 0).toLocaleString()}</span>
+                          <span className="text-[12px] font-black uppercase tracking-wider">Promo Discount</span>
+                          <span className="text-[12px] font-black italic">-₱{(parseFloat(discountAmount) || 0).toLocaleString()}</span>
                        </div>
                        <div className="h-px bg-white/5 my-1" />
                        <div className="flex justify-between items-center">
-                          <span className="text-[8px] font-black uppercase tracking-[0.2em] opacity-40">Est. Margin</span>
+                          <span className="text-[12px] font-black uppercase tracking-[0.2em] opacity-40">Est. Margin</span>
                           <span className={`text-[12px] font-black italic ${financialSummary.projectedProfit > 0 ? 'text-emerald-500' : 'text-red-500'}`}>
                              ₱{financialSummary.projectedProfit.toLocaleString()}
                           </span>
@@ -895,7 +895,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
              </div>
 
              <div className="bg-blue-600/5 border border-blue-600/10 p-4 rounded-2xl text-left">
-                <p className="text-[10px] font-bold leading-relaxed opacity-70 italic">
+                <p className="text-[12px] font-bold leading-relaxed opacity-70 italic">
                    {dealType === 'bundle_only' ? "Bundle deal discounts are split between exclusive and standard items using the configured exclusive discount percentage." : 
                     "Item A and Item B cannot be sold together. Automatic reserving & shelf synchronization will run reactively."}
                 </p>
@@ -903,7 +903,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
 
              <div className="flex gap-3">
                {activeEditId && (
-                 <button onClick={() => { setActiveEditId(null); setDealName(''); setDiscountAmount(''); setSelectedKitIds([]); setValidFrom(''); setValidUntil(''); setPreviewKitIds([]); setDraggedPreviewKitId(null); setExclusiveKitIds([]); setMobileTab('list'); }} className="px-5 py-4 rounded-2xl bg-black/5 hover:bg-black/10 border border-[var(--color-border)] font-black uppercase text-[10px] tracking-widest transition-all">Cancel</button>
+                 <button onClick={() => { setActiveEditId(null); setDealName(''); setDiscountAmount(''); setSelectedKitIds([]); setValidFrom(''); setValidUntil(''); setPreviewKitIds([]); setDraggedPreviewKitId(null); setExclusiveKitIds([]); setMobileTab('list'); }} className="px-5 py-4 rounded-2xl bg-black/5 hover:bg-black/10 border border-[var(--color-border)] font-black uppercase text-[11px] tracking-widest transition-all">Cancel</button>
                )}
                <button 
                   disabled={isSaving}
@@ -911,7 +911,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                     await handleSave();
                     setMobileTab('list');
                   }} 
-                  className={`flex-1 py-4 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-black uppercase text-[10px] tracking-widest shadow-xl shadow-blue-600/20 active:scale-95 transition-all flex items-center justify-center gap-2 ${isSaving ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className={`flex-1 py-4 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-black uppercase text-[11px] tracking-widest shadow-xl shadow-blue-600/20 active:scale-95 transition-all flex items-center justify-center gap-2 ${isSaving ? 'opacity-50 cursor-not-allowed' : ''}`}
                >
                   {isSaving ? <Loader2 size={16} className="animate-spin" /> : null}
                   {activeEditId ? 'Update Deal' : 'Publish Deal'}
@@ -925,27 +925,27 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                 <div className="flex justify-between items-center mb-3">
                    <div>
                       <h3 className="text-xs font-black uppercase tracking-widest">Active Deals & Bundles</h3>
-                      <span className="text-[9px] opacity-40 uppercase font-bold mt-1 block">Modify or delete active settings</span>
+                      <span className="text-[12px] opacity-40 uppercase font-bold mt-1 block">Modify or delete active settings</span>
                    </div>
-                   <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-500 uppercase">{deals?.length || 0} Saved</span>
+                   <span className="text-[12px] font-black px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-500 uppercase">{deals?.length || 0} Saved</span>
                 </div>
 
                 {/* Bulk action buttons */}
                 <div className="flex items-center gap-2 flex-wrap">
                   <button onClick={handleSelectAll}
-                    className={`px-3 py-1.5 rounded-xl border text-[9px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 ${allSelected ? 'bg-blue-600 border-blue-600 text-white' : 'border-[var(--color-border)] bg-black/5 hover:bg-black/10 opacity-70'}`}>
+                    className={`px-3 py-1.5 rounded-xl border text-[11px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 ${allSelected ? 'bg-blue-600 border-blue-600 text-white' : 'border-[var(--color-border)] bg-black/5 hover:bg-black/10 opacity-70'}`}>
                     {allSelected ? <CheckSquare size={12} /> : <Square size={12} />}
                     {allSelected ? 'Deselect All' : 'Select All'}
                   </button>
                   {selectedDealIds.length > 0 && (
                     <>
                       <button onClick={handleBulkDelete} disabled={isBulkProcessing}
-                        className="px-3 py-1.5 rounded-xl border border-red-500/30 bg-red-500/10 text-red-500 text-[9px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 hover:bg-red-500/20 disabled:opacity-40">
+                        className="px-3 py-1.5 rounded-xl border border-red-500/30 bg-red-500/10 text-red-500 text-[11px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 hover:bg-red-500/20 disabled:opacity-40">
                         {isBulkProcessing ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
                         Delete ({selectedDealIds.length})
                       </button>
                       <button onClick={handleBulkReactivate} disabled={isBulkProcessing}
-                        className="px-3 py-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-500 text-[9px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 hover:bg-emerald-500/20 disabled:opacity-40">
+                        className="px-3 py-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-500 text-[11px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 hover:bg-emerald-500/20 disabled:opacity-40">
                         {isBulkProcessing ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
                         Reactivate ({selectedDealIds.length})
                       </button>
@@ -958,7 +958,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                 {(!deals || deals.length === 0) ? (
                   <div className="h-full flex flex-col items-center justify-center opacity-30 p-10">
                     <Gift size={40} className="stroke-[1.5]" />
-                    <p className="text-[10px] font-black uppercase tracking-widest mt-3">No active deals found</p>
+                    <p className="text-[12px] font-black uppercase tracking-widest mt-3">No active deals found</p>
                   </div>
                 ) : (
                   deals.map(deal => {
@@ -1000,19 +1000,19 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
 
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full tracking-wider inline-block ${badgeClass}`}>
+                              <span className={`text-[11px] font-black uppercase px-2 py-0.5 rounded-full tracking-wider inline-block ${badgeClass}`}>
                                 {strategyLabel}
                               </span>
-                              {isInactive && <span className="text-[7px] font-black uppercase px-1.5 py-0.5 rounded-full bg-neutral-500/20 text-neutral-400 tracking-wider">Inactive</span>}
-                              {isExpired && <span className="text-[7px] font-black uppercase px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 tracking-wider">Expired</span>}
-                              {!isFulfillable && <span className="text-[7px] font-black uppercase px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 tracking-wider">Unfulfillable</span>}
+                              {isInactive && <span className="text-[11px] font-black uppercase px-1.5 py-0.5 rounded-full bg-neutral-500/20 text-neutral-400 tracking-wider">Inactive</span>}
+                              {isExpired && <span className="text-[11px] font-black uppercase px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 tracking-wider">Expired</span>}
+                              {!isFulfillable && <span className="text-[11px] font-black uppercase px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 tracking-wider">Unfulfillable</span>}
                               {(deal.type === 'bundle_discount' || deal.type === 'bundle_only') && (
-                                <span className="text-[7px] font-black uppercase px-1.5 py-0.5 rounded-full bg-neutral-500/10 text-neutral-400 tracking-wider">
+                                <span className="text-[11px] font-black uppercase px-1.5 py-0.5 rounded-full bg-neutral-500/10 text-neutral-400 tracking-wider">
                                   {(deal.stockSource || 'onhand') === 'preorder' ? 'Pre-Order' : 'Onhand'}
                                 </span>
                               )}
                               {(deal.type === 'bundle_discount' || deal.type === 'bundle_only') && (
-                                <span className="text-[7px] font-black uppercase px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 tracking-wider">
+                                <span className="text-[11px] font-black uppercase px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 tracking-wider">
                                   {getDealCountdownLabel(deal.validUntil)}
                                 </span>
                               )}
@@ -1020,7 +1020,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                             <h4 className="text-sm font-black uppercase italic tracking-tight mt-2 text-[var(--color-text-main)] leading-none">{deal.name}</h4>
                             {/* Validity dates */}
                             {(deal.validFrom || deal.validUntil) && (
-                              <p className="text-[8px] font-bold opacity-40 mt-1.5 flex items-center gap-1">
+                              <p className="text-[12px] font-bold opacity-40 mt-1.5 flex items-center gap-1">
                                 <Calendar size={9} />
                                 {deal.validFrom ? parseLocalDateTime(deal.validFrom)?.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '—'}
                                 {' → '}
@@ -1045,15 +1045,15 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                             <div key={k.id} className="flex w-full min-w-0 items-center gap-2 px-3 py-2 rounded-xl bg-black/5 dark:bg-white/5 border border-white/5">
                               <img src={resolveImage(k.image, k.images)} className="w-7 h-7 rounded-lg object-cover bg-white" alt="" />
                               <div className="min-w-0 flex-1">
-                                <span className="block truncate text-[9px] font-black uppercase">{k.name}</span>
-                                <span className="block truncate text-[8px] font-bold uppercase opacity-40">{[k.brand, k.specs?.line].filter(Boolean).join(' / ') || 'No brand or line'}</span>
+                                <span className="block truncate text-[12px] font-black uppercase">{k.name}</span>
+                                <span className="block truncate text-[12px] font-bold uppercase opacity-40">{[k.brand, k.specs?.line].filter(Boolean).join(' / ') || 'No brand or line'}</span>
                               </div>
                             </div>
                           ))}
                         </div>
 
                         {/* Prices/Conditions */}
-                        <div className="flex justify-between items-center text-[9px] border-t border-neutral-500/10 pt-2 opacity-85">
+                        <div className="flex justify-between items-center text-[12px] border-t border-neutral-500/10 pt-2 opacity-85">
                           {deal.type === 'mutually_exclusive' ? (
                             <span className="font-black text-red-500 uppercase tracking-widest">Exclusion Rules Applied</span>
                           ) : (

@@ -11,7 +11,7 @@ import { FaFacebook } from 'react-icons/fa';
 import { useTheme } from '../../context/ThemeContext';
 import { useStore } from '../../store/useStore';
 import { signOut, signInWithPopup } from 'firebase/auth'; 
-import { collection, getDocs, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { auth, fbProvider, googleProvider, db } from '../../firebase/firebase';
 import AccountSettingsModal from './AccountSettingsModal';
 import FulfillmentModal from './FulfillmentModal';
@@ -79,14 +79,7 @@ export default function Navbar({ isCompact: scrolledCompact }) {
     isLoginModalOpen,
     setLoginModalOpen,
     guestBasket,
-    findMisalignedStocks,
-    fixMisalignedStocks,
-    findKitScaleMigrations,
-    migrateKitScaleToSpecs,
-    findKitIdMismatches,
-    fixKitIdMismatches,
-    fixInventoryConditionDefaults,
-    loadOrdersOnce,
+    setInventoryAuditOpen,
   } = useStore();
 
   const activeBasket = user ? ((isAdmin && isAdminView) ? shelf : basket) : guestBasket;
@@ -113,7 +106,6 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isPhotoHovered, setIsPhotoHovered] = useState(false);
-  const [isCheckingInventory, setIsCheckingInventory] = useState(false);
   const [showFacebook, setShowFacebook] = useState(false);
   const holdTimerRef = useRef(null);
   const timeoutTimerRef = useRef(null);
@@ -547,7 +539,7 @@ useEffect(() => {
   };
 
 
-const handleLogout = async () => {
+  const handleLogout = async () => {
   if (originalAdminUser) {
     stopImpersonating();
   } else {
@@ -557,73 +549,16 @@ const handleLogout = async () => {
   setIsProfileOpen(false);
 };
 
-const handleInventoryAudit = async () => {
-  if (isCheckingInventory) return;
-
-  try {
-    setIsCheckingInventory(true);
-    
-    // 1. Fetch FULL inventory for a thorough check
-    const snap = await getDocs(collection(db, "kits"));
-    const allKits = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    const conditionDefaultsAdded = await fixInventoryConditionDefaults(allKits);
-
-    if (!orders?.length) await loadOrdersOnce();
-    const latestOrders = useStore.getState().orders || orders || [];
-    
-    // 2. Detect issues
-    const issues = findMisalignedStocks(allKits, latestOrders);
-    const scaleMigrations = findKitScaleMigrations(allKits);
-    const idMismatches = findKitIdMismatches(allKits);
-
-    if (!issues.length && !scaleMigrations.length && !idMismatches.length) {
-      alert(
-        conditionDefaultsAdded > 0
-          ? `Inventory check complete. Added condition defaults to ${conditionDefaultsAdded} stock${conditionDefaultsAdded === 1 ? '' : 's'}.`
-          : 'Inventory check complete. Lahat ay sumusunod sa format at walang stale data.'
-      );
-      return;
-    }
-
-    const issueList = issues.length ? issues.map((issue, index) => {
-      const kit = allKits.find(k => k.id === issue.kitId);
-      const stock = kit?.stocks?.[issue.stockKey] || {};
-      const kitName = kit?.name || issue.kitId;
-      const status = stock.status ? ` | ${stock.status}` : '';
-      const orderStatus = issue.orderStatus ? ` (${issue.orderStatus})` : '';
-      return `${index + 1}. ${kitName}\n   Stock: ${issue.stockKey}${status}\n   Order: ${issue.orderId}${orderStatus}`;
-    }).join('\n\n') : 'None';
-
-    const scaleMigrationList = scaleMigrations.length ? scaleMigrations.map((migration, index) => {
-      return `${index + 1}. ${migration.kitName}\n   Line: ${migration.specs.line || '(empty)'}\n   Scale: ${migration.specs.scale || '(empty)'}`;
-    }).join('\n\n') : 'None';
-
-    const idMismatchList = idMismatches.length ? idMismatches.map((m, index) => {
-      return `${index + 1}. ${m.kitName}\n   Old: ${m.oldId}\n   New: ${m.newId}`;
-    }).join('\n\n') : 'None';
-
-    const shouldProceed = window.confirm(
-      `Inventory check found:\n\n` +
-      `Stale stock records (${issues.length}):\n${issueList}\n\n` +
-      `Scale-to-specs migrations (${scaleMigrations.length}):\n${scaleMigrationList}\n\n` +
-      `ID Format Mismatches (${idMismatches.length}):\n${idMismatchList}\n\n` +
-      `OK/Proceed = Clean stale data, migrate scales, and FIX all ID formats.`
-    );
-
-    if (!shouldProceed) return;
-
-    if (issues.length) await fixMisalignedStocks(issues);
-    if (scaleMigrations.length) await migrateKitScaleToSpecs(scaleMigrations);
-    if (idMismatches.length) await fixKitIdMismatches(idMismatches);
-
-    alert(`Done. Fixed ${issues.length} stocks, ${scaleMigrations.length} scales, ${idMismatches.length} kit IDs, and added condition defaults to ${conditionDefaultsAdded} stock${conditionDefaultsAdded === 1 ? '' : 's'}.`);
-    setIsProfileOpen(false);
-  } catch (err) {
-    console.error('Inventory audit failed:', err);
-    alert('Failed to check/fix inventory. Check console for details.');
-  } finally {
-    setIsCheckingInventory(false);
+useEffect(() => {
+  if (location.pathname !== '/kits' && useStore.getState().isInventoryAuditOpen) {
+    setInventoryAuditOpen(false);
   }
+}, [location.pathname, setInventoryAuditOpen]);
+
+const handleInventoryAudit = () => {
+  setIsProfileOpen(false);
+  setInventoryAuditOpen(true);
+  if (location.pathname !== '/kits') navigate('/kits');
 };
 
 useEffect(() => {
@@ -995,10 +930,10 @@ return (
                                 <CreditCard size={18} className="opacity-40" />
                                 <span className="text-[12px] font-black uppercase tracking-widest">Payment Options</span>
                               </button>
-                              <button onClick={handleInventoryAudit} disabled={isCheckingInventory} className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-colors ${isCheckingInventory ? 'opacity-60 cursor-wait' : (isDarkMode ? 'hover:bg-white/5 text-white' : 'hover:bg-black/5 text-neutral-900')}`}>
+                              <button onClick={handleInventoryAudit} className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-colors ${isDarkMode ? 'hover:bg-white/5 text-white' : 'hover:bg-black/5 text-neutral-900'}`}>
                                 <PackageOpen size={18} className="opacity-40" />
                                 <span className="text-[12px] font-black uppercase tracking-widest text-left leading-tight">
-                                  {isCheckingInventory ? 'Checking Inventory...' : 'Check Inventory'}
+                                  Check Inventory
                                 </span>
                               </button>
                             </>
