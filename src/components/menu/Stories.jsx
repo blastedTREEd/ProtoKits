@@ -170,10 +170,10 @@ export default function Stories({ isCompact, hideImmediately = false }) {
               <div 
                 key={`${story.id}-${index}`} 
                 onClick={() => handleStoryClick(story.id)}
-                className="w-28 h-44 rounded-[1.5rem] flex-shrink-0 relative overflow-hidden group cursor-pointer glass-card p-1 shadow-xl"
+                className="story-card w-28 h-44 rounded-[1.5rem] flex-shrink-0 relative overflow-hidden group cursor-pointer glass-card p-1 shadow-xl"
               >
                 <div 
-                  className="w-full h-full rounded-[1.3rem] relative overflow-hidden"
+                  className="story-card-media w-full h-full rounded-[1.3rem] relative overflow-hidden"
                   style={{ backgroundColor: `${story.value}20` }} 
                 >
                   {/* Story Image — kung meron sa DB, i-render as background */}
@@ -181,7 +181,7 @@ export default function Stories({ isCompact, hideImmediately = false }) {
                     <img 
                       src={story.image} 
                       alt={story.label} 
-                      className="absolute inset-0 w-full h-full object-cover z-[1]" 
+                      className="story-card-image absolute inset-0 w-full h-full object-cover z-[1]"
                     />
                   )}
 

@@ -88,6 +88,37 @@
   animation-play-state: paused;
 }
 
+/*
+ * iOS Safari can lose rounded overflow clipping when a backdrop-filtered card
+ * is inside an element that is continuously transformed by an animation.
+ * Give each story tile its own compositing and clip layer so media never
+ * leaks into the rounded corners on iPhone browsers.
+ */
+.story-card,
+.story-card-media {
+  isolation: isolate;
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+.story-card {
+  clip-path: inset(0 round 1.5rem);
+  -webkit-clip-path: inset(0 round 1.5rem);
+}
+
+.story-card-media {
+  clip-path: inset(0 round 1.3rem);
+  -webkit-clip-path: inset(0 round 1.3rem);
+}
+
+.story-card-image {
+  display: block;
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+}
+
 /* Glass effect refinement para sa Light Mode */
 .glass-card {
   @apply backdrop-blur-xl border transition-all duration-500;
