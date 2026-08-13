@@ -1278,7 +1278,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     : Number(selectedBundleDealDetails?.currentItemPrice || sellPrice || 0);
   const modalReferencePrice = acceptedOfferPrice > 0
     ? acceptedOfferPrice + handlingFee + transferFee + installmentFee
-    : (selectedBundleDealDetails ? Number(lowestPrice || 0) : displayPrice);
+    : displayPrice;
   const activeBundleDeal = selectedBundleDealDetails?.deal || null;
   const activeBundleItemPrice = Number(selectedBundleDealDetails?.currentItemPrice || 0);
   const activeBundlePrice = Number(selectedBundleDealDetails?.bundlePrice || activeBundleDeal?.bundlePrice || 0);
@@ -1814,6 +1814,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                       const stocks = Object.values(includedKit?.stocks || {});
                                       const sourceStock = stocks.find(stock => stockMatchesDealSource(stock, deal.stockSource || 'onhand'));
                                       const referencePrice = Number(sourceStock?.sellPrice || stocks[0]?.sellPrice || includedKit?.sellPrice || 0);
+                                      const bundleReferencePrice = referencePrice + (isAdminView ? 0 : installmentFee);
 
                                       return (
                                         <div
@@ -1850,8 +1851,8 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                           </div>
                                           <div className="text-right shrink-0">
                                             <p className="text-[16px] font-black italic text-emerald-600">&#8369;{bundleKitPrice.toLocaleString()}</p>
-                                            {referencePrice > 0 && referencePrice !== bundleKitPrice && (
-                                              <p className="mt-0.5 text-[15px] font-black line-through text-black">&#8369;{referencePrice.toLocaleString()}</p>
+                                            {bundleReferencePrice > 0 && bundleReferencePrice !== bundleKitPrice && (
+                                              <p className="mt-0.5 text-[15px] font-black line-through text-black">&#8369;{bundleReferencePrice.toLocaleString()}</p>
                                             )}
                                           </div>
                                         </div>
@@ -1859,7 +1860,10 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                     })}
                                     <div className="flex justify-end pt-2">
                                       <p className="text-[16px] font-black uppercase leading-none text-emerald-600">
-                                        Save &#8369;{getBundleSavedAmount(deal).toLocaleString()}
+                                        Save &#8369;{(
+                                          getBundleSavedAmount(deal)
+                                          + (isAdminView ? 0 : installmentFee * includedKits.length)
+                                        ).toLocaleString()}
                                       </p>
                                     </div>
                                   </div>

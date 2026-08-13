@@ -84,9 +84,12 @@ export default function NotifyList() {
   }, [shippingSettings]);
 
   useEffect(() => {
-    const unsubscribe = subscribeNotifyList();
+    const unsubscribe = subscribeNotifyList({
+      uid: user?.uid,
+      isAdminMode: isReleaseMode
+    });
     return () => unsubscribe && unsubscribe();
-  }, [subscribeNotifyList]);
+  }, [subscribeNotifyList, user?.uid, isReleaseMode]);
 
   useEffect(() => {
     const handleHide = () => setIsMiniNavVisible(false);

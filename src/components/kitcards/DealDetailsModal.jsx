@@ -24,9 +24,10 @@ function stockMatchesDealSource(stock, source = 'onhand') {
 
 export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onOpenKit, isEditMode = false, onEditDeal }) {
   const { kits, shippingSettings } = useStore();
-  const { exclusiveDiscountPercent } = getCheckoutPaymentFees({ shippingSettings });
+  const { exclusiveDiscountPercent, installmentFee } = getCheckoutPaymentFees({ shippingSettings });
   const onCloseRef = useRef(onClose);
   const isEditable = isEditMode && typeof onEditDeal === 'function';
+  const publicInstallmentFee = isEditable ? 0 : Number(installmentFee || 0);
 
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -112,8 +113,19 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onOp
       distributedPrice: row.finalPrice
     }));
 
-    return { normalTotal: nTotal, bundlePrice: bPrice, savings: nTotal > bPrice ? nTotal - bPrice : 0, kitPricing: pricing };
-  }, [includedKits, deal, exclusiveDiscountPercent]);
+    const adjustedPricing = pricing.map(row => ({
+      ...row,
+      refPrice: row.refPrice + publicInstallmentFee
+    }));
+    const adjustedNormalTotal = nTotal + (publicInstallmentFee * includedKits.length);
+
+    return {
+      normalTotal: adjustedNormalTotal,
+      bundlePrice: bPrice,
+      savings: adjustedNormalTotal > bPrice ? adjustedNormalTotal - bPrice : 0,
+      kitPricing: adjustedPricing
+    };
+  }, [includedKits, deal, exclusiveDiscountPercent, publicInstallmentFee]);
 
 
   useEffect(() => {

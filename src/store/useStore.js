@@ -737,8 +737,17 @@ export const useStore = create(
       },
 
 
-      subscribeNotifyList: () => {
-        return onSnapshot(collection(db, "hunts"), (snap) => {
+      subscribeNotifyList: (scope = {}) => {
+        const { uid, isAdminMode } = scope;
+        const huntsQuery = isAdminMode
+          ? collection(db, "hunts")
+          : uid
+            ? query(collection(db, "hunts"), where("uid", "==", uid))
+            : null;
+
+        if (!huntsQuery) return () => {};
+
+        return onSnapshot(huntsQuery, (snap) => {
           set({ notifyList: docsToArray(snap) });
         }, () => set({ notifyList: [] }));
       },

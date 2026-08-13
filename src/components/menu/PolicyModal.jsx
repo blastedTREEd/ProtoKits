@@ -31,7 +31,7 @@ const policyComponents = {
   }
 };
 
-export default function PolicyModal({ policy, isOpen, onClose }) {
+export default function PolicyModal({ policy, isOpen, onClose, zIndexClass = 'z-[220]' }) {
   const { isDarkMode } = useTheme();
   const scrollRef = useRef(null);
   const [canDrag, setCanDrag] = useState(true);
@@ -55,7 +55,7 @@ export default function PolicyModal({ policy, isOpen, onClose }) {
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[220] flex items-end justify-center overflow-hidden p-0 md:items-center md:p-4">
+        <div className={`fixed inset-0 ${zIndexClass} flex items-end justify-center overflow-hidden p-0 md:items-center md:p-4`}>
           <Motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}

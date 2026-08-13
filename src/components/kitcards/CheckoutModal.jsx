@@ -17,6 +17,7 @@ import { signInWithPopup } from 'firebase/auth';
 import * as FcIcons from 'react-icons/fc';
 import L from 'leaflet';
 import DynamicShippingForm from './DynamicShippingForm';
+import PolicyModal from '../menu/PolicyModal';
 
 // --- LEAFLET CSS & ICON FIX ---
 import 'leaflet/dist/leaflet.css';
@@ -554,6 +555,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   const [paymentSubmitted, setPaymentSubmitted] = useState(false);
   const [createdOrderIds, setCreatedOrderIds] = useState([]);
   const [agreedToPolicy, setAgreedToPolicy] = useState(false);
+  const [isPaymentPolicyOpen, setIsPaymentPolicyOpen] = useState(false);
   const [isCheckoutLoginPending, setIsCheckoutLoginPending] = useState(false);
 
   useEffect(() => {
@@ -715,11 +717,12 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   }, [isOpen, user?.userDetails, user?.deliveryDetails, user?.displayName, user?.email, user?.mobileNo, updateDeliveryData]);
 
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && isAdmin) {
       const unsub = fetchAdmins();
       return () => unsub?.();
     }
-  }, [isOpen, fetchAdmins]);
+    return undefined;
+  }, [isOpen, isAdmin, fetchAdmins]);
 
   // Block browser back button kapag nasa payment step (step 2) na —
   // i-redirect sa /orders imbes na bumalik sa checkout form
@@ -2756,11 +2759,30 @@ const handleFinalizeOrder = async () => {
                         const val = Number(e.target.value) || 0;
                         updateCheckoutData(prev => ({ ...prev, initialPayment: Math.min(Math.max(Math.ceil(val / 10) * 10, minInitialPayment), totalToSettle) }));
                       }}
-                      className="w-full rounded-xl border border-white/50 bg-white/10 px-4 py-3 text-[13px] font-black text-white outline-none placeholder:text-white/30"
+                      className="w-full rounded-xl border border-white/50 bg-white/10 px-4 py-3 text-[13px] font-black text-white outline-none placeholder:text-white/30 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     />
-                    <label className="flex items-start gap-3 rounded-xl border border-white/15 bg-white/5 p-3 text-[13px] font-bold leading-relaxed">
-                      <input type="checkbox" checked={agreedToPolicy} onChange={(e) => setAgreedToPolicy(e.target.checked)} className="mt-1" />
-                      <span>I agree with the payment and reservation policy.</span>
+                    <label className="flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 p-3 text-[12px] font-bold leading-none whitespace-nowrap">
+                      <input
+                        type="checkbox"
+                        checked={agreedToPolicy}
+                        onChange={(e) => setAgreedToPolicy(e.target.checked)}
+                        className="m-0 size-4 shrink-0 accent-white"
+                      />
+                      <span className="inline-flex min-w-0 items-center gap-1 whitespace-nowrap">
+                        I agree with the{' '}
+                        <a
+                          href="/payment-and-refund-policy"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setIsPaymentPolicyOpen(true);
+                          }}
+                          className="shrink-0 font-black text-white underline underline-offset-2 transition-colors hover:text-emerald-300"
+                        >
+                          payment and reservation policy
+                        </a>
+                        .
+                      </span>
                     </label>
                   </div>
                 )}
@@ -2815,23 +2837,27 @@ const handleFinalizeOrder = async () => {
       <div className={isPage ? "relative min-h-dvh w-full px-4 pb-6 custom-scrollbar lg:min-h-[calc(100dvh-60px)] lg:px-10 lg:py-6" : "bg-white/90 dark:bg-[#0a0a0a]/90 backdrop-blur-xl w-full h-full md:h-auto md:max-w-5xl rounded-none md:rounded-[2.5rem] border border-black/5 dark:border-white/10 p-5 md:p-6 shadow-2xl relative overflow-y-auto md:max-h-[95vh] custom-scrollbar"}>
         {isPage ? (
           <>
-            <div className="pointer-events-none sticky top-0 z-[1000] h-0 lg:hidden">
-              <motion.button
-                whileTap={{ scale: 0.9 }}
-                onClick={handleCloseModal}
-                className="pointer-events-auto absolute right-0 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-neutral-500 text-white shadow-lg transition hover:bg-neutral-600"
-                aria-label="Close checkout"
-              >
-                <X size={20} />
-              </motion.button>
-            </div>
+            {!isPaymentPolicyOpen && (
+              <div className="pointer-events-none sticky top-0 z-[1000] h-0 lg:hidden">
+                <motion.button
+                  whileTap={{ scale: 0.9 }}
+                  onClick={handleCloseModal}
+                  className="pointer-events-auto absolute right-0 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-neutral-500 text-white shadow-lg transition hover:bg-neutral-600"
+                  aria-label="Close checkout"
+                >
+                  <X size={20} />
+                </motion.button>
+              </div>
+            )}
           </>
         ) : (
-          <div className="sticky top-0 z-[520] h-0 w-full overflow-visible md:hidden">
-            <div className="absolute top-0 -right-2 flex items-center justify-end">
-              <motion.button whileTap={{ scale: 0.9 }} onClick={handleCloseModal} className="rounded-full border border-black/5 bg-black/10 p-2 text-neutral-900 shadow-lg backdrop-blur-md dark:border-white/10 dark:bg-white/10 dark:text-white"><X size={20} /></motion.button>
+          !isPaymentPolicyOpen && (
+            <div className="sticky top-0 z-[520] h-0 w-full overflow-visible md:hidden">
+              <div className="absolute top-0 -right-2 flex items-center justify-end">
+                <motion.button whileTap={{ scale: 0.9 }} onClick={handleCloseModal} className="rounded-full border border-black/5 bg-black/10 p-2 text-neutral-900 shadow-lg backdrop-blur-md dark:border-white/10 dark:bg-white/10 dark:text-white"><X size={20} /></motion.button>
+              </div>
             </div>
-          </div>
+          )
         )}
         {!isPage && (
           <motion.button whileTap={{ scale: 0.9 }} onClick={handleCloseModal} className="hidden md:block absolute top-6 right-6 p-4 -m-4 opacity-30 hover:opacity-100 z-50"><X size={24}/></motion.button>
@@ -3633,7 +3659,7 @@ const handleFinalizeOrder = async () => {
                                 ? 'Why not grab that discount?'
                                 : `This is more than minimum ${checkoutData.paymentPlan === 'partial' ? 'project downpayment' : 'reservation fee'}`}
                               </p>
-                              <label className="flex items-start gap-3.5 p-4 mt-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all cursor-pointer select-none group">
+                              <label className="mt-4 flex items-center gap-2.5 rounded-2xl border border-white/10 bg-white/5 p-4 text-[11px] leading-none whitespace-nowrap transition-all hover:border-white/20 hover:bg-white/10 cursor-pointer select-none group">
                                 <input
                                   type="checkbox"
                                   checked={agreedToPolicy}
@@ -3648,7 +3674,7 @@ const handleFinalizeOrder = async () => {
                                   whileHover={{ scale: 1.05 }}
                                   whileTap={{ scale: 0.95 }}
                                   transition={{ duration: 0.15 }}
-                                  className="w-5 h-5 min-w-[20px] rounded-lg border-2 flex items-center justify-center cursor-pointer transition-all shadow-inner mt-0.5"
+                                  className="flex size-5 min-w-[20px] shrink-0 cursor-pointer items-center justify-center rounded-lg border-2 shadow-inner transition-all"
                                 >
                                   {agreedToPolicy && (
                                     <motion.svg 
@@ -3664,28 +3690,30 @@ const handleFinalizeOrder = async () => {
                                     </motion.svg>
                                   )}
                                 </motion.div>
-                                <span className="text-[11px] leading-normal text-white/90 font-medium">
+                                <span className="inline-flex min-w-0 items-center gap-1 whitespace-nowrap text-[11px] font-medium text-white/90">
                                   {(() => {
                                     const garageName = garageInfo?.name || garageInfo?.garageName || garageInfo?.displayName || 'SnorlaxGarage';
                                     const policyType = checkoutData.paymentPlan === 'partial' ? 'project downpayment' : 'reservation';
                                     return (
                                       <>
-                                        I agree with the <strong className="text-emerald-300 font-extrabold">{garageName}</strong> {policyType} policies.
+                                        I agree with the{' '}
+                                        <a
+                                          href="/payment-and-refund-policy"
+                                          onClick={(event) => {
+                                            event.preventDefault();
+                                            event.stopPropagation();
+                                            setIsPaymentPolicyOpen(true);
+                                          }}
+                                          className="shrink-0 font-black text-emerald-300 underline underline-offset-2 transition-colors hover:text-white"
+                                        >
+                                          <strong className="font-extrabold">{garageName}</strong> {policyType} policies
+                                        </a>.
                                       </>
                                     );
                                   })()}
                                   {Number(checkoutData.initialPayment) > minInitialPayment && (
-                                    <span className="text-emerald-300 ml-1.5 font-bold">(*Excess is refundable)</span>
+                                    <span className="ml-1.5 text-emerald-300 font-bold">(*Excess is refundable)</span>
                                   )}
-                                  {' '}Read{' '}
-                                  <a
-                                    href="/payment-and-refund-policy"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="underline font-black text-white hover:text-emerald-300 transition-colors"
-                                  >
-                                    Policy
-                                  </a>.
                                 </span>
                               </label>
                             </motion.div>
@@ -3961,6 +3989,12 @@ const handleFinalizeOrder = async () => {
             </div>
           </div>
         */}
+        <PolicyModal
+          policy="payment"
+          isOpen={isPaymentPolicyOpen}
+          onClose={() => setIsPaymentPolicyOpen(false)}
+          zIndexClass="z-[700]"
+        />
       </div>
     </div>
   );
