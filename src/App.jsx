@@ -155,19 +155,8 @@ const Layout = ({ children }) => {
 
 const RouterContent = () => {
   const location = useLocation();
-  const [prevPath, setPrevPath] = useState(location.pathname);
-  const [isNavigating, setIsNavigating] = useState(false);
-
-  // Synchronously update transition states during render phase to prevent flashes
-  if (location.pathname !== prevPath) {
-    setPrevPath(location.pathname);
-    setIsNavigating(true);
-  }
-
-  const isLoading = useStore((state) => state.isLoading);
   const checkPageReady = useStore((state) => state.checkPageReady);
   const _loadedDatasets = useStore((state) => state._loadedDatasets);
-  const _getPageRequirements = useStore((state) => state._getPageRequirements);
   const isAdminView = useStore((state) => state.isAdminView);
 
   // Keep _activePath in sync and trigger background listeners when ready
@@ -175,27 +164,12 @@ const RouterContent = () => {
     checkPageReady(location.pathname);
   }, [location.pathname, checkPageReady]);
 
-  useEffect(() => {
-    const timer = setTimeout(() => setIsNavigating(false), 250);
-    return () => clearTimeout(timer);
-  }, [location.pathname]);
-
   // Derive loading state synchronously during render (no content flash)
-  const req = _getPageRequirements(location.pathname);
-  const ds = _loadedDatasets;
+  // Route data renders its own lightweight loading state. Keep the app-wide
+  // overlay only until identity/profile bootstrap completes.
   // For unknown routes (404), skip data loading gate entirely — render immediately
   const isKnown = isKnownRoute(location.pathname);
-  const showLoading = isKnown && (
-    isLoading ||
-    !ds.userProfile ||
-    (req.stories && !ds.stories) ||
-    (req.kits && !ds.kits) ||
-    (req.deals && !ds.deals) ||
-    (req.orders && !ds.orders) ||
-    (req.basket && !ds.basket) ||
-    (req.shelf && !ds.shelf) ||
-    (req.prints && !ds.prints)
-  );
+  const showLoading = isKnown && !_loadedDatasets.userProfile;
   const loadingDetails = getLoadingDetails({
     pathname: location.pathname,
     isAdminView
@@ -211,7 +185,7 @@ const RouterContent = () => {
 
   return (
     <>
-      {(isNavigating || showLoading) && (
+      {showLoading && (
          <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-white/50 dark:bg-black/50 backdrop-blur-sm">
             <LoadingState {...loadingDetails} />
          </div>

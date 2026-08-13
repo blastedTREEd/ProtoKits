@@ -1717,22 +1717,38 @@ export const useStore = create(
 
         console.log("DEBUG: sgUser detected, syncing data for UID:", sgUser.uid);
         const userRef = doc(db, 'users', sgUser.uid);
-        const adminSnap = await getDoc(doc(db, 'admins', sgUser.uid));
-        const isActuallyAdmin = adminSnap.exists();
+        const adminRef = doc(db, 'admins', sgUser.uid);
+        const vaultRef = doc(db, 'projectVaults', sgUser.uid);
+        const [adminResult, userResult, vaultResult] = await Promise.allSettled([
+          getDoc(adminRef),
+          getDoc(userRef),
+          getDoc(vaultRef)
+        ]);
+        const adminSnap = adminResult.status === 'fulfilled' ? adminResult.value : null;
+        const initialDocSnap = userResult.status === 'fulfilled' ? userResult.value : null;
+        const vaultSnap = vaultResult.status === 'fulfilled' ? vaultResult.value : null;
+        const isActuallyAdmin = Boolean(adminSnap?.exists());
         console.log("DEBUG: Is user admin?", isActuallyAdmin);
 
-        if (isActuallyAdmin) {
-          get().migrateKitsAvailabilityField();
+        if (adminResult.status === 'rejected') {
+          console.error("SG LOG: Admin role lookup failed:", adminResult.reason);
+        }
+        if (userResult.status === 'rejected') {
+          console.error("SG LOG: User profile lookup failed:", userResult.reason);
+        }
+        if (vaultResult.status === 'rejected') {
+          console.error("SG LOG: Project vault lookup failed:", vaultResult.reason);
         }
 
-        // Fetch user data once for migration
-        const initialDocSnap = await getDoc(userRef);
-        let userData = initialDocSnap.exists() ? initialDocSnap.data() : null;
+        let userData = initialDocSnap?.exists() ? initialDocSnap.data() : null;
+        const initialVault = vaultSnap?.exists() ? (vaultSnap.data().items || []) : [];
+        set({ projectVault: initialVault });
         const authPhotoURL = sgUser.photoURL || '';
         const storedPhotoURL = userData?.photoURL || '';
 
         if (authPhotoURL && storedPhotoURL !== authPhotoURL) {
-          await setDoc(userRef, { photoURL: authPhotoURL }, { merge: true });
+          void setDoc(userRef, { photoURL: authPhotoURL }, { merge: true })
+            .catch((error) => console.error("SG LOG: Profile photo sync failed:", error));
           userData = { ...(userData || {}), photoURL: authPhotoURL };
         }
         
@@ -1749,9 +1765,12 @@ export const useStore = create(
                 const bId = item.basketId || `b_kit_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
                 batch.set(doc(db, 'users', sgUser.uid, 'basket', bId), { ...item, basketId: bId });
             }
-            await batch.commit();
-            localStorage.removeItem('sg_guest_basket');
-            set({ guestBasket: [] });
+            void batch.commit()
+              .then(() => {
+                localStorage.removeItem('sg_guest_basket');
+                set({ guestBasket: [] });
+              })
+              .catch((error) => console.error("SG LOG: Guest basket migration failed:", error));
         }
 
         // Self-Healing Migration: Migrate old user document basket (map field) to the basket subcollection
@@ -1764,28 +1783,60 @@ export const useStore = create(
                 }
             });
             batch.update(userRef, { basket: deleteField() });
-            await batch.commit();
-            console.log("DEBUG: Basket map migration completed successfully");
+            void batch.commit()
+              .then(() => console.log("DEBUG: Basket map migration completed successfully"))
+              .catch((error) => console.error("SG LOG: Basket map migration failed:", error));
         }
 
         set({ syncStatus: 'Loading Projects' });
-
-        // Mag-subscribe sa projectVaults subcollection para iwas sa 1MB user doc limit
-        const vaultRef = doc(db, 'projectVaults', sgUser.uid);
-        const vaultSnap = await getDoc(vaultRef);
-        const initialVault = vaultSnap.exists() ? (vaultSnap.data().items || []) : [];
-        set({ projectVault: initialVault });
 
         // Kung may projectVault sa user doc (lumang format), i-migrate at i-delete doon
         if (userData?.projectVault && Array.isArray(userData.projectVault) && userData.projectVault.length > 0) {
           console.log("DEBUG: Migrating projectVault from user doc to projectVaults collection");
           const mergedVault = [...userData.projectVault];
-          await setDoc(vaultRef, { items: mergedVault, uid: sgUser.uid }, { merge: true });
-          await updateDoc(userRef, { projectVault: deleteField() });
           set({ projectVault: mergedVault });
+          void setDoc(vaultRef, { items: mergedVault, uid: sgUser.uid }, { merge: true })
+            .then(() => updateDoc(userRef, { projectVault: deleteField() }))
+            .catch((error) => console.error("SG LOG: Project vault migration failed:", error));
         }
 
-        let isInitialUserDocLoaded = false;
+        const initialUser = userData || {
+          uid: sgUser.uid,
+          displayName: (sgUser.displayName || "Anonymous").toUpperCase(),
+          photoURL: sgUser.photoURL || '',
+          role: 'customer',
+          createdAt: new Date().toISOString()
+        };
+        set({
+          user: {
+            uid: sgUser.uid,
+            ...initialUser,
+            photoURL: initialUser.photoURL || sgUser.photoURL || '',
+            displayName: (initialUser.displayName || sgUser.displayName || "Anonymous").toUpperCase()
+          },
+          isAdmin: isActuallyAdmin,
+          isBanned: initialUser.userDetails?.status === 'banned',
+          isProfileIncomplete: !initialUser.userDetails?.welcomeSeen,
+          syncStatus: 'Ready'
+        });
+        get().markLoaded('userProfile');
+        if (onSyncComplete) onSyncComplete();
+
+        if (!userData) {
+          void setDoc(userRef, {
+            uid: sgUser.uid,
+            displayName: (sgUser.displayName || "Anonymous").toUpperCase(),
+            photoURL: sgUser.photoURL || '',
+            role: 'customer',
+            createdAt: serverTimestamp()
+          }, { merge: true }).catch((error) => console.error("SG LOG: Initial profile creation failed:", error));
+        }
+
+        if (isActuallyAdmin && typeof sessionStorage !== 'undefined' && !sessionStorage.getItem('sg:availability-migration-started')) {
+          sessionStorage.setItem('sg:availability-migration-started', 'true');
+          setTimeout(() => { void get().migrateKitsAvailabilityField(); }, 1500);
+        }
+
         const unsubUser = onSnapshot(userRef, async (docSnap) => {
             console.log("DEBUG: User doc snapshot update for UID:", sgUser.uid);
             
@@ -1808,15 +1859,11 @@ export const useStore = create(
             } else {
               console.log("DEBUG: User doc does not exist, creating initial doc for UID:", sgUser.uid);
               const initial = { uid: sgUser.uid, displayName: (sgUser.displayName || "Anonymous").toUpperCase(), photoURL: sgUser.photoURL, role: 'customer', createdAt: serverTimestamp() };
-              await setDoc(userRef, initial, { merge: true });
+              void setDoc(userRef, initial, { merge: true })
+                .catch((error) => console.error("SG LOG: Initial profile creation failed:", error));
               set({ user: { ...initial, createdAt: new Date().toISOString() }, isAdmin: isActuallyAdmin });
             }
-
-            if (!isInitialUserDocLoaded) {
-              isInitialUserDocLoaded = true;
-              if (onSyncComplete) onSyncComplete();
-            }
-        });
+        }, (error) => console.error("SG LOG: User profile subscription error:", error));
 
         set({ syncStatus: 'Loading Basket' });
 
