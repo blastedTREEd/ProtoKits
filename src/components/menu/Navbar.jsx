@@ -523,20 +523,9 @@ useEffect(() => {
     const authAttemptId = useStore.getState().beginAuthAttempt(() => handleGoogleLogin());
     try {
       setAuthError(null);
-      const result = await signInWithPopup(auth, googleProvider);
+      await signInWithPopup(auth, googleProvider);
       if (!useStore.getState().isAuthAttemptActive(authAttemptId)) return;
       useStore.getState().setAuthAttemptStatus(authAttemptId, 'Syncing Profile');
-      
-      // Store user details in Firestore
-      const { doc, setDoc, serverTimestamp } = await import('firebase/firestore');
-      await setDoc(doc(db, 'users', result.user.uid), {
-        email: result.user.email,
-        displayName: result.user.displayName,
-        photoURL: result.user.photoURL || '',
-        lastLogin: serverTimestamp(),
-        role: 'customer' // Set default role if not existing
-      }, { merge: true });
-
       setIsProfileOpen(false);
     } catch (err) {
       console.error(err);

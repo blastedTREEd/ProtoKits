@@ -72,6 +72,26 @@ if (typeof window !== 'undefined' && 'scrollRestoration' in window.history) {
 const KNOWN_PATHS = ['/', '/kits', '/prints', '/blueprints', '/about-us', '/orders', '/basket', '/checkout', '/shelf', '/notify-list', '/users-dashboard', '/privacy-policy', '/terms-of-use', '/data-deletion', '/shipping-policy', '/payment-and-refund-policy'];
 const isKnownRoute = (pathname) => KNOWN_PATHS.some(p => p === '/' ? pathname === '/' : pathname === p || pathname.startsWith(p + '/'));
 
+const isRouteDataReady = (pathname, datasets, isAdmin) => {
+  if (!datasets.userProfile) return false;
+
+  const needsStories = pathname === '/' || pathname === '';
+  const needsKits = pathname.startsWith('/kits');
+  const needsDeals = pathname.startsWith('/kits');
+  const needsOrders = pathname === '/orders';
+  const needsBasket = pathname === '/basket' || pathname === '/shelf';
+  const needsShelf = isAdmin;
+  const needsPrints = pathname === '/prints' || pathname === '/blueprints';
+
+  return (!needsStories || datasets.stories)
+    && (!needsKits || datasets.kits)
+    && (!needsDeals || datasets.deals)
+    && (!needsOrders || datasets.orders)
+    && (!needsBasket || datasets.basket)
+    && (!needsShelf || datasets.shelf)
+    && (!needsPrints || datasets.prints);
+};
+
 const Layout = ({ children }) => {
   const [isCompact, setIsCompact] = useState(false);
   const [isProfileFullscreenOpen, setIsProfileFullscreenOpen] = useState(false);
@@ -158,6 +178,7 @@ const RouterContent = () => {
   const checkPageReady = useStore((state) => state.checkPageReady);
   const _loadedDatasets = useStore((state) => state._loadedDatasets);
   const isAdminView = useStore((state) => state.isAdminView);
+  const isAdmin = useStore((state) => state.isAdmin);
 
   // Keep _activePath in sync and trigger background listeners when ready
   useLayoutEffect(() => {
@@ -169,7 +190,7 @@ const RouterContent = () => {
   // overlay only until identity/profile bootstrap completes.
   // For unknown routes (404), skip data loading gate entirely — render immediately
   const isKnown = isKnownRoute(location.pathname);
-  const showLoading = isKnown && !_loadedDatasets.userProfile;
+  const showLoading = isKnown && !isRouteDataReady(location.pathname, _loadedDatasets, isAdmin);
   const loadingDetails = getLoadingDetails({
     pathname: location.pathname,
     isAdminView

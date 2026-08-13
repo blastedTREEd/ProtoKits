@@ -878,7 +878,7 @@ export default function Kits() {
             <div className="grid grid-cols-2 sm:grid-cols-4 sm:portrait:grid-cols-3 md:grid-cols-4 md:portrait:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-3 items-start justify-items-center">
               {/* --- Section Divider: Deals --- */}
               {(filteredDeals.length > 0 || activeOfferKits.length > 0) && (
-                <div className={`col-span-full first:mt-4 sticky top-[116px] z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md transition-transform duration-300 dark:bg-[#0a0a0a]/90 md:top-[120px] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderTranslation}`}>
+                <div className={`col-span-full first:mt-4 my-2 sticky top-[116px] z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md transition-transform duration-300 dark:bg-[#0a0a0a]/90 md:top-[120px] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderTranslation}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Deals</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
@@ -1033,7 +1033,7 @@ export default function Kits() {
 
               {/* --- Section Divider: Available Kits --- */}
               {kitGroups.available.length > 0 && (
-                <div className={`col-span-full first:mt-4 sticky top-[116px] z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md transition-transform duration-300 dark:bg-[#0a0a0a]/90 md:top-[120px] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderTranslation}`}>
+                <div className={`col-span-full first:mt-4 my-2 sticky top-[116px] z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md transition-transform duration-300 dark:bg-[#0a0a0a]/90 md:top-[120px] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderTranslation}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Available Kits</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
@@ -1071,7 +1071,7 @@ export default function Kits() {
 
               {/* --- Section Divider: Collection --- */}
               {kitGroups.collection.length > 0 && (
-                <div className={`col-span-full first:mt-4 sticky top-[116px] z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md transition-transform duration-300 dark:bg-[#0a0a0a]/90 md:top-[120px] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderTranslation}`}>
+                <div className={`col-span-full first:mt-4 my-2 sticky top-[116px] z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md transition-transform duration-300 dark:bg-[#0a0a0a]/90 md:top-[120px] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderTranslation}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Collection</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
@@ -1109,7 +1109,7 @@ export default function Kits() {
 
               {/* --- Section Divider: Out of Stock --- */}
               {kitGroups.outOfStock.length > 0 && (
-                <div className={`col-span-full first:mt-4 sticky top-[116px] z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md transition-transform duration-300 dark:bg-[#0a0a0a]/90 md:top-[120px] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderTranslation}`}>
+                <div className={`col-span-full first:mt-4 my-2 sticky top-[116px] z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md transition-transform duration-300 dark:bg-[#0a0a0a]/90 md:top-[120px] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderTranslation}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Out of Stock</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
