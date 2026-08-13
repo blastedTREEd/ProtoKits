@@ -370,6 +370,13 @@ useEffect(() => {
   return () => window.removeEventListener('scroll', handleScroll);
 }, [lastScrollY, forceHide, location.pathname]);
 
+  // Keep pages with mobile sticky footers aligned with the animated mini navbar.
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('bottomNavVisibilityChange', {
+      detail: { visible: showBottomNav }
+    }));
+  }, [showBottomNav]);
+
   const isCompactMode = location.pathname !== "/" || scrolledCompact || lastScrollY > 40 || isStoriesManagerOpen || isNotificationModalOpen || isMobile;
 
   useEffect(() => {

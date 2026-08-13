@@ -6,7 +6,9 @@ export default function ProductCardSkeleton() {
       <div className="relative rounded-[2.1rem] flex flex-col h-full overflow-hidden bg-white dark:bg-[var(--color-surface)]">
         <div className="p-3 flex flex-col h-full">
           {/* Image Skeleton */}
-          <div className="relative aspect-square rounded-2xl mb-3 bg-neutral-200 dark:bg-neutral-700 shrink-0 z-0 w-full h-[200px]"></div>
+          <div className="relative aspect-square rounded-2xl mb-3 bg-neutral-200 dark:bg-neutral-700 shrink-0 z-0 w-full h-[200px] flex items-center justify-center">
+            <img src="/snorlaxgarage.png" alt="Loading..." className="h-full w-full object-contain opacity-20" />
+          </div>
           
           {/* Content Skeleton */}
           <div className="px-1 text-center flex-1 flex flex-col gap-2">

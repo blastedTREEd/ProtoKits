@@ -17,7 +17,7 @@ function getStoryImage(story) {
 }
 
 export default function Highlights() {
-  const { stories, isAdmin, isAdminView } = useStore();
+  const { stories, isAdmin, isAdminView, isLoading } = useStore();
   const canManageStories = isAdmin && isAdminView;
   const headerRef = useRef(null);
   const [isHeaderStuck, setIsHeaderStuck] = useState(false);
@@ -72,6 +72,8 @@ export default function Highlights() {
     window.dispatchEvent(new CustomEvent('openStoriesManager', { detail: { mode: 'edit', story } }));
   };
 
+  const isLoadingHighlights = isLoading && highlights.length === 0;
+
   return (
     <section className="relative overflow-visible border-t border-black/[0.06] bg-neutral-50 px-5 pb-10 dark:border-white/[0.08] dark:bg-[#111111] sm:px-8 lg:px-12">
       <div className="mx-auto max-w-7xl">
@@ -95,7 +97,7 @@ export default function Highlights() {
           )}
         </div>
 
-        {highlights.length > 0 || canManageStories ? (
+        {highlights.length > 0 || canManageStories || isLoadingHighlights ? (
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 xl:grid-cols-5">
             {canManageStories && (
               <button
@@ -115,6 +117,12 @@ export default function Highlights() {
                 </div>
               </button>
             )}
+
+            {isLoadingHighlights && Array.from({ length: 5 }).map((_, index) => (
+              <div key={`highlight-skeleton-${index}`} className="relative aspect-square overflow-hidden rounded-2xl bg-neutral-200 shadow-sm ring-1 ring-black/[0.05] dark:bg-neutral-900 dark:ring-white/[0.08]">
+                <img src="/snorlaxgarage.png" alt="Loading highlights" className="h-full w-full object-contain p-6 opacity-20" />
+              </div>
+            ))}
 
             {highlights.map((story) => {
               const image = getStoryImage(story);

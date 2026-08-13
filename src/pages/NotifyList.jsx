@@ -3,14 +3,14 @@ import { Bell, CheckCircle2, Clock3, PackageOpen, Pencil, Save, Trash2, XCircle 
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
-import LoadingState from '../components/common/LoadingState';
+import ListItemSkeleton from '../components/common/ListItemSkeleton';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
 
 function resolveImage(idOrUrl, imagesArray) {
   if (!idOrUrl) return '';
   if (idOrUrl.startsWith('data:') || idOrUrl.startsWith('http')) return idOrUrl;
   const match = (imagesArray || []).find(img => img.id === idOrUrl);
-  return match?.url || '';
+  return match?.url || imagesArray?.[0]?.url || '';
 }
 
 function dateToMillis(value) {
@@ -67,7 +67,7 @@ export default function NotifyList() {
   const {
     user, isAdmin, isAdminView, notifyList,
     deleteFromNotifyList, kits, shelf,
-    subscribeNotifyList, isLoading,
+    subscribeNotifyList, isLoading, loadMissingKits,
     updateOfferPrice, declineOffer, releaseOffer, setToastMessage,
     shippingSettings
   } = useStore();
@@ -125,6 +125,14 @@ export default function NotifyList() {
       return dateToMillis(b.updatedAt || b.createdAt) - dateToMillis(a.updatedAt || a.createdAt);
     });
   }, [isReleaseMode, kits, notifyList, user]);
+
+  const offerKitIds = useMemo(() => (
+    [...new Set(myNotifyList.map((item) => item?.kitId).filter(Boolean))]
+  ), [myNotifyList]);
+
+  useEffect(() => {
+    if (offerKitIds.length > 0) loadMissingKits(offerKitIds);
+  }, [loadMissingKits, offerKitIds]);
 
   const offerRows = useMemo(() => {
     if (!isReleaseMode) {
@@ -224,7 +232,9 @@ export default function NotifyList() {
     }
   };
 
-  const hasVisibleItems = !isLoading && myNotifyList.length > 0;
+  const hasMissingOfferKit = myNotifyList.some((item) => item?.kitId && !kits.some((kit) => kit.id === item.kitId));
+  const isOfferRowsLoading = isLoading || hasMissingOfferKit;
+  const hasVisibleItems = !isOfferRowsLoading && myNotifyList.length > 0;
 
   return (
     <PageTemplate isDarkMode={isDarkMode}>
@@ -263,8 +273,10 @@ export default function NotifyList() {
         </div>
 
         <div className="flex-grow max-w-7xl mx-auto w-full px-4 pb-4 ">
-          {isLoading ? (
-            <LoadingState message="Loading offers" detail="Checking active offers and admin release windows." />
+          {isOfferRowsLoading ? (
+            <div className="space-y-4 pt-4">
+              {Array.from({ length: 4 }).map((_, index) => <ListItemSkeleton key={`offer-skeleton-${index}`} />)}
+            </div>
           ) : myNotifyList.length === 0 ? (
             <div className="text-center py-20 opacity-50">
               <Bell size={68} className="mx-auto mb-4" />

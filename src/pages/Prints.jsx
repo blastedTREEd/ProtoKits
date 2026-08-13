@@ -9,7 +9,7 @@ import LoginPromptModal from '../components/menu/LoginPromptModal';
 import { Droplet, Calculator, Search, Box, Plus, X, HandCoins, Lock, Zap, Rocket } from 'lucide-react';
 import FilamentManagerModal from '../components/calculator/FilamentManagerModal';
 import RatesManagerModal from '../components/calculator/RatesManagerModal';
-import LoadingState from '../components/common/LoadingState';
+import ProductCardSkeleton from '../components/common/ProductCardSkeleton';
 import AddPrintModal from '../components/calculator/AddPrintModal';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
 
@@ -379,7 +379,9 @@ export default function Prints() {
 
         <main className="max-w-full mx-auto px-4 md:px-8">
           {isLoading && totalMatches === 0 ? (
-            <LoadingState message="Loading projects..." />
+            <div className="grid grid-cols-2 items-stretch gap-4 sm:grid-cols-4 sm:portrait:grid-cols-3 md:grid-cols-4 md:portrait:grid-cols-3 md:gap-3 lg:grid-cols-4 xl:grid-cols-5">
+              {Array.from({ length: 10 }).map((_, index) => <ProductCardSkeleton key={`print-skeleton-${index}`} />)}
+            </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-4 sm:portrait:grid-cols-3 md:grid-cols-4 md:portrait:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-3 items-stretch">
               {/* --- Section Divider: Garage Projects --- */}

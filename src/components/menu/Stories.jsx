@@ -4,6 +4,8 @@ import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { useStore } from '../../store/useStore';
 
 const SYNC_GLOW_COLORS = ['#0066ff', '#ff3b30', '#34c759', '#ffcc00', '#af52de', '#ff7a00', '#00c7be'];
+const STORY_CARD_WIDTH = 112;
+const STORY_CARD_GAP = 12;
 // Stories strip above the navbar.
 const SHOW_STORIES_STRIP = true;
 
@@ -38,6 +40,9 @@ export default function Stories({ isCompact, hideImmediately = false }) {
   // Preview modal state
   const [activeStoryIndex, setActiveStoryIndex] = useState(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [syncingStoryCount, setSyncingStoryCount] = useState(() => (
+    Math.ceil(window.innerWidth / (STORY_CARD_WIDTH + STORY_CARD_GAP)) + 1
+  ));
 
   useEffect(() => {
     if (!SHOW_STORIES_STRIP) {
@@ -60,9 +65,12 @@ export default function Stories({ isCompact, hideImmediately = false }) {
     };
   }, [setStoriesHeight]);
 
-  // Track mobile breakpoint for preview mode
+  // Track mobile breakpoint and fill the whole strip while stories load.
   useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768);
+      setSyncingStoryCount(Math.ceil(window.innerWidth / (STORY_CARD_WIDTH + STORY_CARD_GAP)) + 1);
+    };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
@@ -124,16 +132,18 @@ export default function Stories({ isCompact, hideImmediately = false }) {
   // Kung may laman na ang stories (from DB), yun ang gamitin.
   // Kung wala pa (loading/network delay), gamit muna placeholder para laging may render.
   const syncingStories = React.useMemo(() => (
-    Array.from({ length: 3 }, (_, index) => ({
+    Array.from({ length: syncingStoryCount }, (_, index) => ({
       id: `db-loading-${index + 1}`,
       label: 'Syncing...',
-      value: getRandomSyncColor()
+      value: getRandomSyncColor(),
+      image: '/snorlaxgarage.png'
     }))
-  ), []);
+  ), [syncingStoryCount]);
 
-  const activeData = activeStories.length > 0 ? activeStories : syncingStories;
-
-  const displayStories = [...activeData, ...activeData, ...activeData];
+  const isShowingPlaceholders = activeStories.length === 0;
+  const displayStories = isShowingPlaceholders
+    ? syncingStories
+    : [...activeStories, ...activeStories, ...activeStories];
 
   // Logic to determine which image to show
   const displayImg = (!garageInfo?.fbPageId || imgError) ? (garageInfo?.logoURL || DEFAULT_LOGO) : `https://graph.facebook.com/${garageInfo.fbPageId}/picture?type=large`;
@@ -163,7 +173,7 @@ export default function Stories({ isCompact, hideImmediately = false }) {
           <div className="hidden lg:block absolute right-0 top-0 bottom-0 w-24 bg-gradient-to-l from-white dark:from-neutral-900 via-white/80 dark:via-neutral-900/80 to-transparent z-50 pointer-events-none" />
 
           <div 
-            className={`flex gap-3 w-max ${stories?.length > 0 && 'animate-infinite-scroll'}`}
+            className={`flex gap-3 w-max ${!isShowingPlaceholders && 'animate-infinite-scroll'}`}
             style={{ '--scroll-speed': '50s' }}
           >
             {displayStories.map((story, index) => (

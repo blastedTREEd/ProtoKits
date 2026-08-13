@@ -5,7 +5,7 @@ import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
 import LoginPromptModal from '../components/menu/LoginPromptModal';
-import LoadingState from '../components/common/LoadingState';
+import ListItemSkeleton from '../components/common/ListItemSkeleton';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
 import { isOfferCheckoutActive } from '../utils/offerUtils';
 // Resolves an image ID to its URL from the images array.
@@ -14,7 +14,7 @@ function resolveImage(idOrUrl, imagesArray) {
   if (!idOrUrl) return '';
   if (idOrUrl.startsWith('data:') || idOrUrl.startsWith('http')) return idOrUrl;
   const match = (imagesArray || []).find(img => img.id === idOrUrl);
-  return match?.url || '';
+  return match?.url || imagesArray?.[0]?.url || '';
 }
 
 function getBasketItemTime(item) {
@@ -42,12 +42,23 @@ export default function Basket() {
   const navigate = useNavigate();
   const location = useLocation();
 
+  const activeBasket = user ? ((isAdmin && isAdminView) ? shelf : basket) : guestBasket;
+
+  const missingKitIds = useMemo(() => {
+    const loadedKitIds = new Set((kits || []).map((kit) => kit.id));
+    return [...new Set(
+      activeBasket
+        .filter((item) => item.type !== 'project' && item.id && !loadedKitIds.has(item.id))
+        .map((item) => item.id)
+    )];
+  }, [activeBasket, kits]);
+
   useEffect(() => {
-    const activeBasketIds = (user ? ((isAdmin && isAdminView) ? shelf : basket) : guestBasket).map(item => item.id);
+    const activeBasketIds = activeBasket.map(item => item.id);
     if (activeBasketIds.length > 0) {
       loadMissingKits(activeBasketIds);
     }
-  }, [user, isAdmin, isAdminView, basket, shelf, guestBasket, loadMissingKits]);
+  }, [activeBasket, loadMissingKits]);
 
   useEffect(() => {
     if (isAdmin) {
@@ -59,7 +70,7 @@ export default function Basket() {
     }
   }, [isAdminView, isAdmin, navigate, location.pathname]);
   
-  const activeBasket = user ? ((isAdmin && isAdminView) ? shelf : basket) : guestBasket;
+  const isBasketRowsLoading = isLoading || missingKitIds.length > 0;
 
   const { handlingFee, installmentFee, transferFee } = useMemo(() => {
     return getCheckoutPaymentFees({ shippingSettings });
@@ -348,7 +359,7 @@ export default function Basket() {
     return Object.values(grouped).sort((a, b) => (b.sortTime || 0) - (a.sortTime || 0));
   }, [activeBasket]);
 
-  const hasVisibleBasketItems = !isLoading && groupedItems.length > 0;
+  const hasVisibleBasketItems = !isBasketRowsLoading && groupedItems.length > 0;
 
   const basketRows = useMemo(() => {
     const projects = [];
@@ -383,11 +394,16 @@ export default function Basket() {
   useEffect(() => {
     const handleHide = () => setIsMiniNavVisible(false);
     const handleShow = () => setIsMiniNavVisible(true);
+    const handleBottomNavVisibilityChange = (event) => {
+      setIsMiniNavVisible(Boolean(event.detail?.visible));
+    };
     window.addEventListener('hideNavbar', handleHide);
     window.addEventListener('showNavbar', handleShow);
+    window.addEventListener('bottomNavVisibilityChange', handleBottomNavVisibilityChange);
     return () => {
       window.removeEventListener('hideNavbar', handleHide);
       window.removeEventListener('showNavbar', handleShow);
+      window.removeEventListener('bottomNavVisibilityChange', handleBottomNavVisibilityChange);
     };
   }, []);
 
@@ -425,8 +441,10 @@ export default function Basket() {
           </div>
         </div>
         <div className={`flex-grow max-w-7xl mx-auto w-full px-4 md:px-8 pb-32`}>
-          {isLoading ? (
-            <LoadingState message={isAdmin && isAdminView ? "Loading Collection" : "Loading Basket"} />
+          {isBasketRowsLoading ? (
+            <div className="space-y-4 pt-4">
+              {Array.from({ length: 4 }).map((_, index) => <ListItemSkeleton key={`basket-skeleton-${index}`} />)}
+            </div>
           ) : activeBasket.length === 0 ? (
             <div className="text-center py-20 opacity-50">
               {isAdmin && isAdminView ? (
@@ -466,9 +484,10 @@ export default function Basket() {
                 }
 
                 // Get correct image: project-specific image or fallback to kit image
-                const displayImage = item.type === 'project' 
-                    ? (item.projectData?.image || item.image) 
-                    : resolveImage(item.image || kit?.image, item.images || kit?.images);
+                const displayImage = item.type === 'project'
+                    ? (item.projectData?.image || item.image)
+                    : resolveImage(item.image, item.images)
+                      || resolveImage(kit?.image, kit?.images);
 
                 const displayName = (item.name || '').replace(/\s*\(Pre-Order\)\s*$/i, '');
                 const stock = kit?.stocks?.[item.stockKey];
@@ -599,7 +618,7 @@ export default function Basket() {
         </div>
 
         {/* Consolidated Sticky Footer */}
-        {(hasVisibleBasketItems || (isAdmin && isAdminView && !isLoading)) && (
+        {(hasVisibleBasketItems || (isAdmin && isAdminView && !isBasketRowsLoading)) && (
           <div 
             className={`sticky z-[95] bg-white dark:bg-[#121212] border-t border-black/5 dark:border-white/5 transition-all duration-300 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] dark:shadow-[0_-4px_6px_-1px_rgba(255,255,255,0.05)] ${
               isMiniNavVisible ? 'bottom-[56px] sm:bottom-0' : 'bottom-0'
@@ -656,7 +675,7 @@ export default function Basket() {
                 <div className="flex items-center justify-between w-full md:justify-end md:gap-6">
                     {(() => {
                         // 1. LOADING STATE
-                        if (isLoading) {
+                        if (isBasketRowsLoading) {
                             const loadingTotal = activeSelection.reduce((sum, id) => {
                                 const item = activeBasket.find(i => i.basketId === id);
                                 return sum + (item ? getEffectiveItemPrice(item) : 0);
