@@ -350,6 +350,34 @@ export default function Basket() {
 
   const hasVisibleBasketItems = !isLoading && groupedItems.length > 0;
 
+  const basketRows = useMemo(() => {
+    const projects = [];
+    const preOrders = [];
+    const onhand = [];
+
+    groupedItems.forEach((item) => {
+      if (item.type === 'project') {
+        projects.push(item);
+        return;
+      }
+
+      const stock = item.type === 'project'
+        ? null
+        : kits.find((kit) => kit.id === item.id)?.stocks?.[item.stockKey];
+      const isOnhand = String(stock?.status || item.status || '').toLowerCase() === 'onhand';
+      (isOnhand ? onhand : preOrders).push(item);
+    });
+
+    return [
+      ...(projects.length > 0 ? [{ type: 'separator', key: 'projects', label: 'Projects' }] : []),
+      ...projects.map((item) => ({ type: 'item', key: `project-${item.id}-${item.batchKey}`, item })),
+      ...(preOrders.length > 0 ? [{ type: 'separator', key: 'pre-orders', label: 'Pre-Orders' }] : []),
+      ...preOrders.map((item) => ({ type: 'item', key: `pre-order-${item.id}-${item.batchKey}-${item.offerId || 'standard'}`, item })),
+      ...(onhand.length > 0 ? [{ type: 'separator', key: 'onhand', label: 'Onhand' }] : []),
+      ...onhand.map((item) => ({ type: 'item', key: `onhand-${item.id}-${item.batchKey}-${item.offerId || 'standard'}`, item }))
+    ];
+  }, [groupedItems, kits]);
+
   const [isMiniNavVisible, setIsMiniNavVisible] = useState(true);
 
   useEffect(() => {
@@ -410,7 +438,23 @@ export default function Basket() {
             </div>
           ) : (
             <div className="space-y-4">
-              {groupedItems.map((item) => {
+              {basketRows.map((row) => {
+                if (row.type === 'separator') {
+                  return (
+                    <div
+                      key={row.key}
+                      className="sticky top-[110px] z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md dark:bg-[#0a0a0a]/90 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8"
+                    >
+                      <div className="h-px flex-1 bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
+                      <span className="select-none bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-[11px] font-black uppercase tracking-[0.2em] text-transparent">
+                        {row.label}
+                      </span>
+                      <div className="h-px flex-1 bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
+                    </div>
+                  );
+                }
+
+                const { item } = row;
                 const isSelected = item.basketIds.some(bid => activeSelection.includes(bid));
                 const kit = kits.find(k => k.id === item.id);
                 
