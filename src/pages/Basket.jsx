@@ -80,6 +80,12 @@ export default function Basket() {
     if (item.type === 'project') {
       return Number(item.projectData?.sellPrice || item.price || 0);
     }
+    if (item.isBundleItem) {
+      const bundlePrice = Number(item.price || item.sellPrice || 0);
+      const itemInstallmentFee = Number(item.appliedInstallmentFee ?? installmentFee) || 0;
+      const bundleFeeShare = Number(item.bundleFeeShare || 0);
+      return bundlePrice + itemInstallmentFee + bundleFeeShare;
+    }
     const kit = kits.find(k => k.id === item.id);
     const stockSellPrice = Number(item.offerPrice || kit?.stocks?.[item.stockKey]?.sellPrice || 0);
     const basePrice = stockSellPrice > 0 ? stockSellPrice : Number(item.sellPrice || item.price || 0);
@@ -89,6 +95,7 @@ export default function Basket() {
   const getEffectiveItemPrice = useCallback((item) => {
     // Return displayPrice (final price)
     if (item.type === 'project') return Number(item.projectData?.displayPrice || item.projectData?.sellPrice || item.price || 0);
+    if (item.isBundleItem) return Number(item.price || item.sellPrice || 0);
     const kit = kits.find(k => k.id === item.id);
     const stockSellPrice = Number(item.offerPrice || kit?.stocks?.[item.stockKey]?.sellPrice || 0);
     return stockSellPrice > 0 ? stockSellPrice : Number(item.price || 0);
@@ -337,7 +344,7 @@ export default function Basket() {
 
       // Use ONLY basket data to determine the group.
       // Do NOT use live stock data here.
-      const key = `${item.id}-${item.stockKey}-${item.offerId || 'standard'}`;
+      const key = `${item.id}-${item.stockKey}-${item.offerId || 'standard'}-${item.bundleId || 'standard'}`;
 
       if (!acc[key]) {
         acc[key] = {
@@ -796,6 +803,21 @@ export default function Basket() {
                             </div>
                             <button
                               onClick={() => {
+                                const incompleteBundle = Object.values(
+                                  activeBasket.reduce((groups, item) => {
+                                    if (!item.isBundleItem || !item.bundleId) return groups;
+                                    if (!groups[item.bundleId]) groups[item.bundleId] = { name: item.bundleName || 'this bundle', all: [], selected: [] };
+                                    groups[item.bundleId].all.push(item.basketId);
+                                    if (activeSelection.includes(item.basketId)) groups[item.bundleId].selected.push(item.basketId);
+                                    return groups;
+                                  }, {})
+                                ).find(bundle => bundle.selected.length > 0 && bundle.selected.length !== bundle.all.length);
+
+                                if (incompleteBundle) {
+                                  alert(`Select every item in ${incompleteBundle.name} before checking out the bundle.`);
+                                  return;
+                                }
+
                                 const checkoutItems = Object.values(groupedItems).filter(item => 
                                   item.basketIds.some(id => activeSelection.includes(id))
                                 ).map(item => ({

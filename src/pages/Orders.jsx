@@ -1226,7 +1226,11 @@ export default function Orders() {
     const handlingFee = Number(order?.handlingFee) || 0;
     const transferFee = Number(order?.transferFee) || 0;
     const discount = Number(order?.discount) || 0;
-    const total = Math.max(0, itemTotal + shippingFee + handlingFee + transferFee - discount);
+    const feesIncludedInTotal = Boolean(order?.feesIncludedInTotal);
+    const total = Math.max(
+      0,
+      itemTotal + shippingFee + (feesIncludedInTotal ? 0 : handlingFee + transferFee) - (feesIncludedInTotal ? 0 : discount)
+    );
     
     let paid = Number(order?.buyerPaid) || 0;
     const isResOrPartial = order && (['reservation', 'partial'].includes(String(order.paymentPlan || '').toLowerCase()) || order.isReservation || order.isPartial);
@@ -1365,8 +1369,12 @@ export default function Orders() {
     const itemsSubtotal = detailItems.reduce((acc, item) => {
       const sellPrice = Number(item.sellPrice || item.price || 0);
       const installmentFee = Number(item.appliedInstallmentFee || 0);
+      const bundleFeeShare = Number(item.bundleFeeShare || 0);
       const qty = Number(item.quantity || 1);
-      return acc + (sellPrice + installmentFee) * qty;
+      const distributedOrderFees = item.hasDistributedOrderFees
+        ? Number(item.distributedHandlingFee || 0) + Number(item.distributedTransferFee || 0)
+        : bundleFeeShare * qty;
+      return acc + ((sellPrice + installmentFee) * qty) + distributedOrderFees;
     }, 0) || selectedTotals.itemTotal || Number(selectedOrder.totalPrice || selectedOrder.price || 0);
     const isBalanceApplicable = ['reservation', 'partial', 'pre-order'].includes(selectedOrder.paymentPlan) || selectedOrder.isPreOrder || selectedTotals.balance > 0;
     const isFirstReceiptValidated = hasValidatedFirstReceipt(selectedOrder);
@@ -1700,7 +1708,13 @@ export default function Orders() {
 
               const sellPrice = Number(item.sellPrice || item.price || 0);
               const installmentFee = Number(item.appliedInstallmentFee || 0);
+              const bundleFeeShare = Number(item.bundleFeeShare || 0);
+              const qty = Number(item.quantity || 1);
+              const distributedOrderFees = item.hasDistributedOrderFees
+                ? Number(item.distributedHandlingFee || 0) + Number(item.distributedTransferFee || 0)
+                : bundleFeeShare * qty;
               const unitPrice = sellPrice + installmentFee;
+              const linePrice = (unitPrice * qty) + distributedOrderFees;
 
               return (
                 <div key={idx} className="flex flex-col gap-4 p-4 bg-black/[0.01] dark:bg-white/[0.01] rounded-3xl border border-black/5 dark:border-white/5">
@@ -1734,12 +1748,17 @@ export default function Orders() {
                         <p className="text-xs font-black uppercase text-blue-600 dark:text-blue-500 mt-0.5">
                           x{item.quantity || 1}
                         </p>
+                        {item.isBundleItem && (
+                          <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-emerald-600 dark:text-emerald-400">
+                            Bundle Deal
+                          </p>
+                        )}
                       </div>
                     </div>
 
                     <div className="text-right shrink-0">
                       <span className="text-sm font-black text-neutral-900 dark:text-white">
-                        ₱{unitPrice.toLocaleString()}
+                        ₱{linePrice.toLocaleString()}
                       </span>
                     </div>
                   </div>

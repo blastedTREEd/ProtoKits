@@ -97,7 +97,7 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   const [notificationReadVersions, setNotificationReadVersions] = useState({});
   const [notificationSeenVersions, setNotificationSeenVersions] = useState({});
   const [outOfStockKitIds, setOutOfStockKitIds] = useState({});
-  const [notificationNow, setNotificationNow] = useState(Date.now());
+  const [notificationNow, setNotificationNow] = useState(0);
   const [notificationAnchorTop, setNotificationAnchorTop] = useState(null);
   const [isPickupPointOpen, setIsPickupPointOpen] = useState(false);
   const [isPaymentSettingsOpen, setIsPaymentSettingsOpen] = useState(false);
@@ -195,7 +195,9 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   }, [notificationOwnerKey]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNotificationNow(Date.now()), 60000);
+    const refreshNotificationTime = () => setNotificationNow(Date.now());
+    refreshNotificationTime();
+    const timer = window.setInterval(refreshNotificationTime, 60000);
     return () => window.clearInterval(timer);
   }, []);
 

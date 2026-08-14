@@ -39,3 +39,13 @@ export function distributeRoundedBundlePrices(rows = [], targetTotal = 0, getRaw
     return cleanRow;
   });
 }
+
+// Splits an order-level fee across bundle rows without changing the fee total.
+// Earlier rows receive any remaining pesos so the shares always add up exactly.
+export function getDistributedFeeShare(totalFee = 0, index = 0, count = 1) {
+  const fee = Math.max(0, Math.round(Number(totalFee) || 0));
+  const safeCount = Math.max(1, Math.floor(Number(count) || 1));
+  const safeIndex = Math.max(0, Math.floor(Number(index) || 0));
+  const baseShare = Math.floor(fee / safeCount);
+  return baseShare + (safeIndex < fee % safeCount ? 1 : 0);
+}

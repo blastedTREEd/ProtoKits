@@ -9,7 +9,7 @@ import { FaQuestion } from 'react-icons/fa';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
 import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
-import { distributeRoundedBundlePrices } from '../../utils/bundlePricing';
+import { distributeRoundedBundlePrices, getDistributedFeeShare } from '../../utils/bundlePricing';
 import { formatOfferCountdown, isOfferCheckoutActive } from '../../utils/offerUtils';
 
 // Resolves an image ID to its URL from the images array.
@@ -344,11 +344,19 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       return { ...row, rawPrice: Math.max(0, row.refPrice - kitDiscount) };
     }), bPrice);
 
-    const items = pricedRows.map(({ kit, finalPrice, availableStock }) => {
+    const bundleSize = pricedRows.length;
+    const bundleFeeTotal = handlingFee + transferFee;
+    const items = pricedRows.map(({ kit, finalPrice, availableStock, refPrice }, index) => {
+      const bundleFeeShare = getDistributedFeeShare(bundleFeeTotal, index, bundleSize);
       return {
         ...kit,
         name: `${kit?.name} (Bundle Item)`,
         isBundleItem: true,
+        bundleId: deal.id,
+        bundleName: deal.name || 'Bundle Deal',
+        bundleSize,
+        bundleFeeShare,
+        bundleReferencePrice: refPrice + installmentFee + handlingFee + transferFee,
         allowShelfBundle: true,
         stockKey: availableStock?.key || 'default',
         price: finalPrice,
@@ -1814,7 +1822,10 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                       const stocks = Object.values(includedKit?.stocks || {});
                                       const sourceStock = stocks.find(stock => stockMatchesDealSource(stock, deal.stockSource || 'onhand'));
                                       const referencePrice = Number(sourceStock?.sellPrice || stocks[0]?.sellPrice || includedKit?.sellPrice || 0);
-                                      const bundleReferencePrice = referencePrice + (isAdminView ? 0 : installmentFee);
+                                      // The strike price represents this kit bought by itself,
+                                      // so it includes its full checkout fees rather than a
+                                      // share of the bundle's one-time fees.
+                                      const bundleReferencePrice = referencePrice + (isAdminView ? 0 : installmentFee + handlingFee + transferFee);
 
                                       return (
                                         <div
@@ -1860,9 +1871,9 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                     })}
                                     <div className="flex justify-end pt-2">
                                       <p className="text-[16px] font-black uppercase leading-none text-emerald-600">
-                                        Save &#8369;{(
+                                        Save up to &#8369;{(
                                           getBundleSavedAmount(deal)
-                                          + (isAdminView ? 0 : installmentFee * includedKits.length)
+                                          + (isAdminView ? 0 : (installmentFee + handlingFee + transferFee) * includedKits.length)
                                         ).toLocaleString()}
                                       </p>
                                     </div>
@@ -1970,7 +1981,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                             <div className="flex w-full items-center justify-between gap-3">
                               <div className="min-w-0 flex-1 px-4 py-3 rounded-2xl border border-black/5 dark:border-white/10">
                                 <div className="flex items-center justify-center text-center text-[14px] font-black uppercase tracking-tight">
-                                  <span className="text-amber-500 whitespace-nowrap">Deal Price: &#8369;{activeBundlePrice.toLocaleString()}</span>
+                                  <span className="text-amber-500 whitespace-nowrap">Lowest Deal Price: &#8369;{activeBundlePrice.toLocaleString()}</span>
                                 </div>
                               </div>
                               <div className="min-w-0 flex-1 flex items-stretch justify-center">

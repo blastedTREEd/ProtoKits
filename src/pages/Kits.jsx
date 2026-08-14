@@ -16,7 +16,7 @@ import InventoryAuditModal from '../components/kitcards/InventoryAuditModal';
 import LoginPromptModal from '../components/menu/LoginPromptModal';
 import LoadingState from '../components/common/LoadingState';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
-import { distributeRoundedBundlePrices } from '../utils/bundlePricing';
+import { distributeRoundedBundlePrices, getDistributedFeeShare } from '../utils/bundlePricing';
 import { isOfferCheckoutActive } from '../utils/offerUtils';
 
 // --- Spectral gradient helpers (mirrored from ProductCard) ---
@@ -712,11 +712,19 @@ export default function Kits() {
       return { ...row, rawPrice: Math.max(0, row.refPrice - kitDiscount) };
     }), bPrice);
 
-    const items = pricedRows.map(({ kit, finalPrice, availableStock }) => {
+    const bundleSize = pricedRows.length;
+    const bundleFeeTotal = handlingFee + transferFee;
+    const items = pricedRows.map(({ kit, finalPrice, availableStock, refPrice }, index) => {
+      const bundleFeeShare = getDistributedFeeShare(bundleFeeTotal, index, bundleSize);
       return {
         ...kit,
         name: `${kit?.name} (Bundle Item)`,
         isBundleItem: true,
+        bundleId: deal.id,
+        bundleName: deal.name || 'Bundle Deal',
+        bundleSize,
+        bundleFeeShare,
+        bundleReferencePrice: refPrice + installmentFee + handlingFee + transferFee,
         allowShelfBundle: true,
         stockKey: availableStock?.key || 'default',
         price: finalPrice,

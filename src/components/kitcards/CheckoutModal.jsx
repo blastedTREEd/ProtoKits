@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
 import { useNavigate } from 'react-router-dom';
-import { FaGoogle } from 'react-icons/fa';
+import { FcGoogle } from 'react-icons/fc';
 import { useStore } from '../../store/useStore';
 import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
 import { useTheme } from '../../context/ThemeContext';
@@ -42,6 +42,34 @@ function resolveImage(idOrUrl, imagesArray) {
 }
 
 const toCheckoutNumber = (value) => Number(value || 0);
+
+// Order-level fees are paid once, but orders display individual kits. Split
+// each fee by the value of every checkout line so the kit totals reconcile to
+// the payable order total without charging the full fee to every kit.
+const distributeFeeByLineValue = (totalFee, lineValues) => {
+  const fee = Math.max(0, Math.round(Number(totalFee) || 0));
+  const values = lineValues.map(value => Math.max(0, Number(value) || 0));
+  const totalValue = values.reduce((sum, value) => sum + value, 0);
+
+  if (!fee || !values.length) return values.map(() => 0);
+
+  const rawShares = values.map((value, index) => ({
+    index,
+    raw: totalValue > 0 ? (fee * value) / totalValue : fee / values.length
+  }));
+  const shares = rawShares.map(share => Math.floor(share.raw));
+  let remainder = fee - shares.reduce((sum, share) => sum + share, 0);
+
+  rawShares
+    .sort((a, b) => (b.raw - Math.floor(b.raw)) - (a.raw - Math.floor(a.raw)) || a.index - b.index)
+    .forEach(({ index }) => {
+      if (remainder <= 0) return;
+      shares[index] += 1;
+      remainder -= 1;
+    });
+
+  return shares;
+};
 
 const isProjectCheckoutItem = (item) => (
   item?.type === 'project' ||
@@ -891,9 +919,15 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   }, [checkoutItems, hasProjects, isMaintenance, storeAdmin]);
 
   const isGuestLoginRequired = isGuestPreview;
-  // Admins can still complete checkout while reviewing the public storefront.
-  const isOrderInvalidForMaintenance = isCheckoutUnderMaintenance && !isAdmin;
-  const showGuestPaymentUnavailableNotice = isGuestLoginRequired && !isOrderInvalidForMaintenance;
+  const shouldShowGuestSignInPrompt = isGuestLoginRequired
+    && checkoutItems.length > 0
+    && !isCheckoutUnderMaintenance;
+  const canBypassMaintenance = import.meta.env.DEV || isAdmin;
+  // Local development and authenticated admins using the public storefront can
+  // test payments. Guests still sign in; regular production users are blocked.
+  const isOrderInvalidForMaintenance = isCheckoutUnderMaintenance
+    && !isGuestLoginRequired
+    && !canBypassMaintenance;
 
   // Detect if selected suboption is a "Cash On" variant (COD/COP/custom)
   const isCashOnSuboption = useMemo(() => {
@@ -968,24 +1002,84 @@ const baseTotal = useMemo(() => {
     if (!checkoutData.shippingMethod) return 0;
     const method = checkoutData.shippingMethod;
     const subKey = getSelectedShippingSubKey(checkoutData);
-    const shouldDiscountHandling = getHandlingDiscountSetting(storeAdmin?.shippingMethods, method, subKey);
+    const suboptionValue = getSuboptionCandidatesFromKey(storeAdmin?.shippingMethods, method, subKey);
+    const hasFreeShipping = checkoutItems.some(item => (
+      isItemShippingEligibleForFreeShipping(item, method, suboptionValue)
+    ));
+    const shouldDiscountHandling = hasFreeShipping
+      || getHandlingDiscountSetting(storeAdmin?.shippingMethods, method, subKey);
     if (!shouldDiscountHandling) return 0;
     return totalAppliedHandlingFee;
-  }, [checkoutData, storeAdmin?.shippingMethods, totalAppliedHandlingFee]);
+  }, [checkoutData, checkoutItems, storeAdmin?.shippingMethods, totalAppliedHandlingFee]);
 
   const installmentFeeDiscount = useMemo(() => {
     const hasDiscount = checkoutData.paymentPlan === 'full';
     return hasDiscount ? totalAppliedInstallmentFee : 0;
   }, [checkoutData.paymentPlan, totalAppliedInstallmentFee]);
 
+  // Payment-method promos apply to the cash transfer fee only. A smaller
+  // promo reduces that fee; it never silently discounts the kits themselves.
+  const cashTransferFeeDiscount = useMemo(() => {
+    return Math.min(Math.max(0, paymentMethodDiscount), totalAppliedTransferFee);
+  }, [paymentMethodDiscount, totalAppliedTransferFee]);
+
   const garageDiscount = useMemo(() => {
-    return handlingFeeDiscount + installmentFeeDiscount + paymentMethodDiscount;
-  }, [handlingFeeDiscount, installmentFeeDiscount, paymentMethodDiscount]);
+    return handlingFeeDiscount + installmentFeeDiscount + cashTransferFeeDiscount;
+  }, [handlingFeeDiscount, installmentFeeDiscount, cashTransferFeeDiscount]);
 
   const totalToSettle = useMemo(() => {
     const result = (baseTotal || 0) - garageDiscount;
     return isNaN(result) ? 0 : Math.max(0, result);
   }, [baseTotal, garageDiscount]);
+
+  // Keep all item installment fees visible in the subtotal. Full payment
+  // removes them through its own explicit discount row below.
+  const summaryItemsSubtotal = useMemo(() => {
+    return checkoutItems.reduce((sum, item) => {
+      const sourceKit = kits.find(kit => kit.id === item.id || kit.id === item.productId || kit.name === item.name);
+      const standalonePrice = Number(sourceKit?.stocks?.[item.stockKey]?.sellPrice || sourceKit?.sellPrice || 0);
+      const basePrice = item.isBundleItem && standalonePrice > 0
+        ? standalonePrice
+        : Number(item.price || item.sellPrice || item.projectData?.sellPrice || 0);
+      const installmentFee = Number(item.appliedInstallmentFee || 0);
+      return sum + (basePrice + installmentFee) * (item.quantity || 1);
+    }, 0);
+  }, [checkoutItems, kits]);
+
+  const bundleDiscount = useMemo(() => {
+    return checkoutItems.reduce((sum, item) => {
+      if (!item.isBundleItem) return sum;
+      const sourceKit = kits.find(kit => kit.id === item.id || kit.id === item.productId || kit.name === item.name);
+      const standalonePrice = Number(sourceKit?.stocks?.[item.stockKey]?.sellPrice || sourceKit?.sellPrice || 0);
+      const dealPrice = Number(item.price || item.sellPrice || 0);
+      return sum + Math.max(0, standalonePrice - dealPrice) * (item.quantity || 1);
+    }, 0);
+  }, [checkoutItems, kits]);
+
+  const isHandlingFeeDiscounted = handlingFeeDiscount > 0 && orderFees.handling > 0;
+  const isCashTransferFeeDiscounted = cashTransferFeeDiscount > 0 && orderFees.transfer > 0;
+  const isCashTransferFeeFullyDiscounted = cashTransferFeeDiscount >= orderFees.transfer && orderFees.transfer > 0;
+  const remainingHandlingFee = Math.max(0, orderFees.handling - handlingFeeDiscount);
+  const remainingCashTransferFee = Math.max(0, orderFees.transfer - cashTransferFeeDiscount);
+  const fullPaymentInstallmentDiscount = checkoutData.paymentPlan === 'full' ? totalAppliedInstallmentFee : 0;
+
+  const distributedOrderFees = useMemo(() => {
+    const lineValues = checkoutItems.map(item => {
+      const basePrice = Number(item.price || item.sellPrice || item.projectData?.sellPrice || 0);
+      const installmentFee = checkoutData.paymentPlan === 'full'
+        ? 0
+        : Number(item.appliedInstallmentFee || 0);
+      return (basePrice + installmentFee) * (Number(item.quantity) || 1);
+    });
+    const handlingShares = distributeFeeByLineValue(remainingHandlingFee, lineValues);
+    const transferShares = distributeFeeByLineValue(remainingCashTransferFee, lineValues);
+
+    return checkoutItems.map((_, index) => ({
+      handling: handlingShares[index] || 0,
+      transfer: transferShares[index] || 0,
+      total: (handlingShares[index] || 0) + (transferShares[index] || 0)
+    }));
+  }, [checkoutItems, checkoutData.paymentPlan, remainingHandlingFee, remainingCashTransferFee]);
 
   const isInstallmentPlan = useMemo(() => (
     checkoutData.paymentPlan === 'partial' ||
@@ -1669,6 +1763,8 @@ const baseTotal = useMemo(() => {
     return isDetailsFormValid;
   }, [isNoDetailsMode, addressStatus.isEditingAddress, addressStatus.isPinConfirmed, isDetailsFormValid, requiredFields]);
 
+  const hasIncompleteRequiredDetails = Boolean(user) && !isNoDetailsMode && !isFormValid;
+
   const currentDetailsEditSnapshot = useMemo(() => JSON.stringify({
     deliveryData,
     lbcBranch: checkoutData.lbcBranch || '',
@@ -1854,17 +1950,28 @@ const handleFinalizeOrder = async () => {
         userId: user?.uid || null,
         buyerName: checkoutName,
         isMaintenanceOrder: isOrderInvalidForMaintenance || false,
-        items: checkoutItems.map(item => ({
+        items: checkoutItems.map((item, index) => {
+          const distributedFee = distributedOrderFees[index] || { handling: 0, transfer: 0, total: 0 };
+          return ({
           id: item.id,
           name: `${item.brand || ''} ${item.specs?.line || ''} ${item.name}`.trim(),
           price: item.price || 0,
-          sellPrice: item.sellPrice || item.price || 0,
+          sellPrice: item.isBundleItem ? (item.price || 0) : (item.sellPrice || item.price || 0),
           quantity: item.quantity || 1,
           image: item.image || null,
           images: item.images || null,
           appliedHandlingFee: item.appliedHandlingFee || 0,
           appliedInstallmentFee: item.appliedInstallmentFee || 0,
           appliedTransferFee: item.appliedTransferFee || 0,
+          distributedHandlingFee: distributedFee.handling,
+          distributedTransferFee: distributedFee.transfer,
+          hasDistributedOrderFees: true,
+          isBundleItem: Boolean(item.isBundleItem),
+          bundleId: item.bundleId || null,
+          bundleName: item.bundleName || null,
+          bundleSize: Number(item.bundleSize || 0) || null,
+          bundleFeeShare: Number(item.bundleFeeShare || 0),
+          bundleReferencePrice: Number(item.bundleReferencePrice || 0),
           offerId: item.offerId || null,
           offerPrice: item.offerPrice || null,
           offerExpiresAt: item.offerExpiresAt || null,
@@ -1877,7 +1984,8 @@ const handleFinalizeOrder = async () => {
           type: isProjectCheckoutItem(item) ? 'project' : 'kit',
           projectData: isProjectCheckoutItem(item) ? (item.projectData || null) : null,
           productionJobs: isProjectCheckoutItem(item) ? (item.projectData?.productionJobs || item.projectData?.projectDetails?.flatMap(detail => detail.productionJobs || []) || []) : []
-        })),
+          });
+        }),
         status: initialStatus,
         isPreOrder,
         hasProjects,
@@ -1949,6 +2057,7 @@ const handleFinalizeOrder = async () => {
         paymentMethod: checkoutData.paymentMethod || 'Cash',
         totalPrice: Math.max(0, baseTotal - garageDiscount),
         subtotal: baseTotal,
+        feesIncludedInTotal: true,
         buyerPaid: 0,
         paymentDueNow: amountDueNow || 0,
         originalPaymentDueNow: amountDueNow || 0,
@@ -1972,7 +2081,7 @@ const handleFinalizeOrder = async () => {
           handlingFee: handlingFeeDiscount || 0,
           installmentFee: installmentFeeDiscount || 0,
           transferFee: transferFeeDiscount || 0,
-          paymentMethod: paymentMethodDiscount || 0,
+          paymentMethod: cashTransferFeeDiscount || 0,
           fixedPaymentMethod: fixedPaymentMethodDiscount || 0
         },
         date: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
@@ -2074,10 +2183,7 @@ const handleFinalizeOrder = async () => {
     const settings = { ...(storeAdmin?.paymentSettings?.plans || {}) };
     const plans = ['full'];
     
-    // Ang deals/bundles ay laging Full payment lang at hindi pwedeng i-reserve/installment.
-    const hasBundleItems = checkoutItems.some(item => item.isBundleItem || item.name?.includes('(Bundle Item)'));
-
-    if (!hasBundleItems && (settings.downpayment || settings.installment)) {
+    if (settings.downpayment || settings.installment) {
       // Reservation plan para sa lahat ng kits (pre-order at on-hand)
       // PERO hindi available kung:
       // - on-hand lang at may Cash On suboption (COD/COP)
@@ -2171,20 +2277,34 @@ const handleFinalizeOrder = async () => {
           }));
         }
         if (availablePaymentMethods.length > 0) {
+          // Select the best available discount once the checkout's shipping
+          // context is known. After that, a customer's manual choice wins.
+          if (!checkoutData.shippingMethod) return;
+
+          const highestDiscountMethod = availablePaymentMethods.reduce((best, method) => {
+            const config = getPaymentMethodConfig(storeAdmin?.paymentSettings?.methods, method);
+            const discount = Math.max(
+              config.transferDiscount ? totalAppliedTransferFee : 0,
+              Number(config.discountAmount || 0)
+            );
+            return discount > best.discount ? { method, discount } : best;
+          }, { method: availablePaymentMethods[0], discount: -1 }).method;
+
           // Gamitin ang case-insensitive comparison para hindi ma-reset ang user selection
           // dahil sa case mismatch (e.g. "GCash" vs "Gcash", "UnionBank" vs "Unionbank")
           const currentMethod = checkoutData.paymentMethod;
           const isCurrentValid = currentMethod && availablePaymentMethods.some(
             m => m.toLowerCase() === currentMethod.toLowerCase()
           );
-          if (!isCurrentValid) {
-            updateCheckoutData(prev => ({ ...prev, paymentMethod: availablePaymentMethods[0] }));
+          if (!hasPreselectedRef.current || !isCurrentValid) {
+            updateCheckoutData(prev => ({ ...prev, paymentMethod: highestDiscountMethod }));
+            hasPreselectedRef.current = true;
           }
         }
       }, 0);
       return () => clearTimeout(timer);
     }
-  }, [isOpen, shippingOptions, preferredShippingMethod, availablePaymentPlans, availablePaymentMethods, checkoutData.shippingMethod, checkoutData.paymentPlan, checkoutData.paymentMethod, minInitialPayment, handleShippingChange, updateCheckoutData, checkoutItems, enabledShippingMethods, storeAdmin, pickupPoints, isMethodFreeShipping]);
+  }, [isOpen, shippingOptions, preferredShippingMethod, availablePaymentPlans, availablePaymentMethods, checkoutData.shippingMethod, checkoutData.paymentPlan, checkoutData.paymentMethod, minInitialPayment, handleShippingChange, updateCheckoutData, checkoutItems, enabledShippingMethods, storeAdmin, pickupPoints, isMethodFreeShipping, totalAppliedTransferFee]);
 
 
 
@@ -2465,8 +2585,28 @@ const handleFinalizeOrder = async () => {
       const displayBrand = item.brand || kit?.brand || '';
       const rawName = (item.name || item.item || item.projectData?.projectName || `Item ${idx + 1}`).replace(/\s*\(Pre-Order\)\s*$/i, '');
       const quantity = Number(item.quantity) || 1;
-      const unitPrice = Number(item.price || item.sellPrice || item.projectData?.displayPrice || item.projectData?.sellPrice || 0) + Number(item.appliedInstallmentFee || 0);
-      return { id: item.basketId || item.stockKey || item.id || idx, image: displayImage, name: rawName, meta: [displayGrade, displayBrand, isProjectCheckoutItem(item) ? 'PROJECT' : item.status].filter(Boolean).join(' / '), quantity, unitPrice };
+      const itemInstallmentFee = Number(item.appliedInstallmentFee || 0);
+      const displayInstallmentFee = item.isBundleItem && checkoutData.paymentPlan === 'full'
+        ? 0
+        : itemInstallmentFee;
+      const unitPrice = Number(item.price || item.sellPrice || item.projectData?.displayPrice || item.projectData?.sellPrice || 0) + displayInstallmentFee;
+      const distributedFee = distributedOrderFees[idx] || { total: 0 };
+      const linePrice = (unitPrice * quantity) + distributedFee.total;
+      const stockReferencePrice = Number(kit?.stocks?.[item.stockKey]?.sellPrice || kit?.sellPrice || 0);
+      const standaloneUnitPrice = item.isBundleItem
+        ? stockReferencePrice + Number(item.appliedInstallmentFee || 0)
+        : 0;
+      return {
+        id: item.basketId || item.stockKey || item.id || idx,
+        image: displayImage,
+        name: rawName,
+        meta: [displayGrade, displayBrand, isProjectCheckoutItem(item) ? 'PROJECT' : item.status].filter(Boolean).join(' / '),
+        quantity,
+        unitPrice,
+        linePrice,
+        standaloneUnitPrice,
+        isBundleItem: Boolean(item.isBundleItem)
+      };
     });
 
     const isPaymentUnavailable = isOrderInvalidForMaintenance;
@@ -2680,8 +2820,11 @@ const handleFinalizeOrder = async () => {
                       <p className="mt-1 text-[12px] font-black uppercase tracking-widest opacity-45">x{row.quantity}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-[13px] font-black uppercase tracking-widest opacity-45">Unit</p>
-                      <p className="text-[13px] font-black">₱{row.unitPrice.toLocaleString()}</p>
+                      <p className="text-[13px] font-black uppercase tracking-widest opacity-45">{row.quantity > 1 ? 'Total' : 'Unit'}</p>
+                      <p className={`text-[13px] font-black ${row.isBundleItem ? 'text-emerald-600 dark:text-emerald-400' : ''}`}>₱{row.linePrice.toLocaleString()}</p>
+                      {row.isBundleItem && row.standaloneUnitPrice > row.unitPrice && (
+                        <p className="mt-0.5 text-[12px] font-black text-neutral-500 line-through dark:text-neutral-300">₱{row.standaloneUnitPrice.toLocaleString()}</p>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -2703,10 +2846,28 @@ const handleFinalizeOrder = async () => {
                 </button>
               </div>
               <div className="space-y-3 text-[14px] font-bold">
-                <div className="flex justify-between"><span>Subtotal (Items)</span><span>₱{(baseTotal - orderFees.handling - orderFees.transfer).toLocaleString()}</span></div>
-                <div className="flex justify-between"><span>Service Charge</span><span>₱{(orderFees.handling + orderFees.transfer).toLocaleString()}</span></div>
-                <div className="flex justify-between text-emerald-200"><span>Garage Discount</span><span>-₱{garageDiscount.toLocaleString()}</span></div>
-                <div className="flex justify-between"><span>Shipping Fee</span><span>Not Included</span></div>
+                <div className="flex justify-between"><span>Subtotal (Items)</span><span>₱{summaryItemsSubtotal.toLocaleString()}</span></div>
+                {bundleDiscount > 0 && (
+                  <div className="flex justify-between text-emerald-200"><span>Bundle Discount</span><span>-₱{bundleDiscount.toLocaleString()}</span></div>
+                )}
+                {fullPaymentInstallmentDiscount > 0 && (
+                  <div className="flex justify-between text-emerald-200"><span>Full Payment Discount</span><span>-₱{fullPaymentInstallmentDiscount.toLocaleString()}</span></div>
+                )}
+                <div className="flex justify-between">
+                  <span>Handling Fee</span>
+                  <span className={isHandlingFeeDiscounted ? 'line-through text-emerald-200' : ''}>₱{orderFees.handling.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Cash Transfer Fee</span>
+                  {isCashTransferFeeFullyDiscounted ? (
+                    <span className="line-through text-emerald-200">₱{orderFees.transfer.toLocaleString()}</span>
+                  ) : isCashTransferFeeDiscounted ? (
+                    <span>₱{remainingCashTransferFee.toLocaleString()}</span>
+                  ) : (
+                    <span>₱{orderFees.transfer.toLocaleString()}</span>
+                  )}
+                </div>
+                <div className={`flex justify-between ${isFreeShippingApplied ? 'text-emerald-200' : ''}`}><span>Shipping Fee</span><span>{checkoutData.shippingMethod === 'Self-Pickup' ? 'Not Applicable' : isFreeShippingApplied ? 'Free Shipping' : 'Not Included'}</span></div>
                 <div className="flex justify-between border-t border-white/15 pt-4 text-xl font-black italic"><span>Total</span><span>₱{totalToSettle.toLocaleString()}</span></div>
                 {isInstallmentPlan && (
                   <div className="flex justify-between text-[13px] font-black text-emerald-200"><span>Due Now</span><span>₱{amountDueNow.toLocaleString()}</span></div>
@@ -2793,12 +2954,13 @@ const handleFinalizeOrder = async () => {
                   disabled={isDisabled}
                   className="flex w-full items-center justify-center gap-2 rounded-2xl bg-white py-5 text-[13px] font-black uppercase tracking-[0.2em] text-blue-600 shadow-xl disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {isFinalizing ? 'Reserving...' : isPaymentUnavailable ? 'Payment Unavailable' : isGuestLoginRequired ? <><FaGoogle size={16} />Login with Google</> : 'Pay Now'}
+                  {isFinalizing ? 'Reserving...' : isGuestLoginRequired ? <><FcGoogle size={16} />Login with Google</> : isPaymentUnavailable ? 'Payment Unavailable' : 'Pay Now'}
                 </button>
-                {showGuestPaymentUnavailableNotice && (
-                  <p className="!mt-1 text-center text-[12px] font-bold uppercase tracking-[0.18em] text-white">
-                    Payment unavailable
-                  </p>
+                {hasIncompleteRequiredDetails && (
+                  <p className="text-center text-[11px] font-black uppercase tracking-widest text-white/70">Details Incomplete</p>
+                )}
+                {shouldShowGuestSignInPrompt && (
+                  <p className="text-center text-[11px] font-black uppercase tracking-widest text-white/70">Sign In To Proceed</p>
                 )}
               </div>
             </section>
@@ -3506,7 +3668,18 @@ const handleFinalizeOrder = async () => {
   const basePrice = Number(item.price || item.sellPrice || item.projectData?.sellPrice || 0);
   
   // 2. I-add ang installment fee (₱2,100 + ₱100 = ₱2,200)
-  const itemPrice = basePrice + (Number(item.appliedInstallmentFee) || 0);
+  const itemInstallmentFee = Number(item.appliedInstallmentFee || 0);
+  const displayInstallmentFee = item.isBundleItem && checkoutData.paymentPlan === 'full'
+    ? 0
+    : itemInstallmentFee;
+  const itemPrice = basePrice + displayInstallmentFee;
+  const distributedFee = distributedOrderFees[idx] || { total: 0 };
+  const itemLinePrice = (itemPrice * (item.quantity || 1)) + distributedFee.total;
+  const sourceKit = kits.find(kit => kit.id === item.id || kit.id === item.productId || kit.name === item.name);
+  const standaloneBasePrice = Number(sourceKit?.stocks?.[item.stockKey]?.sellPrice || sourceKit?.sellPrice || 0);
+  const standalonePrice = item.isBundleItem
+    ? standaloneBasePrice + (Number(item.appliedInstallmentFee) || 0)
+    : 0;
 
   // 3. Resolve the image
   const displayImage = item.type === 'project'
@@ -3528,12 +3701,20 @@ const handleFinalizeOrder = async () => {
               <Package size={14} className="text-white" />
             </div>
           )}
-          <p className="text-[10px] font-bold uppercase line-clamp-1 opacity-100">
-            {(item.quantity || 1) > 1 ? `(${item.quantity}x) ` : ''}
-            {item.name}
-          </p>
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase line-clamp-1 opacity-100">
+              {(item.quantity || 1) > 1 ? `(${item.quantity}x) ` : ''}
+              {item.name}
+            </p>
+          </div>
         </div>
-        <p className="text-[10px] font-black shrink-0">₱{( itemPrice * (item.quantity || 1) ).toLocaleString()}</p>
+        <div className="shrink-0 text-right">
+          <p className="text-[9px] font-black uppercase tracking-widest text-white/60">{(item.quantity || 1) > 1 ? 'Total' : 'Unit'}</p>
+          <p className={`text-[10px] font-black ${item.isBundleItem ? 'text-emerald-200' : ''}`}>₱{itemLinePrice.toLocaleString()}</p>
+          {item.isBundleItem && standalonePrice > itemPrice && (
+            <p className="text-[9px] font-black line-through text-white/65">₱{(standalonePrice * (item.quantity || 1)).toLocaleString()}</p>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -3542,25 +3723,37 @@ const handleFinalizeOrder = async () => {
                   <div className="pt-3 border-t border-white/20 space-y-1 text-[10px] font-bold text-left">
                       <div className="flex justify-between uppercase opacity-100">
                         <span>Subtotal (Items)</span>
-                        <span>₱{(baseTotal - orderFees.handling - orderFees.transfer - projectInstallmentFee).toLocaleString()}</span>
+                        <span>₱{summaryItemsSubtotal.toLocaleString()}</span>
                       </div>
-                      <div className="flex justify-between uppercase opacity-100">
-                        <span>Service Charge</span>
-                        <span>₱{(orderFees.handling + orderFees.transfer + projectInstallmentFee).toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between uppercase opacity-100 font-bold border-t border-white/10 pt-2">
-                        <span>Total</span>
-                        <span>₱{baseTotal.toLocaleString()}</span>
-                      </div>
-                      {isAdminCheckoutConfigReady && garageDiscount > 0 && (
-                        <div className="flex justify-between text-emerald-300 italic uppercase font-black animate-in fade-in duration-300">
-                          <span>Garage Discount</span>
-                          <span>₱{garageDiscount.toLocaleString()} OFF</span>
+                      {bundleDiscount > 0 && (
+                        <div className="flex justify-between uppercase font-black text-emerald-300">
+                          <span>Bundle Discount</span>
+                          <span>-₱{bundleDiscount.toLocaleString()}</span>
                         </div>
                       )}
+                      {fullPaymentInstallmentDiscount > 0 && (
+                        <div className="flex justify-between uppercase font-black text-emerald-300">
+                          <span>Full Payment Discount</span>
+                          <span>-₱{fullPaymentInstallmentDiscount.toLocaleString()}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between uppercase opacity-100">
+                        <span>Handling Fee</span>
+                        <span className={isHandlingFeeDiscounted ? 'line-through text-emerald-300' : ''}>₱{orderFees.handling.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between uppercase opacity-100">
+                        <span>Cash Transfer Fee</span>
+                        {isCashTransferFeeFullyDiscounted ? (
+                          <span className="line-through text-emerald-300">₱{orderFees.transfer.toLocaleString()}</span>
+                        ) : isCashTransferFeeDiscounted ? (
+                          <span>₱{remainingCashTransferFee.toLocaleString()}</span>
+                        ) : (
+                          <span>₱{orderFees.transfer.toLocaleString()}</span>
+                        )}
+                      </div>
                       <div className={`flex justify-between uppercase ${isFreeShippingApplied ? 'text-emerald-300' : 'text-white/60'}`}>
                         <span>Shipping Fee</span>
-                        <span>{isFreeShippingApplied ? 'FREE' : 'NOT INCLUDED'}</span>
+                        <span>{checkoutData.shippingMethod === 'Self-Pickup' ? 'NOT APPLICABLE' : isFreeShippingApplied ? 'FREE SHIPPING' : 'NOT INCLUDED'}</span>
                       </div>
                       <div className="flex justify-between text-lg font-black italic uppercase pt-2"><span>Total</span><span>₱{totalToSettle.toLocaleString()}</span></div>
                   </div>
@@ -3761,18 +3954,19 @@ const handleFinalizeOrder = async () => {
                                 <Loader2 className="animate-spin" size={18} />
                                 <span>Reserving...</span>
                               </>
+                            ) : isGuestLoginRequired ? (
+                              <><FcGoogle size={16} />Login with Google</>
                             ) : isPaymentUnavailable ? (
                               'Payment Unavailable'
-                            ) : isGuestLoginRequired ? (
-                              <><FaGoogle size={16} />Login with Google</>
                             ) : (
                               'Pay Now'
                             )}
                           </motion.button>
-                          {showGuestPaymentUnavailableNotice && (
-                            <p className="text-center text-[12px] font-black uppercase tracking-[0.18em] text-white">
-                              Payment unavailable
-                            </p>
+                          {hasIncompleteRequiredDetails && (
+                            <p className="text-center text-[10px] font-black uppercase tracking-widest text-white/70">Details Incomplete</p>
+                          )}
+                          {shouldShowGuestSignInPrompt && (
+                            <p className="text-center text-[10px] font-black uppercase tracking-widest text-white/70">Sign In To Proceed</p>
                           )}
                         </>
                       );

@@ -24,10 +24,15 @@ function stockMatchesDealSource(stock, source = 'onhand') {
 
 export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onOpenKit, isEditMode = false, onEditDeal }) {
   const { kits, shippingSettings } = useStore();
-  const { exclusiveDiscountPercent, installmentFee } = getCheckoutPaymentFees({ shippingSettings });
+  const { exclusiveDiscountPercent, handlingFee, installmentFee, transferFee } = getCheckoutPaymentFees({ shippingSettings });
   const onCloseRef = useRef(onClose);
   const isEditable = isEditMode && typeof onEditDeal === 'function';
-  const publicInstallmentFee = isEditable ? 0 : Number(installmentFee || 0);
+  // Bundle savings compare each included kit against its normal standalone
+  // checkout price. A standalone kit carries handling, transfer, and
+  // installment fees in full, rather than a share of the bundle fees.
+  const publicStandaloneFee = isEditable
+    ? 0
+    : Number(installmentFee || 0) + Number(handlingFee || 0) + Number(transferFee || 0);
 
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -115,9 +120,9 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onOp
 
     const adjustedPricing = pricing.map(row => ({
       ...row,
-      refPrice: row.refPrice + publicInstallmentFee
+      refPrice: row.refPrice + publicStandaloneFee
     }));
-    const adjustedNormalTotal = nTotal + (publicInstallmentFee * includedKits.length);
+    const adjustedNormalTotal = nTotal + (publicStandaloneFee * includedKits.length);
 
     return {
       normalTotal: adjustedNormalTotal,
@@ -125,7 +130,7 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onOp
       savings: adjustedNormalTotal > bPrice ? adjustedNormalTotal - bPrice : 0,
       kitPricing: adjustedPricing
     };
-  }, [includedKits, deal, exclusiveDiscountPercent, publicInstallmentFee]);
+  }, [includedKits, deal, exclusiveDiscountPercent, publicStandaloneFee]);
 
 
   useEffect(() => {
@@ -193,7 +198,7 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onOp
                  <span className="text-lg font-black italic line-through opacity-30">₱{normalTotal.toLocaleString()}</span>
               </div>
               <div className="bg-emerald-600/10 rounded-3xl p-5 text-left border border-emerald-500/20">
-                 <span className="text-[12 px] font-black uppercase text-emerald-500 tracking-widest block mb-1 text-left">You Save</span>
+                 <span className="text-[12px] font-black uppercase text-emerald-500 tracking-widest block mb-1 text-left">Save Up To</span>
                  <span className="text-lg font-black italic text-emerald-500">₱{savings.toLocaleString()}</span>
               </div>
            </div>
@@ -263,7 +268,7 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onOp
         <div className="p-4 md:p-8 bg-black/5 dark:bg-white/[0.02] border-t border-[var(--color-border)] flex-none">
            <div className="flex flex-row items-center justify-between gap-4 w-full">
               <div className="text-left">
-                 <span className="text-[8px] md:text-[10px] font-black uppercase tracking-widest opacity-40 block mb-0.5 leading-none">Promo Price</span>
+                 <span className="text-[8px] md:text-[10px] font-black uppercase tracking-widest opacity-40 block mb-0.5 leading-none">Lowest Deal Price</span>
                  <span className="text-xl md:text-3xl font-black italic text-emerald-500 tracking-tighter leading-none">₱{bundlePrice.toLocaleString()}</span>
               </div>
               
