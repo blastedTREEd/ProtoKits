@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
 import { useNavigate } from 'react-router-dom';
+import { FaGoogle } from 'react-icons/fa';
 import { useStore } from '../../store/useStore';
 import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
 import { useTheme } from '../../context/ThemeContext';
@@ -2792,7 +2793,7 @@ const handleFinalizeOrder = async () => {
                   disabled={isDisabled}
                   className="flex w-full items-center justify-center gap-2 rounded-2xl bg-white py-5 text-[13px] font-black uppercase tracking-[0.2em] text-blue-600 shadow-xl disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {isFinalizing ? 'Reserving...' : isPaymentUnavailable ? 'Payment Unavailable' : isGuestLoginRequired ? 'Login with Google' : 'Pay Now'}
+                  {isFinalizing ? 'Reserving...' : isPaymentUnavailable ? 'Payment Unavailable' : isGuestLoginRequired ? <><FaGoogle size={16} />Login with Google</> : 'Pay Now'}
                 </button>
                 {showGuestPaymentUnavailableNotice && (
                   <p className="!mt-1 text-center text-[12px] font-bold uppercase tracking-[0.18em] text-white">
@@ -3763,7 +3764,7 @@ const handleFinalizeOrder = async () => {
                             ) : isPaymentUnavailable ? (
                               'Payment Unavailable'
                             ) : isGuestLoginRequired ? (
-                              'Login with Google'
+                              <><FaGoogle size={16} />Login with Google</>
                             ) : (
                               'Pay Now'
                             )}

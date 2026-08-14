@@ -8,7 +8,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "garage": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-garage.ps1"
+    "garage": "concurrently \"npm run dev\""
   },
   "dependencies": {
     "firebase": "^12.11.0",
