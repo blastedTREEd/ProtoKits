@@ -6,6 +6,11 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function isAnonymous() {
+      return signedIn()
+        && request.auth.token.firebase.sign_in_provider == 'anonymous';
+    }
+
     function isOwner(uid) {
       return signedIn() && request.auth.uid == uid;
     }
@@ -72,7 +77,9 @@ service cloud.firestore {
     // --- KITS ---
     match /kits/{kitId} {
       allow read: if true;
-      allow write: if signedIn(); // Temporary debug rule from current production rules.
+      // Guest checkout reserves stock through a verified server transaction.
+      // This prevents anonymous visitors from changing stock directly.
+      allow write: if signedIn() && !isAnonymous(); // Existing non-guest path remains pending server migration.
     }
 
     // --- BLUEPRINTS ---
@@ -126,7 +133,8 @@ service cloud.firestore {
     // --- ORDERS ---
     match /orders/{orderId} {
       allow get, list: if isAdmin() || ownsOrder();
-      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+      // Guest orders are created only by the verified Vercel endpoint.
+      allow create: if signedIn() && !isAnonymous() && request.resource.data.userId == request.auth.uid;
       allow delete: if isAdmin();
       allow update: if isAdmin() || (
         ownsOrder()

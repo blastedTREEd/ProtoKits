@@ -11,8 +11,9 @@ export default function Checkout() {
   const navigate = useNavigate();
   const { isDarkMode } = useTheme();
   const user = useStore((state) => state.user);
+  const isAnonymousUser = useStore((state) => state.isAnonymousUser);
   const items = Array.isArray(location.state?.items) ? location.state.items : [];
-  const isGuestPreview = !user;
+  const isGuestPreview = !user || isAnonymousUser;
 
   if (items.length === 0) {
     return (

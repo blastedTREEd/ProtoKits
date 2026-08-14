@@ -258,6 +258,7 @@ export const useStore = create(
       hasLoadedAllKits: false,
       isAdmin: false,
       isBanned: false,
+      isAnonymousUser: false,
       isProfileIncomplete: false,
       isAdminView: false,
       isInventoryAuditOpen: false,
@@ -1705,7 +1706,7 @@ export const useStore = create(
           console.log("DEBUG: No sgUser found, switching to guest mode.");
           const guestProjectVault = JSON.parse(localStorage.getItem('sg_guest_project_vault') || '[]');
           const guestBasket = JSON.parse(localStorage.getItem('sg_guest_basket') || '[]');
-          set({ user: null, isAdmin: false, isAdminView: false, usersList: [], projectVault: guestProjectVault, guestBasket, shelf: [], userOffers: [], unsubUser: null, unsubShelf: null, unsubAdmin: null, unsubBasket: null, unsubOffers: null, syncStatus: 'Restoring local basket' });
+          set({ user: null, isAnonymousUser: false, isAdmin: false, isAdminView: false, usersList: [], projectVault: guestProjectVault, guestBasket, shelf: [], userOffers: [], unsubUser: null, unsubShelf: null, unsubAdmin: null, unsubBasket: null, unsubOffers: null, syncStatus: 'Restoring local basket' });
           
           get().markLoaded('userProfile');
           get().markLoaded('basket');
@@ -1715,6 +1716,7 @@ export const useStore = create(
           return;
         }
 
+        const isAnonymousUser = sgUser.isAnonymous === true;
         console.log("DEBUG: sgUser detected, syncing data for UID:", sgUser.uid);
         const userRef = doc(db, 'users', sgUser.uid);
         const adminRef = doc(db, 'admins', sgUser.uid);
@@ -1804,7 +1806,7 @@ export const useStore = create(
           uid: sgUser.uid,
           displayName: (sgUser.displayName || "Anonymous").toUpperCase(),
           photoURL: sgUser.photoURL || '',
-          role: 'customer',
+          role: isAnonymousUser ? 'guest' : 'customer',
           createdAt: new Date().toISOString()
         };
         set({
@@ -1814,9 +1816,10 @@ export const useStore = create(
             photoURL: initialUser.photoURL || sgUser.photoURL || '',
             displayName: (initialUser.displayName || sgUser.displayName || "Anonymous").toUpperCase()
           },
+          isAnonymousUser,
           isAdmin: isActuallyAdmin,
           isBanned: initialUser.userDetails?.status === 'banned',
-          isProfileIncomplete: !initialUser.userDetails?.welcomeSeen,
+          isProfileIncomplete: !isAnonymousUser && !initialUser.userDetails?.welcomeSeen,
           syncStatus: 'Ready'
         });
         get().markLoaded('userProfile');
@@ -1851,9 +1854,10 @@ export const useStore = create(
                   photoURL: data.photoURL || sgUser.photoURL || '',
                   displayName: (data.displayName || sgUser.displayName || "Anonymous").toUpperCase() 
                 }, 
-                isAdmin: isActuallyAdmin, 
-                isBanned: data.userDetails?.status === 'banned', 
-                isProfileIncomplete: !data.userDetails?.welcomeSeen
+              isAnonymousUser,
+              isAdmin: isActuallyAdmin,
+              isBanned: data.userDetails?.status === 'banned',
+              isProfileIncomplete: !isAnonymousUser && !data.userDetails?.welcomeSeen
               });
               get().processPendingBasket();
             } else {

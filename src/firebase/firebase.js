@@ -15,8 +15,9 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
-const app = initializeApp(firebaseConfig);
+export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
+export let appCheck = null;
 
 
 // Initialize App Check (browser-only)
@@ -29,7 +30,7 @@ if (typeof window !== "undefined") {
   // Fallback to a dummy key in development if VITE_RECAPTCHA_SITE_KEY is not defined yet
   const siteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY || "6Lc_some_dummy_key_for_development_AAAAAA";
 
-  initializeAppCheck(app, {
+  appCheck = initializeAppCheck(app, {
     provider: new ReCaptchaV3Provider(siteKey),
     isTokenAutoRefreshEnabled: true,
   });

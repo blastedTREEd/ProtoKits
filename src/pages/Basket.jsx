@@ -28,7 +28,7 @@ function getBasketItemTime(item) {
 export default function Basket() {
   const { isDarkMode } = useTheme();
   const { 
-    user, basket, shelf, isAdmin, isAdminView, removeFromBasket, kits, addToBasket, addProjectToBasket, decrementProjectQuantity,
+    user, isAnonymousUser, basket, shelf, isAdmin, isAdminView, removeFromBasket, kits, addToBasket, addProjectToBasket, decrementProjectQuantity,
     guestBasket, isLoading, setLoginModalOpen, shippingSettings, loadMissingKits, keepOneOfEachToShelf
   } = useStore();
   const [isKeepingOnes, setIsKeepingOnes] = useState(false);
@@ -42,7 +42,7 @@ export default function Basket() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const activeBasket = user ? ((isAdmin && isAdminView) ? shelf : basket) : guestBasket;
+  const activeBasket = user && !isAnonymousUser ? ((isAdmin && isAdminView) ? shelf : basket) : guestBasket;
 
   const missingKitIds = useMemo(() => {
     const loadedKitIds = new Set((kits || []).map((kit) => kit.id));
@@ -122,7 +122,7 @@ export default function Basket() {
   const [isLoginPromptOpen, setLoginPromptOpen] = useState(false);
   const [itemsForCheckout, setItemsForCheckout] = useState([]);
 
-  const openCheckoutPage = (items, isGuestPreview = !user) => {
+  const openCheckoutPage = (items, isGuestPreview = !user || isAnonymousUser) => {
     navigate('/checkout', { state: { items, isGuestPreview } });
   };
 
@@ -803,7 +803,7 @@ export default function Basket() {
                                   quantity: item.qty
                                 }));
                                 setItemsForCheckout(checkoutItems);
-                                openCheckoutPage(checkoutItems, !user);
+                                openCheckoutPage(checkoutItems, !user || isAnonymousUser);
                               }}
                               className="px-10 py-3.5 rounded-full font-black uppercase tracking-widest text-xs transition-all bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:scale-105"
                             >

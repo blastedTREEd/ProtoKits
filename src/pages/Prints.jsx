@@ -130,6 +130,7 @@ export default function Prints() {
   const loadBlueprints = useStore((state) => state.loadBlueprints);
   const loadPrintResources = useStore((state) => state.loadPrintResources);
   const user = useStore((state) => state.user);
+  const isAnonymousUser = useStore((state) => state.isAnonymousUser);
   const setLoginModalOpen = useStore((state) => state.setLoginModalOpen);
   const setToastMessage = useStore((state) => state.setToastMessage);
   const shippingSettings = useStore((state) => state.shippingSettings);
@@ -141,7 +142,7 @@ export default function Prints() {
   const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
   const [itemsForCheckout, setItemsForCheckout] = useState([]);
 
-  const openCheckoutPage = (items, isGuestPreview = !user) => {
+  const openCheckoutPage = (items, isGuestPreview = !user || isAnonymousUser) => {
     navigate('/checkout', { state: { items, isGuestPreview } });
   };
 

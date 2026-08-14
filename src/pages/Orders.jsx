@@ -2,6 +2,9 @@ import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
+import { appCheck, auth } from '../firebase/firebase';
+import { signInAnonymously } from 'firebase/auth';
+import { getToken } from 'firebase/app-check';
 import PageTemplate from './PageTemplate';
 import { 
   ClipboardList, Plus, MapPin, Package, PackageOpen, ShieldCheck, X, CheckCircle2, 
@@ -282,7 +285,7 @@ export default function Orders() {
   const { isDarkMode } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, isAdmin, isAdminView, kits, createDummyUser, assignStockToOrder, cancelOrder, confirmOrderPayment, uploadReceipt, updateOrderDetails, updateOrderStatus, rates, orders, usersList, createOrder, deleteOrder, isLoading, subscribeOrders, subscribeUsersList, loadPrintResources, shippingSettings, garageInfo, cleanUpCancelledOrders, setToastMessage } = useStore();
+  const { user, isAdmin, isAdminView, kits, shelf, assignStockToOrder, cancelOrder, confirmOrderPayment, uploadReceipt, updateOrderDetails, updateOrderStatus, rates, orders, usersList, createOrder, deleteOrder, isLoading, subscribeOrders, subscribeUsersList, loadPrintResources, shippingSettings, garageInfo, cleanUpCancelledOrders, setToastMessage } = useStore();
   const isAdminMode = isAdmin && isAdminView;
   
   // Dynamically get the QR for whatever payment method the selected order uses
@@ -302,11 +305,51 @@ export default function Orders() {
   const [selectedOrders, setSelectedOrders] = useState([]);
   const [isMultiSelectEnabled, setIsMultiSelectEnabled] = useState(false);
   const [expandedOrderItems, setExpandedOrderItems] = useState({});
+  const [guestRecoveryCode, setGuestRecoveryCode] = useState('');
+  const [isRecoveringGuestOrder, setIsRecoveringGuestOrder] = useState(false);
 
   useEffect(() => {
     setSelectedOrders([]);
     setIsMultiSelectEnabled(false);
   }, [activeTab]);
+
+  const handleRecoverGuestOrder = async (event) => {
+    event.preventDefault();
+    if (!guestRecoveryCode.trim()) return;
+    if (!appCheck) {
+      alert('Secure order recovery is still loading. Please try again in a moment.');
+      return;
+    }
+    setIsRecoveringGuestOrder(true);
+    try {
+      const guestUser = auth.currentUser?.isAnonymous
+        ? auth.currentUser
+        : (await signInAnonymously(auth)).user;
+      const [idToken, appCheckResult] = await Promise.all([
+        guestUser.getIdToken(),
+        getToken(appCheck)
+      ]);
+      const response = await fetch('/api/recover-guest-order', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+          'X-Firebase-AppCheck': appCheckResult.token
+        },
+        body: JSON.stringify({ recoveryCode: guestRecoveryCode })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Unable to recover that order.');
+      localStorage.setItem(`sg_guest_order_recovery:${result.orderDocId}`, result.recoveryCode);
+      setGuestRecoveryCode('');
+      setToastMessage(`Order ${result.orderId} recovered on this device.`);
+    } catch (error) {
+      console.error('SG LOG: Guest order recovery failed:', error);
+      alert(error.message || 'Unable to recover that order.');
+    } finally {
+      setIsRecoveringGuestOrder(false);
+    }
+  };
 
   // Periodically releases stock for cancelled orders while retaining cancelled records.
   useEffect(() => {
@@ -373,21 +416,19 @@ export default function Orders() {
   const [customerTrackingLink, setCustomerTrackingLink] = useState('');
   const [claimantBalance, setClaimantBalance] = useState('');
   const [shippingFeeInput, setShippingFeeInput] = useState('');
-  const [manualOrderData, setManualOrderData] = useState({ 
-    buyerUid: '', 
-    newBuyerName: '', 
-    selectedKitId: '', 
-    selectedStockKey: '', 
-    buyerPaid: 0, 
-    shippingMethod: 'LBC COP/COD', 
-    meetupLocation: '', 
-    shippingFee: 0, 
-    handlingFee: 0, 
-    transferFee: 0 
+  const getEmptyLegacyOrderData = () => ({
+    search: '',
+    selectedItems: [],
+    shippingMethod: '',
+    shippingSuboption: '',
+    branch: '',
+    city: '',
+    province: '',
+    zipCode: '',
+    buyerPaid: '',
+    handlingFeePaid: ''
   });
-  const isMaintenance = shippingSettings?.paymentSettings?.maintenanceMode === true;
-  const isKitInvalidDuringMaintenance = isMaintenance && shippingSettings?.paymentSettings?.maintenanceInvalidTypes?.kit !== false;
-
+  const [manualOrderData, setManualOrderData] = useState(getEmptyLegacyOrderData);
   useEffect(() => {
     loadPrintResources();
   }, [loadPrintResources]);
@@ -571,12 +612,47 @@ export default function Orders() {
     setSelectedOrder(currentOrder || null);
   }, [orders, selectedOrderId]);
 
-  const availableStocks = useMemo(() => {
-    if (!manualOrderData.selectedKitId || !kits) return [];
-    const kit = kits.find(k => k.id === manualOrderData.selectedKitId);
-    if (!kit || !kit.stocks) return [];
-    return Object.entries(kit.stocks).filter(([, s]) => s && !s.order?.orderId && !s.isReserved).map(([key, s]) => ({ key, ...s }));
-  }, [manualOrderData.selectedKitId, kits]);
+  const collectionStockIds = useMemo(() => new Set(
+    (shelf || []).map((item) => `${item.id || item.kitId}:${item.stockKey || item.selectedStockKey}`)
+  ), [shelf]);
+
+  const legacyStockChoices = useMemo(() => (kits || []).flatMap((kit) => (
+    Object.entries(kit.stocks || {})
+      .filter(([stockKey, stock]) => (
+        stock
+        && !stock.order?.orderId
+        && !stock.isReserved
+        && !collectionStockIds.has(`${kit.id}:${stockKey}`)
+      ))
+      .map(([stockKey, stock]) => ({ kit, stockKey, stock }))
+  )), [kits, collectionStockIds]);
+
+  const filteredLegacyStockChoices = useMemo(() => {
+    const search = String(manualOrderData.search || '').trim().toLowerCase();
+    if (!search) return legacyStockChoices.slice(0, 24);
+    return legacyStockChoices.filter(({ kit, stock }) => (
+      [kit.name, kit.brand, kit.specs?.line, kit.specs?.scale, stock.status, stock.eta]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .includes(search)
+    )).slice(0, 24);
+  }, [legacyStockChoices, manualOrderData.search]);
+
+  const legacyShippingOptions = useMemo(() => Object.entries(shippingSettings?.shippingMethods || {})
+    .filter(([, config]) => config !== false && config?.active !== false)
+    .map(([key]) => key), [shippingSettings]);
+
+  const legacyShippingConfig = useMemo(() => (
+    shippingSettings?.shippingMethods?.[manualOrderData.shippingMethod] || {}
+  ), [shippingSettings?.shippingMethods, manualOrderData.shippingMethod]);
+  const legacySuboptions = useMemo(() => Object.entries(legacyShippingConfig.suboptions || {})
+    .filter(([, config]) => config !== false && config?.active !== false), [legacyShippingConfig]);
+  const legacyBranchRequired = legacyShippingConfig?.requiredFields?.includes(13)
+    || legacyShippingConfig?.suboptions?.[manualOrderData.shippingSuboption]?.requiredFields?.includes(13);
+  const legacyItemTotal = Math.max(0, Number(manualOrderData.buyerPaid || 0) - Number(manualOrderData.handlingFeePaid || 0));
+  // Retained only while the former compact manual-order markup remains disabled below.
+  const availableStocks = [];
 
   const handleFileSelect = (e, isBalance = false) => {
     const file = e.target.files[0];
@@ -787,64 +863,104 @@ export default function Orders() {
 
   const handleCreateManualOrder = async (e) => {
     e.preventDefault();
-    const { buyerUid, newBuyerName, selectedKitId, selectedStockKey, buyerPaid, shippingMethod, meetupLocation, shippingFee, handlingFee, transferFee } = manualOrderData;
-    if ((!buyerUid && !newBuyerName) || !selectedKitId || !selectedStockKey) return;
-    
-    const kit = kits.find(k => k.id === selectedKitId);
-    const stock = kit?.stocks?.[selectedStockKey];
-    if (!stock) return;
-    
-    const orderId = `#SG-${Math.floor(Math.random() * 9000) + 1000}`;
-    const targetUid = buyerUid || await createDummyUser(newBuyerName);
-    
-    const createdTime = new Date().toISOString();
-    const expirationDate = new Date(createdTime);
-    if (isKitInvalidDuringMaintenance) {
-      expirationDate.setHours(expirationDate.getHours() + 1);
-    } else {
-      expirationDate.setDate(expirationDate.getDate() + 1);
-      expirationDate.setHours(20, 0, 0, 0);
+    const selectedItems = manualOrderData.selectedItems || [];
+    const totalPaid = Number(manualOrderData.buyerPaid || 0);
+    const handlingFeePaid = Number(manualOrderData.handlingFeePaid || 0);
+    const itemRevenue = Math.max(0, totalPaid - handlingFeePaid);
+    if (!selectedItems.length || !manualOrderData.shippingMethod || !manualOrderData.city.trim() || !manualOrderData.province.trim() || !manualOrderData.zipCode.trim() || totalPaid < handlingFeePaid) {
+      alert('Add at least one stock, complete the shipping address, and make sure total paid covers the handling fee.');
+      return;
     }
-    
-    const orderData = { 
-      orderId, 
-      userId: targetUid, 
-      buyerName: buyerUid ? (usersList.find(u => u.uid === buyerUid)?.displayName) : newBuyerName.toUpperCase(), 
-      item: `${kit?.specs?.line || ''} ${kit?.name}`.trim(), 
-      kitId: selectedKitId,
-      productId: selectedKitId,
-      selectedStockKey,
-      items: [{
-        id: selectedKitId,
-        name: `${kit?.specs?.line || ''} ${kit?.name}`.trim(),
-        price: stock?.sellPrice || kit?.sellPrice || 0,
-        sellPrice: stock?.sellPrice || kit?.sellPrice || 0,
+    if (legacyBranchRequired && !manualOrderData.branch.trim()) {
+      alert('A branch is required for the selected shipping option.');
+      return;
+    }
+
+    const liveItems = selectedItems.map((entry) => {
+      const kit = (kits || []).find((candidate) => candidate.id === entry.kitId);
+      const stock = kit?.stocks?.[entry.stockKey];
+      if (!kit || !stock || stock.order?.orderId || stock.isReserved || collectionStockIds.has(`${entry.kitId}:${entry.stockKey}`)) {
+        throw new Error(`${entry.name || 'A selected stock'} is no longer available.`);
+      }
+      return { ...entry, kit, stock, originalPrice: Number(stock.sellPrice || kit.sellPrice || 0) };
+    });
+
+    const originalTotal = liveItems.reduce((sum, item) => sum + item.originalPrice, 0);
+    let remaining = itemRevenue;
+    const allocatedItems = liveItems.map((entry, index) => {
+      const allocatedPrice = index === liveItems.length - 1
+        ? remaining
+        : Math.round(originalTotal > 0 ? (itemRevenue * entry.originalPrice) / originalTotal : itemRevenue / liveItems.length);
+      remaining -= allocatedPrice;
+      return { ...entry, allocatedPrice };
+    });
+
+    const orderId = `#LG-${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 90 + 10)}`;
+    const suboption = legacyShippingConfig?.suboptions?.[manualOrderData.shippingSuboption];
+    const shippingMethod = manualOrderData.shippingSuboption
+      ? `${manualOrderData.shippingMethod} (${suboption?.label || manualOrderData.shippingSuboption})`
+      : manualOrderData.shippingMethod;
+    const createdTime = new Date().toISOString();
+    const orderData = {
+      orderId,
+      userId: user?.uid,
+      legacyOrder: true,
+      isManualOrder: false,
+      orderSource: 'legacy',
+      items: allocatedItems.map(({ kit, stock, stockKey, originalPrice, allocatedPrice }) => ({
+        id: kit.id,
+        name: `${kit.brand || ''} ${kit.specs?.line || ''} ${kit.name || ''}`.trim(),
+        price: allocatedPrice,
+        sellPrice: allocatedPrice,
+        originalSellPrice: originalPrice,
         quantity: 1,
-        image: kit?.image || null,
-        images: kit?.images || null,
-        stockKey: selectedStockKey,
+        image: kit.image || null,
+        images: kit.images || null,
+        stockKey,
+        status: stock.status || 'ONHAND',
         type: 'kit'
-      }],
-      status: "Reserved", 
-      isPreOrder: stock.status === 'PRE-ORDER', 
-      isManualOrder: true, 
-      isMaintenanceOrder: isKitInvalidDuringMaintenance || false,
-      shippingMethod: shippingMethod === 'Seller Meetup' ? `Meetup: ${meetupLocation}` : shippingMethod, 
-      shippingFee: Number(shippingFee) || 0, 
-      handlingFee: Number(handlingFee) || 0, 
-      transferFee: Number(transferFee) || 0, 
-      buyerPaid: Number(buyerPaid) || 0, 
-      price: stock?.sellPrice || kit?.sellPrice || 0, 
-      date: new Date().toLocaleDateString(), 
-      createdAt: createdTime,
-      expiresAt: expirationDate.toISOString()
-    }; 
-    
-    const docId = await createOrder(orderData); 
-    await assignStockToOrder(selectedKitId, selectedStockKey, orderId, { isManualOrder: true, orderDocId: docId }); 
-    alert("Created."); 
-    setShowManualOrderModal(false); 
-    setManualOrderData({ buyerUid: '', newBuyerName: '', selectedKitId: '', selectedStockKey: '', buyerPaid: 0, shippingMethod: 'LBC COP/COD', meetupLocation: '', shippingFee: 0, handlingFee: 0, transferFee: 0 }); 
+      })),
+      kitId: allocatedItems[0]?.kit.id,
+      productId: allocatedItems[0]?.kit.id,
+      selectedStockKey: allocatedItems[0]?.stockKey,
+      item: allocatedItems.map(({ kit }) => kit.name).join(', '),
+      status: 'Preparing',
+      isPreOrder: allocatedItems.some(({ stock }) => String(stock.status).toUpperCase() === 'PRE-ORDER'),
+      shippingMethodKey: manualOrderData.shippingMethod,
+      shippingSuboptionKey: manualOrderData.shippingSuboption || null,
+      shippingMethod,
+      receiverDetails: {
+        city: manualOrderData.city.trim(),
+        province: manualOrderData.province.trim(),
+        zipCode: manualOrderData.zipCode.trim(),
+        lbcBranch: legacyBranchRequired ? manualOrderData.branch.trim() : null
+      },
+      paymentPlan: 'full',
+      paymentMethod: 'Legacy payment',
+      totalPrice: itemRevenue,
+      subtotal: itemRevenue,
+      price: itemRevenue,
+      buyerPaid: totalPaid,
+      paymentDueNow: 0,
+      handlingFee: handlingFeePaid,
+      installmentFee: 0,
+      transferFee: 0,
+      date: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+      createdAt: createdTime
+    };
+
+    try {
+      const docId = await createOrder(orderData);
+      await Promise.all(allocatedItems.map(({ kit, stockKey }) => (
+        assignStockToOrder(kit.id, stockKey, orderId, { isLegacyOrder: true, orderDocId: docId })
+      )));
+      setToastMessage(`Legacy order ${orderId} created.`);
+      setShowManualOrderModal(false);
+      setManualOrderData(getEmptyLegacyOrderData());
+    } catch (error) {
+      console.error('SG LOG: Legacy order creation failed:', error);
+      alert(error?.message || 'Could not create the legacy order.');
+    }
   };
   const handleRequestBalance = async (orderId) => {
     if (window.confirm("Request balance?")) {
@@ -2133,9 +2249,26 @@ export default function Orders() {
             ) : (
               <div className="space-y-3">
               {visibleOrders.length === 0 && (
-                <div className="text-center py-20 opacity-40">
-                  <ClipboardList size={56} className="mx-auto mb-4" />
-                  <p className="font-black uppercase tracking-widest text-sm">Ready for your next build?</p>
+                <div className="py-16 text-center">
+                  <div className="opacity-40">
+                    <ClipboardList size={56} className="mx-auto mb-4" />
+                    <p className="font-black uppercase tracking-widest text-sm">Ready for your next build?</p>
+                  </div>
+                  {!user && (
+                    <form onSubmit={handleRecoverGuestOrder} className="mx-auto mt-8 flex w-full max-w-md flex-col gap-3 rounded-2xl border border-blue-500/15 bg-blue-500/[0.03] p-4 text-left dark:bg-blue-500/[0.06] sm:flex-row">
+                      <input
+                        value={guestRecoveryCode}
+                        onChange={(event) => setGuestRecoveryCode(event.target.value.toUpperCase())}
+                        placeholder="ENTER GUEST ORDER CODE"
+                        className="min-w-0 flex-1 rounded-xl border border-black/10 bg-white px-3 py-3 text-[11px] font-black uppercase tracking-wider outline-none focus:border-blue-500 dark:border-white/10 dark:bg-black/20"
+                        aria-label="Guest order recovery code"
+                      />
+                      <button type="submit" disabled={isRecoveringGuestOrder} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-[11px] font-black uppercase tracking-widest text-white disabled:opacity-50">
+                        <RefreshCw size={14} className={isRecoveringGuestOrder ? 'animate-spin' : ''} />
+                        {isRecoveringGuestOrder ? 'Recovering' : 'Recover'}
+                      </button>
+                    </form>
+                  )}
                 </div>
               )}
               {orderRows.map((row) => {
@@ -2434,12 +2567,12 @@ export default function Orders() {
                   </button>
                 )}
 
-                {/* Manual Order button */}
+                {/* Legacy Order button */}
                 <button
                   onClick={() => setShowManualOrderModal(true)}
                   className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl font-black italic uppercase text-[10px] tracking-widest transition-all shadow-lg shadow-blue-600/20 active:scale-95"
                 >
-                  <Plus size={14} /> Manual
+                  <Plus size={14} /> Legacy
                 </button>
               </div>
             </div>
@@ -2525,6 +2658,52 @@ export default function Orders() {
         })()}
 
         {showManualOrderModal && (
+          <div className="fixed inset-0 z-[500] flex flex-col overflow-hidden bg-white text-neutral-950 dark:bg-[#0a0a0a] dark:text-white">
+            <header className="flex h-[72px] shrink-0 items-center justify-between border-b border-black/5 px-5 shadow-sm dark:border-white/5 sm:h-20 sm:px-8 lg:px-12">
+              <div className="flex items-center gap-3">
+                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-600/25"><ClipboardList size={20} /></span>
+                <div><h2 className="text-[19px] font-black italic uppercase tracking-tight sm:text-[22px]">Legacy <span className="text-blue-600">Order</span></h2><p className="text-[10px] font-black uppercase tracking-[0.16em] opacity-40">Record paid orders and assign stock</p></div>
+              </div>
+              <button type="button" onClick={() => setShowManualOrderModal(false)} className="flex h-10 w-10 items-center justify-center rounded-full bg-black/5 transition hover:bg-black/10 dark:bg-white/10" aria-label="Close legacy order"><X size={20} /></button>
+            </header>
+
+            <form onSubmit={handleCreateManualOrder} className="min-h-0 flex-1 overflow-y-auto">
+              <div className="mx-auto grid max-w-7xl gap-7 px-5 py-6 pb-28 sm:px-8 lg:grid-cols-[minmax(0,1fr)_360px] lg:px-12">
+                <div className="space-y-6">
+                  <section>
+                    <div className="mb-3 flex items-center justify-between"><h3 className="text-[12px] font-black uppercase tracking-widest opacity-45">Included items</h3><span className="text-[11px] font-black uppercase tracking-widest text-blue-600">{manualOrderData.selectedItems.length} selected</span></div>
+                    <div className="rounded-2xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.03]">
+                      <input value={manualOrderData.search} onChange={(event) => setManualOrderData(prev => ({ ...prev, search: event.target.value }))} placeholder="Search kits, brand, line, or stock…" className="mb-3 w-full rounded-xl border border-black/10 bg-white px-4 py-3 text-[13px] font-bold outline-none focus:border-blue-500 dark:border-white/10 dark:bg-black/20" />
+                      <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+                        {filteredLegacyStockChoices.map(({ kit, stockKey, stock }) => {
+                          const selected = manualOrderData.selectedItems.some(item => item.kitId === kit.id && item.stockKey === stockKey);
+                          const image = resolveImage(kit.image, kit.images) || '/snorlaxgarage.png';
+                          return <button key={`${kit.id}:${stockKey}`} type="button" disabled={selected} onClick={() => setManualOrderData(prev => ({ ...prev, selectedItems: [...prev.selectedItems, { kitId: kit.id, stockKey, name: kit.name, image, meta: [kit.brand, kit.specs?.line, stock.status].filter(Boolean).join(' • ') }] }))} className="flex w-full items-center gap-3 rounded-xl border border-black/5 bg-white p-2 text-left transition hover:border-blue-400 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/5 dark:bg-white/[0.03]">
+                            <img src={image} alt="" className="h-12 w-16 rounded-lg object-cover" /><span className="min-w-0 flex-1"><span className="block truncate text-[12px] font-black uppercase">{kit.name}</span><span className="block truncate text-[10px] font-bold uppercase tracking-wider opacity-45">{[kit.brand, kit.specs?.line, stock.status, stock.eta].filter(Boolean).join(' • ')}</span></span><span className="shrink-0 text-[12px] font-black text-emerald-600">₱{Number(stock.sellPrice || kit.sellPrice || 0).toLocaleString()}</span>
+                          </button>;
+                        })}
+                        {filteredLegacyStockChoices.length === 0 && <p className="p-5 text-center text-[11px] font-black uppercase tracking-widest opacity-40">No available non-collection stock found</p>}
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="space-y-3">
+                    {manualOrderData.selectedItems.length === 0 ? <div className="rounded-2xl border border-dashed border-black/15 p-8 text-center text-[11px] font-black uppercase tracking-widest opacity-40 dark:border-white/15">Select specific stocks to include</div> : manualOrderData.selectedItems.map((item) => <div key={`${item.kitId}:${item.stockKey}`} className="grid grid-cols-[5rem_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border border-black/5 bg-white p-3 shadow-sm dark:border-white/5 dark:bg-white/[0.03]"><img src={item.image || '/snorlaxgarage.png'} alt="" className="h-16 w-20 rounded-xl object-cover" /><div className="min-w-0"><p className="truncate text-[13px] font-black uppercase">{item.name}</p><p className="mt-1 truncate text-[11px] font-black uppercase tracking-wider opacity-45">{item.meta}</p></div><button type="button" onClick={() => setManualOrderData(prev => ({ ...prev, selectedItems: prev.selectedItems.filter(entry => !(entry.kitId === item.kitId && entry.stockKey === item.stockKey)) }))} className="rounded-full p-2 text-red-500 hover:bg-red-500/10" aria-label={`Remove ${item.name}`}><Trash2 size={16} /></button></div>)}
+                  </section>
+                </div>
+
+                <aside className="space-y-5">
+                  <section className="rounded-2xl border border-black/10 p-5 dark:border-white/10"><h3 className="mb-4 text-[12px] font-black uppercase tracking-widest opacity-45">Shipping</h3><div className="space-y-3"><select required value={manualOrderData.shippingMethod} onChange={(event) => setManualOrderData(prev => ({ ...prev, shippingMethod: event.target.value, shippingSuboption: '', branch: '' }))} className="w-full rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10"><option value="">Select shipping option</option>{legacyShippingOptions.map(method => <option key={method} value={method}>{method}</option>)}</select>{legacySuboptions.length > 0 && <select required value={manualOrderData.shippingSuboption} onChange={(event) => setManualOrderData(prev => ({ ...prev, shippingSuboption: event.target.value, branch: '' }))} className="w-full rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10"><option value="">Select suboption</option>{legacySuboptions.map(([key, config]) => <option key={key} value={key}>{config.label || key}</option>)}</select>}</div></section>
+                  <section className="rounded-2xl border border-black/10 p-5 dark:border-white/10"><h3 className="mb-4 text-[12px] font-black uppercase tracking-widest opacity-45">Delivery address</h3><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">{legacyBranchRequired && <input required value={manualOrderData.branch} onChange={(event) => setManualOrderData(prev => ({ ...prev, branch: event.target.value }))} placeholder="BRANCH" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" />}<input required value={manualOrderData.city} onChange={(event) => setManualOrderData(prev => ({ ...prev, city: event.target.value }))} placeholder="CITY" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /><input required value={manualOrderData.province} onChange={(event) => setManualOrderData(prev => ({ ...prev, province: event.target.value }))} placeholder="PROVINCE" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /><input required inputMode="numeric" value={manualOrderData.zipCode} onChange={(event) => setManualOrderData(prev => ({ ...prev, zipCode: event.target.value }))} placeholder="ZIP CODE" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /></div></section>
+                  <section className="rounded-2xl border border-blue-500/20 bg-blue-500/[0.04] p-5"><h3 className="mb-4 text-[12px] font-black uppercase tracking-widest text-blue-600">Payment summary</h3><label className="mb-3 block text-[10px] font-black uppercase tracking-widest opacity-45">Total paid by buyer<input required min="0" type="number" value={manualOrderData.buyerPaid} onChange={(event) => setManualOrderData(prev => ({ ...prev, buyerPaid: event.target.value }))} className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-3 text-[14px] font-black text-neutral-950 dark:border-white/10 dark:bg-black/20 dark:text-white" /></label><label className="block text-[10px] font-black uppercase tracking-widest opacity-45">Handling fee paid<input required min="0" type="number" value={manualOrderData.handlingFeePaid} onChange={(event) => setManualOrderData(prev => ({ ...prev, handlingFeePaid: event.target.value }))} className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-3 text-[14px] font-black text-neutral-950 dark:border-white/10 dark:bg-black/20 dark:text-white" /></label><div className="mt-4 flex items-center justify-between border-t border-blue-500/15 pt-4"><span className="text-[10px] font-black uppercase tracking-widest opacity-55">Distributed to items</span><span className="text-[18px] font-black text-blue-600">₱{legacyItemTotal.toLocaleString()}</span></div><p className="mt-3 text-[10px] font-bold leading-relaxed opacity-50">Total paid minus handling fee is proportionally saved as the selected stocks’ legacy sell price. Installment fees are excluded.</p></section>
+                </aside>
+              </div>
+              <footer className="fixed inset-x-0 bottom-0 z-10 border-t border-black/5 bg-white/95 px-5 py-3 backdrop-blur dark:border-white/5 dark:bg-[#0a0a0a]/95 sm:px-8 lg:px-12"><div className="mx-auto flex max-w-7xl items-center justify-between gap-4"><button type="button" onClick={() => setShowManualOrderModal(false)} className="text-[11px] font-black uppercase tracking-widest opacity-50">Cancel</button><button type="submit" className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-[11px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-700 active:scale-95"><ArrowRight size={16} /> Create legacy order</button></div></footer>
+            </form>
+          </div>
+        )}
+
+        {showManualOrderModal && manualOrderData.showDeprecatedForm && (
           <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 backdrop-blur-md bg-black/60">
              <div className="bg-white dark:bg-[#0a0a0a] w-full max-w-xl rounded-[2.5rem] p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto">
                <button onClick={() => setShowManualOrderModal(false)} className="absolute top-6 right-6 opacity-30 hover:opacity-100"><X size={20}/></button>

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { BookImage, Image as ImageIcon, Plus } from 'lucide-react';
+import { BookImage, Sparkles, Image as ImageIcon, Plus } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 
 function getStoryTime(value) {
@@ -79,9 +79,11 @@ export default function Highlights() {
       <div className="mx-auto max-w-7xl">
         <div ref={headerRef} className="sticky top-[56px] z-[80] -mx-5 mb-10 flex flex-col gap-5 border-b border-black/5 bg-neutral-50/95 px-5 py-4 backdrop-blur-md transition-all duration-300 dark:border-white/5 dark:bg-[#111111]/95 sm:top-[60px] sm:-mx-8 sm:flex-row sm:items-end sm:justify-between sm:px-8 lg:-mx-12 lg:px-12">
           <div className="text-left">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-              <h2 className={`${isHeaderStuck ? 'text-[18px]' : 'text-[40px]'} font-black italic uppercase leading-none tracking-[-0.06em] text-neutral-950 transition-[font-size] duration-300 dark:text-white`}>
-                <span className="text-garage-blue">Garage</span> Highlights
+            <div className="flex items-center">
+              <h2 className={`${isHeaderStuck ? 'text-[18px]' : 'text-[25px]'} inline-flex items-center gap-1 whitespace-nowrap font-black italic uppercase leading-none tracking-[-0.06em] text-neutral-950 transition-[font-size] duration-300 dark:text-white`}>
+                <span className="text-garage-blue">Garage</span>
+                <span>Highlights</span>
+                <Sparkles className="shrink-0" size={16} strokeWidth={2} aria-hidden="true" />
               </h2>
             </div>
           </div>

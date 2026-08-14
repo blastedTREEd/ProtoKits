@@ -176,7 +176,7 @@ export default function Kits() {
   const { 
     isAdmin, isAdminView, kits: storeKits, deals, 
     isLoading, addKit, isInventoryAuditOpen, setInventoryAuditOpen,
-    user, userOffers, setLoginModalOpen,
+    user, isAnonymousUser, userOffers, setLoginModalOpen,
     shippingSettings
   } = useStore();
 
@@ -217,7 +217,7 @@ export default function Kits() {
   const navigate = useNavigate();
   const { kitId: routeKitId } = useParams();
 
-  const openCheckoutPage = (items, isGuestPreview = !user) => {
+  const openCheckoutPage = (items, isGuestPreview = !user || isAnonymousUser) => {
     navigate('/checkout', { state: { items, isGuestPreview } });
   };
 
