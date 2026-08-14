@@ -27,3 +27,4 @@ firebase-adminsdk-*.json
 snorlaxgarage-firebase-adminsdk-fbsvc-76325bd22c.json
 
 .vercel
+.env*
