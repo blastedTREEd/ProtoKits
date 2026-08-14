@@ -2,14 +2,11 @@ import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
-import { appCheck, auth } from '../firebase/firebase';
-import { signInAnonymously } from 'firebase/auth';
-import { getToken } from 'firebase/app-check';
 import PageTemplate from './PageTemplate';
 import { 
   ClipboardList, Plus, MapPin, Package, PackageOpen, ShieldCheck, X, CheckCircle2, 
   ChevronRight, ChevronDown, Clock, Store, Truck, Tag, Trash2, AlertCircle,
-  Camera, Upload, QrCode, ArrowRight, Eye, RefreshCw, Download, ListTodo, Flag,
+  Camera, Upload, QrCode, ArrowRight, Eye, Download, ListTodo, Flag,
   XCircle, Wallet, MapPinSearch, ClockFading, PrinterCheck
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
@@ -305,51 +302,10 @@ export default function Orders() {
   const [selectedOrders, setSelectedOrders] = useState([]);
   const [isMultiSelectEnabled, setIsMultiSelectEnabled] = useState(false);
   const [expandedOrderItems, setExpandedOrderItems] = useState({});
-  const [guestRecoveryCode, setGuestRecoveryCode] = useState('');
-  const [isRecoveringGuestOrder, setIsRecoveringGuestOrder] = useState(false);
-
   useEffect(() => {
     setSelectedOrders([]);
     setIsMultiSelectEnabled(false);
   }, [activeTab]);
-
-  const handleRecoverGuestOrder = async (event) => {
-    event.preventDefault();
-    if (!guestRecoveryCode.trim()) return;
-    if (!appCheck) {
-      alert('Secure order recovery is still loading. Please try again in a moment.');
-      return;
-    }
-    setIsRecoveringGuestOrder(true);
-    try {
-      const guestUser = auth.currentUser?.isAnonymous
-        ? auth.currentUser
-        : (await signInAnonymously(auth)).user;
-      const [idToken, appCheckResult] = await Promise.all([
-        guestUser.getIdToken(),
-        getToken(appCheck)
-      ]);
-      const response = await fetch('/api/recover-guest-order', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${idToken}`,
-          'X-Firebase-AppCheck': appCheckResult.token
-        },
-        body: JSON.stringify({ recoveryCode: guestRecoveryCode })
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Unable to recover that order.');
-      localStorage.setItem(`sg_guest_order_recovery:${result.orderDocId}`, result.recoveryCode);
-      setGuestRecoveryCode('');
-      setToastMessage(`Order ${result.orderId} recovered on this device.`);
-    } catch (error) {
-      console.error('SG LOG: Guest order recovery failed:', error);
-      alert(error.message || 'Unable to recover that order.');
-    } finally {
-      setIsRecoveringGuestOrder(false);
-    }
-  };
 
   // Periodically releases stock for cancelled orders while retaining cancelled records.
   useEffect(() => {
@@ -2254,21 +2210,6 @@ export default function Orders() {
                     <ClipboardList size={56} className="mx-auto mb-4" />
                     <p className="font-black uppercase tracking-widest text-sm">Ready for your next build?</p>
                   </div>
-                  {!user && (
-                    <form onSubmit={handleRecoverGuestOrder} className="mx-auto mt-8 flex w-full max-w-md flex-col gap-3 rounded-2xl border border-blue-500/15 bg-blue-500/[0.03] p-4 text-left dark:bg-blue-500/[0.06] sm:flex-row">
-                      <input
-                        value={guestRecoveryCode}
-                        onChange={(event) => setGuestRecoveryCode(event.target.value.toUpperCase())}
-                        placeholder="ENTER GUEST ORDER CODE"
-                        className="min-w-0 flex-1 rounded-xl border border-black/10 bg-white px-3 py-3 text-[11px] font-black uppercase tracking-wider outline-none focus:border-blue-500 dark:border-white/10 dark:bg-black/20"
-                        aria-label="Guest order recovery code"
-                      />
-                      <button type="submit" disabled={isRecoveringGuestOrder} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-[11px] font-black uppercase tracking-widest text-white disabled:opacity-50">
-                        <RefreshCw size={14} className={isRecoveringGuestOrder ? 'animate-spin' : ''} />
-                        {isRecoveringGuestOrder ? 'Recovering' : 'Recover'}
-                      </button>
-                    </form>
-                  )}
                 </div>
               )}
               {orderRows.map((row) => {

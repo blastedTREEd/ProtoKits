@@ -15,5 +15,5 @@ if (-not (Test-Path -LiteralPath '.env.local' -PathType Leaf)) {
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
-& vercel dev --listen 5173
+& vercel dev --listen 3000
 exit $LASTEXITCODE

@@ -39,7 +39,7 @@
   ],
   "rewrites": [
     {
-      "source": "/:path*",
+      "source": "/((?!api|@vite|@react-refresh|@fs|src|node_modules).*)",
       "destination": "/index.html"
     }
   ]

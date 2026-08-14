@@ -11,10 +11,9 @@ import { useNavigate } from 'react-router-dom';
 import { useStore } from '../../store/useStore';
 import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
 import { useTheme } from '../../context/ThemeContext';
-import { appCheck, auth, db, googleProvider } from '../../firebase/firebase';
+import { auth, db, googleProvider } from '../../firebase/firebase';
 import { doc, getDoc, deleteDoc } from 'firebase/firestore';
-import { signInAnonymously, signInWithPopup } from 'firebase/auth';
-import { getToken } from 'firebase/app-check';
+import { signInWithPopup } from 'firebase/auth';
 import L from 'leaflet';
 import DynamicShippingForm from './DynamicShippingForm';
 import PolicyModal from '../menu/PolicyModal';
@@ -554,7 +553,6 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   // const [activePreviewUrl, setActivePreviewUrl] = useState(null);
   const [paymentSubmitted, setPaymentSubmitted] = useState(false);
   const [createdOrderIds, setCreatedOrderIds] = useState([]);
-  const [guestRecoveryCode, setGuestRecoveryCode] = useState('');
   const [agreedToPolicy, setAgreedToPolicy] = useState(false);
   const [isPaymentPolicyOpen, setIsPaymentPolicyOpen] = useState(false);
   
@@ -680,9 +678,14 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     const details = user?.userDetails || {};
     const primaryDelivery = user?.deliveryDetails?.[0] || {};
     
+    // An anonymous Firebase user is still a guest shopper, not a recipient.
+    // Do not prefill the checkout form with the anonymous account label.
+    const accountName = isGuestPreview ? "" : (user?.displayName || "");
+    const accountEmail = isGuestPreview ? "" : (user?.email || "");
+
     updateDeliveryData({
-      receiverName: details.receiverName || primaryDelivery.receiverName || user?.displayName || "",
-      email: details.email || user?.email || "",
+      receiverName: details.receiverName || primaryDelivery.receiverName || accountName,
+      email: details.email || accountEmail,
       phoneNumber: details.mobileNo || primaryDelivery.phoneNumber || "",
       landmark: primaryDelivery.landmark || "",
       houseNo: primaryDelivery.houseNo || "",
@@ -702,7 +705,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
         isPinConfirmed: Boolean(primaryDelivery.lat && primaryDelivery.lng),
         isEditingAddress: false
     }));
-  }, [isOpen, user?.userDetails, user?.deliveryDetails, user?.displayName, user?.email, user?.mobileNo, updateDeliveryData]);
+  }, [isOpen, isGuestPreview, user?.userDetails, user?.deliveryDetails, user?.displayName, user?.email, user?.mobileNo, updateDeliveryData]);
 
   useEffect(() => {
     if (isOpen && isAdmin) {
@@ -886,20 +889,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       || (hasProjects && invalidTypes.prints !== false);
   }, [checkoutItems, hasProjects, isMaintenance, storeAdmin]);
 
-  const isGuestOnhandOnly = useMemo(() => (
-    isGuestPreview
-    && checkoutItems.length > 0
-    && checkoutItems.every((item) => {
-      const stock = kits.find((kit) => kit.id === item.id)?.stocks?.[item.stockKey];
-      return !isProjectCheckoutItem(item)
-        && Number(item.quantity || 1) === 1
-        && !item.offerId
-        && !item.isBundleItem
-        && String(stock?.status || '').toUpperCase() === 'ONHAND';
-    })
-  ), [checkoutItems, isGuestPreview, kits]);
-
-  const isGuestLoginRequired = isGuestPreview && !isGuestOnhandOnly;
+  const isGuestLoginRequired = isGuestPreview;
   // Admins can still complete checkout while reviewing the public storefront.
   const isOrderInvalidForMaintenance = isCheckoutUnderMaintenance && !isAdmin;
   const showGuestPaymentUnavailableNotice = isGuestLoginRequired && !isOrderInvalidForMaintenance;
@@ -1588,14 +1578,18 @@ const baseTotal = useMemo(() => {
     const method = checkoutData.shippingMethod;
     const subKey = getSelectedShippingSubKey(checkoutData, storeAdmin?.shippingMethods);
     const methodConfig = storeAdmin?.shippingMethods?.[method];
-    if (methodConfig) {
-      return getRequiredFields(methodConfig, subKey);
-    }
-    if (method === 'Seller Meetup' || method === 'Self-Pickup') {
-      return [1, 2];
-    }
-    return [1, 2, 5, 6, 7, 9, 10, 11, 12];
-  }, [checkoutData, storeAdmin]);
+    const configuredFields = methodConfig
+      ? getRequiredFields(methodConfig, subKey)
+      : (method === 'Seller Meetup' || method === 'Self-Pickup')
+        ? [1, 2]
+        : [1, 2, 5, 6, 7, 9, 10, 11, 12];
+
+    // Guest orders must remain recoverable through genuine recipient/contact
+    // details, even when a pickup method has a lighter form configuration.
+    return isGuestPreview
+      ? [...new Set([...configuredFields, 1, 2])]
+      : configuredFields;
+  }, [checkoutData, isGuestPreview, storeAdmin]);
 
   const courierName = useMemo(() => {
     if (!checkoutData.shippingMethod) return 'LBC';
@@ -1757,98 +1751,6 @@ const baseTotal = useMemo(() => {
     }
   }, [user, isNoDetailsMode, updateUserProfile, buildProfileUpdates, setAddressStatus]);
 
-  const handleGuestCheckout = async () => {
-    const invalidGuestItem = checkoutItems.find((item) => {
-      const stock = kits.find((kit) => kit.id === item.id)?.stocks?.[item.stockKey];
-      return isProjectCheckoutItem(item)
-        || Number(item.quantity || 1) !== 1
-        || String(stock?.status || '').toUpperCase() !== 'ONHAND'
-        || item.offerId
-        || item.isBundleItem;
-    });
-    if (invalidGuestItem) {
-      alert('Guest checkout is currently available only for individual on-hand kits. Please sign in to check out other items.');
-      return;
-    }
-
-    if (!appCheck) {
-      alert('Secure checkout is still loading. Please try again in a moment.');
-      return;
-    }
-
-    setIsFinalizing(true);
-    try {
-      const guestUser = auth.currentUser?.isAnonymous
-        ? auth.currentUser
-        : (await signInAnonymously(auth)).user;
-      const [idToken, appCheckResult] = await Promise.all([
-        guestUser.getIdToken(),
-        getToken(appCheck)
-      ]);
-      const selectedSuboption = checkoutData.selectedSuboption || checkoutData.customSuboption || null;
-      const shippingLabel = selectedSuboption
-        ? `${checkoutData.shippingMethod} (${storeAdmin?.shippingMethods?.[checkoutData.shippingMethod]?.suboptions?.[selectedSuboption]?.label || selectedSuboption})`
-        : checkoutData.shippingMethod;
-      const response = await fetch('/api/guest-checkout', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${idToken}`,
-          'X-Firebase-AppCheck': appCheckResult.token
-        },
-        body: JSON.stringify({
-          items: checkoutItems.map((item) => ({
-            kitId: item.id,
-            stockKey: item.stockKey,
-            appliedInstallmentFee: item.appliedInstallmentFee || 0
-          })),
-          shippingMethod: checkoutData.shippingMethod,
-          shippingSuboptionKey: selectedSuboption,
-          shippingMethodLabel: shippingLabel,
-          meetupLocation: usesMeetupLocation ? checkoutData.meetupLocation : null,
-          pickupLocation: usesPickupPoint ? checkoutData.pickupLocation : null,
-          preferredSchedule: checkoutData.shippingMethod === 'Seller Meetup'
-            ? checkoutData.meetupSchedule
-            : checkoutData.shippingMethod === 'Self-Pickup'
-              ? checkoutData.pickupSchedule
-              : checkoutData.shippingSchedule,
-          lbcBranch: requiredFields.includes(13) ? checkoutData.lbcBranch : null,
-          receiverDetails: deliveryData,
-          paymentPlan: checkoutData.paymentPlan,
-          paymentMethod: checkoutData.paymentMethod,
-          paymentDueNow: amountDueNow,
-          minDownpayment: minInitialPayment,
-          handlingFee: totalAppliedHandlingFee,
-          installmentFee: totalAppliedInstallmentFee,
-          transferFee: totalAppliedTransferFee,
-          discount: garageDiscount,
-          discountBreakdown: {
-            handlingFee: handlingFeeDiscount,
-            installmentFee: installmentFeeDiscount,
-            transferFee: transferFeeDiscount,
-            paymentMethod: paymentMethodDiscount,
-            fixedPaymentMethod: fixedPaymentMethodDiscount
-          }
-        })
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Unable to reserve your guest order.');
-
-      localStorage.setItem(`sg_guest_order_recovery:${result.orderDocId}`, result.recoveryCode);
-      setGuestRecoveryCode(result.recoveryCode);
-      setCreatedOrderIds([result.orderDocId]);
-      for (const item of checkoutItems) {
-        if (item.basketId) await removeFromBasket(item.basketId);
-      }
-      window.history.pushState({ checkoutPayment: true }, '');
-      setCheckoutStep(2);
-    } catch (err) {
-      console.error('SG LOG: Guest checkout error:', err);
-      alert(`Guest checkout failed: ${err.message || 'Please try again.'}`);
-      setIsFinalizing(false);
-    }
-  };
-
   const handleGuestGoogleLogin = async () => {
     const authAttemptId = useStore.getState().beginAuthAttempt(() => handleGuestGoogleLogin());
     try {
@@ -1869,7 +1771,7 @@ const handleFinalizeOrder = async () => {
       return;
     }
 
-    if (!isGuestOnhandOnly && !isNoDetailsMode && !isFormValid) {
+    if (!isNoDetailsMode && !isFormValid) {
       alert("Please complete delivery details and confirm map pin.");
       return;
     }
@@ -1885,11 +1787,6 @@ const handleFinalizeOrder = async () => {
         alert(`Initial payment cannot exceed the total amount of ₱${totalToSettle.toLocaleString()}.`);
         return;
       }
-    }
-
-    if (isGuestPreview) {
-      await handleGuestCheckout();
-      return;
     }
 
     setIsFinalizing(true);
@@ -2328,7 +2225,6 @@ const handleFinalizeOrder = async () => {
     // setActivePreviewUrl(null);
     setPaymentSubmitted(false);
     setCreatedOrderIds([]);
-    setGuestRecoveryCode('');
     setIsUploading(false);
     setIsFinalizing(false);
   };
@@ -2415,14 +2311,6 @@ const handleFinalizeOrder = async () => {
             <div className="flex flex-col items-center gap-1">
               <p className="text-[12px] font-black uppercase tracking-widest text-white/40">Amount to Pay</p>
               <p className="text-3xl font-black tracking-tight text-white">₱{amountDueNow.toLocaleString()}</p>
-            </div>
-          )}
-
-          {guestRecoveryCode && (
-            <div className="max-w-sm rounded-2xl border border-amber-300/35 bg-amber-300/10 p-4 text-center">
-              <p className="text-[10px] font-black uppercase tracking-widest text-amber-200">Save your guest order code</p>
-              <p className="mt-2 break-all text-[15px] font-black tracking-[0.14em] text-white">{guestRecoveryCode}</p>
-              <p className="mt-2 text-[10px] font-bold leading-relaxed text-white/65">Keep this code if you change browsers or clear browser data. Your order is also available from the Orders tab on this device.</p>
             </div>
           )}
 
@@ -2583,7 +2471,7 @@ const handleFinalizeOrder = async () => {
     const isPaymentUnavailable = isOrderInvalidForMaintenance;
     const isDisabled = isPaymentUnavailable || isFinalizing || (!isGuestLoginRequired && (
       !checkoutData.shippingMethod ||
-      (!isGuestOnhandOnly && !isNoDetailsMode && !isFormValid) ||
+      (!isNoDetailsMode && !isFormValid) ||
       !checkoutData.paymentPlan ||
       !checkoutData.paymentMethod ||
       (checkoutData.paymentPlan !== 'full' && Number(checkoutData.initialPayment) > totalToSettle) ||
@@ -3849,7 +3737,7 @@ const handleFinalizeOrder = async () => {
                       const isPaymentUnavailable = isOrderInvalidForMaintenance;
                       const isDisabled = isPaymentUnavailable || isFinalizing || (!isGuestLoginRequired && (
                         !checkoutData.shippingMethod ||
-                        (!isGuestOnhandOnly && !isNoDetailsMode && !isFormValid) ||
+                        (!isNoDetailsMode && !isFormValid) ||
                         !checkoutData.paymentPlan ||
                         !checkoutData.paymentMethod ||
                         (checkoutData.paymentPlan !== 'full' && Number(checkoutData.initialPayment) > totalToSettle) ||
