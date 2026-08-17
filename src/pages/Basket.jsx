@@ -663,7 +663,7 @@ export default function Basket() {
                     className={`${cardClasses} relative`}
                   >
                     {item.type !== 'project' && isPreOrder && etaLabel && (
-                      <span className="absolute left-0 top-3 z-10 rounded-br-lg bg-blue-600 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-white shadow-sm">
+                      <span className="absolute left-0 bottom-5 z-10 bg-blue-600 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm">
                         {etaLabel}
                       </span>
                     )}
@@ -706,14 +706,14 @@ export default function Basket() {
                           </p>
                         </div>
                       ) : (
-                        <div className="flex flex-col items-start">
-                        <p className={`font-black text-[14px] ${
+                        <div className="flex items-baseline gap-2">
+                        <p className={`font-black text-[15px] ${
                             basketPriceComparison.isDiscounted || isSelected
                             ? 'text-emerald-600'
                             : 'text-neutral-900 dark:text-white'
                         }`}>₱{basketPriceComparison.displayPrice.toLocaleString()}</p>
                         {!isAdminView && basketPriceComparison.isDiscounted && (
-                          <p className="text-[12px] font-black leading-none text-neutral-500 line-through dark:text-neutral-400">
+                          <p className="text-[14px] font-black leading-none text-neutral-500 line-through dark:text-neutral-400">
                             ₱{basketPriceComparison.standalonePrice.toLocaleString()}
                           </p>
                         )}
