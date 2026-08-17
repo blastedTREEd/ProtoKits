@@ -2112,7 +2112,15 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                             <div className="flex w-full items-center justify-between gap-3">
                               <div className="min-w-0 flex-1 px-4 py-3 rounded-2xl border border-black/5 dark:border-white/10">
                                 <div className="flex items-center justify-center text-center text-[14px] font-black uppercase tracking-tight">
-                                  <span className="text-amber-500 whitespace-nowrap">{activeBundleDeal?.type === 'clearance' ? 'Clearance available in basket' : `Lowest Deal Price: ₱${activeBundlePrice.toLocaleString()}`}</span>
+                                  {activeBundleDeal?.type === 'clearance' ? (
+                                    <span className="text-emerald-600 whitespace-nowrap">
+                                      ₱{modalClearanceDiscount.toLocaleString()} OFF
+                                    </span>
+                                  ) : (
+                                    <span className="text-amber-500 whitespace-nowrap">
+                                      Lowest Deal Price: ₱{activeBundlePrice.toLocaleString()}
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                               <div className="min-w-0 flex-1 flex items-stretch justify-center">

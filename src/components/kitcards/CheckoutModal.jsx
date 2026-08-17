@@ -19,7 +19,7 @@ import L from 'leaflet';
 import DynamicShippingForm from './DynamicShippingForm';
 import PolicyModal from '../menu/PolicyModal';
 import { getIntegerFeeShare, getStockStandaloneSellPrice, isBundleOrClearanceItem } from '../../utils/standalonePricing';
-import { getClearanceBundlePricing, getDistributedFeeShare } from '../../utils/bundlePricing';
+import { distributeRoundedBundlePrices, getClearanceBundlePricing, getDistributedFeeShare } from '../../utils/bundlePricing';
 
 // --- LEAFLET CSS & ICON FIX ---
 import 'leaflet/dist/leaflet.css';
@@ -145,6 +145,14 @@ const normalizeDealKitIds = (value) => {
 
 const getCheckoutKitId = (item) => String(item?.id || item?.kitId || item?.productId || '');
 
+const findCheckoutKit = (kits = [], item = {}) => {
+  const kitId = getCheckoutKitId(item);
+  return (kits || []).find(kit => String(kit?.id) === kitId)
+    || (item?.name
+      ? (kits || []).find(kit => String(kit?.name || '').trim() === String(item.name).trim())
+      : null);
+};
+
 const getClearanceDealKitIds = (deal) => {
   const explicitIds = normalizeDealKitIds(deal?.clearanceKitIds);
   return explicitIds.length > 0
@@ -154,11 +162,13 @@ const getClearanceDealKitIds = (deal) => {
       : normalizeDealKitIds(deal?.kitIds).slice(0, 1);
 };
 
-// Basket rows do not necessarily carry clearance metadata that is attached by
-// the direct deal checkout path. Rebuild clearance metadata from the selected
-// stocks while leaving normal bundle discounts exclusive to direct deal checkout.
+// Basket rows do not necessarily carry deal metadata that is attached by the
+// direct deal checkout path. Rebuild both bundle and clearance metadata from
+// the selected stocks so the checkout view is consistent regardless of where
+// the user started the order.
 const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees = {}) => {
-  const selectedBasketItems = normalizedItems.filter(item => item?.basketId || item?.basketIds?.length);
+  const selectedDealItems = normalizedItems.filter(item => !isProjectCheckoutItem(item));
+  const selectedBasketItems = selectedDealItems.filter(item => item?.basketId || item?.basketIds?.length);
   const selectedNormalBundleIds = new Set(
     selectedBasketItems
       .filter(item => item.bundleId && item.isClearanceBundle !== true)
@@ -184,8 +194,7 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
     : null;
 
   const resetDealItem = (item) => {
-    const kitId = getCheckoutKitId(item);
-    const kit = kits.find(candidate => String(candidate.id) === kitId);
+    const kit = findCheckoutKit(kits, item);
     const stock = kit?.stocks?.[item.stockKey];
     const sellPrice = Number(stock?.sellPrice || item.sellPrice || kit?.sellPrice || 0);
     const handling = Number(item.appliedHandlingFee ?? fees.handlingFee ?? 0);
@@ -218,15 +227,15 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
   });
 
   const basketItems = preparedItems.filter(item => item?.basketId || item?.basketIds?.length);
-  if (!basketItems.length || !Array.isArray(deals) || !deals.length) return preparedItems;
+  if (!selectedDealItems.length || !Array.isArray(deals) || !deals.length) return preparedItems;
 
   const itemByKitId = new globalThis.Map();
-  basketItems.forEach(item => {
+  selectedDealItems.forEach(item => {
     const kitId = getCheckoutKitId(item);
     if (kitId && !itemByKitId.has(kitId)) itemByKitId.set(kitId, item);
   });
   const selectedOrderKitIds = new Set(
-    basketItems.map(getCheckoutKitId).filter(Boolean)
+    selectedDealItems.map(getCheckoutKitId).filter(Boolean)
   );
 
   const bundleIsTheOnlySelectedItems = (bundleKitIds = []) => {
@@ -238,10 +247,73 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
 
   const activeDeals = deals.filter(deal => isDealActiveForCheckout(deal));
   const candidates = [];
+  const normalBundleCandidates = [];
 
   activeDeals.forEach(deal => {
     const isClearanceDeal = deal.type === 'clearance';
-    if (!isClearanceDeal) return;
+    if (!isClearanceDeal) {
+      if (!['bundle_only', 'bundle_discount'].includes(deal.type)) return;
+
+      const bundleKitIds = Array.from(new Set(normalizeDealKitIds(deal.kitIds)));
+      if (!bundleIsTheOnlySelectedItems(bundleKitIds)) return;
+
+      const rows = bundleKitIds.map(kitId => {
+        const item = itemByKitId.get(kitId);
+        const kit = kits.find(candidate => String(candidate.id) === kitId);
+        const stock = kit?.stocks?.[item?.stockKey];
+        if (!item || !kit || !stockMatchesCheckoutDealSource(stock || {}, item, deal.stockSource || 'onhand')) {
+          return null;
+        }
+
+        const sellPrice = Number(stock.sellPrice || item.sellPrice || kit.sellPrice || 0);
+        return { item, kit, kitId, stock, refPrice: sellPrice, sellPrice };
+      });
+      if (rows.some(row => !row) || rows.some(row => row.refPrice <= 0)) return;
+
+      const normalTotal = rows.reduce((sum, row) => sum + row.refPrice, 0);
+      const configuredBundlePrice = Number(deal.bundlePrice || 0);
+      const totalDiscount = Math.max(
+        0,
+        Number(deal.discountAmount ?? (normalTotal - configuredBundlePrice)) || 0
+      );
+      const targetTotal = configuredBundlePrice > 0
+        ? configuredBundlePrice
+        : Math.max(0, normalTotal - totalDiscount);
+      if (targetTotal >= normalTotal || totalDiscount <= 0) return;
+
+      const exclusiveKitIds = new Set(normalizeDealKitIds(deal.exclusiveKitIds));
+      const exclusiveRefTotal = rows
+        .filter(row => exclusiveKitIds.has(row.kitId))
+        .reduce((sum, row) => sum + row.refPrice, 0);
+      const standardRefTotal = rows
+        .filter(row => !exclusiveKitIds.has(row.kitId))
+        .reduce((sum, row) => sum + row.refPrice, 0);
+      const exclusivePool = exclusiveRefTotal > 0
+        ? totalDiscount * (Number(deal.exclusiveDiscountPercent ?? 100) / 100)
+        : 0;
+      const standardPool = Math.max(0, totalDiscount - exclusivePool);
+      const pricedRows = distributeRoundedBundlePrices(rows.map(row => {
+        const isExclusive = exclusiveKitIds.has(row.kitId);
+        const discount = isExclusive && exclusiveRefTotal > 0
+          ? exclusivePool * (row.refPrice / exclusiveRefTotal)
+          : !isExclusive && standardRefTotal > 0
+            ? standardPool * (row.refPrice / standardRefTotal)
+            : 0;
+        return {
+          ...row,
+          isClearance: false,
+          rawPrice: Math.max(0, row.refPrice - discount)
+        };
+      }), targetTotal);
+
+      normalBundleCandidates.push({
+        deal,
+        rows: pricedRows,
+        savings: Math.max(0, normalTotal - targetTotal),
+        clearanceDiscount: 0
+      });
+      return;
+    }
 
     const clearanceKitIds = Array.from(new Set(getClearanceDealKitIds(deal)));
 
@@ -282,7 +354,7 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
       })
       .map(item => {
       const kitId = getCheckoutKitId(item);
-      const kit = kits.find(candidate => String(candidate.id) === kitId);
+      const kit = findCheckoutKit(kits, item || { id: kitId });
       const stock = kit?.stocks?.[item.stockKey];
       if (!stockMatchesCheckoutDealSource(stock || {}, item, 'onhand')) return null;
 
@@ -320,7 +392,12 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
     candidates.push({ deal, rows: pricedRows, savings, clearanceDiscount });
   });
 
-  const best = candidates.sort((a, b) => (
+  // A complete normal bundle takes priority over clearance pricing. If no
+  // complete bundle is selected, use the best eligible clearance deal.
+  const best = (normalBundleCandidates.length > 0
+    ? normalBundleCandidates
+    : candidates
+  ).sort((a, b) => (
     b.clearanceDiscount - a.clearanceDiscount || b.savings - a.savings
   ))[0];
   if (!best) return preparedItems;
@@ -332,7 +409,7 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
 
   return preparedItems.map(item => {
     const row = rowByKitId.get(getCheckoutKitId(item));
-    if (!row || isBundleOrClearanceItem(item)) return item;
+    if (!row || isProjectCheckoutItem(item) || item.offerPrice) return item;
 
     const bundleFeeShare = getDistributedFeeShare(bundleFeeTotal, row._clearanceIndex ?? best.rows.indexOf(row), bundleSize);
     return {
@@ -1123,7 +1200,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     const { handlingFee, installmentFee, transferFee } = checkoutFees;
     const normalizedItems = (items || []).map(item => {
       const quantity = item.quantity || 1;
-      const kit = kits.find(k => k.id === item.id);
+      const kit = findCheckoutKit(kits, item);
       const appliedHandlingFee = Number(item.appliedHandlingFee) > 0 ? Number(item.appliedHandlingFee) : handlingFee;
       const appliedInstallmentFee = Number(item.appliedInstallmentFee) > 0 ? Number(item.appliedInstallmentFee) : installmentFee;
       const appliedTransferFee = Number(item.appliedTransferFee) > 0 ? Number(item.appliedTransferFee) : transferFee;
@@ -1303,7 +1380,7 @@ const baseTotal = useMemo(() => {
   // removes them through its own explicit discount row below.
   const summaryItemsSubtotal = useMemo(() => {
     return checkoutItems.reduce((sum, item) => {
-      const sourceKit = kits.find(kit => kit.id === item.id || kit.id === item.productId || kit.name === item.name);
+      const sourceKit = findCheckoutKit(kits, item);
       const standalonePrice = Number(sourceKit?.stocks?.[item.stockKey]?.sellPrice || sourceKit?.sellPrice || 0);
       const basePrice = isBundleOrClearanceItem(item) && standalonePrice > 0
         ? standalonePrice
@@ -1316,7 +1393,7 @@ const baseTotal = useMemo(() => {
   const bundleDiscount = useMemo(() => {
     return checkoutItems.reduce((sum, item) => {
       if (!isBundleOrClearanceItem(item) || item.isClearanceBundle === true) return sum;
-      const sourceKit = kits.find(kit => kit.id === item.id || kit.id === item.productId || kit.name === item.name);
+      const sourceKit = findCheckoutKit(kits, item);
       const standalonePrice = Number(sourceKit?.stocks?.[item.stockKey]?.sellPrice || sourceKit?.sellPrice || 0);
       const dealPrice = Number(item.price || item.sellPrice || 0);
       return sum + Math.max(0, standalonePrice - dealPrice) * (item.quantity || 1);
@@ -1326,7 +1403,7 @@ const baseTotal = useMemo(() => {
   const clearanceDiscount = useMemo(() => {
     return checkoutItems.reduce((sum, item) => {
       if (item.isClearanceBundle !== true) return sum;
-      const sourceKit = kits.find(kit => kit.id === item.id || kit.id === item.productId || kit.name === item.name);
+      const sourceKit = findCheckoutKit(kits, item);
       const standalonePrice = Number(sourceKit?.stocks?.[item.stockKey]?.sellPrice || sourceKit?.sellPrice || 0);
       const dealPrice = Number(item.price || item.sellPrice || 0);
       return sum + Math.max(0, standalonePrice - dealPrice) * (item.quantity || 1);
@@ -1342,7 +1419,7 @@ const baseTotal = useMemo(() => {
 
   const distributedOrderFees = useMemo(() => {
     const lineValues = checkoutItems.map(item => {
-      const sourceKit = kits.find(kit => kit.id === item.id || kit.id === item.productId || kit.name === item.name);
+      const sourceKit = findCheckoutKit(kits, item);
       const standaloneBasePrice = isProjectCheckoutItem(item)
         ? Number(item.projectData?.sellPrice || item.sellPrice || item.price || 0)
         : getStockStandaloneSellPrice(item, sourceKit);
@@ -2259,7 +2336,7 @@ const handleFinalizeOrder = async () => {
           sellPrice: isBundleOrClearanceItem(item) ? (item.price || 0) : (item.sellPrice || item.price || 0),
           originalSellPrice: isProjectCheckoutItem(item)
             ? 0
-            : getStockStandaloneSellPrice(item, kits.find(kit => kit.id === item.id)),
+            : getStockStandaloneSellPrice(item, findCheckoutKit(kits, item)),
           quantity: item.quantity || 1,
           image: item.image || null,
           images: item.images || null,
@@ -2880,7 +2957,7 @@ const handleFinalizeOrder = async () => {
     };
 
     const itemRows = checkoutItems.map((item, idx) => {
-      const kit = kits.find(k => k.id === item.id || k.id === item.productId || k.name === item.name);
+      const kit = findCheckoutKit(kits, item);
       const displayImage = isProjectCheckoutItem(item)
         ? (item.projectData?.image || item.image)
         : resolveImage(item.image || kit?.image, item.images || kit?.images);
@@ -4002,7 +4079,7 @@ const handleFinalizeOrder = async () => {
   const distributedFee = distributedOrderFees[idx] || { total: 0 };
   const itemPrice = basePrice + displayInstallmentFee + (distributedFee.total / quantity);
   const itemLinePrice = itemPrice * quantity;
-  const sourceKit = kits.find(kit => kit.id === item.id || kit.id === item.productId || kit.name === item.name);
+  const sourceKit = findCheckoutKit(kits, item);
   const standaloneFee = standaloneDistributedOrderFees[idx]?.total || 0;
   const standaloneBasePrice = isProjectCheckoutItem(item)
     ? Number(item.projectData?.sellPrice || item.sellPrice || item.price || 0)
