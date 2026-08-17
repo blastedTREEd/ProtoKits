@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   Sun, Moon, ShoppingBasket, Home, X, ShelvingUnit,
   CircleUserRound, Settings, LogOut, ContactRound,
-  Shield, ShieldCheck, Box, Printer, ClipboardList, UserPlus, PackageOpen, Truck, Bell, CreditCard
+  Shield, ShieldCheck, Box, Printer, ClipboardList, UserPlus, PackageOpen, Truck, Bell
 } from 'lucide-react';
 import { FcGoogle } from 'react-icons/fc';
 import { FaFacebook } from 'react-icons/fa';
@@ -14,8 +14,7 @@ import { signOut, signInWithPopup } from 'firebase/auth';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { auth, fbProvider, googleProvider, db } from '../../firebase/firebase';
 import AccountSettingsModal from './AccountSettingsModal';
-import FulfillmentModal from './FulfillmentModal';
-import PaymentSettingsModal from './PaymentSettingsModal';
+import OperationsModal from './OperationsModal';
 import LoginPromptModal from './LoginPromptModal';
 import WelcomeModal from './WelcomeModal';
 import NotificationModal from './NotificationModal';
@@ -99,8 +98,8 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   const [outOfStockKitIds, setOutOfStockKitIds] = useState({});
   const [notificationNow, setNotificationNow] = useState(0);
   const [notificationAnchorTop, setNotificationAnchorTop] = useState(null);
-  const [isPickupPointOpen, setIsPickupPointOpen] = useState(false);
-  const [isPaymentSettingsOpen, setIsPaymentSettingsOpen] = useState(false);
+  const [isOperationsOpen, setIsOperationsOpen] = useState(false);
+  const [operationsTab, setOperationsTab] = useState('shipping');
   const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
   const [isStoriesManagerOpen, setIsStoriesManagerOpen] = useState(false);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
@@ -920,13 +919,9 @@ return (
                                 <UserPlus size={18} className="text-blue-500" />
                                 <span className="text-[12px] font-black uppercase tracking-widest text-left leading-tight">Users Dashboard</span>
                               </button>
-                              <button onClick={() => { setIsPickupPointOpen(true); setIsProfileOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-colors ${isDarkMode ? 'hover:bg-white/5 text-white' : 'hover:bg-black/5 text-neutral-900'}`}>
+                              <button onClick={() => { setOperationsTab('shipping'); setIsOperationsOpen(true); setIsProfileOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-colors ${isDarkMode ? 'hover:bg-white/5 text-white' : 'hover:bg-black/5 text-neutral-900'}`}>
                                 <Truck size={18} className="opacity-40" />
-                                <span className="text-[12px] font-black uppercase tracking-widest">Shipping Options</span>
-                              </button>
-                              <button onClick={() => { setIsPaymentSettingsOpen(true); setIsProfileOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-colors ${isDarkMode ? 'hover:bg-white/5 text-white' : 'hover:bg-black/5 text-neutral-900'}`}>
-                                <CreditCard size={18} className="opacity-40" />
-                                <span className="text-[12px] font-black uppercase tracking-widest">Payment Options</span>
+                                <span className="text-[12px] font-black uppercase tracking-widest">Shipping &amp; Payment</span>
                               </button>
                               <button onClick={handleInventoryAudit} className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-colors ${isDarkMode ? 'hover:bg-white/5 text-white' : 'hover:bg-black/5 text-neutral-900'}`}>
                                 <PackageOpen size={18} className="opacity-40" />
@@ -1069,14 +1064,10 @@ return (
       onClose={() => setIsSettingsModalOpen(false)} 
     />
 
-    <FulfillmentModal 
-      isOpen={isPickupPointOpen} 
-      onClose={() => setIsPickupPointOpen(false)} 
-    />
-
-    <PaymentSettingsModal
-      isOpen={isPaymentSettingsOpen}
-      onClose={() => setIsPaymentSettingsOpen(false)}
+    <OperationsModal
+      isOpen={isOperationsOpen}
+      initialTab={operationsTab}
+      onClose={() => setIsOperationsOpen(false)}
     />
 
     <LoginPromptModal 

@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { forwardRef, useImperativeHandle, useState, useEffect, useRef } from 'react';
 import { X, CreditCard } from 'lucide-react';
 import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
 import PaymentOptions from './PaymentOptions';
 
-export default function PaymentSettingsModal({ isOpen, onClose }) {
+const PaymentSettingsModal = forwardRef(function PaymentSettingsModal({ isOpen, onClose, embedded = false, visible = true }, ref) {
   const { isDarkMode } = useTheme();
   const { user, updateShippingSettings, publishCheckoutSettings, shippingSettings, deletePaymentMethods } = useStore();
   const scrollRef = useRef(null);
@@ -68,7 +68,8 @@ export default function PaymentSettingsModal({ isOpen, onClose }) {
   }, [isOpen]);
 
   useEffect(() => {
-    if (isOpen) {
+    if (embedded) return undefined;
+    if (isOpen && !embedded) {
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = 'unset';
@@ -76,7 +77,7 @@ export default function PaymentSettingsModal({ isOpen, onClose }) {
     return () => {
       document.body.style.overflow = 'unset';
     };
-  }, [isOpen]);
+  }, [isOpen, embedded]);
 
   const handleScroll = (e) => {
     setCanDrag(e.target.scrollTop <= 0);
@@ -123,7 +124,31 @@ export default function PaymentSettingsModal({ isOpen, onClose }) {
     setDeletedMethods(prev => [...prev, method]);
   };
 
-  const handleSave = async () => {
+  const getPaymentSavingsState = (settings = {}) => {
+    const methods = settings.methods || {};
+    const methodDiscounts = Object.fromEntries(
+      Object.keys(methods)
+        .filter(key => key.toLowerCase().endsWith('transferdiscount') || key.toLowerCase().endsWith('discountamount'))
+        .sort()
+        .map(key => [key, methods[key]])
+    );
+
+    return JSON.stringify({
+      installmentFee: Number(settings.installmentFee) || 0,
+      exclusiveDiscountPercent: Number(settings.exclusiveDiscountPercent ?? 100) || 0,
+      methodDiscounts
+    });
+  };
+
+  const hasPaymentSavingsChange = () => (
+    getPaymentSavingsState(paymentSettings) !== getPaymentSavingsState(shippingSettings?.paymentSettings)
+  );
+
+  const handleSave = async ({ skipSavingsConfirmation = false } = {}) => {
+    if (!skipSavingsConfirmation && hasPaymentSavingsChange() && !window.confirm('This will change payment savings available to customers. Do you want to continue?')) {
+      return false;
+    }
+
     try {
       // Merge with existing settings to ensure we only update what's changed and preserve existing fields
       const existingSettings = shippingSettings?.paymentSettings || {};
@@ -182,11 +207,39 @@ export default function PaymentSettingsModal({ isOpen, onClose }) {
       }
 
       onClose();
+      return true;
     } catch (err) {
       console.error(err);
       alert("Failed to update payment settings.");
     }
   };
+
+  useImperativeHandle(ref, () => ({ save: handleSave, hasSavingsChange: hasPaymentSavingsChange }));
+
+  const settingsContent = (
+    <div
+      ref={scrollRef}
+      onScroll={handleScroll}
+      className="min-h-0 flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar touch-pan-y"
+    >
+      <PaymentOptions
+        paymentSettings={paymentSettings}
+        handleToggleSetting={handleToggleSetting}
+        updatePaymentData={updatePaymentData}
+        handleSave={handleSave}
+        deleteMethod={deleteMethod}
+        showSave={!embedded}
+      />
+    </div>
+  );
+
+  if (embedded) {
+    return (
+      <div className={`h-full min-h-0 ${visible ? 'flex' : 'hidden'} flex-col`}>
+        {settingsContent}
+      </div>
+    );
+  }
 
   return (
     <AnimatePresence>
@@ -227,22 +280,12 @@ export default function PaymentSettingsModal({ isOpen, onClose }) {
                <button onClick={onClose} className="p-3 rounded-full bg-black/5 hover:bg-red-500/10 transition-all mr-2"><X size={20} /></button>
             </div>
             
-            <div 
-              ref={scrollRef}
-              onScroll={handleScroll}
-              className="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar"
-            >
-              <PaymentOptions 
-                paymentSettings={paymentSettings}
-                handleToggleSetting={handleToggleSetting}
-                updatePaymentData={updatePaymentData}
-                handleSave={handleSave}
-                deleteMethod={deleteMethod}
-              />
-            </div>
+            {settingsContent}
           </Motion.div>
         </div>
       )}
     </AnimatePresence>
   );
-}
+});
+
+export default PaymentSettingsModal;

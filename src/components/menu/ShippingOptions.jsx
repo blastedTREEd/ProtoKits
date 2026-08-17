@@ -6,7 +6,8 @@ export default function ShippingOptions({
   shippingMethods, 
   handleToggleMethod, 
   handleSave,
-  setShippingMethods // Direkta mula sa FulfillmentModal para sa mas simpleng state updates
+  setShippingMethods, // Direkta mula sa FulfillmentModal para sa mas simpleng state updates
+  showSave = true
 }) {
   const [newMethodName, setNewMethodName] = useState('');
   const [newSubOptionLabels, setNewSubOptionLabels] = useState({}); // { [method]: label }
@@ -415,9 +416,9 @@ export default function ShippingOptions({
         );
       })}
 
-      {/* Add Custom Shipping Method */}
+      {/* Add New Shipping Method */}
       <div className="p-6 rounded-3xl border-2 border-dashed border-garage-blue/20 bg-black/5 dark:bg-white/5 space-y-4 text-left">
-        <h4 className="text-xs font-black uppercase italic text-garage-blue">Add Custom Shipping Method</h4>
+        <h4 className="text-xs font-black uppercase italic text-garage-blue">Add New Shipping Method</h4>
         <div className="flex gap-2">
           <input
             type="text"
@@ -430,19 +431,21 @@ export default function ShippingOptions({
             onClick={handleAddCustomMethod}
             className="px-6 py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-black uppercase tracking-wider transition-all"
           >
-            Add Method
+            Add New
           </button>
         </div>
       </div>
 
-      <div className="sticky bottom-0 pt-4 pb-1">
-        <button
-          onClick={handleSave}
-          className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white rounded-2xl font-black uppercase text-xs tracking-wider shadow-lg shadow-emerald-600/20 transition-all flex items-center justify-center gap-2"
-        >
-          <Check size={16} strokeWidth={3} /> Save Shipping Settings
-        </button>
-      </div>
+      {showSave && (
+        <div className="sticky bottom-0 pt-4 pb-1">
+          <button
+            onClick={handleSave}
+            className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white rounded-2xl font-black uppercase text-xs tracking-wider shadow-lg shadow-emerald-600/20 transition-all flex items-center justify-center gap-2"
+          >
+            <Check size={16} strokeWidth={3} /> Save Shipping Settings
+          </button>
+        </div>
+      )}
     </div>
   );
 }

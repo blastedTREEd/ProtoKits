@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { forwardRef, useImperativeHandle, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-leaflet';
 import { 
-  X, Home, Users, Truck, Settings, Building2, Map, Sparkles, MapPin, Hash
+  X, Home, Users, Truck, Settings, Building2, Map, Sparkles, MapPin, Hash, Plus
 } from 'lucide-react';
 import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { useStore } from '../../store/useStore';
@@ -58,7 +58,7 @@ const buildPlaceAddress = (place = {}, { includeHouseNo = true } = {}) => {
   ].filter(Boolean).join(', ');
 };
 
-export default function FulfillmentModal({ isOpen, onClose }) {
+const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose, embedded = false, visible = true }, ref) {
   const { isDarkMode } = useTheme();
   const { user, updateShippingSettings, shippingSettings } = useStore();
   const [selectedCategory, setSelectedPickupCategory] = useState('methods');
@@ -69,10 +69,6 @@ export default function FulfillmentModal({ isOpen, onClose }) {
   const canDrag = !isOverMap && !isScrolled;
 
   const initialFormData = useMemo(() => {
-    const isMeetupCat = selectedCategory === 'meetup';
-    const isPickupCat = selectedCategory === 'pickup-point';
-    const categoryKey = selectedCategory === 'methods' ? 'pickup-point' : selectedCategory;
-    const dataForCategory = (isMeetupCat || isPickupCat) ? {} : (shippingSettings?.pickupDetails?.[categoryKey] || {});
     // Huwag nang gamitin ang defaultMethods bilang base — Firestore lang ang source of truth.
     // Dati nagse-seed ng LBC/Lalamove/SPX Express kahit deleted na sa Firebase.
     
@@ -81,77 +77,122 @@ export default function FulfillmentModal({ isOpen, onClose }) {
     const pickupPlaces = rawPickup.places || (rawPickup.landmark ? [rawPickup] : []);
 
     return {
-      houseNo: dataForCategory.houseNo || "",
-      houseDetails: dataForCategory.houseDetails || "",
-      landmark: dataForCategory.landmark || "",
-      subdivision: dataForCategory.subdivision || "",
-      barangay: dataForCategory.barangay || "",
-      city: dataForCategory.city || "",
-      province: dataForCategory.province || "",
-      zipCode: dataForCategory.zipCode || "",
+      houseNo: "",
+      houseDetails: "",
+      landmark: "",
+      subdivision: "",
+      barangay: "",
+      city: "",
+      province: "",
+      zipCode: "",
       meetupPlaces,
       pickupPlaces,
       shippingMethods: { ...(shippingSettings?.shippingMethods || {}) },
-      lat: dataForCategory.lat || 14.5995,
-      lng: dataForCategory.lng || 120.9842,
+      lat: 14.5995,
+      lng: 120.9842,
       activeMeetupIndex: null,
       activePickupIndex: null
     };
-  }, [shippingSettings, selectedCategory]);
+  }, [shippingSettings]);
 
   useEffect(() => {
     setFormData(initialFormData);
   }, [initialFormData]);
 
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !embedded) {
       document.body.style.overflow = 'hidden';
-    } else {
+    } else if (!embedded) {
       document.body.style.overflow = 'unset';
     }
     return () => {
-      document.body.style.overflow = 'unset';
+      if (!embedded) document.body.style.overflow = 'unset';
     };
-  }, [isOpen]);
+  }, [isOpen, embedded]);
 
   const handleScroll = (e) => {
     setIsScrolled(e.target.scrollTop > 0);
   };
 
-  const categories = [
-    { id: 'methods', label: 'Shipping Methods', icon: Settings },
-    { id: 'pickup-point', label: 'Pickup Point', icon: Truck },
-    { id: 'meetup', label: 'Meetup Places', icon: Users }
-  ];
-const handleDeletePlace = async (type, index = null) => {
-  if (!window.confirm("Are you sure you want to delete this place?")) return;
+  const cleanPlace = (source) => {
+    const place = {
+      landmark: source.landmark,
+      houseNo: source.houseNo,
+      houseDetails: source.houseDetails,
+      subdivision: source.subdivision,
+      barangay: source.barangay,
+      city: source.city,
+      province: source.province,
+      zipCode: source.zipCode,
+      lat: source.lat,
+      lng: source.lng,
+      isActive: source.isActive !== false
+    };
+    place.address = buildPlaceAddress(place, { includeHouseNo: true });
+    place.publicAddress = buildPlaceAddress(place, { includeHouseNo: false });
+    return place;
+  };
 
-  try {
+  const buildShippingPayload = () => {
+    const existingPickupDetails = shippingSettings?.pickupDetails || {};
+    const pickupDetails = {
+      ...existingPickupDetails,
+      'pickup-point': {
+        ...(existingPickupDetails['pickup-point'] || {}),
+        places: [...(formData?.pickupPlaces || [])]
+      },
+      meetup: {
+        ...(existingPickupDetails.meetup || {}),
+        places: [...(formData?.meetupPlaces || [])]
+      }
+    };
+
+    // Commit the currently edited place too, so switching between the
+    // shipping tabs cannot silently discard a pickup/meetup edit.
+    if (selectedCategory === 'pickup-point' || selectedCategory === 'meetup') {
+      const listKey = selectedCategory === 'meetup' ? 'meetupPlaces' : 'pickupPlaces';
+      const activeKey = selectedCategory === 'meetup' ? 'activeMeetupIndex' : 'activePickupIndex';
+      const currentPlace = cleanPlace(formData || {});
+      const hasPlaceInput = [
+        currentPlace.landmark, currentPlace.houseNo, currentPlace.houseDetails,
+        currentPlace.subdivision, currentPlace.barangay, currentPlace.city,
+        currentPlace.province, currentPlace.zipCode
+      ].some(Boolean);
+      if (hasPlaceInput) {
+        const places = [...(formData?.[listKey] || [])];
+        if (formData?.[activeKey] !== null && formData?.[activeKey] !== undefined) {
+          places[formData[activeKey]] = currentPlace;
+        } else {
+          places.push(currentPlace);
+        }
+        pickupDetails[selectedCategory] = {
+          ...(existingPickupDetails[selectedCategory] || {}),
+          places
+        };
+      }
+    }
+
+    return {
+      shippingMethods: { ...(formData?.shippingMethods || {}) },
+      pickupDetails
+    };
+  };
+
+  const handleDeletePlace = async (type, index = null) => {
+    if (!window.confirm("Are you sure you want to delete this place?")) return;
+
     const listKey = type === 'meetup' ? 'meetupPlaces' : 'pickupPlaces';
     const updatedPlaces = formData[listKey].filter((_, i) => i !== index);
+    if (embedded) {
+      setFormData(prev => ({
+        ...prev,
+        [listKey]: updatedPlaces,
+        [type === 'meetup' ? 'activeMeetupIndex' : 'activePickupIndex']: null
+      }));
+      return;
+    }
 
-    await updateShippingSettings(user.uid, {
-      pickupDetails: {
-        ...shippingSettings?.pickupDetails,
-        [type]: {
-          ...shippingSettings?.pickupDetails?.[type],
-          places: updatedPlaces
-        }
-      }
-    });
-    // State is updated automatically via the useStore subscription to shippingSettings
-  } catch (err) { console.error(err); alert("Failed to delete place."); }
-};
-
-  const handleTogglePlaceAvailability = async (type, index = null) => {
     try {
-      const listKey = type === 'meetup' ? 'meetupPlaces' : 'pickupPlaces';
-      const updatedPlaces = [...formData[listKey]];
-      updatedPlaces[index] = { 
-        ...updatedPlaces[index], 
-        isActive: updatedPlaces[index].isActive === false ? true : false 
-      };
-      
       await updateShippingSettings(user.uid, {
         pickupDetails: {
           ...shippingSettings?.pickupDetails,
@@ -161,57 +202,70 @@ const handleDeletePlace = async (type, index = null) => {
           }
         }
       });
-      // State is updated automatically via the useStore subscription
+    } catch (err) { console.error(err); alert("Failed to delete place."); }
+  };
+
+  const handleTogglePlaceAvailability = async (type, index = null) => {
+    const listKey = type === 'meetup' ? 'meetupPlaces' : 'pickupPlaces';
+    const updatedPlaces = [...formData[listKey]];
+    updatedPlaces[index] = {
+      ...updatedPlaces[index],
+      isActive: updatedPlaces[index].isActive === false ? true : false
+    };
+    if (embedded) {
+      setFormData(prev => ({ ...prev, [listKey]: updatedPlaces }));
+      return;
+    }
+
+    try {
+      await updateShippingSettings(user.uid, {
+        pickupDetails: {
+          ...shippingSettings?.pickupDetails,
+          [type]: {
+            ...shippingSettings?.pickupDetails?.[type],
+            places: updatedPlaces
+          }
+        }
+      });
     } catch (err) { console.error(err); alert("Failed to toggle availability."); }
   };
 
-  const handleSave = async () => {
+  const getShippingSavingsState = (methods = {}) => JSON.stringify(
+    Object.fromEntries(
+      Object.keys(methods).sort().map(method => {
+        const value = methods[method];
+        const config = typeof value === 'object' && value !== null ? value : { active: !!value };
+        const suboptions = Object.fromEntries(
+          Object.keys(config.suboptions || {}).sort().map(key => [
+            key,
+            config.suboptions[key]?.handlingDiscount === true
+          ])
+        );
+        return [method, {
+          handlingDiscount: config.handlingDiscount === true,
+          suboptions
+        }];
+      })
+    )
+  );
+
+  const hasShippingSavingsChange = () => (
+    getShippingSavingsState(formData?.shippingMethods) !== getShippingSavingsState(shippingSettings?.shippingMethods)
+  );
+
+  const handleSave = async ({ skipSavingsConfirmation = false } = {}) => {
+    if (!skipSavingsConfirmation && hasShippingSavingsChange() && !window.confirm('This will change shipping savings available to customers. Do you want to continue?')) {
+      return false;
+    }
+
     try {
-      const type = selectedCategory;
-      if (type === 'methods') {
-        await updateShippingSettings(user.uid, { shippingMethods: formData.shippingMethods });
-      } else {
-        const listKey = type === 'meetup' ? 'meetupPlaces' : 'pickupPlaces';
-        let updatedPlaces = [...formData[listKey]];
-        
-        const cleanPlace = {
-          landmark: formData.landmark,
-          houseNo: formData.houseNo,
-          houseDetails: formData.houseDetails,
-          subdivision: formData.subdivision,
-          barangay: formData.barangay,
-          city: formData.city,
-          province: formData.province,
-          zipCode: formData.zipCode,
-          lat: formData.lat,
-          lng: formData.lng,
-          isActive: formData.isActive !== false
-        };
-        cleanPlace.address = buildPlaceAddress(cleanPlace, { includeHouseNo: true });
-        cleanPlace.publicAddress = buildPlaceAddress(cleanPlace, { includeHouseNo: false });
-
-        const activeIndex = type === 'meetup' ? formData.activeMeetupIndex : formData.activePickupIndex;
-
-        if (activeIndex !== null) {
-          updatedPlaces[activeIndex] = { ...cleanPlace };
-        } else {
-          updatedPlaces.push({ ...cleanPlace });
-        }
-
-      await updateShippingSettings(user.uid, { 
-          shippingMethods: formData.shippingMethods, 
-          pickupDetails: { 
-            ...shippingSettings?.pickupDetails, 
-            [type]: { 
-              ...shippingSettings?.pickupDetails?.[type],
-              places: updatedPlaces
-            } 
-          } 
-        });
-      }
-      onClose();
+      await updateShippingSettings(user.uid, buildShippingPayload());
+      if (!embedded) onClose();
+      return true;
     } catch (err) { console.error(err); alert("Failed to update."); }
   };
+
+  useImperativeHandle(ref, () => ({ save: handleSave, hasSavingsChange: hasShippingSavingsChange }));
 
   const handleToggleMethod = (m, subKey = null) => {
     setFormData(p => {
@@ -358,160 +412,238 @@ const handleDeletePlace = async (type, index = null) => {
   const mapCenter = formData ? [formData.lat, formData.lng] : [14.5995, 120.9842];
   const inputClass = `w-full pl-12 pr-4 py-3 rounded-2xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-garage-blue/50 ${isDarkMode ? 'bg-white/5 text-white' : 'bg-black/5 text-neutral-900'}`;
 
+  const handleAddNewPlace = (type) => {
+    setSelectedPickupCategory(type);
+    setFormData(prev => ({
+      ...prev,
+      houseNo: '',
+      houseDetails: '',
+      landmark: '',
+      subdivision: '',
+      barangay: '',
+      city: '',
+      province: '',
+      zipCode: '',
+      lat: 14.5995,
+      lng: 120.9842,
+      activeMeetupIndex: null,
+      activePickupIndex: null
+    }));
+    setLastGeocoded({});
+  };
+
+  const handleSelectPlace = (type, place, index) => {
+    setSelectedPickupCategory(type);
+    setFormData(prev => ({
+      ...prev,
+      ...place,
+      meetupPlaces: prev.meetupPlaces,
+      pickupPlaces: prev.pickupPlaces,
+      activeMeetupIndex: type === 'meetup' ? index : null,
+      activePickupIndex: type === 'pickup-point' ? index : null
+    }));
+    setLastGeocoded({});
+  };
+
+  const renderPlaceEditor = (type) => {
+    const isMeetup = type === 'meetup';
+    const activeIndex = isMeetup ? formData.activeMeetupIndex : formData.activePickupIndex;
+    const title = isMeetup ? 'Meetup Place' : 'Pickup Point';
+
+    return (
+      <div className="space-y-4 rounded-3xl border border-garage-blue/15 bg-garage-blue/[0.03] p-4 md:p-6">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h4 className="text-sm font-black uppercase italic text-garage-blue">
+              {activeIndex === null ? `New ${title}` : `Edit ${title}`}
+            </h4>
+            <p className="mt-1 text-[9px] font-bold uppercase opacity-50">Configure the address and map location</p>
+          </div>
+          {activeIndex !== null && (
+            <button
+              type="button"
+              onClick={() => handleAddNewPlace(type)}
+              className="rounded-xl bg-garage-blue/10 px-3 py-2 text-[9px] font-black uppercase text-garage-blue"
+            >
+              <Plus size={12} className="mr-1 inline" /> New
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="relative text-left"><Sparkles className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="Landmark" value={formData.landmark} onChange={(e) => handleAddressChange({ landmark: e.target.value })} onBlur={(e) => handleBlur('landmark', e.target.value)} className={inputClass} /></div>
+          <div className="relative text-left"><Hash className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="Zip Code" value={formData.zipCode} onChange={(e) => handleAddressChange({ zipCode: e.target.value })} className={inputClass} /></div>
+        </div>
+        {!isMeetup && (
+          <div className="relative text-left"><Home className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="House No." value={formData.houseNo} onChange={(e) => handleAddressChange({ houseNo: e.target.value })} onBlur={(e) => handleBlur('houseNo', e.target.value)} className={inputClass} /></div>
+        )}
+        <div className="relative text-left"><Building2 className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder={isMeetup ? 'Street (Optional)' : 'Street'} value={formData.houseDetails} onChange={(e) => handleAddressChange({ houseDetails: e.target.value })} onBlur={(e) => handleBlur('houseDetails', e.target.value)} className={inputClass} /></div>
+        <div className="relative text-left"><Map className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="Subdivision (Optional)" value={formData.subdivision} onChange={(e) => handleAddressChange({ subdivision: e.target.value })} onBlur={(e) => handleBlur('subdivision', e.target.value)} className={inputClass} /></div>
+        <div className="relative text-left"><MapPin className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="Barangay" value={formData.barangay} onChange={(e) => handleAddressChange({ barangay: e.target.value })} onBlur={(e) => handleBlur('barangay', e.target.value)} className={inputClass} /></div>
+        <div className="relative text-left"><Building2 className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="City" value={formData.city} onChange={(e) => handleAddressChange({ city: e.target.value })} onBlur={(e) => handleBlur('city', e.target.value)} className={inputClass} /></div>
+        <div className="relative text-left"><Map className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="Province" value={formData.province} onChange={(e) => handleAddressChange({ province: e.target.value })} onBlur={(e) => handleBlur('province', e.target.value)} className={inputClass} /></div>
+
+        <div
+          className="h-48 w-full overflow-hidden rounded-2xl"
+          style={{ touchAction: 'none' }}
+          onMouseEnter={() => setIsOverMap(true)}
+          onMouseLeave={() => setIsOverMap(false)}
+          onTouchStart={() => setIsOverMap(true)}
+          onTouchEnd={() => setIsOverMap(false)}
+          onTouchCancel={() => setIsOverMap(false)}
+        >
+          <MapContainer center={mapCenter} zoom={16} minZoom={12} maxZoom={18} style={{ height: '100%', width: '100%' }} dragging scrollWheelZoom zoomControl>
+            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+            <Marker
+              position={mapCenter}
+              draggable
+              eventHandlers={{
+                dragend: async (e) => {
+                  const position = e.target.getLatLng();
+                  setFormData(prev => ({ ...prev, lat: position.lat, lng: position.lng }));
+                  const res = await performReverseGeocoding(position.lat, position.lng);
+                  if (res) handleAddressChange({ barangay: res.barangay, city: res.city, province: res.province, zipCode: res.zipCode });
+                }
+              }}
+            />
+            <ChangeView center={mapCenter} />
+            <MapClickHandler setFormData={setFormData} />
+          </MapContainer>
+        </div>
+
+        {!embedded && (
+          <div className="flex gap-2">
+            <button onClick={handleSave} className="flex-1 rounded-2xl bg-garage-blue py-4 text-xs font-black uppercase text-white">Save {title}</button>
+            {activeIndex !== null && (
+              <button onClick={() => handleDeletePlace(type, activeIndex)} className="rounded-2xl bg-red-500/10 px-6 py-4 text-xs font-black uppercase text-red-500 transition-all hover:bg-red-500 hover:text-white">Delete</button>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderPlaceSection = (type, title, sectionIcon) => {
+    const listKey = type === 'meetup' ? 'meetupPlaces' : 'pickupPlaces';
+    const activeIndex = type === 'meetup' ? formData.activeMeetupIndex : formData.activePickupIndex;
+    const places = formData[listKey] || [];
+
+    return (
+      <section className="space-y-4 rounded-3xl border border-black/5 bg-black/[0.02] p-4 dark:border-white/5 dark:bg-white/[0.02] md:p-6">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            {React.createElement(sectionIcon, { size: 18, className: 'text-garage-blue' })}
+            <div>
+              <h3 className="text-sm font-black uppercase italic text-garage-blue">{title}</h3>
+              <p className="text-[9px] font-bold uppercase opacity-50">{places.length} configured</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleAddNewPlace(type)}
+            className="flex items-center gap-1 rounded-xl bg-garage-blue px-3 py-2 text-[9px] font-black uppercase text-white shadow-lg shadow-blue-500/20"
+          >
+            <Plus size={13} /> Add New
+          </button>
+        </div>
+
+        {places.length > 0 ? (
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            {places.map((place, index) => {
+              const isSelected = activeIndex === index && selectedCategory === type;
+              const placeLabel = place.landmark || `${title} ${index + 1}`;
+              return (
+                <div key={`${type}-${index}`} className={`rounded-2xl border p-3 transition-all ${isSelected ? 'border-garage-blue bg-garage-blue/5 shadow-md' : 'border-black/5 bg-white dark:border-white/5 dark:bg-neutral-900'}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <button type="button" onClick={() => handleSelectPlace(type, place, index)} className="min-w-0 flex-1 text-left">
+                      <span className="block truncate text-[11px] font-black uppercase">{placeLabel}</span>
+                      <span className="mt-1 block line-clamp-2 text-[10px] font-bold opacity-55">{place.address || buildPlaceAddress(place)}</span>
+                    </button>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button type="button" onClick={() => handleTogglePlaceAvailability(type, index)} className={`relative h-5 w-9 rounded-full p-0.5 transition-all ${place.isActive !== false ? 'bg-emerald-500' : 'bg-neutral-300'}`} aria-label={`Toggle ${placeLabel}`}>
+                        <span className={`block h-4 w-4 rounded-full bg-white shadow transition-transform ${place.isActive !== false ? 'translate-x-4' : 'translate-x-0'}`} />
+                      </button>
+                      <button type="button" onClick={() => handleDeletePlace(type, index)} className="rounded-lg p-1.5 text-red-500 transition-colors hover:bg-red-500/10" aria-label={`Delete ${placeLabel}`}>
+                        <X size={14} />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-2 text-[8px] font-black uppercase opacity-45">{place.isActive === false ? 'Disabled' : 'Available'}</div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-dashed border-garage-blue/20 px-4 py-6 text-center text-[10px] font-bold uppercase opacity-50">No {title.toLowerCase()} configured yet.</div>
+        )}
+
+        {selectedCategory === type && renderPlaceEditor(type)}
+      </section>
+    );
+  };
+
   return (
     <AnimatePresence>
       {isOpen && formData && (
-        <div className="fixed inset-0 z-[200] flex items-end md:items-center justify-center p-0 md:p-4 overflow-hidden">
-          <Motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="absolute inset-0 bg-black/80 backdrop-blur-md" 
-            onClick={onClose} 
-          />
+        <div className={embedded
+          ? `h-full w-full ${visible ? 'block' : 'hidden'}`
+          : 'fixed inset-0 z-[200] flex items-end justify-center overflow-hidden p-0 md:items-center md:p-4'}>
+          {!embedded && (
+            <Motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+              onClick={onClose}
+            />
+          )}
           <Motion.div 
             initial={{ y: "100%" }}
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
             transition={{ type: "spring", damping: 25, stiffness: 400 }}
-            drag={canDrag ? "y" : false}
+            drag={!embedded && canDrag ? "y" : false}
             dragConstraints={{ top: 0 }}
             dragElastic={0.4}
             onDragEnd={(e, info) => {
-              if (info.offset.y > 100) onClose();
+              if (!embedded && info.offset.y > 100) onClose();
             }}
-            className={`relative w-full md:max-w-4xl h-[92vh] md:h-auto md:max-h-[90vh] overflow-hidden flex flex-col rounded-t-[2.5rem] md:rounded-[2.5rem] shadow-2xl ${isDarkMode ? 'bg-neutral-900' : 'bg-white'}`}
+            className={`relative flex h-full w-full flex-col overflow-hidden ${embedded ? 'rounded-none shadow-none' : 'h-[92vh] rounded-t-[2.5rem] shadow-2xl md:h-auto md:max-h-[90vh] md:max-w-4xl md:rounded-[2.5rem]'} ${isDarkMode ? 'bg-neutral-900' : 'bg-white'}`}
           >
             {/* Drag Handle for Mobile */}
-            <div className="w-full flex justify-center pt-4 pb-2 md:hidden shrink-0">
+            <div className={`${embedded ? 'hidden' : 'flex'} w-full shrink-0 justify-center pb-2 pt-4 md:hidden`}>
               <div className="w-12 h-1.5 rounded-full bg-black/10 dark:bg-white/10" />
             </div>
 
-            <div className={`p-4 md:p-8 flex justify-between items-center border-b shadow-sm relative z-10 shrink-0 ${isDarkMode ? 'border-white/5 bg-neutral-900 shadow-black/20' : 'border-black/5 bg-white shadow-black/5'}`}>
+            <div className={`${embedded ? 'hidden' : 'flex'} relative z-10 shrink-0 items-center justify-between border-b p-4 shadow-sm md:p-8 ${isDarkMode ? 'border-white/5 bg-neutral-900 shadow-black/20' : 'border-black/5 bg-white shadow-black/5'}`}>
                <h2 className="text-lg md:text-xl font-black italic uppercase text-garage-blue ml-2 md:ml-4">Shipping Options</h2>
                <button onClick={onClose} className="p-3 rounded-full bg-black/5 hover:bg-red-500/10 transition-all mr-2 md:mr-4"><X size={20} /></button>
             </div>
-            <div className="flex flex-col md:flex-row h-full overflow-y-auto md:overflow-hidden custom-scrollbar">
-              <div className="w-full md:w-64 p-4 md:p-8 bg-black/5 flex flex-col gap-6 flex-shrink-0">
-                {categories.map(cat => (
-                  <div key={cat.id} className="space-y-2">
-                    <button 
-                      onClick={() => {
-                        setSelectedPickupCategory(cat.id);
-                        if (cat.id === 'meetup' || cat.id === 'pickup-point') {
-                          setFormData(prev => ({
-                            ...prev,
-                            houseNo: '', houseDetails: '', landmark: '', subdivision: '', barangay: '', city: '', province: '', zipCode: '', 
-                            lat: 14.5995, lng: 120.9842, activeMeetupIndex: null, activePickupIndex: null
-                          }));
-                          setLastGeocoded({});
-                        }
-                      }} 
-                      className={`w-full p-4 rounded-2xl font-black uppercase text-[10px] text-left flex justify-between items-center ${selectedCategory === cat.id ? 'bg-garage-blue text-white' : 'opacity-60'}`}
-                    >
-                      {cat.label}
-                      <span className="bg-white/20 px-2 py-0.5 rounded-full text-[9px]">
-                        {cat.id === 'methods' ? Object.values(formData.shippingMethods).filter(Boolean).length :
-                         cat.id === 'pickup-point' ? formData.pickupPlaces.length :
-                         cat.id === 'meetup' ? formData.meetupPlaces.length : 0}
-                      </span>
-                    </button>
-                    {(cat.id === 'pickup-point' || cat.id === 'meetup') && selectedCategory === cat.id && (
-                      <div className="flex flex-col gap-1.5 mt-2">
-                        {(cat.id === 'pickup-point' ? formData.pickupPlaces : formData.meetupPlaces).map((place, idx) => {
-                          const isActiveIndex = cat.id === 'pickup-point' ? formData.activePickupIndex === idx : formData.activeMeetupIndex === idx;
-                          return (
-                            <div key={idx} className="group relative">
-                              <button 
-                                onClick={() => setFormData(prev => ({
-                                  ...prev, ...place, 
-                                  meetupPlaces: prev.meetupPlaces, pickupPlaces: prev.pickupPlaces,
-                                  [cat.id === 'pickup-point' ? 'activePickupIndex' : 'activeMeetupIndex']: idx 
-                                }))}
-                                className={`w-full px-4 py-3 rounded-xl text-[9px] font-bold uppercase text-left truncate transition-all ${isActiveIndex ? 'bg-garage-blue text-white shadow-lg' : 'bg-black/5 opacity-70 hover:opacity-100'} ${place.isActive === false ? 'opacity-30 grayscale' : ''}`}
-                              >
-                                {place.landmark || `${cat.label} ${idx + 1}`}
-                              </button>
-                              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                                <button 
-                                  onClick={(e) => { e.stopPropagation(); handleTogglePlaceAvailability(cat.id, idx); }}
-                                  className={`w-8 h-4 rounded-full transition-all flex items-center p-0.5 ${place.isActive !== false ? 'bg-emerald-500' : 'bg-neutral-400'}`}
-                                >
-                                  <div className={`w-3 h-3 bg-white rounded-full shadow-md transform transition-transform ${place.isActive !== false ? 'translate-x-4' : 'translate-x-0'}`} />
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+            <div
+              ref={scrollRef}
+              onScroll={handleScroll}
+              className="min-h-0 flex-1 overflow-y-auto p-4 custom-scrollbar touch-pan-y md:p-8"
+            >
+              <div className="mx-auto max-w-5xl space-y-8 text-left">
+                <section className="space-y-4">
+                  <div className="flex items-center gap-2 border-b border-black/5 pb-3 dark:border-white/5">
+                    <Settings size={18} className="text-garage-blue" />
+                    <div>
+                      <h3 className="text-sm font-black uppercase italic text-garage-blue">Shipping Methods</h3>
+                      <p className="text-[9px] font-bold uppercase opacity-50">Configure couriers, suboptions, discounts, and required fields</p>
+                    </div>
                   </div>
-                ))}
-              </div>
-              <div 
-                ref={scrollRef}
-                onScroll={handleScroll}
-                className="flex-1 md:overflow-y-auto p-4 md:p-8 custom-scrollbar"
-              >
-                {selectedCategory === 'methods' ? (
-                  <ShippingOptions 
+                  <ShippingOptions
                     shippingMethods={formData.shippingMethods}
                     handleToggleMethod={handleToggleMethod}
                     handleSave={handleSave}
+                    showSave={!embedded}
                     setShippingMethods={(newMethods) => setFormData(p => ({ ...p, shippingMethods: newMethods }))}
                   />
-                ) : (
-                    <div className="space-y-4 max-w-lg mx-auto text-left">
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="relative text-left"><Sparkles className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="Landmark" value={formData.landmark} onChange={(e) => handleAddressChange({ landmark: e.target.value })} onBlur={(e) => handleBlur('landmark', e.target.value)} className={inputClass} /></div>
-                        <div className="relative text-left"><Hash className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="Zip Code" value={formData.zipCode} onChange={(e) => handleAddressChange({ zipCode: e.target.value })} className={inputClass} /></div>
-                      </div>
-                      {selectedCategory !== 'meetup' && (
-                        <div className="relative text-left"><Home className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="House No." value={formData.houseNo} onChange={(e) => handleAddressChange({ houseNo: e.target.value })} onBlur={(e) => handleBlur('houseNo', e.target.value)} className={inputClass} /></div>
-                      )}
-                      <div className="relative text-left"><Building2 className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder={selectedCategory === 'meetup' ? "Street (Optional)" : "Street"} value={formData.houseDetails} onChange={(e) => handleAddressChange({ houseDetails: e.target.value })} onBlur={(e) => handleBlur('houseDetails', e.target.value)} className={inputClass} /></div>
-                      <div className="relative text-left"><Map className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="Subdivision (Optional)" value={formData.subdivision} onChange={(e) => handleAddressChange({ subdivision: e.target.value })} onBlur={(e) => handleBlur('subdivision', e.target.value)} className={inputClass} /></div>
-                      <div className="relative text-left"><MapPin className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="Barangay" value={formData.barangay} onChange={(e) => handleAddressChange({ barangay: e.target.value })} onBlur={(e) => handleBlur('barangay', e.target.value)} className={inputClass} /></div>
-                      <div className="relative text-left"><Building2 className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="City" value={formData.city} onChange={(e) => handleAddressChange({ city: e.target.value })} onBlur={(e) => handleBlur('city', e.target.value)} className={inputClass} /></div>
-                      <div className="relative text-left"><Map className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="Province" value={formData.province} onChange={(e) => handleAddressChange({ province: e.target.value })} onBlur={(e) => handleBlur('province', e.target.value)} className={inputClass} /></div>
-                      
-                      <div 
-                        className="w-full h-40 rounded-2xl overflow-hidden mt-4"
-                        style={{ touchAction: 'none' }}
-                        onMouseEnter={() => setIsOverMap(true)}
-                        onMouseLeave={() => setIsOverMap(false)}
-                        onTouchStart={() => setIsOverMap(true)}
-                        onTouchEnd={() => setIsOverMap(false)}
-                        onTouchCancel={() => setIsOverMap(false)}
-                      >
-                        <MapContainer center={mapCenter} zoom={16} minZoom={12} maxZoom={18} style={{ height: '100%', width: '100%' }} dragging={true} scrollWheelZoom={true} zoomControl={true}>
-                          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                          <Marker 
-                            position={mapCenter} draggable={true}
-                            eventHandlers={{
-                              dragend: async (e) => {
-                                const marker = e.target;
-                                const position = marker.getLatLng();
-                                setFormData(prev => ({ ...prev, lat: position.lat, lng: position.lng }));
-                                const res = await performReverseGeocoding(position.lat, position.lng);
-                                if (res) {
-                                  handleAddressChange({ barangay: res.barangay, city: res.city, province: res.province, zipCode: res.zipCode });
-                                }
-                              },
-                            }}
-                          />
-                          <ChangeView center={mapCenter} />
-                          <MapClickHandler setFormData={setFormData} />
-                        </MapContainer>
-                      </div>
-                      <div className="flex gap-2 mt-4">
-                        <button onClick={handleSave} className="flex-1 py-4 bg-garage-blue text-white rounded-2xl font-black uppercase text-xs">Save {selectedCategory === 'meetup' ? 'Meetup Place' : 'Pickup Point'}</button>
-                        {(selectedCategory === 'pickup-point' ? formData.activePickupIndex !== null : formData.activeMeetupIndex !== null) && (
-                          <button onClick={() => handleDeletePlace(selectedCategory, selectedCategory === 'pickup-point' ? formData.activePickupIndex : formData.activeMeetupIndex)} className="px-6 py-4 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-2xl font-black uppercase text-xs transition-all">Delete</button>
-                        )}
-                      </div>
-                    </div>
-                )}
+                </section>
+
+                {renderPlaceSection('pickup-point', 'Pickup Points', Truck)}
+                {renderPlaceSection('meetup', 'Meetup Places', Users)}
               </div>
             </div>
           </Motion.div>
@@ -519,4 +651,6 @@ const handleDeletePlace = async (type, index = null) => {
       )}
     </AnimatePresence>
   );
-}
+});
+
+export default FulfillmentModal;

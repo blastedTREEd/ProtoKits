@@ -6,7 +6,8 @@ export default function PaymentOptions({
   handleToggleSetting,
   handleSave,
   updatePaymentData,
-  deleteMethod
+  deleteMethod,
+  showSave = true
 }) {
   const [newMethod, setNewMethod] = useState('');
 
@@ -339,12 +340,14 @@ export default function PaymentOptions({
         </div>
       </div>
 
-      <button
-        onClick={handleSave}
-        className="w-full h-14  py-5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-[1.5rem] font-black uppercase text-xs tracking-widest transition-all shadow-xl shadow-emerald-500/10 active:scale-95"
-      >
-        Save Payment Settings
-      </button>
+      {showSave && (
+        <button
+          onClick={handleSave}
+          className="w-full h-14 py-5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-[1.5rem] font-black uppercase text-xs tracking-widest transition-all shadow-xl shadow-emerald-500/10 active:scale-95"
+        >
+          Save Payment Settings
+        </button>
+      )}
     </div>
   );
 }
