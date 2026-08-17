@@ -156,7 +156,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* SECTION 2: HIGHLIGHTS */}
+      {/* SECTION 2: GARAGE STORIES */}
       <Highlights />
       </div>
     </PageTemplate>

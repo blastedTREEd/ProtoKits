@@ -34,8 +34,8 @@ const NotFound = lazy(() => import('./pages/NotFound'));
 const getPageLoadingLabel = (pathname, { isAdminView = false } = {}) => {
   if (pathname === '/') return 'Loading SnorlaxGarage';
   if (pathname.startsWith('/kits')) return 'Loading Kits';
-  if (pathname === '/prints' || pathname === '/blueprints') return 'Loading Prints';
-  if (pathname === '/orders') return 'Loading Orders';
+  if (pathname.startsWith('/prints') || pathname === '/blueprints') return 'Loading Prints';
+  if (pathname === '/orders' || pathname.startsWith('/orders/')) return 'Loading Orders';
   if (pathname === '/notify-list') return 'Loading Offers';
   if (pathname === '/users-dashboard') return 'Loading Users Dashboard';
   if (pathname === '/shelf') return 'Loading Collection';
@@ -78,10 +78,10 @@ const isRouteDataReady = (pathname, datasets, isAdmin) => {
   const needsStories = pathname === '/' || pathname === '';
   const needsKits = pathname.startsWith('/kits');
   const needsDeals = pathname.startsWith('/kits');
-  const needsOrders = pathname === '/orders';
+  const needsOrders = pathname === '/orders' || pathname.startsWith('/orders/');
   const needsBasket = pathname === '/basket' || pathname === '/shelf';
   const needsShelf = isAdmin;
-  const needsPrints = pathname === '/prints' || pathname === '/blueprints';
+  const needsPrints = pathname === '/' || pathname === '/prints' || pathname.startsWith('/prints/') || pathname === '/blueprints';
 
   return (!needsStories || datasets.stories)
     && (!needsKits || datasets.kits)
@@ -221,9 +221,11 @@ const RouterContent = () => {
             <Route path="/kits" element={<Kits />} />
             <Route path="/kits/:kitId" element={<Kits />} />
             <Route path="/prints" element={<Prints />} />
+            <Route path="/prints/:projectId" element={<Prints />} />
             <Route path="/blueprints" element={<Blueprints />} />
             <Route path="/about-us" element={<AboutUs />} />
             <Route path="/orders" element={<Orders />} />
+            <Route path="/orders/:orderId" element={<Orders />} />
             <Route path="/basket" element={<Basket />} />
             <Route path="/checkout" element={<Checkout />} />
             <Route 

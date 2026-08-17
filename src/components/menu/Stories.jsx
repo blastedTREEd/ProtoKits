@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { X, ChevronLeft, ChevronRight, MapPin, Package } from 'lucide-react';
 import { motion as Motion, AnimatePresence } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import { useStore } from '../../store/useStore';
 
 const SYNC_GLOW_COLORS = ['#0066ff', '#ff3b30', '#34c759', '#ffcc00', '#af52de', '#ff7a00', '#00c7be'];
@@ -33,8 +34,8 @@ function formatStoryDate(value) {
 
 export default function Stories({ isCompact, hideImmediately = false }) {
   // Kunin ang actual data mula sa Zustand store (DB)
-  const { stories, garageInfo, isLoading, setStoriesHeight } = useStore();
-  const [imgError, setImgError] = useState(false);
+  const { stories, kits, blueprints, isLoading, setStoriesHeight } = useStore();
+  const navigate = useNavigate();
   const containerRef = useRef(null);
 
   // Preview modal state
@@ -91,6 +92,169 @@ export default function Stories({ isCompact, hideImmediately = false }) {
     return (stories || []).filter(story => !story.isDraft);
   }, [stories]);
 
+  const getTimestamp = useCallback((value) => {
+    if (!value) return 0;
+    if (typeof value.toMillis === 'function') return value.toMillis();
+    if (typeof value.toDate === 'function') return value.toDate().getTime();
+    if (typeof value.seconds === 'number') return value.seconds * 1000;
+    const parsed = new Date(value).getTime();
+    return Number.isFinite(parsed) ? parsed : 0;
+  }, []);
+
+  const getKitImage = useCallback((kit) => {
+    const firstImage = Array.isArray(kit?.images) ? kit.images[0] : null;
+    const masterImage = typeof kit?.image === 'string'
+      ? (kit.image.startsWith('data:') || kit.image.startsWith('http') || kit.image.startsWith('/')
+        ? kit.image
+        : (kit.images || []).find((image) => image?.id === kit.image)?.url)
+      : null;
+    return masterImage || (typeof firstImage === 'string' ? firstImage : firstImage?.url) || '/snorlaxgarage.png';
+  }, []);
+
+  const getKitStocks = useCallback((kit) => (
+    Object.entries(kit?.stocks || {}).map(([stockKey, stock]) => ({ stockKey, ...(stock || {}) }))
+  ), []);
+
+  const isAvailableStock = useCallback((stock) => (
+    stock && !stock.order?.orderId && !stock.isReserved
+  ), []);
+
+  const isPreOrderStock = useCallback((stock) => {
+    const status = String(stock?.status || '').toLowerCase();
+    return status.includes('pre') || status.includes('batch');
+  }, []);
+
+  const isOnhandStock = useCallback((stock) => (
+    String(stock?.status || '').toLowerCase() === 'onhand'
+  ), []);
+
+  const highlightItems = React.useMemo(() => {
+    const recentStories = [...activeStories]
+      .sort((a, b) => (
+        getTimestamp(b.createdAt || b.publishedAt || b.updatedAt) -
+        getTimestamp(a.createdAt || a.publishedAt || a.updatedAt)
+      ))
+      .slice(0, 10)
+      .map((story) => ({
+        id: `story:${story.id}`,
+        type: 'story',
+        targetId: story.id,
+        image: story.image || story.backgroundImage || '/snorlaxgarage.png',
+        label: story.label || 'Garage Story',
+        story
+      }));
+
+    const kitItems = (kits || []).map((kit) => {
+      const stocks = getKitStocks(kit);
+      const availablePreOrders = stocks.filter((stock) => isAvailableStock(stock) && isPreOrderStock(stock));
+      const availableOnhand = stocks.filter((stock) => isAvailableStock(stock) && isOnhandStock(stock));
+      const restockTimestamp = Math.max(
+        ...stocks.map((stock) => getTimestamp(
+          stock.lastRestockedAt || stock.restockedAt || stock.backInStockAt || stock.lastAvailableAt
+        )),
+        getTimestamp(kit.lastRestockedAt || kit.lastAvailableAt)
+      );
+      const latestTimestamp = Math.max(
+        getTimestamp(kit.createdAt || kit.lastUpdated),
+        ...stocks.map((stock) => getTimestamp(stock.createdAt || stock.lastUpdated || stock.timestamp))
+      );
+
+      return {
+        kit,
+        availablePreOrders,
+        availableOnhand,
+        restockTimestamp,
+        latestTimestamp
+      };
+    });
+
+    const usedKitLinks = new Set();
+    const selectUniqueKits = (entries, limit) => entries
+      .filter((entry) => entry.kit?.id && !usedKitLinks.has(`kit:${entry.kit.id}`))
+      .slice(0, limit)
+      .map((entry) => {
+        usedKitLinks.add(`kit:${entry.kit.id}`);
+        return entry.kit;
+      });
+
+    const preOrderItems = selectUniqueKits([...kitItems]
+      .filter((entry) => entry.availablePreOrders.length > 0)
+      .sort((a, b) => b.latestTimestamp - a.latestTimestamp)
+    , 5).map((kit) => ({
+        id: `preorder:${kit.id}`,
+        type: 'kit',
+        targetId: kit.id,
+        image: getKitImage(kit),
+        label: kit.name || 'Pre-order Kit'
+      }));
+
+    const onhandItems = selectUniqueKits([...kitItems]
+      .filter((entry) => entry.availableOnhand.length > 0)
+      .sort((a, b) => (
+        b.availableOnhand.length - a.availableOnhand.length ||
+        b.latestTimestamp - a.latestTimestamp
+      ))
+    , 4).map((kit) => ({
+        id: `onhand:${kit.id}`,
+        type: 'kit',
+        targetId: kit.id,
+        image: getKitImage(kit),
+        label: kit.name || 'Onhand Kit'
+      }));
+
+    const recentlyBackInStockItems = selectUniqueKits([...kitItems]
+      .filter((entry) => entry.availableOnhand.length > 0 && entry.restockTimestamp > 0)
+      .sort((a, b) => b.restockTimestamp - a.restockTimestamp)
+    , 3).map((kit) => ({
+        id: `restocked:${kit.id}`,
+        type: 'kit',
+        targetId: kit.id,
+        image: getKitImage(kit),
+        label: kit.name || 'Back in Stock'
+      }));
+
+    const usedHighlightLinks = new Set(
+      [...recentStories, ...preOrderItems, ...onhandItems, ...recentlyBackInStockItems]
+        .map((item) => `${item.type}:${item.targetId}`)
+    );
+    const recentProjects = (blueprints || [])
+      .filter((project) => project?.isPublished !== false && project?.status !== 'Draft')
+      .sort((a, b) => (
+        getTimestamp(b.createdAt || b.updatedAt) - getTimestamp(a.createdAt || a.updatedAt)
+      ))
+      .filter((project) => !usedHighlightLinks.has(`project:${project.id}`))
+      .slice(0, 5)
+      .map((project) => ({
+        id: `project:${project.id}`,
+        type: 'project',
+        targetId: project.id,
+        // Match the image used by ProjectCard's public grid card.
+        image: project.image || '/snorlaxgarage.png',
+        label: project.projectName || 'Garage Project'
+      }));
+
+    const mixedItems = [
+      ...recentStories,
+      ...preOrderItems,
+      ...onhandItems,
+      ...recentlyBackInStockItems,
+      ...recentProjects
+    ];
+
+    // Keep categories visually interleaved without reshuffling on every render.
+    // The item IDs provide a stable, random-looking order until the data changes.
+    const stableHash = (value) => {
+      let hash = 2166136261;
+      for (let index = 0; index < value.length; index += 1) {
+        hash ^= value.charCodeAt(index);
+        hash = Math.imul(hash, 16777619);
+      }
+      return hash >>> 0;
+    };
+
+    return mixedItems.sort((a, b) => stableHash(a.id) - stableHash(b.id));
+  }, [activeStories, blueprints, getKitImage, getKitStocks, getTimestamp, isAvailableStock, isOnhandStock, isPreOrderStock, kits]);
+
   // Open a story directly when a highlight tile is selected in the homepage grid.
   useEffect(() => {
     const handleHighlightOpen = (event) => {
@@ -126,33 +290,40 @@ export default function Stories({ isCompact, hideImmediately = false }) {
     return () => window.removeEventListener('keydown', handleKey);
   }, [activeStoryIndex, handleNext, handlePrev]);
 
-  const DEFAULT_LOGO = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='150'%3E%3Crect width='150' height='150' fill='%23334155'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='central' text-anchor='middle' fill='%2394a3b8' font-size='14' font-family='sans-serif'%3ESG%3C/text%3E%3C/svg%3E";
-
   // 1. DYNAMIC DATA LOGIC:
   // Kung may laman na ang stories (from DB), yun ang gamitin.
   // Kung wala pa (loading/network delay), gamit muna placeholder para laging may render.
   const syncingStories = React.useMemo(() => (
     Array.from({ length: syncingStoryCount }, (_, index) => ({
       id: `db-loading-${index + 1}`,
+      type: 'loading',
       label: 'Syncing...',
       value: getRandomSyncColor(),
       image: '/snorlaxgarage.png'
     }))
   ), [syncingStoryCount]);
 
-  const isShowingPlaceholders = activeStories.length === 0;
+  const isShowingPlaceholders = isLoading && highlightItems.length === 0;
   const displayStories = isShowingPlaceholders
     ? syncingStories
-    : [...activeStories, ...activeStories, ...activeStories];
+    : highlightItems.length > 0
+      ? [...highlightItems, ...highlightItems, ...highlightItems]
+      : syncingStories;
 
-  // Logic to determine which image to show
-  const displayImg = (!garageInfo?.fbPageId || imgError) ? (garageInfo?.logoURL || DEFAULT_LOGO) : `https://graph.facebook.com/${garageInfo.fbPageId}/picture?type=large`;
-
-  // Click handler for story cards — only activates real stories, not placeholders
-  const handleStoryClick = (storyId) => {
-    if (activeStories.length === 0) return;
-    const realIndex = activeStories.findIndex(s => s.id === storyId);
-    if (realIndex !== -1) setActiveStoryIndex(realIndex);
+  const handleHighlightClick = (item) => {
+    if (!item || item.type === 'loading') return;
+    if (item.type === 'story') {
+      const realIndex = activeStories.findIndex((story) => story.id === item.targetId);
+      if (realIndex !== -1) setActiveStoryIndex(realIndex);
+      return;
+    }
+    if (item.type === 'kit' && item.targetId) {
+      navigate(`/kits/${encodeURIComponent(item.targetId)}`);
+      return;
+    }
+    if (item.type === 'project' && item.targetId) {
+      navigate(`/prints/${encodeURIComponent(item.targetId)}`);
+    }
   };
 
   const activeStory = (activeStoryIndex !== null && activeStories.length > 0) ? activeStories[activeStoryIndex] : null;
@@ -161,6 +332,8 @@ export default function Stories({ isCompact, hideImmediately = false }) {
     <>
       {SHOW_STORIES_STRIP && <div 
         ref={containerRef}
+        role="region"
+        aria-label="Garage highlights"
         className={`
         relative z-40 border-b border-white/10 overflow-hidden w-full
         ${hideImmediately ? 'transition-none' : 'transition-all duration-700 ease-in-out'}
@@ -176,21 +349,21 @@ export default function Stories({ isCompact, hideImmediately = false }) {
             className={`flex gap-3 w-max ${!isShowingPlaceholders && 'animate-infinite-scroll'}`}
             style={{ '--scroll-speed': '50s' }}
           >
-            {displayStories.map((story, index) => (
+            {displayStories.map((highlight, index) => (
               <div 
-                key={`${story.id}-${index}`} 
-                onClick={() => handleStoryClick(story.id)}
-                className="story-card w-28 h-44 rounded-[1.5rem] flex-shrink-0 relative overflow-hidden group cursor-pointer glass-card p-1 shadow-xl"
+                key={`${highlight.id}-${index}`}
+                onClick={() => handleHighlightClick(highlight)}
+                className={`story-card w-28 h-44 rounded-[1.5rem] flex-shrink-0 relative overflow-hidden group glass-card p-1 shadow-xl ${highlight.type === 'loading' ? 'cursor-default' : 'cursor-pointer'}`}
               >
                 <div 
                   className="story-card-media w-full h-full rounded-[1.3rem] relative overflow-hidden"
-                  style={{ backgroundColor: `${story.value}20` }} 
+                  style={{ backgroundColor: `${highlight.value || '#0866ff'}20` }}
                 >
                   {/* Story Image — kung meron sa DB, i-render as background */}
-                  {story.image && (
+                  {highlight.image && (
                     <img 
-                      src={story.image} 
-                      alt={story.label} 
+                      src={highlight.image}
+                      alt={highlight.label}
                       className="story-card-image absolute inset-0 w-full h-full object-cover z-[1]"
                     />
                   )}
@@ -198,18 +371,7 @@ export default function Stories({ isCompact, hideImmediately = false }) {
                   {/* Visual Glow Layer - Ito na yung actual color from DB */}
                   <div 
                     className={`absolute -inset-4 opacity-80 dark:opacity-30 blur-2xl transition-opacity group-hover:opacity-50 ${isLoading && 'animate-pulse'}`}
-                    style={{ backgroundColor: story.value }}
-                  />
-                  
-                </div>
-
-                {/* Profile Icon */}
-                <div className="absolute top-3 left-3 w-8 h-8 rounded-full border-2 border-white/80 bg-white/20 backdrop-blur-md overflow-hidden z-10 shadow-sm">
-                  <img 
-                    src={displayImg}
-                    alt="SG" 
-                    className="w-full h-full object-cover"
-                    onError={() => setImgError(true)}
+                    style={{ backgroundColor: highlight.value || '#0866ff' }}
                   />
                 </div>
               </div>
@@ -364,10 +526,9 @@ export default function Stories({ isCompact, hideImmediately = false }) {
               <div className="relative z-20 flex items-center gap-3 p-5 pt-6 pr-14 md:absolute md:left-[56.25%] md:top-0 md:w-[43.75%]">
                 <div className="w-10 h-10 rounded-full border-2 border-white/60 bg-white/20 backdrop-blur-md overflow-hidden shadow-lg flex-shrink-0 md:border-garage-blue/50">
                   <img 
-                    src={displayImg} 
+                    src="/snorlaxgarage.png"
                     alt="SG" 
                     className="w-full h-full object-cover"
-                    onError={() => setImgError(true)}
                   />
                 </div>
                 <div className="flex-1 min-w-0">

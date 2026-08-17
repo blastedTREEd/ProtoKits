@@ -51,7 +51,8 @@
 /*stories animation */
 @keyframes scroll {
   0% { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
+  /* Stories renders three identical sets, so one loop is exactly one third. */
+  100% { transform: translateX(-33.333333%); }
 }
 
 .animate-infinite-scroll {
@@ -75,7 +76,7 @@
 
 @keyframes scroll {
   0% { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
+  100% { transform: translateX(-33.333333%); }
 }
 
 .animate-infinite-scroll {

@@ -82,7 +82,7 @@ export default function Highlights() {
             <div className="flex items-center">
               <h2 className={`${isHeaderStuck ? 'text-[18px]' : 'text-[25px]'} inline-flex items-center gap-1 whitespace-nowrap font-black italic uppercase leading-none tracking-[-0.06em] text-neutral-950 transition-[font-size] duration-300 dark:text-white`}>
                 <span className="text-garage-blue">Garage</span>
-                <span>Highlights</span>
+                <span>Stories</span>
                 <Sparkles className="shrink-0" size={16} strokeWidth={2} aria-hidden="true" />
               </h2>
             </div>
@@ -100,20 +100,20 @@ export default function Highlights() {
         </div>
 
         {highlights.length > 0 || canManageStories || isLoadingHighlights ? (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 xl:grid-cols-5">
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-5 sm:gap-4 md:grid-cols-4 lg:grid-cols-5">
             {canManageStories && (
               <button
                 type="button"
                 onClick={handleCreateHighlight}
-                className="group relative aspect-square overflow-hidden rounded-2xl border-2 border-dashed border-garage-blue/40 bg-garage-blue/[0.04] text-left transition-all duration-300 hover:-translate-y-1 hover:border-garage-blue hover:bg-garage-blue/10 hover:shadow-2xl hover:shadow-blue-500/10 dark:border-garage-blue/50 dark:bg-garage-blue/[0.08] dark:hover:bg-garage-blue/15"
-                aria-label="Create a new highlight"
+                className="group relative aspect-[3/4] overflow-hidden rounded-2xl border-2 border-dashed border-garage-blue/40 bg-garage-blue/[0.04] text-left transition-all duration-300 hover:-translate-y-1 hover:border-garage-blue hover:bg-garage-blue/10 hover:shadow-2xl hover:shadow-blue-500/10 dark:border-garage-blue/50 dark:bg-garage-blue/[0.08] dark:hover:bg-garage-blue/15"
+                aria-label="Create a new garage story"
               >
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-4 text-center">
                   <span className="flex h-12 w-12 items-center justify-center rounded-full bg-garage-blue text-white shadow-lg shadow-blue-500/25 transition-transform duration-300 group-hover:scale-110">
                     <Plus size={22} strokeWidth={2.5} />
                   </span>
                   <span>
-                    <span className="block text-sm font-black uppercase tracking-tight text-neutral-950 dark:text-white">New highlight</span>
+                    <span className="block text-sm font-black uppercase tracking-tight text-neutral-950 dark:text-white">New story</span>
                     <span className="mt-1 block text-[9px] font-bold uppercase tracking-[0.16em] text-garage-blue">Create story</span>
                   </span>
                 </div>
@@ -121,7 +121,7 @@ export default function Highlights() {
             )}
 
             {isLoadingHighlights && Array.from({ length: 5 }).map((_, index) => (
-              <div key={`highlight-skeleton-${index}`} className="relative aspect-square overflow-hidden rounded-2xl bg-neutral-200 shadow-sm ring-1 ring-black/[0.05] dark:bg-neutral-900 dark:ring-white/[0.08]">
+              <div key={`highlight-skeleton-${index}`} className="relative aspect-[3/4] overflow-hidden rounded-2xl bg-neutral-200 shadow-sm ring-1 ring-black/[0.05] dark:bg-neutral-900 dark:ring-white/[0.08]">
                 <img src="/snorlaxgarage.png" alt="Loading highlights" className="h-full w-full object-contain p-6 opacity-20" />
               </div>
             ))}
@@ -133,7 +133,7 @@ export default function Highlights() {
               return (
                 <div
                   key={story.id}
-                  className="group relative aspect-square overflow-hidden rounded-2xl bg-neutral-200 shadow-sm ring-1 ring-black/[0.05] transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl hover:shadow-blue-500/10 dark:bg-neutral-900 dark:ring-white/[0.08]"
+                  className="group relative aspect-[3/4] overflow-hidden rounded-2xl bg-neutral-200 shadow-sm ring-1 ring-black/[0.05] transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl hover:shadow-blue-500/10 dark:bg-neutral-900 dark:ring-white/[0.08]"
                 >
                   <button
                     type="button"
@@ -144,7 +144,7 @@ export default function Highlights() {
                     {image ? (
                       <img
                         src={image}
-                        alt={story.label || 'Garage highlight'}
+                        alt={story.label || 'Garage story'}
                         className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-105"
                       />
                     ) : (

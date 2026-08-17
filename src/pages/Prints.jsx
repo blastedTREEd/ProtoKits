@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import PageTemplate from './PageTemplate';
 import PrintsCalculator from '../components/calculator/PrintsCalculator';
 import ProjectCard from '../components/calculator/ProjectCard';
@@ -89,6 +89,7 @@ function AdminToolCard({ onClick, icon, title, action, tone, shadow }) {
 export default function Prints() {
   const { isDarkMode } = useTheme();
   const navigate = useNavigate();
+  const { projectId: routeProjectId } = useParams();
   const [viewMode, setViewMode] = useState('idle');
   const [modifyingProject, setModifyingProject] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
@@ -443,6 +444,7 @@ export default function Prints() {
                     showManagementActions={isAdmin && isAdminView}
                     onModify={isAdmin && isAdminView ? handleModify : undefined}
                     onDelete={isAdmin && isAdminView ? handleDeletePrintProject : undefined}
+                    openOnMount={routeProjectId === project.id}
                   />
                 );
               })}

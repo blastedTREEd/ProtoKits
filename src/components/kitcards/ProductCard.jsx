@@ -384,7 +384,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       const bundleFeeShare = getDistributedFeeShare(bundleFeeTotal, index, bundleSize);
       return {
         ...kit,
-        name: `${kit?.name} (Bundle Item)`,
+        name: kit?.name,
         isBundleItem: true,
         bundleId: deal.id,
         bundleName: deal.name || 'Bundle Deal',

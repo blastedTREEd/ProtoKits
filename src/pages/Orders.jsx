@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
@@ -283,6 +283,7 @@ export default function Orders() {
   const { isDarkMode } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
+  const { orderId: routeOrderId } = useParams();
   const { user, isAdmin, isAdminView, kits, shelf, assignStockToOrder, cancelOrder, confirmOrderPayment, uploadReceipt, updateOrderDetails, updateOrderStatus, rates, orders, usersList, createOrder, deleteOrder, isLoading, subscribeOrders, subscribeUsersList, loadPrintResources, shippingSettings, garageInfo, cleanUpCancelledOrders, setToastMessage } = useStore();
   const isAdminMode = isAdmin && isAdminView;
   
@@ -303,6 +304,13 @@ export default function Orders() {
   const [selectedOrders, setSelectedOrders] = useState([]);
   const [isMultiSelectEnabled, setIsMultiSelectEnabled] = useState(false);
   const [expandedOrderItems, setExpandedOrderItems] = useState({});
+
+  const closeSelectedOrder = useCallback(() => {
+    setSelectedOrder(null);
+    if (location.pathname.startsWith('/orders/')) {
+      navigate('/orders', { replace: true });
+    }
+  }, [location.pathname, navigate]);
   useEffect(() => {
     setSelectedOrders([]);
     setIsMultiSelectEnabled(false);
@@ -409,7 +417,7 @@ export default function Orders() {
             try {
               await cancelOrder(o.id);
               if (selectedOrder?.id === o.id) {
-                setSelectedOrder(null);
+                closeSelectedOrder();
               }
             } catch (err) {
               console.error("SG LOG: Background auto-cancel failed:", err);
@@ -418,7 +426,7 @@ export default function Orders() {
         }
       }
     });
-  }, [orders, cancelOrder, selectedOrder]);
+  }, [closeSelectedOrder, orders, cancelOrder, selectedOrder]);
 
   useEffect(() => {
     if (!isAdminMode) return undefined;
@@ -553,14 +561,47 @@ export default function Orders() {
   const notificationOrderId = location.state?.openOrderId;
 
   useEffect(() => {
-    if (!notificationOrderId || orders.length === 0) return;
+    if (routeOrderId || !notificationOrderId || orders.length === 0) return;
     const notificationOrder = orders.find((order) => order.id === notificationOrderId);
     if (!notificationOrder) return;
 
     moveOrderToTargetTab(notificationOrder);
     setSelectedOrder(notificationOrder);
-    navigate(location.pathname, { replace: true, state: null });
-  }, [location.pathname, moveOrderToTargetTab, navigate, notificationOrderId, orders]);
+    navigate(`/orders/${encodeURIComponent(notificationOrder.orderId || notificationOrder.id)}`, { replace: true, state: null });
+  }, [location.pathname, moveOrderToTargetTab, navigate, notificationOrderId, orders, routeOrderId]);
+
+  useEffect(() => {
+    if (!routeOrderId || isLoading) return;
+
+    if (!user) {
+      navigate('/orders', { replace: true });
+      return;
+    }
+
+    let requestedOrderId = routeOrderId;
+    try {
+      requestedOrderId = decodeURIComponent(routeOrderId);
+    } catch {
+      // Keep the router parameter as-is when it is not URI encoded.
+    }
+
+    const routeOrder = orders.find((order) => (
+      String(order.orderId || '') === String(requestedOrderId)
+      || String(order.id || '') === String(requestedOrderId)
+    ));
+
+    const canViewRouteOrder = Boolean(routeOrder && (
+      isAdminMode || routeOrder.userId === user.uid
+    ));
+
+    if (!canViewRouteOrder) {
+      navigate('/orders', { replace: true });
+      return;
+    }
+
+    moveOrderToTargetTab(routeOrder);
+    setSelectedOrder(routeOrder);
+  }, [isAdminMode, isLoading, moveOrderToTargetTab, navigate, orders, routeOrderId, user]);
 
   const selectedOrderId = selectedOrder?.id;
   useEffect(() => {
@@ -783,7 +824,7 @@ export default function Orders() {
       try {
         const orderId = selectedOrder.id;
         moveOrderToTargetTab(selectedOrder, { status: 'Completed' });
-        setSelectedOrder(null);
+        closeSelectedOrder();
         await updateOrderStatus(orderId, 'Completed');
         setToastMessage("Invalid order moved to Completed. It will be deleted in 10 minutes.");
         
@@ -1019,7 +1060,7 @@ export default function Orders() {
         moveOrderToTargetTab(selectedOrder, { status: 'Cancelled' });
       }
       await cancelOrder(orderId);
-      setSelectedOrder(null);
+      closeSelectedOrder();
     }
   };
 
@@ -1100,24 +1141,30 @@ export default function Orders() {
       }
       await cancelOrder(orderId);
       if (selectedOrder?.id === orderId) {
-        setSelectedOrder(null);
+        closeSelectedOrder();
       }
     } catch (err) {
       console.error("SG LOG: Silent cancel error:", err);
     }
-  }, [cancelOrder, moveOrderToTargetTab, selectedOrder]);
+  }, [cancelOrder, closeSelectedOrder, moveOrderToTargetTab, selectedOrder]);
   const handleDeleteOrderNow = useCallback(async (orderId) => {
     try {
       await deleteOrder(orderId);
       if (selectedOrder?.id === orderId) {
-        setSelectedOrder(null);
+        closeSelectedOrder();
       }
     } catch (err) {
       console.error("SG LOG: Delete order error:", err);
       setToastMessage("Failed to delete order.");
     }
-  }, [deleteOrder, selectedOrder, setToastMessage]);
-  const handleDeleteOrder = async (e, orderId) => { e.stopPropagation(); if (window.confirm("DELETE record?")) { await deleteOrder(orderId); if (selectedOrder?.id === orderId) setSelectedOrder(null); } };
+  }, [closeSelectedOrder, deleteOrder, selectedOrder, setToastMessage]);
+  const handleDeleteOrder = async (e, orderId) => {
+    e.stopPropagation();
+    if (window.confirm("DELETE record?")) {
+      await deleteOrder(orderId);
+      if (selectedOrder?.id === orderId) closeSelectedOrder();
+    }
+  };
 
   const isReadyForPickupStatus = (status) => ['Ready for Pickup', 'Ready for Meetup'].includes(status);
   const getDisplayStatus = (order) => {
@@ -1459,7 +1506,7 @@ export default function Orders() {
               );
             })()}
             <button 
-              onClick={() => setSelectedOrder(null)} 
+              onClick={closeSelectedOrder}
               className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full opacity-60 hover:opacity-100 transition-all active:scale-95 text-neutral-500 dark:text-neutral-400"
             >
               <X size={24} />
@@ -2194,7 +2241,7 @@ export default function Orders() {
 
           {isAdminMode && selectedOrder.status === 'Cancelled' && (
             <button 
-              onClick={() => { deleteOrder(selectedOrder.id); setSelectedOrder(null); }}
+              onClick={() => { deleteOrder(selectedOrder.id); closeSelectedOrder(); }}
               className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 shadow-lg"
             >
               Delete Order
@@ -2214,7 +2261,7 @@ export default function Orders() {
             <div className="max-w-7xl mx-auto px-4 md:px-8 h-full flex items-center justify-between gap-4">
               <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-2">
                 {tabData.map((tab) => (
-                  <button key={tab.id} onClick={() => { setActiveTab(tab.id); setSelectedOrder(null); }} className={`whitespace-nowrap px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest border transition-all ${activeTab === tab.id ? 'bg-blue-600 text-white border-blue-600 shadow-lg' : 'bg-transparent text-neutral-500 dark:text-neutral-300 border-black/10 dark:border-white/10 hover:border-blue-500/50'}`}>
+                  <button key={tab.id} onClick={() => { setActiveTab(tab.id); closeSelectedOrder(); }} className={`whitespace-nowrap px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest border transition-all ${activeTab === tab.id ? 'bg-blue-600 text-white border-blue-600 shadow-lg' : 'bg-transparent text-neutral-500 dark:text-neutral-300 border-black/10 dark:border-white/10 hover:border-blue-500/50'}`}>
                     {tab.label} ({tab.orders.length})
                   </button>
                 ))}
@@ -2378,6 +2425,7 @@ export default function Orders() {
                         toggleOrderSelection(e, o);
                       } else {
                         setSelectedOrder(o);
+                        navigate(`/orders/${encodeURIComponent(o.orderId || o.id)}`);
                       }
                     }}
                     className={`p-3 rounded-2xl border-2 flex flex-col gap-3 transition-all duration-200 ${

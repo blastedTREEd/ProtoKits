@@ -368,13 +368,13 @@ export const useStore = create(
           stories: pathname === '/' || pathname === '',
           kits: pathname.startsWith('/kits'),
           deals: pathname.startsWith('/kits'),
-          orders: pathname === '/orders',
+          orders: pathname === '/orders' || pathname.startsWith('/orders/'),
           basket: pathname === '/basket' || pathname === '/shelf',
           // Admin shelf state is also consumed by the navbar and the kit cards.
           // Keep its live listener active on every admin route so collection
           // badges/counts do not depend on opening the shelf page first.
           shelf: isAdmin,
-          prints: pathname === '/prints' || pathname === '/blueprints'
+          prints: pathname === '/' || pathname === '/prints' || pathname.startsWith('/prints/') || pathname === '/blueprints'
         };
       },
 

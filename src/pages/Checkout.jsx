@@ -14,6 +14,26 @@ export default function Checkout() {
   const isAnonymousUser = useStore((state) => state.isAnonymousUser);
   const items = Array.isArray(location.state?.items) ? location.state.items : [];
   const isGuestPreview = !user || isAnonymousUser;
+  const returnPath = location.state?.returnPath;
+
+  const handleClose = () => {
+    const restoreSelectionIds = Array.from(new Set(
+      items.flatMap((item) => {
+        if (Array.isArray(item?.basketIds)) return item.basketIds;
+        return item?.basketId ? [item.basketId] : [];
+      }).filter(Boolean)
+    ));
+
+    if (returnPath && restoreSelectionIds.length > 0) {
+      navigate(returnPath, {
+        replace: true,
+        state: { restoreSelectionIds }
+      });
+      return;
+    }
+
+    navigate(-1);
+  };
 
   if (items.length === 0) {
     return (
@@ -42,7 +62,7 @@ export default function Checkout() {
   return (
     <PageTemplate isDarkMode={isDarkMode}>
       <div className="min-h-dvh w-full bg-neutral-50 transition-colors duration-500 dark:bg-[#0a0a0a] lg:min-h-[calc(100dvh-60px)]">
-        <CheckoutModal isOpen variant="page" items={items} isGuestPreview={isGuestPreview} onClose={() => navigate(-1)} />
+        <CheckoutModal isOpen variant="page" items={items} isGuestPreview={isGuestPreview} onClose={handleClose} />
       </div>
     </PageTemplate>
   );

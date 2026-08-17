@@ -732,7 +732,7 @@ export default function Kits() {
       const bundleFeeShare = getDistributedFeeShare(bundleFeeTotal, index, bundleSize);
       return {
         ...kit,
-        name: `${kit?.name} (Bundle Item)`,
+        name: kit?.name,
         isBundleItem: true,
         bundleId: deal.id,
         bundleName: deal.name || (deal.type === 'clearance' ? 'Clearance Deal' : 'Bundle Deal'),

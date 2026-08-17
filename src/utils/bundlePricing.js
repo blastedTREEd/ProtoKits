@@ -149,7 +149,7 @@ function distributeDiscountByCapacity(rows = [], discountTotal = 0) {
 // kit's remaining cost-ceiling capacity, never below its cost ceiling.
 export function getClearanceBundlePricing(rows = [], clearanceKitIds = [], discountOverrides = {}, options = {}) {
   const clearanceIds = new Set(clearanceKitIds || []);
-  const normalizedRows = rows.map((row, index) => {
+  const initiallyNormalizedRows = rows.map((row, index) => {
     const kitId = row.kitId ?? row.id;
     const sellPrice = Math.max(0, Number(row.sellPrice ?? row.sell ?? 0) || 0);
     const costPrice = Math.max(0, Number(row.costPrice ?? row.cost ?? 0) || 0);
@@ -173,6 +173,35 @@ export function getClearanceBundlePricing(rows = [], clearanceKitIds = [], disco
       standardCostCeiling,
       discountCapacity: standardDiscountCapacity,
       _clearanceIndex: index
+    };
+  });
+
+  // A checkout may contain more than one clearance kit (for example, items
+  // carried over from separate clearance deals). Only the kit with the
+  // highest actual clearance discount supplies the single discount pool.
+  // Every other selected row becomes a normal row eligible to receive a
+  // proportional share of that winning pool.
+  const winningClearanceRow = initiallyNormalizedRows
+    .filter(row => row.isClearance && row.clearanceDiscount > 0)
+    .sort((a, b) => (
+      b.clearanceDiscount - a.clearanceDiscount
+      || b.sellPrice - a.sellPrice
+      || a._clearanceIndex - b._clearanceIndex
+    ))[0];
+  const winningClearanceIds = winningClearanceRow
+    ? new Set([winningClearanceRow.kitId])
+    : new Set();
+  const normalizedRows = initiallyNormalizedRows.map(row => {
+    const isWinningClearance = winningClearanceIds.has(row.kitId);
+    const standardCostCeiling = row.costPrice > 0 ? Math.ceil(row.costPrice / 100) * 100 : 0;
+    return {
+      ...row,
+      isClearance: isWinningClearance,
+      clearancePrice: isWinningClearance ? row.clearancePrice : row.sellPrice,
+      clearanceDiscount: isWinningClearance ? row.clearanceDiscount : 0,
+      discountCapacity: isWinningClearance
+        ? 0
+        : Math.max(0, row.sellPrice - Math.min(row.sellPrice, standardCostCeiling))
     };
   });
 

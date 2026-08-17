@@ -42,13 +42,19 @@ function getBasketItemGroupKey(item = {}) {
 
 export default function Basket() {
   const { isDarkMode } = useTheme();
+  const navigate = useNavigate();
+  const location = useLocation();
   const { 
     user, isAnonymousUser, basket, shelf, isAdmin, isAdminView, removeFromBasket, kits, addToBasket, addProjectToBasket, decrementProjectQuantity,
     guestBasket, isLoading, setLoginModalOpen, shippingSettings, loadMissingKits, keepOneOfEachToShelf, deals
   } = useStore();
   const [isKeepingOnes, setIsKeepingOnes] = useState(false);
   const [offerNow, setOfferNow] = useState(0);
-  const [manualSelectedIds, setManualSelectedIds] = useState([]);
+  const [manualSelectedIds, setManualSelectedIds] = useState(() => (
+    Array.isArray(location.state?.restoreSelectionIds)
+      ? location.state.restoreSelectionIds
+      : []
+  ));
   const [isLoginPromptOpen, setLoginPromptOpen] = useState(false);
   const [itemsForCheckout, setItemsForCheckout] = useState([]);
 
@@ -56,9 +62,6 @@ export default function Basket() {
     const timer = window.setInterval(() => setOfferNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
-
-  const navigate = useNavigate();
-  const location = useLocation();
 
   const activeBasket = user && !isAnonymousUser ? ((isAdmin && isAdminView) ? shelf : basket) : guestBasket;
 
@@ -270,7 +273,13 @@ export default function Basket() {
   }, [getEffectiveItemPrice, handlingFee, installmentFee, transferFee, kits]);
 
   const openCheckoutPage = (items, isGuestPreview = !user || isAnonymousUser) => {
-    navigate('/checkout', { state: { items, isGuestPreview } });
+    navigate('/checkout', {
+      state: {
+        items,
+        isGuestPreview,
+        returnPath: location.pathname
+      }
+    });
   };
 
   const validation = useMemo(() => {

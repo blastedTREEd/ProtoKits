@@ -1,4 +1,5 @@
-import React, { useMemo, useState, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   Box, Clock, Zap, Plus, Lock, Edit3, Trash2, PackagePlus, PackageMinus,
   X, Weight, Droplet, Layers, AlertTriangle, Link2, ExternalLink, ChevronRight, ChevronLeft,
@@ -126,10 +127,14 @@ export default function ProjectCard({
   showManagementActions = false,
   onModify,
   onDelete,
-  isReadOnly = false
+  isReadOnly = false,
+  openOnMount = false
 }) {
   const { isDarkMode, isSpectralMode } = useTheme();
   const { shippingSettings, shelf, isAdmin, isAdminView, updateBlueprint, updateProjectInVault, rates: storeRates } = useStore();
+  const navigate = useNavigate();
+  const projectId = project?.id || null;
+  const projectPath = projectId ? `/prints/${encodeURIComponent(projectId)}` : '/prints';
   const spectralGradient = useMemo(() => getSpectralGradient(project?.id || project?.vaultId), [project?.id, project?.vaultId]);
   const shadowColor = useMemo(() => getShadowColor(spectralGradient), [spectralGradient]);
 
@@ -138,6 +143,8 @@ export default function ProjectCard({
   const touchStartX = useRef(0);
   const lastManualActionTime = useRef(null);
   const thumbnailsContainerRef = useRef(null);
+  const hasAutoOpenedRef = useRef(false);
+  const modalHistoryOwnerRef = useRef(false);
 
   // Vault file link + license state (naka-sync sa project data)
   const isVault = type === 'vault';
@@ -249,6 +256,16 @@ export default function ProjectCard({
       lastManualActionTime.current = Date.now();
     }
   }, [isModalOpen]);
+
+  useEffect(() => {
+    if (!openOnMount || isModalOpen || hasAutoOpenedRef.current) return;
+    hasAutoOpenedRef.current = true;
+    const timer = window.setTimeout(() => {
+      setGalleryIndex(0);
+      setIsModalOpen(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [isModalOpen, openOnMount]);
 
   useEffect(() => {
     if (!isModalOpen || galleryImages.length <= 1) return;
@@ -418,22 +435,38 @@ export default function ProjectCard({
     };
   }, [isModalOpen]);
 
+  const closeProjectModal = useCallback(() => {
+    if (window.location.pathname === projectPath) {
+      if (window.history.state?.modal === 'project' && window.history.state?.projectId === projectId) {
+        setIsModalOpen(false);
+        modalHistoryOwnerRef.current = false;
+        window.history.back();
+      } else {
+        setIsModalOpen(false);
+        modalHistoryOwnerRef.current = false;
+        navigate('/prints', { replace: true });
+      }
+      return;
+    }
+    setIsModalOpen(false);
+    modalHistoryOwnerRef.current = false;
+  }, [navigate, projectId, projectPath]);
+
   useEffect(() => {
     const handlePopState = () => {
-      if (isModalOpen) {
+      if (isModalOpen && window.location.pathname !== projectPath) {
+        modalHistoryOwnerRef.current = false;
         setIsModalOpen(false);
       }
     };
 
     const handleKeyDown = (e) => {
       if (e.key === 'Escape' && isModalOpen) {
-        setIsModalOpen(false);
-        window.history.back();
+        closeProjectModal();
       }
     };
 
     if (isModalOpen) {
-      window.history.pushState({ modal: 'project' }, '');
       window.addEventListener('popstate', handlePopState);
       window.addEventListener('keydown', handleKeyDown);
     }
@@ -442,12 +475,16 @@ export default function ProjectCard({
       window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isModalOpen]);
+  }, [closeProjectModal, isModalOpen, projectPath]);
 
   const handleOpenModal = () => {
     if (onClick) {
       onClick();
       return;
+    }
+    if (projectId && window.location.pathname !== projectPath) {
+      window.history.pushState({ modal: 'project', projectId }, '', projectPath);
+      modalHistoryOwnerRef.current = true;
     }
     setGalleryIndex(0);
     setIsModalOpen(true);
@@ -474,28 +511,28 @@ export default function ProjectCard({
     } catch {
       return;
     }
-    if (closeModal) setIsModalOpen(false);
+    if (closeModal) closeProjectModal();
   };
 
   const handleOrderProjectNow = (e) => {
     e.stopPropagation();
     if (!canAddToBasket || !vaultReadyForOrder || !onOrderNow) return;
     onOrderNow(getActionProjectData());
-    setIsModalOpen(false);
+    closeProjectModal();
   };
 
   const handleModifyProject = (e) => {
     e.stopPropagation();
     if (!onModify) return;
     onModify(getActionProjectData());
-    setIsModalOpen(false);
+    closeProjectModal();
   };
 
   const handleDeleteProject = (e) => {
     e.stopPropagation();
     if (!onDelete) return;
     onDelete(project);
-    setIsModalOpen(false);
+    closeProjectModal();
   };
 
   const isAdminBlueprintView = isBlueprint && isAdmin && isAdminView && showManagementActions;
@@ -702,11 +739,11 @@ export default function ProjectCard({
             <div className="h-full max-h-full flex flex-col portrait:flex-col landscape:sm:flex-row items-stretch overflow-hidden">
               <div className="sticky top-0 z-[220] w-full h-0 overflow-visible sm:hidden">
                 <div className="absolute top-4 right-4 flex justify-end items-center">
-                    <button onClick={() => setIsModalOpen(false)} className={`p-2 rounded-full backdrop-blur-md border transition-all shadow-lg bg-black/20 text-white border-white/10 hover:bg-black/40`}><X size={20} /></button>
+                    <button onClick={closeProjectModal} className={`p-2 rounded-full backdrop-blur-md border transition-all shadow-lg bg-black/20 text-white border-white/10 hover:bg-black/40`}><X size={20} /></button>
                 </div>
               </div>
               <div className="hidden sm:block absolute top-4 right-4 z-[210]">
-                <button onClick={() => setIsModalOpen(false)} className={`p-2 rounded-full backdrop-blur-md border transition-all shadow-lg bg-black/20 text-white border-white/10 hover:bg-black/40`}><X size={20} /></button>
+                <button onClick={closeProjectModal} className={`p-2 rounded-full backdrop-blur-md border transition-all shadow-lg bg-black/20 text-white border-white/10 hover:bg-black/40`}><X size={20} /></button>
               </div>
 
               {/* Gallery or Calendar Column (Hidden in portrait) */}

@@ -138,6 +138,22 @@ const stockMatchesCheckoutDealSource = (stock, item, source = 'onhand') => {
   return source === 'preorder' ? isPreOrder : !isPreOrder;
 };
 
+const normalizeDealKitIds = (value) => {
+  const values = Array.isArray(value) ? value : value ? [value] : [];
+  return values.map(value => String(value)).filter(Boolean);
+};
+
+const getCheckoutKitId = (item) => String(item?.id || item?.kitId || item?.productId || '');
+
+const getClearanceDealKitIds = (deal) => {
+  const explicitIds = normalizeDealKitIds(deal?.clearanceKitIds);
+  return explicitIds.length > 0
+    ? explicitIds
+    : normalizeDealKitIds(deal?.clearanceKitId).length > 0
+      ? normalizeDealKitIds(deal.clearanceKitId)
+      : normalizeDealKitIds(deal?.kitIds).slice(0, 1);
+};
+
 // Basket rows do not necessarily carry clearance metadata that is attached by
 // the direct deal checkout path. Rebuild clearance metadata from the selected
 // stocks while leaving normal bundle discounts exclusive to direct deal checkout.
@@ -168,7 +184,8 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
     : null;
 
   const resetDealItem = (item) => {
-    const kit = kits.find(candidate => candidate.id === (item.id || item.kitId || item.productId));
+    const kitId = getCheckoutKitId(item);
+    const kit = kits.find(candidate => String(candidate.id) === kitId);
     const stock = kit?.stocks?.[item.stockKey];
     const sellPrice = Number(stock?.sellPrice || item.sellPrice || kit?.sellPrice || 0);
     const handling = Number(item.appliedHandlingFee ?? fees.handlingFee ?? 0);
@@ -195,7 +212,8 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
   const preparedItems = normalizedItems.map(item => {
     const isInvalidNormalBundle = item.bundleId && item.isClearanceBundle !== true &&
       item.bundleId !== validNormalBundleId;
-    const isStaleClearanceBundle = item.isClearanceBundle === true;
+    const isStaleClearanceBundle = item.isClearanceBundle === true
+      || (Array.isArray(item.clearanceKitIds) && item.clearanceKitIds.length > 0);
     return isInvalidNormalBundle || isStaleClearanceBundle ? resetDealItem(item) : item;
   });
 
@@ -204,9 +222,19 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
 
   const itemByKitId = new globalThis.Map();
   basketItems.forEach(item => {
-    const kitId = item.id || item.kitId || item.productId;
+    const kitId = getCheckoutKitId(item);
     if (kitId && !itemByKitId.has(kitId)) itemByKitId.set(kitId, item);
   });
+  const selectedOrderKitIds = new Set(
+    basketItems.map(getCheckoutKitId).filter(Boolean)
+  );
+
+  const bundleIsTheOnlySelectedItems = (bundleKitIds = []) => {
+    const normalizedBundleKitIds = new Set(normalizeDealKitIds(bundleKitIds));
+    return normalizedBundleKitIds.size > 1
+      && normalizedBundleKitIds.size === selectedOrderKitIds.size
+      && Array.from(normalizedBundleKitIds).every(kitId => selectedOrderKitIds.has(kitId));
+  };
 
   const activeDeals = deals.filter(deal => isDealActiveForCheckout(deal));
   const candidates = [];
@@ -215,14 +243,13 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
     const isClearanceDeal = deal.type === 'clearance';
     if (!isClearanceDeal) return;
 
-    const dealKitIds = Array.from(new Set(deal.kitIds || []));
-    const legacyClearanceKitId = deal.clearanceKitIds?.[0] || dealKitIds[0];
-    const clearanceKitIds = legacyClearanceKitId ? [legacyClearanceKitId] : [];
+    const clearanceKitIds = Array.from(new Set(getClearanceDealKitIds(deal)));
 
     const clearanceRows = isClearanceDeal
       ? basketItems.filter(item => {
         if (isProjectCheckoutItem(item)) return false;
-        const kit = kits.find(candidate => candidate.id === (item.id || item.kitId || item.productId));
+        const kitId = getCheckoutKitId(item);
+        const kit = kits.find(candidate => String(candidate.id) === kitId);
         const stock = kit?.stocks?.[item.stockKey];
         return stockMatchesCheckoutDealSource(stock || {}, item, 'onhand');
       })
@@ -239,25 +266,23 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
 
       return activeDeals.some(bundleDeal => {
         if (!['bundle_only', 'bundle_discount'].includes(bundleDeal.type)) return false;
-        const bundleKitIds = Array.from(new Set(bundleDeal.kitIds || []));
+        const bundleKitIds = normalizeDealKitIds(bundleDeal.kitIds);
         return bundleKitIds.includes(kitId) &&
-          bundleKitIds.length > 1 &&
-          bundleKitIds.every(bundleKitId => itemByKitId.has(bundleKitId));
+          bundleIsTheOnlySelectedItems(bundleKitIds);
       });
     });
     if (isClearanceDeal && clearanceKitIsInNormalBundle) return;
 
-    const selectedClearanceKitId = selectedClearanceKitIds[0];
     const rows = clearanceRows
       // The prioritized clearance pool can be shared by ordinary selected
       // rows and other clearance rows. A normal bundle row stays protected.
       .filter(item => {
-        const kitId = item.id || item.kitId || item.productId;
-        return kitId === selectedClearanceKitId || !isBundleOrClearanceItem(item);
+        const kitId = getCheckoutKitId(item);
+        return selectedClearanceKitIds.includes(kitId) || !isBundleOrClearanceItem(item);
       })
       .map(item => {
-      const kitId = item.id || item.kitId || item.productId;
-      const kit = kits.find(candidate => candidate.id === kitId);
+      const kitId = getCheckoutKitId(item);
+      const kit = kits.find(candidate => String(candidate.id) === kitId);
       const stock = kit?.stocks?.[item.stockKey];
       if (!stockMatchesCheckoutDealSource(stock || {}, item, 'onhand')) return null;
 
@@ -267,10 +292,25 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
       });
     if (rows.some(row => !row) || rows.some(row => row.refPrice <= 0)) return;
 
+    const clearanceDiscountOverrides = { ...(deal.clearanceDiscounts || {}) };
+    selectedClearanceKitIds.forEach((kitId) => {
+      const configuredDiscount = clearanceDiscountOverrides[kitId];
+      if (configuredDiscount !== '' && configuredDiscount !== null && configuredDiscount !== undefined) return;
+
+      const storedKitDiscount = Number(deal.kitDiscounts?.[kitId]?.discount || 0);
+      const storedClearancePrice = Number(deal.kitDiscounts?.[kitId]?.clearancePrice || 0);
+      const row = rows.find(candidate => candidate.kitId === kitId);
+      const storedPriceDiscount = row && storedClearancePrice > 0
+        ? Math.max(0, row.refPrice - storedClearancePrice)
+        : 0;
+      const persistedDiscount = storedPriceDiscount || storedKitDiscount || Number(deal.clearanceDiscountTotal || 0);
+      if (persistedDiscount > 0) clearanceDiscountOverrides[kitId] = persistedDiscount;
+    });
+
     const pricedRows = getClearanceBundlePricing(
       rows,
       selectedClearanceKitIds,
-      deal.clearanceDiscounts || {},
+      clearanceDiscountOverrides,
       { distributeAcrossAllRows: true }
     ).rows;
 
@@ -291,18 +331,18 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
   const bundleFeeTotal = Number(fees.handlingFee || 0) + Number(fees.transferFee || 0);
 
   return preparedItems.map(item => {
-    const row = rowByKitId.get(item.id || item.kitId || item.productId);
+    const row = rowByKitId.get(getCheckoutKitId(item));
     if (!row || isBundleOrClearanceItem(item)) return item;
 
     const bundleFeeShare = getDistributedFeeShare(bundleFeeTotal, row._clearanceIndex ?? best.rows.indexOf(row), bundleSize);
     return {
       ...item,
-      name: `${String(item.name || row.kit?.name || '').replace(/\s*\((?:Bundle|Clearance) Item\)\s*$/i, '')} (Bundle Item)`,
+      name: String(item.name || row.kit?.name || '').replace(/\s*\((?:Bundle|Clearance) Item\)\s*$/i, ''),
       isBundleItem: true,
       bundleId: deal.id,
       bundleName: deal.name || (deal.type === 'clearance' ? 'Clearance Deal' : 'Bundle Deal'),
       isClearanceBundle: deal.type === 'clearance',
-      clearanceKitIds: deal.clearanceKitIds || [],
+      clearanceKitIds: best.rows.filter(row => row.isClearance).map(row => row.kitId),
       bundleSize,
       bundleFeeShare,
       bundleReferencePrice: row.refPrice
@@ -2599,7 +2639,7 @@ const handleFinalizeOrder = async () => {
     }
     if (isPage) {
       if (checkoutStep === 2) navigate('/orders');
-      else navigate(-1);
+      else onClose();
     } else {
       onClose();
       if (checkoutStep === 2) navigate('/orders');
@@ -2846,7 +2886,9 @@ const handleFinalizeOrder = async () => {
         : resolveImage(item.image || kit?.image, item.images || kit?.images);
       const displayGrade = item.grade || item.specs?.line || kit?.specs?.line || '';
       const displayBrand = item.brand || kit?.brand || '';
-      const rawName = (item.name || item.item || item.projectData?.projectName || `Item ${idx + 1}`).replace(/\s*\(Pre-Order\)\s*$/i, '');
+      const rawName = (item.name || item.item || item.projectData?.projectName || `Item ${idx + 1}`)
+        .replace(/\s*\(Pre-Order\)\s*$/i, '')
+        .replace(/\s*\((?:Bundle|Clearance) Item\)\s*$/i, '');
       const quantity = Number(item.quantity) || 1;
       const itemInstallmentFee = Number(item.appliedInstallmentFee || 0);
       const displayInstallmentFee = checkoutData.paymentPlan === 'full'
@@ -2862,6 +2904,14 @@ const handleFinalizeOrder = async () => {
         : getStockStandaloneSellPrice(item, kit);
       const standaloneUnitPrice = standaloneBasePrice + itemInstallmentFee + standaloneFee;
       const isDiscounted = standaloneUnitPrice > unitPrice;
+      const itemKitId = item.id || item.kitId || item.productId;
+      const clearanceKitIds = Array.isArray(item.clearanceKitIds)
+        ? item.clearanceKitIds
+        : item.clearanceKitIds
+          ? [item.clearanceKitIds]
+          : [];
+      const isClearanceSource = item.isClearanceBundle === true
+        && clearanceKitIds.some(kitId => String(kitId) === String(itemKitId));
       return {
         id: item.basketId || item.stockKey || item.id || idx,
         image: displayImage,
@@ -2872,6 +2922,7 @@ const handleFinalizeOrder = async () => {
         linePrice,
         standaloneUnitPrice,
         isBundleItem: isBundleOrClearanceItem(item),
+        isClearanceSource,
         isDiscounted
       };
     });
@@ -3071,7 +3122,12 @@ const handleFinalizeOrder = async () => {
               <h2 className="mb-4 text-[12px] font-black uppercase tracking-widest opacity-45">Items Breakdown</h2>
               <div className="space-y-3">
                 {itemRows.map((row, idx) => (
-                  <div key={`${row.id}-${idx}`} className="grid grid-cols-[5rem_minmax(0,1fr)_auto] gap-3 rounded-2xl border border-black/5 bg-white p-3 dark:border-white/5 dark:bg-neutral-900 lg:grid-cols-[18rem_minmax(0,1fr)_auto]">
+                  <div key={`${row.id}-${idx}`} className="relative grid grid-cols-[5rem_minmax(0,1fr)_auto] gap-3 rounded-2xl border border-black/5 bg-white p-3 dark:border-white/5 dark:bg-neutral-900 lg:grid-cols-[18rem_minmax(0,1fr)_auto]">
+                    {row.isClearanceSource && (
+                      <span className="absolute left-0 top-5 z-10 bg-orange-500 px-2 py-1 text-[10px] font-black uppercase tracking-wide text-white shadow-sm">
+                        Clearance Deal
+                      </span>
+                    )}
                     <div className="flex items-center justify-center">
                       {row.image ? (
                         <img src={row.image} alt={row.name} loading="lazy" className="h-20 w-20 rounded-xl border border-neutral-100 object-cover object-[center_25%] dark:border-neutral-800 lg:h-24 lg:w-64 xl:w-72" />
