@@ -2052,13 +2052,14 @@ export const useStore = create(
         const basePrice = Number.isFinite(offerPrice) && offerPrice > 0
           ? offerPrice
           : Number(stock.sellPrice || 0);
+        const isBundleItem = Boolean(itemData.isBundleItem);
         const clean = { 
           id: kit.id, 
           name: (itemData.name || kit.name || '').replace(/\s*\(Pre-Order\)\s*$/i, ''), 
           image: itemData.image || kit.image || '',
           brand: itemData.brand || kit.brand || '',
           specs: itemData.specs || kit.specs || {},
-          price: basePrice + hFee + iFee + tFee,
+          price: isBundleItem ? Number(itemData.price ?? basePrice) : basePrice + hFee + iFee + tFee,
           costPrice: Number(stock.costPrice || 0),
           sellPrice: basePrice,
           status: stock.status || 'onhand',
@@ -2075,6 +2076,16 @@ export const useStore = create(
           offerPrice: Number.isFinite(offerPrice) && offerPrice > 0 ? offerPrice : null,
           offerExpiresAt: itemData.offerExpiresAt || null,
           offerAcceptedAt: itemData.offerAcceptedAt || null,
+          isBundleItem,
+          isClearanceBundle: Boolean(itemData.isClearanceBundle),
+          clearanceKitIds: itemData.clearanceKitIds || [],
+          bundleId: itemData.bundleId || null,
+          bundleName: itemData.bundleName || null,
+          bundleSize: itemData.bundleSize || null,
+          bundleFeeShare: Number(itemData.bundleFeeShare || 0),
+          bundleReferencePrice: Number(itemData.bundleReferencePrice || 0),
+          allowShelfBundle: Boolean(itemData.allowShelfBundle),
+          appliedBundlePrice: isBundleItem ? Number(itemData.price ?? basePrice) : null,
           createdAt: new Date().toISOString() 
         };
 

@@ -16,7 +16,7 @@ import InventoryAuditModal from '../components/kitcards/InventoryAuditModal';
 import LoginPromptModal from '../components/menu/LoginPromptModal';
 import LoadingState from '../components/common/LoadingState';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
-import { distributeRoundedBundlePrices, getDistributedFeeShare } from '../utils/bundlePricing';
+import { distributeRoundedBundlePrices, getDistributedFeeShare, getClearanceBundlePricing, getHighestCostStock } from '../utils/bundlePricing';
 import { isOfferCheckoutActive } from '../utils/offerUtils';
 
 // --- Spectral gradient helpers (mirrored from ProductCard) ---
@@ -176,7 +176,7 @@ export default function Kits() {
   const { 
     isAdmin, isAdminView, kits: storeKits, deals, 
     isLoading, addKit, isInventoryAuditOpen, setInventoryAuditOpen,
-    user, isAnonymousUser, userOffers, setLoginModalOpen,
+    user, isAnonymousUser, userOffers, setLoginModalOpen, addToBasket,
     shippingSettings
   } = useStore();
 
@@ -289,6 +289,21 @@ export default function Kits() {
     const nowStr = new Date().toISOString().slice(0, 16);
     const currentYear = new Date().getFullYear(); // 2026
 
+    const clearanceSearchTextByKitId = new Map();
+    (deals || []).forEach(deal => {
+      if (deal?.type !== 'clearance' || deal.isActive === false) return;
+      const validUntil = parseDealDate(deal.validUntil);
+      if (!(isAdmin && isAdminView) && validUntil && validUntil.getTime() <= offerClock) return;
+
+      const dealSearchText = `clearance clearance deal ${deal.name || ''}`;
+      (deal.clearanceKitIds?.length ? deal.clearanceKitIds : deal.kitIds || []).forEach(kitId => {
+        clearanceSearchTextByKitId.set(
+          kitId,
+          `${clearanceSearchTextByKitId.get(kitId) || ''} ${dealSearchText}`
+        );
+      });
+    });
+
     const getAvail = (k) => {
       const stocks = k?.stocks || {};
       return Object.values(stocks).filter(s => {
@@ -361,7 +376,8 @@ export default function Kits() {
         const freeShippingStr = hasFreeShipping ? 'free shipping' : '';
 
         // Pagsamahin ang lahat para sa base matching text
-        const targetString = `${kit?.name || ''} ${kit?.series || ''} ${kit?.brand || ''} ${kit?.specs?.line || ''} ${kit?.specs?.scale || ''} ${stockInfo} ${stockEtas} ${freeShippingStr}`.toLowerCase().replace(/[-]/g, ' ');
+        const clearanceDealSearchText = clearanceSearchTextByKitId.get(kit.id) || '';
+        const targetString = `${kit?.name || ''} ${kit?.series || ''} ${kit?.brand || ''} ${kit?.specs?.line || ''} ${kit?.specs?.scale || ''} ${stockInfo} ${stockEtas} ${freeShippingStr} ${clearanceDealSearchText}`.toLowerCase().replace(/[-]/g, ' ');
 
         return searchWords.every(word => {
           if (word.startsWith('!')) {
@@ -494,7 +510,7 @@ export default function Kits() {
     // Hindi nagbago ang sort criteria — gamitin ang cached order para hindi mag-jump ang cards
     const kitMap = new Map(processedKits.map(k => [k.id, k]));
     return stableSortCache.ids.map(id => kitMap.get(id)).filter(Boolean);
-  }, [activeOfferKitIds, storeKits, isAdmin, isAdminView, searchTerm, sortType, stableSortCache]);
+  }, [activeOfferKitIds, deals, offerClock, storeKits, isAdmin, isAdminView, searchTerm, sortType, stableSortCache]);
 
   useEffect(() => {
     const currentSortCriteria = `${searchTerm}||${sortType}||${isAdminView}`;
@@ -630,10 +646,12 @@ export default function Kits() {
   const filteredDeals = useMemo(() => {
     if (!deals || !Array.isArray(deals)) return [];
     // Mutually exclusive deals have no deal card — hide from kits grid
-    const visible = deals.filter(d => d?.type !== 'mutually_exclusive');
+    // Clearance is an item-level offer shown on the kit card/detail panel,
+    // not a standalone multi-kit card in the Deals section.
+    const visible = deals.filter(d => d?.type !== 'mutually_exclusive' && d?.type !== 'clearance');
     // Auto-hide unfulfillable deals: every kit must have at least one available stock
     const fulfillable = visible.filter(d => {
-      if (d?.type !== 'bundle_discount' && d?.type !== 'bundle_only') return true;
+      if (d?.type !== 'bundle_discount' && d?.type !== 'bundle_only' && d?.type !== 'clearance') return true;
       return (d.kitIds || []).every(kitId => {
         const kit = (storeKits || []).find(k => k.id === kitId);
         if (!kit) return false;
@@ -664,67 +682,65 @@ export default function Kits() {
     setDealToEdit(null);
   };
 
-  const handleDealCheckout = (deal) => {
-    if (!deal || !deal.kitIds || deal.type === 'mutually_exclusive') return;
+  const buildDealItems = (deal) => {
+    if (!deal || !deal.kitIds || deal.type === 'mutually_exclusive') return [];
     const bundleKits = (storeKits || []).filter(k => deal.kitIds.includes(k.id));
-    const normalTotal = bundleKits.reduce((sum, k) => {
-      const stocks = Object.values(k.stocks || {});
-      const sourceStock = stocks.find(s => stockMatchesDealSource(s, deal.stockSource || 'onhand'));
-      return sum + (sourceStock?.sellPrice || stocks[0]?.sellPrice || k.sellPrice || 0);
-    }, 0);
-
     const { exclusiveDiscountPercent } = getCheckoutPaymentFees({ shippingSettings });
     const exclusiveKitIds = deal.exclusiveKitIds || [];
-    const pct = exclusiveDiscountPercent / 100;
-
-    let exclusiveRefTotal = 0;
-    let standardRefTotal = 0;
-
     const kitPrices = bundleKits.map((kit) => {
       const stocks = Object.values(kit?.stocks || {});
-      const availableStock = stocks.find(s => isBundlePurchasableStock(s, deal.stockSource || 'onhand'));
-      const sourceStock = stocks.find(s => stockMatchesDealSource(s, deal.stockSource || 'onhand'));
-      const refPrice = Number(sourceStock?.sellPrice || stocks[0]?.sellPrice || kit?.sellPrice || 0);
-
-      const isExclusive = exclusiveKitIds.includes(kit.id);
-      if (isExclusive) {
-        exclusiveRefTotal += refPrice;
-      } else {
-        standardRefTotal += refPrice;
-      }
-
-      return { kit, refPrice, isExclusive, availableStock };
+      const source = deal.stockSource || 'onhand';
+      const purchasableStocks = stocks.filter(s => isBundlePurchasableStock(s, source));
+      const matchingStocks = stocks.filter(s => stockMatchesDealSource(s, source));
+      const sourceStock = getHighestCostStock(purchasableStocks) || getHighestCostStock(matchingStocks);
+      const availableStock = sourceStock;
+      return {
+        kit,
+        kitId: kit.id,
+        refPrice: Number(sourceStock?.sellPrice || stocks[0]?.sellPrice || kit?.sellPrice || 0),
+        sellPrice: Number(sourceStock?.sellPrice || stocks[0]?.sellPrice || kit?.sellPrice || 0),
+        costPrice: Number(sourceStock?.costPrice || stocks[0]?.costPrice || 0),
+        isExclusive: exclusiveKitIds.includes(kit.id),
+        availableStock
+      };
     });
 
-    const bPrice = deal.bundlePrice || 0;
-    const totalDiscount = normalTotal > bPrice ? normalTotal - bPrice : 0;
-
-    const exclusivePool = exclusiveKitIds.length > 0 ? totalDiscount * pct : 0;
-    const standardPool = totalDiscount - exclusivePool;
-
-    const pricedRows = distributeRoundedBundlePrices(kitPrices.map(row => {
-      let kitDiscount = 0;
-      if (row.isExclusive && exclusiveRefTotal > 0) {
-        kitDiscount = exclusivePool * (row.refPrice / exclusiveRefTotal);
-      } else if (!row.isExclusive && standardRefTotal > 0) {
-        kitDiscount = standardPool * (row.refPrice / standardRefTotal);
-      }
-      return { ...row, rawPrice: Math.max(0, row.refPrice - kitDiscount) };
-    }), bPrice);
+    let pricedRows;
+    if (deal.type === 'clearance') {
+      pricedRows = getClearanceBundlePricing(kitPrices, deal.clearanceKitIds || [], deal.clearanceDiscounts || {}).rows;
+    } else {
+      const normalTotal = kitPrices.reduce((sum, row) => sum + row.refPrice, 0);
+      const exclusiveRefTotal = kitPrices.filter(row => row.isExclusive).reduce((sum, row) => sum + row.refPrice, 0);
+      const standardRefTotal = kitPrices.filter(row => !row.isExclusive).reduce((sum, row) => sum + row.refPrice, 0);
+      const bPrice = Number(deal.bundlePrice || 0);
+      const totalDiscount = normalTotal > bPrice ? normalTotal - bPrice : 0;
+      const exclusivePool = exclusiveKitIds.length > 0 ? totalDiscount * (exclusiveDiscountPercent / 100) : 0;
+      const standardPool = totalDiscount - exclusivePool;
+      pricedRows = distributeRoundedBundlePrices(kitPrices.map(row => {
+        const kitDiscount = row.isExclusive && exclusiveRefTotal > 0
+          ? exclusivePool * (row.refPrice / exclusiveRefTotal)
+          : !row.isExclusive && standardRefTotal > 0
+            ? standardPool * (row.refPrice / standardRefTotal)
+            : 0;
+        return { ...row, rawPrice: Math.max(0, row.refPrice - kitDiscount) };
+      }), bPrice);
+    }
 
     const bundleSize = pricedRows.length;
     const bundleFeeTotal = handlingFee + transferFee;
-    const items = pricedRows.map(({ kit, finalPrice, availableStock, refPrice }, index) => {
+    return pricedRows.map(({ kit, finalPrice, availableStock, refPrice }, index) => {
       const bundleFeeShare = getDistributedFeeShare(bundleFeeTotal, index, bundleSize);
       return {
         ...kit,
         name: `${kit?.name} (Bundle Item)`,
         isBundleItem: true,
         bundleId: deal.id,
-        bundleName: deal.name || 'Bundle Deal',
+        bundleName: deal.name || (deal.type === 'clearance' ? 'Clearance Deal' : 'Bundle Deal'),
+        isClearanceBundle: deal.type === 'clearance',
+        clearanceKitIds: deal.clearanceKitIds || [],
         bundleSize,
         bundleFeeShare,
-        bundleReferencePrice: refPrice + installmentFee + handlingFee + transferFee,
+        bundleReferencePrice: refPrice + installmentFee + bundleFeeShare,
         allowShelfBundle: true,
         stockKey: availableStock?.key || 'default',
         price: finalPrice,
@@ -733,11 +749,67 @@ export default function Kits() {
         appliedTransferFee: transferFee
       };
     });
+  };
 
+  const handleDealCheckout = (deal) => {
+    // Clearance pricing is unlocked only by selecting the clearance kit with
+    // other on-hand items in the basket. Do not create a discounted direct
+    // checkout line for a clearance deal.
+    if (deal?.type === 'clearance') {
+      handleDealAddToBasket(deal);
+      return;
+    }
+
+    const items = buildDealItems(deal);
+    if (items.length === 0) return;
     setItemsForCheckout(items);
     setSelectedDeal(null);
     if (!user) { setIsLoginPromptOpen(true); return; }
     openCheckoutPage(items, false);
+  };
+
+  const handleDealAddToBasket = async (deal) => {
+    if (deal?.type === 'clearance') {
+      const clearanceKitId = deal.clearanceKitIds?.[0] || deal.kitIds?.[0];
+      const clearanceKit = (storeKits || []).find(kit => kit.id === clearanceKitId);
+      if (!clearanceKit) return;
+
+      const stocks = Object.entries(clearanceKit.stocks || {}).map(([key, stock]) => ({ key, ...stock }));
+      const availableStock = getHighestCostStock(
+        stocks.filter(stock => isBundlePurchasableStock(stock, 'onhand'))
+      );
+      if (!availableStock) return;
+
+      await addToBasket({
+        ...clearanceKit,
+        name: clearanceKit.name,
+        stockKey: availableStock.key,
+        status: availableStock.status || 'onhand',
+        eta: availableStock.eta || '',
+        costPrice: Number(availableStock.costPrice || 0),
+        sellPrice: Number(availableStock.sellPrice || clearanceKit.sellPrice || 0),
+        price: Number(availableStock.sellPrice || clearanceKit.sellPrice || 0) + handlingFee + installmentFee + transferFee,
+        appliedHandlingFee: handlingFee,
+        appliedInstallmentFee: installmentFee,
+        appliedTransferFee: transferFee,
+        isBundleItem: false,
+        isClearanceBundle: false,
+        clearanceKitIds: [],
+        bundleId: null,
+        bundleName: null,
+        bundleSize: null,
+        bundleFeeShare: 0,
+        bundleReferencePrice: 0,
+        appliedBundlePrice: null
+      });
+      setSelectedDeal(null);
+      return;
+    }
+
+    const items = buildDealItems(deal);
+    if (items.length === 0) return;
+    for (const item of items) await addToBasket(item);
+    setSelectedDeal(null);
   };
 
   const handleDealCardClick = (deal) => {
@@ -805,7 +877,12 @@ export default function Kits() {
   };
   
   const { isDarkMode, isSpectralMode } = useTheme();
-  const sectionHeaderTranslation = showSearchBar ? 'translate-y-0' : '-translate-y-[60px]';
+  // Keep normal-flow separators in place while the search header collapses.
+  // Only their sticky offset changes, preventing the next separator from
+  // being pulled upward into the space left by the hidden header.
+  const sectionHeaderPosition = showSearchBar
+    ? 'top-[116px] sm:top-[120px]'
+    : 'top-[56px] sm:top-[60px]';
 
   return (
     <PageTemplate isDarkMode={isDarkMode}>
@@ -822,7 +899,15 @@ export default function Kits() {
                       type="text"
                       value={inputValue}
                       onChange={(e) => setInputValue(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                          e.preventDefault();
+                          setInputValue('');
+                          e.currentTarget.blur();
+                        } else if (e.key === 'Enter') {
+                          e.currentTarget.blur();
+                        }
+                      }}
                       placeholder="SEARCH KITS OR SERIES..."
                       className="w-full pl-12 pr-12 py-3 bg-white dark:bg-white/5 border border-black/5 dark:border-white/10 rounded-2xl text-[11px] font-black uppercase tracking-widest outline-none focus:border-blue-500 transition-all"
                       />
@@ -886,7 +971,7 @@ export default function Kits() {
             <div className="grid grid-cols-2 sm:grid-cols-4 sm:portrait:grid-cols-3 md:grid-cols-4 md:portrait:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-3 items-start justify-items-center">
               {/* --- Section Divider: Deals --- */}
               {(filteredDeals.length > 0 || activeOfferKits.length > 0) && (
-                <div className={`col-span-full first:mt-4 my-2 sticky top-[116px] z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md transition-transform duration-300 dark:bg-[#0a0a0a]/90 md:top-[120px] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderTranslation}`}>
+                <div className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md transition-[top] duration-300 dark:bg-[#0a0a0a]/90 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Deals</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
@@ -1041,7 +1126,7 @@ export default function Kits() {
 
               {/* --- Section Divider: Available Kits --- */}
               {kitGroups.available.length > 0 && (
-                <div className={`col-span-full first:mt-4 my-2 sticky top-[116px] z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md transition-transform duration-300 dark:bg-[#0a0a0a]/90 md:top-[120px] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderTranslation}`}>
+                <div className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md transition-[top] duration-300 dark:bg-[#0a0a0a]/90 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Available Kits</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
@@ -1079,7 +1164,7 @@ export default function Kits() {
 
               {/* --- Section Divider: Collection --- */}
               {kitGroups.collection.length > 0 && (
-                <div className={`col-span-full first:mt-4 my-2 sticky top-[116px] z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md transition-transform duration-300 dark:bg-[#0a0a0a]/90 md:top-[120px] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderTranslation}`}>
+                <div className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md transition-[top] duration-300 dark:bg-[#0a0a0a]/90 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Collection</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
@@ -1117,7 +1202,7 @@ export default function Kits() {
 
               {/* --- Section Divider: Out of Stock --- */}
               {kitGroups.outOfStock.length > 0 && (
-                <div className={`col-span-full first:mt-4 my-2 sticky top-[116px] z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md transition-transform duration-300 dark:bg-[#0a0a0a]/90 md:top-[120px] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderTranslation}`}>
+                <div className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md transition-[top] duration-300 dark:bg-[#0a0a0a]/90 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Out of Stock</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
@@ -1210,6 +1295,7 @@ export default function Kits() {
             onClose={() => setSelectedDeal(null)}
             deal={selectedDeal}
             onBuyNow={handleDealCheckout}
+            onAddToBasket={handleDealAddToBasket}
             onOpenKit={handleOpenDealKit}
             isEditMode={isAdmin && isAdminView}
             onEditDeal={(deal) => {

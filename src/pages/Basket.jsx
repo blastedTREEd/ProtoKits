@@ -8,6 +8,7 @@ import LoginPromptModal from '../components/menu/LoginPromptModal';
 import ListItemSkeleton from '../components/common/ListItemSkeleton';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
 import { isOfferCheckoutActive } from '../utils/offerUtils';
+import { getIntegerFeeShare, getStockStandaloneSellPrice, isBundleOrClearanceItem } from '../utils/standalonePricing';
 // Resolves an image ID to its URL from the images array.
 // Backward compatible: if the value is already a URL (base64 or http), returns it directly.
 function resolveImage(idOrUrl, imagesArray) {
@@ -25,14 +26,31 @@ function getBasketItemTime(item) {
   return idTime ? Number(idTime[1]) : 0;
 }
 
+function getBasketValidationKey(kitId, batchIdentifier, offerId) {
+  return `${kitId}-${batchIdentifier}-${offerId || 'standard'}`;
+}
+
+function getBasketFee(item, field, fallback) {
+  const storedFee = Number(item?.[field]);
+  return storedFee > 0 ? storedFee : Number(fallback) || 0;
+}
+
+function getBasketItemGroupKey(item = {}) {
+  if (item.type === 'project') return JSON.stringify(item.projectData);
+  return `${item.id}-${item.stockKey}-${item.offerId || 'standard'}-${item.bundleId || 'standard'}`;
+}
+
 export default function Basket() {
   const { isDarkMode } = useTheme();
   const { 
     user, isAnonymousUser, basket, shelf, isAdmin, isAdminView, removeFromBasket, kits, addToBasket, addProjectToBasket, decrementProjectQuantity,
-    guestBasket, isLoading, setLoginModalOpen, shippingSettings, loadMissingKits, keepOneOfEachToShelf
+    guestBasket, isLoading, setLoginModalOpen, shippingSettings, loadMissingKits, keepOneOfEachToShelf, deals
   } = useStore();
   const [isKeepingOnes, setIsKeepingOnes] = useState(false);
   const [offerNow, setOfferNow] = useState(0);
+  const [manualSelectedIds, setManualSelectedIds] = useState([]);
+  const [isLoginPromptOpen, setLoginPromptOpen] = useState(false);
+  const [itemsForCheckout, setItemsForCheckout] = useState([]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setOfferNow(Date.now()), 1000);
@@ -43,6 +61,31 @@ export default function Basket() {
   const location = useLocation();
 
   const activeBasket = user && !isAnonymousUser ? ((isAdmin && isAdminView) ? shelf : basket) : guestBasket;
+
+  const activeSelection = useMemo(() => {
+    const currentBasketIds = activeBasket.map(i => i.basketId);
+    return manualSelectedIds.filter(id => currentBasketIds.includes(id));
+  }, [activeBasket, manualSelectedIds]);
+
+  const mutuallyExclusiveConflict = useMemo(() => {
+    const selectedKitIds = new Set(
+      activeBasket
+        .filter(item => activeSelection.includes(item.basketId) && item.type !== 'project' && item.id)
+        .map(item => item.id)
+    );
+
+    return (deals || []).find(deal => {
+      if (deal?.type !== 'mutually_exclusive' || deal.isActive === false) return false;
+      const dealKitIds = Array.from(new Set(deal.kitIds || []));
+      if (dealKitIds.length < 2 || !dealKitIds.every(kitId => selectedKitIds.has(kitId))) return false;
+
+      const validFrom = deal.validFrom ? new Date(deal.validFrom).getTime() : 0;
+      const validUntil = deal.validUntil ? new Date(deal.validUntil).getTime() : 0;
+      if (validFrom > 0 && validFrom > offerNow) return false;
+      if (validUntil > 0 && validUntil <= offerNow) return false;
+      return true;
+    }) || null;
+  }, [activeBasket, activeSelection, deals, offerNow]);
 
   const missingKitIds = useMemo(() => {
     const loadedKitIds = new Set((kits || []).map((kit) => kit.id));
@@ -76,26 +119,127 @@ export default function Basket() {
     return getCheckoutPaymentFees({ shippingSettings });
   }, [shippingSettings]);
 
-  const getBasketDisplayPrice = useCallback((item) => {
-    if (item.type === 'project') {
-      return Number(item.projectData?.sellPrice || item.price || 0);
+  const basketOrderFees = useMemo(() => ({
+    handling: Math.max(
+      Number(handlingFee) || 0,
+      ...activeBasket.map(item => Number(item.appliedHandlingFee) || 0)
+    ),
+    transfer: Math.max(
+      Number(transferFee) || 0,
+      ...activeBasket.map(item => Number(item.appliedTransferFee) || 0)
+    )
+  }), [activeBasket, handlingFee, transferFee]);
+
+  // Handling and transfer fees are charged once per selected basket set. Use
+  // the selected unit count as the denominator so a quantity of two receives
+  // two shares while the order still receives only one fee of each type.
+  const selectedFeeUnitCount = useMemo(() => (
+    activeBasket
+      .filter(item => activeSelection.includes(item.basketId))
+      .reduce((sum, item) => sum + Math.max(1, Number(item.quantity) || 1), 0)
+  ), [activeBasket, activeSelection]);
+
+  const getBasketStandaloneFeeShare = useCallback((item) => {
+    const isSelected = Array.isArray(item.basketIds)
+      ? item.basketIds.some(id => activeSelection.includes(id))
+      : activeSelection.includes(item.basketId);
+    if (isSelected && selectedFeeUnitCount > 1) {
+      const selectedItems = activeBasket.filter(candidate => activeSelection.includes(candidate.basketId));
+      const targetKey = getBasketItemGroupKey(item);
+      const targetIndex = selectedItems.findIndex(candidate => getBasketItemGroupKey(candidate) === targetKey);
+      const selectedFeeUnitIndex = targetIndex < 0
+        ? 0
+        : selectedItems
+          .slice(0, targetIndex)
+          .reduce((sum, candidate) => sum + Math.max(1, Number(candidate.quantity) || 1), 0);
+      return {
+        handling: getIntegerFeeShare(basketOrderFees.handling, selectedFeeUnitCount, selectedFeeUnitIndex),
+        transfer: getIntegerFeeShare(basketOrderFees.transfer, selectedFeeUnitCount, selectedFeeUnitIndex)
+      };
     }
-    if (item.isBundleItem) {
-      const bundlePrice = Number(item.price || item.sellPrice || 0);
-      const itemInstallmentFee = Number(item.appliedInstallmentFee ?? installmentFee) || 0;
-      const bundleFeeShare = Number(item.bundleFeeShare || 0);
-      return bundlePrice + itemInstallmentFee + bundleFeeShare;
-    }
+    return {
+      handling: getBasketFee(item, 'appliedHandlingFee', handlingFee),
+      transfer: getBasketFee(item, 'appliedTransferFee', transferFee)
+    };
+  }, [activeBasket, activeSelection, basketOrderFees, handlingFee, selectedFeeUnitCount, transferFee]);
+
+  const getBasketStandalonePrice = useCallback((item) => {
+    if (item.type === 'project') return Number(item.projectData?.sellPrice || item.price || 0);
+
     const kit = kits.find(k => k.id === item.id);
-    const stockSellPrice = Number(item.offerPrice || kit?.stocks?.[item.stockKey]?.sellPrice || 0);
-    const basePrice = stockSellPrice > 0 ? stockSellPrice : Number(item.sellPrice || item.price || 0);
-    return basePrice + installmentFee;
-  }, [kits, installmentFee]);
+    const stockSellPrice = Number(getStockStandaloneSellPrice(item, kit) || 0);
+    const itemInstallmentFee = getBasketFee(item, 'appliedInstallmentFee', installmentFee);
+    const { handling: itemHandlingFee, transfer: itemTransferFee } = getBasketStandaloneFeeShare(item);
+    const basePrice = stockSellPrice > 0
+      ? stockSellPrice
+      : Math.max(0, Number(item.price || 0) - (
+        itemHandlingFee + itemInstallmentFee + itemTransferFee
+      ));
+    return basePrice + itemHandlingFee + itemInstallmentFee + itemTransferFee;
+  }, [getBasketStandaloneFeeShare, installmentFee, kits]);
+
+  const isBasketBundleFullySelected = useCallback((item) => {
+    if (!isBundleOrClearanceItem(item) || !item.bundleId) return false;
+    const bundleItems = activeBasket.filter(candidate => candidate.bundleId === item.bundleId);
+    if (bundleItems.length === 0) return false;
+    const selectedCount = bundleItems.reduce((count, candidate) => (
+      activeSelection.includes(candidate.basketId) ? count + 1 : count
+    ), 0);
+    const expectedSize = Math.max(bundleItems.length, Number(item.bundleSize) || 0);
+    const selectedItems = activeBasket.filter(candidate => activeSelection.includes(candidate.basketId));
+    const onlyBundleItemsSelected = selectedItems.length === bundleItems.length &&
+      selectedItems.every(candidate => candidate.bundleId === item.bundleId);
+    return selectedCount === bundleItems.length &&
+      bundleItems.length >= expectedSize &&
+      onlyBundleItemsSelected;
+  }, [activeBasket, activeSelection]);
+
+  const getBasketDiscountedPrice = useCallback((item) => {
+    const standalonePrice = getBasketStandalonePrice(item);
+    if (item.type === 'project') return standalonePrice;
+
+    const { handling, transfer } = getBasketStandaloneFeeShare(item);
+    const totalFees = handling
+      + getBasketFee(item, 'appliedInstallmentFee', installmentFee)
+      + transfer;
+    const standaloneBasePrice = Math.max(0, standalonePrice - totalFees);
+
+    if (isBasketBundleFullySelected(item)) {
+      const dealPrice = Number(item.appliedBundlePrice || item.price || item.sellPrice || 0);
+      if (dealPrice > 0) return dealPrice;
+    }
+
+    const offerPrice = Number(item.offerPrice || 0);
+    const isSelected = Array.isArray(item.basketIds)
+      ? item.basketIds.some(id => activeSelection.includes(id))
+      : activeSelection.includes(item.basketId);
+    if (offerPrice > 0 && isSelected) return offerPrice;
+
+    return standaloneBasePrice;
+  }, [activeSelection, getBasketStandaloneFeeShare, getBasketStandalonePrice, installmentFee, isBasketBundleFullySelected]);
+
+  const getBasketPriceComparison = useCallback((item) => {
+    const standalonePrice = getBasketStandalonePrice(item);
+    const isSelected = Array.isArray(item.basketIds)
+      ? item.basketIds.some(id => activeSelection.includes(id))
+      : activeSelection.includes(item.basketId);
+    const discountedPrice = getBasketDiscountedPrice(item);
+    const displayPrice = discountedPrice;
+
+    return {
+      discountedPrice,
+      standalonePrice,
+      displayPrice,
+      amount: Math.max(0, standalonePrice - discountedPrice),
+      isSelected,
+      isDiscounted: standalonePrice > discountedPrice
+    };
+  }, [activeSelection, getBasketDiscountedPrice, getBasketStandalonePrice]);
 
   const getEffectiveItemPrice = useCallback((item) => {
     // Return displayPrice (final price)
     if (item.type === 'project') return Number(item.projectData?.displayPrice || item.projectData?.sellPrice || item.price || 0);
-    if (item.isBundleItem) return Number(item.price || item.sellPrice || 0);
+    if (isBundleOrClearanceItem(item)) return Number(item.price || item.sellPrice || 0);
     const kit = kits.find(k => k.id === item.id);
     const stockSellPrice = Number(item.offerPrice || kit?.stocks?.[item.stockKey]?.sellPrice || 0);
     return stockSellPrice > 0 ? stockSellPrice : Number(item.price || 0);
@@ -125,18 +269,9 @@ export default function Basket() {
     };
   }, [getEffectiveItemPrice, handlingFee, installmentFee, transferFee, kits]);
 
-  const [manualSelectedIds, setManualSelectedIds] = useState([]); 
-  const [isLoginPromptOpen, setLoginPromptOpen] = useState(false);
-  const [itemsForCheckout, setItemsForCheckout] = useState([]);
-
   const openCheckoutPage = (items, isGuestPreview = !user || isAnonymousUser) => {
     navigate('/checkout', { state: { items, isGuestPreview } });
   };
-
-  const activeSelection = useMemo(() => {
-    const currentBasketIds = activeBasket.map(i => i.basketId);
-    return manualSelectedIds.filter(id => currentBasketIds.includes(id));
-  }, [activeBasket, manualSelectedIds]);
 
   const validation = useMemo(() => {
     const safeActiveBasket = activeBasket || [];
@@ -161,10 +296,10 @@ export default function Basket() {
         const eta = stock?.eta ? `-${stock.eta.toLowerCase().replace(/\s+/g, '-')}` : '';
         const batchIdentifier = `${status}${eta}`;
         
-        const key = `${item.id}-${batchIdentifier}-${item.offerId || 'standard'}`;
+        const key = getBasketValidationKey(item.id, batchIdentifier, item.offerId);
         
         if (!acc[key]) acc[key] = { ...item, qty: 0, basketIds: [], batchKey: batchIdentifier };
-        acc[key].qty += 1;
+        acc[key].qty += Math.max(1, Number(item.quantity) || 1);
         acc[key].basketIds.push(item.basketId);
         return acc;
     }, {});
@@ -188,7 +323,7 @@ export default function Basket() {
           : (isReservedByOthers ? 0 : availableInBatch);
         if (item.qty > availableLimit) {
             isValid = false;
-            const key = `${item.id}-${batchIdentifier}`;
+            const key = getBasketValidationKey(item.id, batchIdentifier, item.offerId);
             const unit = item.status === 'onhand' ? 'stock' : 'slot';
             const unitType = availableLimit === 1 ? unit : `${unit}s`;
             itemRules[key] = {
@@ -204,11 +339,11 @@ export default function Basket() {
     let totalPrice = 0;
     const selectedItems = safeActiveBasket.filter(i => activeSelection.includes(i.basketId));
     if (selectedItems.length > 0) {
-      totalPrice = selectedItems.reduce((sum, item) => sum + (getBasketDisplayPrice(item) * (item.quantity || 1)), 0);
+      totalPrice = selectedItems.reduce((sum, item) => sum + (getBasketDiscountedPrice(item) * (item.quantity || 1)), 0);
     }
 
     return { isValid, itemRules, totalPrice, selectedItems };
-  }, [activeBasket, activeSelection, kits, getBasketDisplayPrice, offerNow]);
+  }, [activeBasket, activeSelection, getBasketDiscountedPrice, kits, offerNow]);
 
   const shelfStats = useMemo(() => {
     if (!isAdmin || !isAdminView) return null;
@@ -220,10 +355,10 @@ export default function Basket() {
         : Number(item.costPrice || 0);
       return sum + (cost * qty);
     }, 0);
-    const totalSellPrice = activeBasket.reduce((sum, item) => sum + (getBasketDisplayPrice(item) * (item.quantity || 1)), 0);
+    const totalSellPrice = activeBasket.reduce((sum, item) => sum + (getBasketStandalonePrice(item) * (item.quantity || 1)), 0);
     const possibleProfit = Math.max(0, totalSellPrice - totalCostPrice);
     return { totalKits, totalCostPrice, totalSellPrice, possibleProfit };
-  }, [isAdmin, isAdminView, activeBasket, getBasketDisplayPrice]);
+  }, [isAdmin, isAdminView, activeBasket, getBasketStandalonePrice]);
 
   const toggleSelection = (basketId) => {
     setManualSelectedIds(prev => {
@@ -344,7 +479,7 @@ export default function Basket() {
 
       // Use ONLY basket data to determine the group.
       // Do NOT use live stock data here.
-      const key = `${item.id}-${item.stockKey}-${item.offerId || 'standard'}-${item.bundleId || 'standard'}`;
+      const key = getBasketItemGroupKey(item);
 
       if (!acc[key]) {
         acc[key] = {
@@ -503,15 +638,19 @@ export default function Basket() {
                 const line = kit?.specs?.line || item.specs?.line;
                 const scale = kit?.specs?.scale || item.specs?.scale;
                 
-                const isOnhand = (stock?.status || item.status)?.toLowerCase() === 'onhand';
-                const availabilityLabel = isOnhand
-                  ? 'Onhand'
-                  : (stock?.eta || item.eta || 'TBA');
+                const itemStatusLabel = String(stock?.status || item.status || '');
+                const isPreOrder = /pre[-\s]?order/i.test(itemStatusLabel);
+                const etaLabel = stock?.eta || item.eta || 'TBA';
                 const shelfCostPrice = Number(item.costPrice ?? stock?.costPrice ?? 0);
-                const shelfSellPrice = Number(item.sellPrice ?? stock?.sellPrice ?? getBasketDisplayPrice(item));
+                const shelfSellPrice = Number(item.sellPrice ?? stock?.sellPrice ?? getBasketStandalonePrice(item));
+                const basketPriceComparison = getBasketPriceComparison(item);
                 
+                const itemStatus = stock?.status?.toLowerCase() || 'default';
+                const itemEta = stock?.eta ? `-${stock.eta.toLowerCase().replace(/\s+/g, '-')}` : '';
+                const itemBatchIdentifier = `${itemStatus}${itemEta}`;
+                const validationKey = getBasketValidationKey(item.id, itemBatchIdentifier, item.offerId);
+                const itemError = validation.itemRules[validationKey];
                 const uniqueGroupKey = `${item.id}-${item.batchKey}-${item.offerId || 'standard'}`;
-                const itemError = validation.itemRules[uniqueGroupKey];
                 
                 const cardClasses = `p-3 rounded-2xl border-2 cursor-pointer flex gap-4 items-center transition-all duration-300 ${
                   isSelected ? 'border-blue-500 shadow-lg' : 'border-black/5 dark:border-white/5'
@@ -521,9 +660,14 @@ export default function Basket() {
                   <div 
                     key={uniqueGroupKey} 
                     onClick={() => item.basketIds.forEach(toggleSelection)}
-                    className={cardClasses}
+                    className={`${cardClasses} relative`}
                   >
-                    <div className="flex items-center justify-center">
+                    {item.type !== 'project' && isPreOrder && etaLabel && (
+                      <span className="absolute left-0 top-3 z-10 rounded-br-lg bg-blue-600 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-white shadow-sm">
+                        {etaLabel}
+                      </span>
+                    )}
+                    <div className="relative flex items-center justify-center">
                       {displayImage ? (
                         <img 
                           src={displayImage} 
@@ -562,19 +706,19 @@ export default function Basket() {
                           </p>
                         </div>
                       ) : (
+                        <div className="flex flex-col items-start">
                         <p className={`font-black text-[14px] ${
-                            isSelected 
-                            ? 'text-emerald-600' 
+                            basketPriceComparison.isDiscounted || isSelected
+                            ? 'text-emerald-600'
                             : 'text-neutral-900 dark:text-white'
-                        }`}>₱{getBasketDisplayPrice(item).toLocaleString()}</p>
+                        }`}>₱{basketPriceComparison.displayPrice.toLocaleString()}</p>
+                        {!isAdminView && basketPriceComparison.isDiscounted && (
+                          <p className="text-[12px] font-black leading-none text-neutral-500 line-through dark:text-neutral-400">
+                            ₱{basketPriceComparison.standalonePrice.toLocaleString()}
+                          </p>
+                        )}
+                        </div>
                       )}
-                      <p className={`text-[13px] font-black uppercase px-2 py-0.5 rounded-md truncate max-w-[100px] border ${
-                        isOnhand 
-                          ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' 
-                          : 'bg-blue-500/10 text-blue-600 border-blue-500/20'
-                      }`}>
-                        {item.type === 'project' ? 'Project' : availabilityLabel}
-                      </p>
                         {/* Quantity Controls for Project */}
                         {item.type === 'project' && <div className="ml-auto flex items-center gap-3 bg-neutral-100 dark:bg-neutral-800 rounded-full px-2 py-1">
                             <button
@@ -707,12 +851,15 @@ export default function Basket() {
                             const stock = kit?.stocks?.[item.stockKey];
                             const status = stock?.status?.toLowerCase() || 'default';
                             const eta = stock?.eta ? `-${stock.eta.toLowerCase().replace(/\s+/g, '-')}` : '';
-                            return { ...normalizeCheckoutItem(item), batchKey: `${status}${eta}` };
+                            const batchKey = item.type === 'project' ? 'project' : `${status}${eta}`;
+                            return { ...normalizeCheckoutItem(item), batchKey };
                         });
 
                         const flaggedKeys = Object.keys(validation.itemRules);
-                        const hasSelectedIssues = selectedItems.some(i => flaggedKeys.includes(`${i.id}-${i.batchKey}-${i.offerId || 'standard'}`));
-                        const uniqueBatches = Array.from(new Set(selectedItems.filter(i => i.type !== 'project').map(i => i.batchKey)));
+                        const hasSelectedIssues = selectedItems.some(i => flaggedKeys.includes(
+                          getBasketValidationKey(i.id, i.batchKey, i.offerId)
+                        ));
+                        const uniqueBatches = Array.from(new Set(selectedItems.map(i => i.batchKey)));
                         const hasBatchConflict = uniqueBatches.length > 1;
 
                         // 3. UPDATE BASKET STATE (Issues/Conflicts)
@@ -734,7 +881,7 @@ export default function Basket() {
                                           const stock = kit?.stocks?.[item.stockKey];
                                           const status = stock?.status?.toLowerCase() || 'default';
                                           const eta = stock?.eta ? `-${stock.eta.toLowerCase().replace(/\s+/g, '-')}` : '';
-                                          return `${item.id}-${status}${eta}-${item.offerId || 'standard'}` === key;
+                                          return getBasketValidationKey(item.id, `${status}${eta}`, item.offerId) === key;
                                         });
                                         if (matchingItemsInBasket.length > limit) {
                                           const excessCount = matchingItemsInBasket.length - limit;
@@ -750,6 +897,30 @@ export default function Basket() {
                                   className="px-10 py-3.5 rounded-full font-black uppercase tracking-widest text-xs bg-amber-500 text-white shadow-lg shadow-amber-500/20 hover:scale-105 transition-all"
                                 >
                                   Update Basket
+                                </button>
+                              </>
+                            );
+                        }
+
+                        if (mutuallyExclusiveConflict) {
+                            const conflictKitIds = new Set(mutuallyExclusiveConflict.kitIds || []);
+                            return (
+                              <>
+                                <div className="flex flex-col items-start md:items-end justify-center">
+                                  <span className="text-[10px] font-black uppercase opacity-40 leading-none mb-1">Status</span>
+                                  <span className="text-xl font-black italic leading-none text-red-500 uppercase tracking-tighter">Mutually Exclusive</span>
+                                </div>
+                                <button
+                                  onClick={() => {
+                                    const keepKitId = mutuallyExclusiveConflict.kitIds?.[0];
+                                    setManualSelectedIds(prev => prev.filter(basketId => {
+                                      const item = activeBasket.find(candidate => candidate.basketId === basketId);
+                                      return !item || !conflictKitIds.has(item.id) || item.id === keepKitId;
+                                    }));
+                                  }}
+                                  className="px-10 py-3.5 rounded-full font-black uppercase tracking-widest text-xs bg-red-500 text-white shadow-lg shadow-red-500/20 hover:scale-105 transition-all"
+                                >
+                                  Fix Conflict
                                 </button>
                               </>
                             );
@@ -805,7 +976,7 @@ export default function Basket() {
                               onClick={() => {
                                 const incompleteBundle = Object.values(
                                   activeBasket.reduce((groups, item) => {
-                                    if (!item.isBundleItem || !item.bundleId) return groups;
+                                    if (!isBundleOrClearanceItem(item) || !item.bundleId) return groups;
                                     if (!groups[item.bundleId]) groups[item.bundleId] = { name: item.bundleName || 'this bundle', all: [], selected: [] };
                                     groups[item.bundleId].all.push(item.basketId);
                                     if (activeSelection.includes(item.basketId)) groups[item.bundleId].selected.push(item.basketId);

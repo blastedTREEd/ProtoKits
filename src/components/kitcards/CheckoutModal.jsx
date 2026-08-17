@@ -18,6 +18,8 @@ import { signInWithPopup } from 'firebase/auth';
 import L from 'leaflet';
 import DynamicShippingForm from './DynamicShippingForm';
 import PolicyModal from '../menu/PolicyModal';
+import { getIntegerFeeShare, getStockStandaloneSellPrice, isBundleOrClearanceItem } from '../../utils/standalonePricing';
+import { getClearanceBundlePricing, getDistributedFeeShare } from '../../utils/bundlePricing';
 
 // --- LEAFLET CSS & ICON FIX ---
 import 'leaflet/dist/leaflet.css';
@@ -86,9 +88,13 @@ const getCheckoutItemBasePrice = (item, kit, fees = {}) => {
   if (offerPrice > 0) return offerPrice;
 
   const storedPrice = toCheckoutNumber(item.price);
-  if (item.isBundleItem && storedPrice > 0) return storedPrice;
+  if (isBundleOrClearanceItem(item) && storedPrice > 0) return storedPrice;
 
   const stockPrice = toCheckoutNumber(kit?.stocks?.[item.stockKey]?.sellPrice);
+  const itemPrice = toCheckoutNumber(item.price);
+  // Preserve a deliberately discounted non-bundle price (for example an
+  // accepted offer) instead of replacing it with the stock's normal price.
+  if (itemPrice > 0 && stockPrice > 0 && itemPrice < stockPrice) return itemPrice;
   if (stockPrice > 0) return stockPrice;
 
   const itemSellPrice = toCheckoutNumber(item.sellPrice);
@@ -98,6 +104,217 @@ const getCheckoutItemBasePrice = (item, kit, fees = {}) => {
   }
 
   return itemSellPrice || storedPrice;
+};
+
+const parseDealDate = (value, endOfDay = false) => {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  const raw = String(value);
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(raw)
+    ? `${raw}T${endOfDay ? '23:59:59' : '00:00:00'}`
+    : raw;
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const isDealActiveForCheckout = (deal, now = Date.now()) => {
+  if (!deal || !['bundle_only', 'bundle_discount', 'clearance'].includes(deal.type)) return false;
+  if (deal.isActive === false) return false;
+
+  const validFrom = parseDealDate(deal.validFrom);
+  const validUntil = parseDealDate(deal.validUntil, true);
+  if (validFrom && validFrom.getTime() > now) return false;
+  if (validUntil && validUntil.getTime() <= now) return false;
+  return true;
+};
+
+const isPreOrderStock = (stock = {}, fallbackStatus = '') => {
+  const status = String(stock.status || fallbackStatus || '').toLowerCase();
+  return status.includes('pre') || status.includes('batch') || status.includes('eta');
+};
+
+const stockMatchesCheckoutDealSource = (stock, item, source = 'onhand') => {
+  const isPreOrder = isPreOrderStock(stock, item?.status);
+  return source === 'preorder' ? isPreOrder : !isPreOrder;
+};
+
+// Basket rows do not necessarily carry clearance metadata that is attached by
+// the direct deal checkout path. Rebuild clearance metadata from the selected
+// stocks while leaving normal bundle discounts exclusive to direct deal checkout.
+const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees = {}) => {
+  const selectedBasketItems = normalizedItems.filter(item => item?.basketId || item?.basketIds?.length);
+  const selectedNormalBundleIds = new Set(
+    selectedBasketItems
+      .filter(item => item.bundleId && item.isClearanceBundle !== true)
+      .map(item => item.bundleId)
+  );
+  const bundleRowsById = new globalThis.Map();
+  selectedBasketItems.forEach(item => {
+    if (!item.bundleId || item.isClearanceBundle === true) return;
+    const rows = bundleRowsById.get(item.bundleId) || [];
+    rows.push(item);
+    bundleRowsById.set(item.bundleId, rows);
+  });
+
+  const validNormalBundleId = selectedNormalBundleIds.size === 1
+    ? Array.from(selectedNormalBundleIds).find(bundleId => {
+      const rows = bundleRowsById.get(bundleId) || [];
+      const expectedSize = Math.max(
+        rows.length,
+        ...rows.map(row => Number(row.bundleSize) || 0)
+      );
+      return rows.length === selectedBasketItems.length && rows.length >= expectedSize;
+    })
+    : null;
+
+  const resetDealItem = (item) => {
+    const kit = kits.find(candidate => candidate.id === (item.id || item.kitId || item.productId));
+    const stock = kit?.stocks?.[item.stockKey];
+    const sellPrice = Number(stock?.sellPrice || item.sellPrice || kit?.sellPrice || 0);
+    const handling = Number(item.appliedHandlingFee ?? fees.handlingFee ?? 0);
+    const installment = Number(item.appliedInstallmentFee ?? fees.installmentFee ?? 0);
+    const transfer = Number(item.appliedTransferFee ?? fees.transferFee ?? 0);
+
+    return {
+      ...item,
+      name: String(item.name || '').replace(/\s*\((?:Bundle|Clearance) Item\)\s*$/i, ''),
+      sellPrice,
+      price: sellPrice + handling + installment + transfer,
+      isBundleItem: false,
+      isClearanceBundle: false,
+      clearanceKitIds: [],
+      bundleId: null,
+      bundleName: null,
+      bundleSize: null,
+      bundleFeeShare: 0,
+      bundleReferencePrice: 0,
+      appliedBundlePrice: null
+    };
+  };
+
+  const preparedItems = normalizedItems.map(item => {
+    const isInvalidNormalBundle = item.bundleId && item.isClearanceBundle !== true &&
+      item.bundleId !== validNormalBundleId;
+    const isStaleClearanceBundle = item.isClearanceBundle === true;
+    return isInvalidNormalBundle || isStaleClearanceBundle ? resetDealItem(item) : item;
+  });
+
+  const basketItems = preparedItems.filter(item => item?.basketId || item?.basketIds?.length);
+  if (!basketItems.length || !Array.isArray(deals) || !deals.length) return preparedItems;
+
+  const itemByKitId = new globalThis.Map();
+  basketItems.forEach(item => {
+    const kitId = item.id || item.kitId || item.productId;
+    if (kitId && !itemByKitId.has(kitId)) itemByKitId.set(kitId, item);
+  });
+
+  const activeDeals = deals.filter(deal => isDealActiveForCheckout(deal));
+  const candidates = [];
+
+  activeDeals.forEach(deal => {
+    const isClearanceDeal = deal.type === 'clearance';
+    if (!isClearanceDeal) return;
+
+    const dealKitIds = Array.from(new Set(deal.kitIds || []));
+    const legacyClearanceKitId = deal.clearanceKitIds?.[0] || dealKitIds[0];
+    const clearanceKitIds = legacyClearanceKitId ? [legacyClearanceKitId] : [];
+
+    const clearanceRows = isClearanceDeal
+      ? basketItems.filter(item => {
+        if (isProjectCheckoutItem(item)) return false;
+        const kit = kits.find(candidate => candidate.id === (item.id || item.kitId || item.productId));
+        const stock = kit?.stocks?.[item.stockKey];
+        return stockMatchesCheckoutDealSource(stock || {}, item, 'onhand');
+      })
+      : [];
+    const selectedClearanceKitIds = clearanceKitIds.filter(kitId => itemByKitId.has(kitId));
+    if (isClearanceDeal && (selectedClearanceKitIds.length === 0 || clearanceRows.length < 2)) return;
+
+    // A normal bundle always wins over clearance for the same kit. This
+    // covers both basket rows already tagged by a bundle checkout and plain
+    // basket rows where every kit in an active bundle is selected.
+    const clearanceKitIsInNormalBundle = selectedClearanceKitIds.some(kitId => {
+      const item = itemByKitId.get(kitId);
+      if (item?.bundleId && item.isClearanceBundle !== true) return true;
+
+      return activeDeals.some(bundleDeal => {
+        if (!['bundle_only', 'bundle_discount'].includes(bundleDeal.type)) return false;
+        const bundleKitIds = Array.from(new Set(bundleDeal.kitIds || []));
+        return bundleKitIds.includes(kitId) &&
+          bundleKitIds.length > 1 &&
+          bundleKitIds.every(bundleKitId => itemByKitId.has(bundleKitId));
+      });
+    });
+    if (isClearanceDeal && clearanceKitIsInNormalBundle) return;
+
+    const selectedClearanceKitId = selectedClearanceKitIds[0];
+    const rows = clearanceRows
+      // The prioritized clearance pool can be shared by ordinary selected
+      // rows and other clearance rows. A normal bundle row stays protected.
+      .filter(item => {
+        const kitId = item.id || item.kitId || item.productId;
+        return kitId === selectedClearanceKitId || !isBundleOrClearanceItem(item);
+      })
+      .map(item => {
+      const kitId = item.id || item.kitId || item.productId;
+      const kit = kits.find(candidate => candidate.id === kitId);
+      const stock = kit?.stocks?.[item.stockKey];
+      if (!stockMatchesCheckoutDealSource(stock || {}, item, 'onhand')) return null;
+
+      const sellPrice = Number(stock?.sellPrice || item.sellPrice || kit?.sellPrice || 0);
+      const costPrice = Number(stock?.costPrice || item.costPrice || 0);
+      return { item, kit, kitId, stock, refPrice: sellPrice, sellPrice, costPrice };
+      });
+    if (rows.some(row => !row) || rows.some(row => row.refPrice <= 0)) return;
+
+    const pricedRows = getClearanceBundlePricing(
+      rows,
+      selectedClearanceKitIds,
+      deal.clearanceDiscounts || {},
+      { distributeAcrossAllRows: true }
+    ).rows;
+
+    const clearanceDiscount = pricedRows.reduce((sum, row) => sum + Number(row.clearanceDiscount || 0), 0);
+    const savings = pricedRows.reduce((sum, row) => sum + Math.max(0, row.refPrice - row.finalPrice), 0);
+    if (savings <= 0) return;
+    candidates.push({ deal, rows: pricedRows, savings, clearanceDiscount });
+  });
+
+  const best = candidates.sort((a, b) => (
+    b.clearanceDiscount - a.clearanceDiscount || b.savings - a.savings
+  ))[0];
+  if (!best) return preparedItems;
+
+  const deal = best.deal;
+  const rowByKitId = new globalThis.Map(best.rows.map(row => [row.kitId, row]));
+  const bundleSize = best.rows.length;
+  const bundleFeeTotal = Number(fees.handlingFee || 0) + Number(fees.transferFee || 0);
+
+  return preparedItems.map(item => {
+    const row = rowByKitId.get(item.id || item.kitId || item.productId);
+    if (!row || isBundleOrClearanceItem(item)) return item;
+
+    const bundleFeeShare = getDistributedFeeShare(bundleFeeTotal, row._clearanceIndex ?? best.rows.indexOf(row), bundleSize);
+    return {
+      ...item,
+      name: `${String(item.name || row.kit?.name || '').replace(/\s*\((?:Bundle|Clearance) Item\)\s*$/i, '')} (Bundle Item)`,
+      isBundleItem: true,
+      bundleId: deal.id,
+      bundleName: deal.name || (deal.type === 'clearance' ? 'Clearance Deal' : 'Bundle Deal'),
+      isClearanceBundle: deal.type === 'clearance',
+      clearanceKitIds: deal.clearanceKitIds || [],
+      bundleSize,
+      bundleFeeShare,
+      bundleReferencePrice: row.refPrice
+        + Number(item.appliedInstallmentFee || fees.installmentFee || 0)
+        + Number(item.appliedHandlingFee || fees.handlingFee || 0)
+        + Number(item.appliedTransferFee || fees.transferFee || 0),
+      allowShelfBundle: true,
+      appliedBundlePrice: row.finalPrice,
+      price: row.finalPrice,
+      displayPrice: row.finalPrice
+    };
+  });
 };
 
 const DEFAULT_DELIVERY_COORDS = { lat: 14.5995, lng: 120.9842 };
@@ -570,7 +787,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   const { isDarkMode } = useTheme();
   const { 
     user, reserveStockForCheckout, createOrder, completeAcceptedOffer, isAdmin, isAdminView,
-    removeFromBasket, kits, shelf, uploadReceipt, rates, updateUserProfile,
+    removeFromBasket, kits, deals, shelf, uploadReceipt, rates, updateUserProfile,
     adminsList, fetchAdmins, assignStockToOrder, adminData, garageInfo, orders,
     updateOrderDetails
   } = useStore();
@@ -862,9 +1079,9 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   }, [selectedMeetupDetails, shopDefaultLocation]);
 
   const checkoutItems = useMemo(() => {
-    const { handlingFee, installmentFee, transferFee } = getCheckoutPaymentFees({ shippingSettings: storeAdmin });
-    
-    return (items || []).map(item => {
+    const checkoutFees = getCheckoutPaymentFees({ shippingSettings: storeAdmin });
+    const { handlingFee, installmentFee, transferFee } = checkoutFees;
+    const normalizedItems = (items || []).map(item => {
       const quantity = item.quantity || 1;
       const kit = kits.find(k => k.id === item.id);
       const appliedHandlingFee = Number(item.appliedHandlingFee) > 0 ? Number(item.appliedHandlingFee) : handlingFee;
@@ -887,13 +1104,23 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
         appliedHandlingFee,
         appliedInstallmentFee,
         appliedTransferFee,
+        originalSellPrice: isProjectCheckoutItem(item)
+          ? 0
+          : getStockStandaloneSellPrice(item, kit),
         isFreeShippingEligible: isFreeShippingActive(item, kit?.stocks?.[item.stockKey]),
         freeShippingUntil: item.freeShippingUntil || kit?.stocks?.[item.stockKey]?.freeShippingUntil || '',
         freeShippingMethod: item.freeShippingMethod || kit?.stocks?.[item.stockKey]?.freeShippingMethod || 'All',
         freeShippingSuboption: item.freeShippingSuboption || kit?.stocks?.[item.stockKey]?.freeShippingSuboption || 'All'
       };
     });
-  }, [items, kits, storeAdmin]);
+
+    return applyActiveBasketDeal(normalizedItems, deals, kits, {
+      ...checkoutFees,
+      handlingFee,
+      installmentFee,
+      transferFee
+    });
+  }, [items, kits, deals, storeAdmin]);
 
 
   const hasPreOrders = useMemo(() => {
@@ -1038,7 +1265,7 @@ const baseTotal = useMemo(() => {
     return checkoutItems.reduce((sum, item) => {
       const sourceKit = kits.find(kit => kit.id === item.id || kit.id === item.productId || kit.name === item.name);
       const standalonePrice = Number(sourceKit?.stocks?.[item.stockKey]?.sellPrice || sourceKit?.sellPrice || 0);
-      const basePrice = item.isBundleItem && standalonePrice > 0
+      const basePrice = isBundleOrClearanceItem(item) && standalonePrice > 0
         ? standalonePrice
         : Number(item.price || item.sellPrice || item.projectData?.sellPrice || 0);
       const installmentFee = Number(item.appliedInstallmentFee || 0);
@@ -1048,7 +1275,17 @@ const baseTotal = useMemo(() => {
 
   const bundleDiscount = useMemo(() => {
     return checkoutItems.reduce((sum, item) => {
-      if (!item.isBundleItem) return sum;
+      if (!isBundleOrClearanceItem(item) || item.isClearanceBundle === true) return sum;
+      const sourceKit = kits.find(kit => kit.id === item.id || kit.id === item.productId || kit.name === item.name);
+      const standalonePrice = Number(sourceKit?.stocks?.[item.stockKey]?.sellPrice || sourceKit?.sellPrice || 0);
+      const dealPrice = Number(item.price || item.sellPrice || 0);
+      return sum + Math.max(0, standalonePrice - dealPrice) * (item.quantity || 1);
+    }, 0);
+  }, [checkoutItems, kits]);
+
+  const clearanceDiscount = useMemo(() => {
+    return checkoutItems.reduce((sum, item) => {
+      if (item.isClearanceBundle !== true) return sum;
       const sourceKit = kits.find(kit => kit.id === item.id || kit.id === item.productId || kit.name === item.name);
       const standalonePrice = Number(sourceKit?.stocks?.[item.stockKey]?.sellPrice || sourceKit?.sellPrice || 0);
       const dealPrice = Number(item.price || item.sellPrice || 0);
@@ -1065,11 +1302,12 @@ const baseTotal = useMemo(() => {
 
   const distributedOrderFees = useMemo(() => {
     const lineValues = checkoutItems.map(item => {
-      const basePrice = Number(item.price || item.sellPrice || item.projectData?.sellPrice || 0);
-      const installmentFee = checkoutData.paymentPlan === 'full'
-        ? 0
-        : Number(item.appliedInstallmentFee || 0);
-      return (basePrice + installmentFee) * (Number(item.quantity) || 1);
+      const sourceKit = kits.find(kit => kit.id === item.id || kit.id === item.productId || kit.name === item.name);
+      const standaloneBasePrice = isProjectCheckoutItem(item)
+        ? Number(item.projectData?.sellPrice || item.sellPrice || item.price || 0)
+        : getStockStandaloneSellPrice(item, sourceKit);
+      const installmentFee = Number(item.appliedInstallmentFee || 0);
+      return (standaloneBasePrice + installmentFee) * (Number(item.quantity) || 1);
     });
     const handlingShares = distributeFeeByLineValue(remainingHandlingFee, lineValues);
     const transferShares = distributeFeeByLineValue(remainingCashTransferFee, lineValues);
@@ -1079,7 +1317,29 @@ const baseTotal = useMemo(() => {
       transfer: transferShares[index] || 0,
       total: (handlingShares[index] || 0) + (transferShares[index] || 0)
     }));
-  }, [checkoutItems, checkoutData.paymentPlan, remainingHandlingFee, remainingCashTransferFee]);
+  }, [checkoutItems, kits, remainingHandlingFee, remainingCashTransferFee]);
+
+  // The strike-through comparison represents the selected set bought
+  // independently. Handling and transfer are order-level fees, so distribute
+  // one fee of each type across the selected units instead of repeating both
+  // fees on every line.
+  const standaloneDistributedOrderFees = useMemo(() => {
+    const totalUnits = checkoutItems.reduce(
+      (sum, item) => sum + Math.max(1, Number(item.quantity) || 1),
+      0
+    );
+    let unitOffset = 0;
+    return checkoutItems.map(item => {
+      const handling = getIntegerFeeShare(orderFees.handling, totalUnits, unitOffset);
+      const transfer = getIntegerFeeShare(orderFees.transfer, totalUnits, unitOffset);
+      unitOffset += Math.max(1, Number(item.quantity) || 1);
+      return {
+        handling,
+        transfer,
+        total: handling + transfer
+      };
+    });
+  }, [checkoutItems, orderFees.handling, orderFees.transfer]);
 
   const isInstallmentPlan = useMemo(() => (
     checkoutData.paymentPlan === 'partial' ||
@@ -1956,7 +2216,10 @@ const handleFinalizeOrder = async () => {
           id: item.id,
           name: `${item.brand || ''} ${item.specs?.line || ''} ${item.name}`.trim(),
           price: item.price || 0,
-          sellPrice: item.isBundleItem ? (item.price || 0) : (item.sellPrice || item.price || 0),
+          sellPrice: isBundleOrClearanceItem(item) ? (item.price || 0) : (item.sellPrice || item.price || 0),
+          originalSellPrice: isProjectCheckoutItem(item)
+            ? 0
+            : getStockStandaloneSellPrice(item, kits.find(kit => kit.id === item.id)),
           quantity: item.quantity || 1,
           image: item.image || null,
           images: item.images || null,
@@ -1966,7 +2229,7 @@ const handleFinalizeOrder = async () => {
           distributedHandlingFee: distributedFee.handling,
           distributedTransferFee: distributedFee.transfer,
           hasDistributedOrderFees: true,
-          isBundleItem: Boolean(item.isBundleItem),
+          isBundleItem: isBundleOrClearanceItem(item),
           bundleId: item.bundleId || null,
           bundleName: item.bundleName || null,
           bundleSize: Number(item.bundleSize || 0) || null,
@@ -2102,7 +2365,7 @@ const handleFinalizeOrder = async () => {
         }
       }
 
-      const completedOffers = new Map();
+      const completedOffers = new globalThis.Map();
       checkoutItems.forEach((item) => {
         if (!item.offerId || !item.offerPrice || completedOffers.has(item.offerId)) return;
         completedOffers.set(item.offerId, item);
@@ -2586,16 +2849,19 @@ const handleFinalizeOrder = async () => {
       const rawName = (item.name || item.item || item.projectData?.projectName || `Item ${idx + 1}`).replace(/\s*\(Pre-Order\)\s*$/i, '');
       const quantity = Number(item.quantity) || 1;
       const itemInstallmentFee = Number(item.appliedInstallmentFee || 0);
-      const displayInstallmentFee = item.isBundleItem && checkoutData.paymentPlan === 'full'
+      const displayInstallmentFee = checkoutData.paymentPlan === 'full'
         ? 0
         : itemInstallmentFee;
-      const unitPrice = Number(item.price || item.sellPrice || item.projectData?.displayPrice || item.projectData?.sellPrice || 0) + displayInstallmentFee;
+      const basePrice = Number(item.price || item.sellPrice || item.projectData?.displayPrice || item.projectData?.sellPrice || 0);
       const distributedFee = distributedOrderFees[idx] || { total: 0 };
-      const linePrice = (unitPrice * quantity) + distributedFee.total;
-      const stockReferencePrice = Number(kit?.stocks?.[item.stockKey]?.sellPrice || kit?.sellPrice || 0);
-      const standaloneUnitPrice = item.isBundleItem
-        ? stockReferencePrice + Number(item.appliedInstallmentFee || 0)
-        : 0;
+      const standaloneFee = standaloneDistributedOrderFees[idx]?.total || 0;
+      const unitPrice = basePrice + displayInstallmentFee + (distributedFee.total / quantity);
+      const linePrice = unitPrice * quantity;
+      const standaloneBasePrice = isProjectCheckoutItem(item)
+        ? Number(item.projectData?.sellPrice || item.sellPrice || item.price || 0)
+        : getStockStandaloneSellPrice(item, kit);
+      const standaloneUnitPrice = standaloneBasePrice + itemInstallmentFee + standaloneFee;
+      const isDiscounted = standaloneUnitPrice > unitPrice;
       return {
         id: item.basketId || item.stockKey || item.id || idx,
         image: displayImage,
@@ -2605,7 +2871,8 @@ const handleFinalizeOrder = async () => {
         unitPrice,
         linePrice,
         standaloneUnitPrice,
-        isBundleItem: Boolean(item.isBundleItem)
+        isBundleItem: isBundleOrClearanceItem(item),
+        isDiscounted
       };
     });
 
@@ -2821,9 +3088,9 @@ const handleFinalizeOrder = async () => {
                     </div>
                     <div className="text-right">
                       <p className="text-[13px] font-black uppercase tracking-widest opacity-45">{row.quantity > 1 ? 'Total' : 'Unit'}</p>
-                      <p className={`text-[13px] font-black ${row.isBundleItem ? 'text-emerald-600 dark:text-emerald-400' : ''}`}>₱{row.linePrice.toLocaleString()}</p>
-                      {row.isBundleItem && row.standaloneUnitPrice > row.unitPrice && (
-                        <p className="mt-0.5 text-[12px] font-black text-neutral-500 line-through dark:text-neutral-300">₱{row.standaloneUnitPrice.toLocaleString()}</p>
+                      <p className={`text-[13px] font-black ${row.isDiscounted ? 'text-emerald-600 dark:text-emerald-400' : ''}`}>₱{row.linePrice.toLocaleString()}</p>
+                      {row.isDiscounted && (
+                        <p className="mt-0.5 text-[12px] font-black text-neutral-500 line-through dark:text-neutral-300">₱{(row.standaloneUnitPrice * row.quantity).toLocaleString()}</p>
                       )}
                     </div>
                   </div>
@@ -2849,6 +3116,9 @@ const handleFinalizeOrder = async () => {
                 <div className="flex justify-between"><span>Subtotal (Items)</span><span>₱{summaryItemsSubtotal.toLocaleString()}</span></div>
                 {bundleDiscount > 0 && (
                   <div className="flex justify-between text-emerald-200"><span>Bundle Discount</span><span>-₱{bundleDiscount.toLocaleString()}</span></div>
+                )}
+                {clearanceDiscount > 0 && (
+                  <div className="flex justify-between text-emerald-200"><span>Clearance Discount</span><span>-₱{clearanceDiscount.toLocaleString()}</span></div>
                 )}
                 {fullPaymentInstallmentDiscount > 0 && (
                   <div className="flex justify-between text-emerald-200"><span>Full Payment Discount</span><span>-₱{fullPaymentInstallmentDiscount.toLocaleString()}</span></div>
@@ -2919,7 +3189,7 @@ const handleFinalizeOrder = async () => {
                             event.stopPropagation();
                             setIsPaymentPolicyOpen(true);
                           }}
-                          className="shrink-0 font-black text-white underline underline-offset-2 transition-colors hover:text-emerald-300"
+                          className="shrink-0 font-black text-white underline-offset-2 transition-colors hover:text-emerald-300"
                         >
                           payment and reservation policy
                         </a>
@@ -3669,17 +3939,20 @@ const handleFinalizeOrder = async () => {
   
   // 2. I-add ang installment fee (₱2,100 + ₱100 = ₱2,200)
   const itemInstallmentFee = Number(item.appliedInstallmentFee || 0);
-  const displayInstallmentFee = item.isBundleItem && checkoutData.paymentPlan === 'full'
+  const displayInstallmentFee = checkoutData.paymentPlan === 'full'
     ? 0
     : itemInstallmentFee;
-  const itemPrice = basePrice + displayInstallmentFee;
+  const quantity = Number(item.quantity) || 1;
   const distributedFee = distributedOrderFees[idx] || { total: 0 };
-  const itemLinePrice = (itemPrice * (item.quantity || 1)) + distributedFee.total;
+  const itemPrice = basePrice + displayInstallmentFee + (distributedFee.total / quantity);
+  const itemLinePrice = itemPrice * quantity;
   const sourceKit = kits.find(kit => kit.id === item.id || kit.id === item.productId || kit.name === item.name);
-  const standaloneBasePrice = Number(sourceKit?.stocks?.[item.stockKey]?.sellPrice || sourceKit?.sellPrice || 0);
-  const standalonePrice = item.isBundleItem
-    ? standaloneBasePrice + (Number(item.appliedInstallmentFee) || 0)
-    : 0;
+  const standaloneFee = standaloneDistributedOrderFees[idx]?.total || 0;
+  const standaloneBasePrice = isProjectCheckoutItem(item)
+    ? Number(item.projectData?.sellPrice || item.sellPrice || item.price || 0)
+    : getStockStandaloneSellPrice(item, sourceKit);
+  const standalonePrice = standaloneBasePrice + itemInstallmentFee + standaloneFee;
+  const isDiscountedItem = standalonePrice > itemPrice;
 
   // 3. Resolve the image
   const displayImage = item.type === 'project'
@@ -3710,8 +3983,8 @@ const handleFinalizeOrder = async () => {
         </div>
         <div className="shrink-0 text-right">
           <p className="text-[9px] font-black uppercase tracking-widest text-white/60">{(item.quantity || 1) > 1 ? 'Total' : 'Unit'}</p>
-          <p className={`text-[10px] font-black ${item.isBundleItem ? 'text-emerald-200' : ''}`}>₱{itemLinePrice.toLocaleString()}</p>
-          {item.isBundleItem && standalonePrice > itemPrice && (
+          <p className={`text-[10px] font-black ${isDiscountedItem ? 'text-emerald-200' : ''}`}>₱{itemLinePrice.toLocaleString()}</p>
+          {isDiscountedItem && (
             <p className="text-[9px] font-black line-through text-white/65">₱{(standalonePrice * (item.quantity || 1)).toLocaleString()}</p>
           )}
         </div>
@@ -3729,6 +4002,12 @@ const handleFinalizeOrder = async () => {
                         <div className="flex justify-between uppercase font-black text-emerald-300">
                           <span>Bundle Discount</span>
                           <span>-₱{bundleDiscount.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {clearanceDiscount > 0 && (
+                        <div className="flex justify-between uppercase font-black text-emerald-300">
+                          <span>Clearance Discount</span>
+                          <span>-₱{clearanceDiscount.toLocaleString()}</span>
                         </div>
                       )}
                       {fullPaymentInstallmentDiscount > 0 && (

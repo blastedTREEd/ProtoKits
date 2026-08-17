@@ -15,6 +15,7 @@ import 'leaflet/dist/leaflet.css';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import LoadingState from '../components/common/LoadingState';
+import { getStandaloneUnitPrice } from '../utils/standalonePricing';
 
 let DefaultIcon = L.icon({ iconUrl: markerIcon, shadowUrl: markerShadow, iconSize: [25, 41], iconAnchor: [12, 41] });
 L.Marker.prototype.options.icon = DefaultIcon;
@@ -1713,8 +1714,13 @@ export default function Orders() {
               const distributedOrderFees = item.hasDistributedOrderFees
                 ? Number(item.distributedHandlingFee || 0) + Number(item.distributedTransferFee || 0)
                 : bundleFeeShare * qty;
-              const unitPrice = sellPrice + installmentFee;
+              const displayInstallmentFee = item.isBundleItem && String(selectedOrder.paymentPlan || '').toLowerCase() === 'full'
+                ? 0
+                : installmentFee;
+              const unitPrice = sellPrice + displayInstallmentFee;
               const linePrice = (unitPrice * qty) + distributedOrderFees;
+              const standaloneUnitPrice = getStandaloneUnitPrice(item, kit, installmentFee);
+              const isDiscounted = standaloneUnitPrice > unitPrice;
 
               return (
                 <div key={idx} className="flex flex-col gap-4 p-4 bg-black/[0.01] dark:bg-white/[0.01] rounded-3xl border border-black/5 dark:border-white/5">
@@ -1757,9 +1763,14 @@ export default function Orders() {
                     </div>
 
                     <div className="text-right shrink-0">
-                      <span className="text-sm font-black text-neutral-900 dark:text-white">
+                      <span className={`block text-sm font-black ${isDiscounted ? 'text-emerald-600 dark:text-emerald-400' : 'text-neutral-900 dark:text-white'}`}>
                         ₱{linePrice.toLocaleString()}
                       </span>
+                      {isDiscounted && (
+                        <span className="block text-xs font-black text-neutral-500 line-through dark:text-neutral-400">
+                          ₱{(standaloneUnitPrice * qty).toLocaleString()}
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -2311,13 +2322,19 @@ export default function Orders() {
                   const stockSellPrice = Number(matchedKit?.stocks?.[item.stockKey]?.sellPrice || 0);
                   const itemSellPrice = Number(item.sellPrice || item.price || item.displayPrice || item.projectData?.sellPrice || 0);
                   const kitSellPrice = Number(matchedKit?.sellPrice || 0);
+                  const unitPrice = Number(item.sellPrice || item.price || item.displayPrice || item.projectData?.sellPrice || 0)
+                    + (item.isBundleItem && String(o.paymentPlan || '').toLowerCase() === 'full' ? 0 : Number(item.appliedInstallmentFee || 0));
+                  const standaloneUnitPrice = getStandaloneUnitPrice(item, matchedKit, Number(item.appliedInstallmentFee || 0));
                   return {
                     item,
                     kit: matchedKit,
                     sellPrice: Math.max(stockSellPrice, itemSellPrice, kitSellPrice),
+                    unitPrice,
+                    standaloneUnitPrice,
+                    isDiscounted: standaloneUnitPrice > unitPrice,
                   };
                 });
-                const itemRows = pricedItems.map(({ item, kit }, index) => {
+                const itemRows = pricedItems.map(({ item, kit, unitPrice, standaloneUnitPrice, isDiscounted }, index) => {
                   if (item.type === 'project') {
                     const projectName = item.projectData?.name || item.name || `Project ${index + 1}`;
                     return {
@@ -2325,7 +2342,10 @@ export default function Orders() {
                       image: item.projectData?.image || item.image || '',
                       name: projectName,
                       meta: 'PROJECT',
-                      quantity: Number(item.quantity) || 1
+                      quantity: Number(item.quantity) || 1,
+                      unitPrice,
+                      standaloneUnitPrice,
+                      isDiscounted
                     };
                   }
                   const grade = item.specs?.line || kit?.specs?.line || '';
@@ -2340,7 +2360,10 @@ export default function Orders() {
                     image: resolveImage(item.image || kit?.image, item.images || kit?.images),
                     name,
                     meta: [grade, status].filter(Boolean).join(' / '),
-                    quantity: Number(item.quantity) || 1
+                    quantity: Number(item.quantity) || 1,
+                    unitPrice,
+                    standaloneUnitPrice,
+                    isDiscounted
                   };
                 });
                 const isItemsExpanded = Boolean(expandedOrderItems[o.id]);
@@ -2418,6 +2441,16 @@ export default function Orders() {
                             <p className="mt-1 text-[12px] font-black uppercase tracking-widest opacity-45">
                               x{row.quantity}
                             </p>
+                            <div className="mt-1 flex items-baseline gap-2">
+                              <span className={`text-[13px] font-black ${row.isDiscounted ? 'text-emerald-600 dark:text-emerald-400' : 'text-neutral-900 dark:text-white'}`}>
+                                ₱{(row.unitPrice * row.quantity).toLocaleString()}
+                              </span>
+                              {row.isDiscounted && (
+                                <span className="text-[11px] font-black text-neutral-500 line-through dark:text-neutral-400">
+                                  ₱{(row.standaloneUnitPrice * row.quantity).toLocaleString()}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -2618,7 +2651,7 @@ export default function Orders() {
         })()}
 
         {showManualOrderModal && (
-          <div className="fixed inset-0 z-[500] flex flex-col overflow-hidden bg-white text-neutral-950 dark:bg-[#0a0a0a] dark:text-white">
+          <div className="fixed inset-x-0 bottom-0 top-[56px] z-[500] mx-auto flex max-w-7xl flex-col overflow-hidden bg-white text-neutral-950 dark:bg-[#0a0a0a] dark:text-white">
             <header className="flex h-[72px] shrink-0 items-center justify-between border-b border-black/5 px-5 shadow-sm dark:border-white/5 sm:h-20 sm:px-8 lg:px-12">
               <div className="flex items-center gap-3">
                 <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-600/25"><ClipboardList size={20} /></span>
@@ -2638,8 +2671,8 @@ export default function Orders() {
                         {filteredLegacyStockChoices.map(({ kit, stockKey, stock }) => {
                           const selected = manualOrderData.selectedItems.some(item => item.kitId === kit.id && item.stockKey === stockKey);
                           const image = resolveImage(kit.image, kit.images) || '/snorlaxgarage.png';
-                          return <button key={`${kit.id}:${stockKey}`} type="button" disabled={selected} onClick={() => setManualOrderData(prev => ({ ...prev, selectedItems: [...prev.selectedItems, { kitId: kit.id, stockKey, name: kit.name, image, meta: [kit.brand, kit.specs?.line, stock.status].filter(Boolean).join(' • ') }] }))} className="flex w-full items-center gap-3 rounded-xl border border-black/5 bg-white p-2 text-left transition hover:border-blue-400 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/5 dark:bg-white/[0.03]">
-                            <img src={image} alt="" className="h-12 w-16 rounded-lg object-cover" /><span className="min-w-0 flex-1"><span className="block truncate text-[12px] font-black uppercase">{kit.name}</span><span className="block truncate text-[10px] font-bold uppercase tracking-wider opacity-45">{[kit.brand, kit.specs?.line, stock.status, stock.eta].filter(Boolean).join(' • ')}</span></span><span className="shrink-0 text-[12px] font-black text-emerald-600">₱{Number(stock.sellPrice || kit.sellPrice || 0).toLocaleString()}</span>
+                          return <button key={`${kit.id}:${stockKey}`} type="button" disabled={selected} onClick={() => setManualOrderData(prev => ({ ...prev, selectedItems: [...prev.selectedItems, { kitId: kit.id, stockKey, name: kit.name, image, costPrice: Number(stock.costPrice || 0), meta: [kit.brand, kit.specs?.line, stock.status].filter(Boolean).join(' • ') }] }))} className="flex w-full items-center gap-3 rounded-xl border border-black/5 bg-white p-2 text-left transition hover:border-blue-400 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/5 dark:bg-white/[0.03]">
+                            <img src={image} alt="" className="h-12 w-16 rounded-lg object-cover" /><span className="min-w-0 flex-1"><span className="block truncate text-[12px] font-black uppercase">{kit.name}</span><span className="block truncate text-[10px] font-bold uppercase tracking-wider opacity-45">{[kit.brand, kit.specs?.line, stock.status, stock.eta].filter(Boolean).join(' • ')}</span></span><span className="shrink-0 text-right leading-tight"><span className="block text-[12px] font-black text-emerald-600">SELL ₱{Number(stock.sellPrice || kit.sellPrice || 0).toLocaleString()}</span><span className="block text-[10px] font-black opacity-50">COST ₱{Number(stock.costPrice || 0).toLocaleString()}</span></span>
                           </button>;
                         })}
                         {filteredLegacyStockChoices.length === 0 && <p className="p-5 text-center text-[11px] font-black uppercase tracking-widest opacity-40">No available non-collection stock found</p>}
@@ -2648,7 +2681,7 @@ export default function Orders() {
                   </section>
 
                   <section className="space-y-3">
-                    {manualOrderData.selectedItems.length === 0 ? <div className="rounded-2xl border border-dashed border-black/15 p-8 text-center text-[11px] font-black uppercase tracking-widest opacity-40 dark:border-white/15">Select specific stocks to include</div> : manualOrderData.selectedItems.map((item) => <div key={`${item.kitId}:${item.stockKey}`} className="grid grid-cols-[5rem_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border border-black/5 bg-white p-3 shadow-sm dark:border-white/5 dark:bg-white/[0.03]"><img src={item.image || '/snorlaxgarage.png'} alt="" className="h-16 w-20 rounded-xl object-cover" /><div className="min-w-0"><p className="truncate text-[13px] font-black uppercase">{item.name}</p><p className="mt-1 truncate text-[11px] font-black uppercase tracking-wider opacity-45">{item.meta}</p></div><button type="button" onClick={() => setManualOrderData(prev => ({ ...prev, selectedItems: prev.selectedItems.filter(entry => !(entry.kitId === item.kitId && entry.stockKey === item.stockKey)) }))} className="rounded-full p-2 text-red-500 hover:bg-red-500/10" aria-label={`Remove ${item.name}`}><Trash2 size={16} /></button></div>)}
+                    {manualOrderData.selectedItems.length === 0 ? <div className="rounded-2xl border border-dashed border-black/15 p-8 text-center text-[11px] font-black uppercase tracking-widest opacity-40 dark:border-white/15">Select specific stocks to include</div> : manualOrderData.selectedItems.map((item) => <div key={`${item.kitId}:${item.stockKey}`} className="grid grid-cols-[5rem_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border border-black/5 bg-white p-3 shadow-sm dark:border-white/5 dark:bg-white/[0.03]"><img src={item.image || '/snorlaxgarage.png'} alt="" className="h-16 w-20 rounded-xl object-cover" /><div className="min-w-0"><p className="truncate text-[13px] font-black uppercase">{item.name}</p><p className="mt-1 truncate text-[11px] font-black uppercase tracking-wider opacity-45">{item.meta}</p><p className="mt-1 text-[10px] font-black uppercase tracking-wider opacity-60">COST ₱{Number(item.costPrice || 0).toLocaleString()}</p></div><button type="button" onClick={() => setManualOrderData(prev => ({ ...prev, selectedItems: prev.selectedItems.filter(entry => !(entry.kitId === item.kitId && entry.stockKey === item.stockKey)) }))} className="rounded-full p-2 text-red-500 hover:bg-red-500/10" aria-label={`Remove ${item.name}`}><Trash2 size={16} /></button></div>)}
                   </section>
                 </div>
 
@@ -2658,7 +2691,7 @@ export default function Orders() {
                   <section className="rounded-2xl border border-blue-500/20 bg-blue-500/[0.04] p-5"><h3 className="mb-4 text-[12px] font-black uppercase tracking-widest text-blue-600">Payment summary</h3><label className="mb-3 block text-[10px] font-black uppercase tracking-widest opacity-45">Total paid by buyer<input required min="0" type="number" value={manualOrderData.buyerPaid} onChange={(event) => setManualOrderData(prev => ({ ...prev, buyerPaid: event.target.value }))} className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-3 text-[14px] font-black text-neutral-950 dark:border-white/10 dark:bg-black/20 dark:text-white" /></label><label className="block text-[10px] font-black uppercase tracking-widest opacity-45">Handling fee paid<input required min="0" type="number" value={manualOrderData.handlingFeePaid} onChange={(event) => setManualOrderData(prev => ({ ...prev, handlingFeePaid: event.target.value }))} className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-3 text-[14px] font-black text-neutral-950 dark:border-white/10 dark:bg-black/20 dark:text-white" /></label><div className="mt-4 flex items-center justify-between border-t border-blue-500/15 pt-4"><span className="text-[10px] font-black uppercase tracking-widest opacity-55">Distributed to items</span><span className="text-[18px] font-black text-blue-600">₱{legacyItemTotal.toLocaleString()}</span></div><p className="mt-3 text-[10px] font-bold leading-relaxed opacity-50">Total paid minus handling fee is proportionally saved as the selected stocks’ legacy sell price. Installment fees are excluded.</p></section>
                 </aside>
               </div>
-              <footer className="fixed inset-x-0 bottom-0 z-10 border-t border-black/5 bg-white/95 px-5 py-3 backdrop-blur dark:border-white/5 dark:bg-[#0a0a0a]/95 sm:px-8 lg:px-12"><div className="mx-auto flex max-w-7xl items-center justify-between gap-4"><button type="button" onClick={() => setShowManualOrderModal(false)} className="text-[11px] font-black uppercase tracking-widest opacity-50">Cancel</button><button type="submit" className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-[11px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-700 active:scale-95"><ArrowRight size={16} /> Create legacy order</button></div></footer>
+              <footer className="absolute inset-x-0 bottom-0 z-10 border-t border-black/5 bg-white/95 px-5 py-3 backdrop-blur dark:border-white/5 dark:bg-[#0a0a0a]/95 sm:px-8 lg:px-12"><div className="mx-auto flex max-w-7xl items-center justify-between gap-4"><button type="button" onClick={() => setShowManualOrderModal(false)} className="text-[11px] font-black uppercase tracking-widest opacity-50">Cancel</button><button type="submit" className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-[11px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-700 active:scale-95"><ArrowRight size={16} /> Create legacy order</button></div></footer>
             </form>
           </div>
         )}

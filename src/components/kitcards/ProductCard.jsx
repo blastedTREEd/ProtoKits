@@ -9,8 +9,9 @@ import { FaQuestion } from 'react-icons/fa';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
 import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
-import { distributeRoundedBundlePrices, getDistributedFeeShare } from '../../utils/bundlePricing';
+import { distributeRoundedBundlePrices, getDistributedFeeShare, getClearanceBundlePricing, getHighestCostStock } from '../../utils/bundlePricing';
 import { formatOfferCountdown, isOfferCheckoutActive } from '../../utils/offerUtils';
+import { getStockStandaloneSellPrice } from '../../utils/standalonePricing';
 
 // Resolves an image ID to its URL from the images array.
 // Backward compatible: if the value is already a URL (base64 or http), returns it directly.
@@ -195,15 +196,35 @@ function isBundlePurchasableStock(stock, source = 'onhand') {
   return !stock.isReserved || stock.reservationType === 'admin';
 }
 
+function getPreferredDealStock(stocks = [], source = 'onhand') {
+  const matchingStocks = stocks.filter(stock => stockMatchesDealSource(stock, source));
+  const purchasableStocks = matchingStocks.filter(stock => isBundlePurchasableStock(stock, source));
+  return getHighestCostStock(purchasableStocks) || getHighestCostStock(matchingStocks) || null;
+}
+
 function getBundleKitPrice(deal, dealKit, allKits = [], fallbackExclusivePercent = 100) {
   if (!deal || !dealKit) return null;
   const includedKits = (deal.kitIds || []).map(id => id === dealKit.id ? dealKit : allKits.find(k => k.id === id)).filter(Boolean);
+  if (deal.type === 'clearance') {
+    const rows = includedKits.map(k => {
+      const stocks = Object.values(k?.stocks || {});
+      const sourceStock = getPreferredDealStock(stocks, deal.stockSource || 'onhand') || stocks[0];
+      return {
+        kit: k,
+        kitId: k.id,
+        sellPrice: Number(sourceStock?.sellPrice || k?.sellPrice || 0),
+        costPrice: Number(sourceStock?.costPrice || 0)
+      };
+    });
+    const clearance = getClearanceBundlePricing(rows, deal.clearanceKitIds || [], deal.clearanceDiscounts || {});
+    return clearance.rows.find(row => row.kitId === dealKit.id)?.finalPrice ?? null;
+  }
   const exclusiveKitIds = deal.exclusiveKitIds || [];
   const exclusivePercent = Number(deal.exclusiveDiscountPercent ?? fallbackExclusivePercent ?? 100) / 100;
 
   const rows = includedKits.map(k => {
     const stocks = Object.values(k?.stocks || {});
-    const sourceStock = stocks.find(s => stockMatchesDealSource(s, deal.stockSource || 'onhand'));
+    const sourceStock = getPreferredDealStock(stocks, deal.stockSource || 'onhand');
     const refPrice = Number(sourceStock?.sellPrice || stocks[0]?.sellPrice || k?.sellPrice || 0);
     return { kit: k, refPrice, isExclusive: exclusiveKitIds.includes(k.id) };
   });
@@ -237,6 +258,19 @@ function getBundleSavedAmount(deal) {
   const totalSell = Number(deal.totalSell || 0);
   const bundlePrice = Number(deal.bundlePrice || 0);
   return Math.max(0, totalSell - bundlePrice);
+}
+
+function getConfiguredClearanceDiscount(deal, kitId) {
+  if (!deal || deal.type !== 'clearance') return 0;
+  const override = deal.clearanceDiscounts?.[kitId];
+  if (override !== '' && override !== null && override !== undefined) {
+    return Math.max(0, Math.round(Number(override) || 0));
+  }
+
+  const totalDiscount = Number(deal.clearanceDiscountTotal);
+  if (totalDiscount > 0) return Math.round(totalDiscount);
+
+  return Math.max(0, Math.round(Number(deal.kitDiscounts?.[kitId]?.discount) || 0));
 }
 
 function parseDealDate(value) {
@@ -301,7 +335,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     const bundleKits = (allKits || []).filter(k => deal.kitIds.includes(k.id));
     const normalTotal = bundleKits.reduce((sum, k) => {
       const stocks = Object.values(k.stocks || {});
-      const sourceStock = stocks.find(s => stockMatchesDealSource(s, deal.stockSource || 'onhand'));
+      const sourceStock = getPreferredDealStock(stocks, deal.stockSource || 'onhand');
       return sum + (sourceStock?.sellPrice || stocks[0]?.sellPrice || k.sellPrice || 0);
     }, 0);
 
@@ -314,8 +348,8 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
 
     const kitPrices = bundleKits.map((kit) => {
       const stocks = Object.values(kit?.stocks || {});
-      const availableStock = stocks.find(s => isBundlePurchasableStock(s, deal.stockSource || 'onhand'));
-      const sourceStock = stocks.find(s => stockMatchesDealSource(s, deal.stockSource || 'onhand'));
+      const sourceStock = getPreferredDealStock(stocks, deal.stockSource || 'onhand');
+      const availableStock = sourceStock;
       const refPrice = Number(sourceStock?.sellPrice || stocks[0]?.sellPrice || kit?.sellPrice || 0);
 
       const isExclusive = exclusiveKitIds.includes(kit.id);
@@ -356,7 +390,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
         bundleName: deal.name || 'Bundle Deal',
         bundleSize,
         bundleFeeShare,
-        bundleReferencePrice: refPrice + installmentFee + handlingFee + transferFee,
+        bundleReferencePrice: refPrice + installmentFee + bundleFeeShare,
         allowShelfBundle: true,
         stockKey: availableStock?.key || 'default',
         price: finalPrice,
@@ -609,7 +643,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   const bundleOnlyDeals = useMemo(() => {
     if (!kitId || !Array.isArray(deals)) return [];
     return deals.filter(deal => {
-      const isBundleDeal = deal?.type === 'bundle_only' || deal?.type === 'bundle_discount';
+      const isBundleDeal = deal?.type === 'bundle_only' || deal?.type === 'bundle_discount' || deal?.type === 'clearance';
       if (!isBundleDeal || deal.isActive === false || !(deal.kitIds || []).includes(kitId)) return false;
       const validUntil = parseDealDate(deal.validUntil);
       if (validUntil && validUntil.getTime() <= now) return false;
@@ -635,7 +669,17 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       const currentKitStock = stockList.find(stock => isBundlePurchasableStock(stock, deal.stockSource || 'onhand')) || null;
       const currentItemPrice = getBundleKitPrice(deal, kit, allKits, exclusiveDiscountPercent);
       const bundlePrice = Number(deal.bundlePrice ?? Math.max(0, Number(deal.totalSell || 0) - Number(deal.discountAmount || 0)));
-      return { deal, includedKits, currentKitStock, currentItemPrice, bundlePrice };
+      return {
+        deal,
+        includedKits,
+        currentKitStock,
+        currentItemPrice,
+        bundlePrice,
+        isClearance: deal.type === 'clearance',
+        displayName: deal.type === 'clearance'
+          ? `${kit?.name || 'Kit'} + ANY KITS OF YOUR CHOICE`
+          : deal.name
+      };
     }).filter(detail => Number.isFinite(Number(detail.currentItemPrice)) && Number(detail.currentItemPrice) > 0);
   }, [bundleOnlyDeals, allKits, kitId, kit, stockList, exclusiveDiscountPercent]);
 
@@ -643,10 +687,11 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     if (bundleDealDetails.length === 0) return [];
     return bundleDealDetails.map(detail => ({
       key: `bundle-deal-${detail.deal.id}`,
-      label: 'BUNDLE DEAL',
+      label: detail.isClearance ? 'CLEARANCE DEAL' : 'BUNDLE DEAL',
       items: [detail.currentKitStock || { ...detail.deal, status: 'bundle_deal', sellPrice: detail.currentItemPrice }],
       isOnHand: true,
       tag: 'bundleDeal',
+      isClearanceDeal: detail.isClearance,
       deal: detail.deal,
       dealDetails: detail
     }));
@@ -711,7 +756,8 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       return (deal.exclusiveKitIds || []).includes(kitId);
     });
   }, [deals, kitId, now]);
-  const isIncludedInBundleDeal = bundleOnlyDeals.length > 0 && !isExclusiveToBundle;
+  const isClearanceDeal = bundleDealDetails.some(detail => detail.isClearance);
+  const isIncludedInBundleDeal = bundleOnlyDeals.some(deal => deal.type !== 'clearance') && !isExclusiveToBundle;
 
   // Compute the exclusive bundle deal and proportional discounted price for this kit
   const exclusiveBundlePrice = useMemo(() => {
@@ -732,7 +778,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       for (const dkId of (deal.kitIds || [])) {
         const dk = dkId === kitId ? kit : (allKits || []).find(k => k.id === dkId);
         const stocks = Object.values(dk?.stocks || {});
-        const src = stocks.find(s => stockMatchesDealSource(s, deal.stockSource || 'onhand'));
+        const src = getPreferredDealStock(stocks, deal.stockSource || 'onhand');
         const rp = Number(src?.sellPrice || stocks[0]?.sellPrice || dk?.sellPrice || 0);
         normalTotal += rp;
         if (exclusiveKitIds.includes(dkId)) exclusiveRefTotal += rp;
@@ -1285,9 +1331,21 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     ? acceptedOfferPrice
     : Number(selectedBundleDealDetails?.currentItemPrice || sellPrice || 0);
   const modalReferencePrice = acceptedOfferPrice > 0
-    ? acceptedOfferPrice + handlingFee + transferFee + installmentFee
+    ? getStockStandaloneSellPrice({}, kit, acceptedOfferStock) + handlingFee + installmentFee + transferFee
     : displayPrice;
   const activeBundleDeal = selectedBundleDealDetails?.deal || null;
+  const clearanceKitId = activeBundleDeal?.clearanceKitIds?.[0] || activeBundleDeal?.kitIds?.[0] || kitId;
+  const configuredClearanceDiscount = getConfiguredClearanceDiscount(activeBundleDeal, clearanceKitId);
+  const isClearanceDiscountMode = Boolean(
+    isClearanceDeal
+    && selectedAvailabilityGroup?.tag === 'bundleDeal'
+    && selectedBundleDealDetails?.isClearance
+    && modalLowestPrice > 0
+    && modalReferencePrice > modalLowestPrice
+  );
+  const modalClearanceDiscount = configuredClearanceDiscount > 0
+    ? configuredClearanceDiscount
+    : Math.max(0, modalReferencePrice - modalLowestPrice);
   const activeBundleItemPrice = Number(selectedBundleDealDetails?.currentItemPrice || 0);
   const activeBundlePrice = Number(selectedBundleDealDetails?.bundlePrice || activeBundleDeal?.bundlePrice || 0);
   const isAdminBundleDealSelected = isAdmin && isAdminView && selectedAvailabilityGroup?.tag === 'bundleDeal' && activeBundleDeal;
@@ -1334,7 +1392,13 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       });
     }
   }
-  if (isExclusiveToBundle) {
+  if (isClearanceDeal) {
+    gridStatusBadges.push({
+      label: 'Clearance Deal',
+      isActiveDeal: true,
+      className: 'bg-amber-500 text-white border-amber-400 shadow-lg'
+    });
+  } else if (isExclusiveToBundle) {
     gridStatusBadges.push({
       label: 'Bundle Exclusive',
       className: 'bg-emerald-500 text-white border-emerald-400 shadow-lg'
@@ -1404,6 +1468,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     const isAcceptedOfferGroup = group.tag === 'acceptedOffer';
     const isCollectionGroup = group.tag === 'collection' || isAcceptedOfferGroup;
     const isBundleDealGroup = group.tag === 'bundleDeal';
+    const isClearanceDealGroup = isBundleDealGroup && group.isClearanceDeal;
     const isFullyReserved = !isCollectionGroup && availableCountInGroup === 0;
 
     return (
@@ -1414,11 +1479,15 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
           ${isSelected 
             ? isCollectionGroup
               ? 'bg-red-500 border-red-500 text-white shadow-lg shadow-red-500/20'
+              : isClearanceDealGroup
+                ? 'bg-amber-500 border-amber-500 text-white shadow-lg shadow-amber-500/20'
               : isBundleDealGroup
                 ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-600/20'
               : 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-600/20' 
             : isCollectionGroup
               ? 'bg-red-500/10 border-red-500/30 text-red-500 hover:border-red-500/60'
+              : isClearanceDealGroup
+                ? 'bg-amber-500/10 border-amber-500/30 text-amber-600 hover:border-amber-500/60'
               : isBundleDealGroup
                 ? 'bg-emerald-600/10 border-emerald-600/30 text-emerald-600 hover:border-emerald-600/60'
                 : 'bg-black/5 dark:bg-white/5 border-black/5 dark:border-white/10 hover:border-blue-600/50'
@@ -1513,7 +1582,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                 ₱{acceptedOfferPrice.toLocaleString()}
                               </span>
                               <span className="text-[12px] lg:text-[12px] font-black italic tracking-tighter line-through shrink-0">
-                                ₱{(acceptedOfferPrice + handlingFee + transferFee + installmentFee).toLocaleString()}
+                                ₱{(getStockStandaloneSellPrice({}, kit, acceptedOfferStock) + handlingFee + installmentFee + transferFee).toLocaleString()}
                               </span>
                             </>
                           ) : (availableCount > 0 && !isExclusiveToBundle) ? (
@@ -1648,19 +1717,35 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                             <div className="flex flex-col gap-1">
                               {showPublicModalPrice && (
                                <div className="flex items-center gap-2">
-                                  <p className="text-[28px] sm:text-5xl font-black italic tracking-tighter leading-none text-blue-600 flex ">
-                                    ₱{modalLowestPrice.toLocaleString()}
-                                  </p>
-
-                                  <div className="flex flex-col gap-0 pt-1 sm:pt-1.5">
-                                    <p className="text-[10px] md:text-[14px] font-black italic tracking-tighter text-amber-600 leading-none whitespace-nowrap">
-                                      LOWEST PRICE
-                                    </p>
-
-                                    <p className="text-[13px] md:text-[22px] font-black italic tracking-tighter leading-tight line-through">
-                                      ₱{modalReferencePrice.toLocaleString()}
-                                    </p>
-                                  </div>
+                                  {isClearanceDiscountMode ? (
+                                    <>
+                                      <p className="text-[28px] sm:text-5xl font-black italic tracking-tighter leading-none text-blue-600 flex">
+                                        ₱{modalClearanceDiscount.toLocaleString()}
+                                      </p>
+                                      <div className="flex flex-col gap-0 pt-1 sm:pt-1.5">
+                                        <p className="text-[10px] md:text-[14px] font-black italic tracking-tighter text-amber-600 leading-none whitespace-nowrap">
+                                          CLEARANCE DISCOUNT
+                                        </p>
+                                        <p className="text-[13px] md:text-[22px] font-black italic tracking-tighter leading-tight line-through">
+                                          ₱{modalReferencePrice.toLocaleString()}
+                                        </p>
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <p className="text-[28px] sm:text-5xl font-black italic tracking-tighter leading-none text-blue-600 flex">
+                                        ₱{modalLowestPrice.toLocaleString()}
+                                      </p>
+                                      <div className="flex flex-col gap-0 pt-1 sm:pt-1.5">
+                                        <p className="text-[10px] md:text-[14px] font-black italic tracking-tighter text-amber-600 leading-none whitespace-nowrap">
+                                          LOWEST PRICE
+                                        </p>
+                                        <p className="text-[13px] md:text-[22px] font-black italic tracking-tighter leading-tight line-through">
+                                          ₱{modalReferencePrice.toLocaleString()}
+                                        </p>
+                                      </div>
+                                    </>
+                                  )}
                                 </div>
                               )}
                               {isAdminView && (
@@ -1697,19 +1782,35 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                             <div className="flex gap-3">
                               {showPublicModalPrice && (
                                 <div className="flex gap-3">
-                                  <p className="text-[28px] lg:text-[40px] font-black italic tracking-tighter leading-none text-blue-600 flex ">
-                                    ₱{modalLowestPrice.toLocaleString()}
-                                  </p>
-
-                                  <div className="flex flex-col gap-0 pt-1.5">
-                                    <p className="text-[12px] font-black italic tracking-tighter text-amber-600 leading-none whitespace-nowrap">
-                                      LOWEST PRICE
-                                    </p>
-
-                                    <p className="text-[18px] font-black italic tracking-tighter leading-none line-through">
-                                      ₱{modalReferencePrice.toLocaleString()}
-                                    </p>
-                                  </div>
+                                  {isClearanceDiscountMode ? (
+                                    <>
+                                      <p className="text-[28px] lg:text-[40px] font-black italic tracking-tighter leading-none text-blue-600 flex">
+                                        ₱{modalClearanceDiscount.toLocaleString()}
+                                      </p>
+                                      <div className="flex flex-col gap-0 pt-1.5">
+                                        <p className="text-[12px] font-black italic tracking-tighter text-amber-600 leading-none whitespace-nowrap">
+                                          CLEARANCE DISCOUNT
+                                        </p>
+                                        <p className="text-[18px] font-black italic tracking-tighter leading-none line-through">
+                                          ₱{modalReferencePrice.toLocaleString()}
+                                        </p>
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <p className="text-[28px] lg:text-[40px] font-black italic tracking-tighter leading-none text-blue-600 flex">
+                                        ₱{modalLowestPrice.toLocaleString()}
+                                      </p>
+                                      <div className="flex flex-col gap-0 pt-1.5">
+                                        <p className="text-[12px] font-black italic tracking-tighter text-amber-600 leading-none whitespace-nowrap">
+                                          LOWEST PRICE
+                                        </p>
+                                        <p className="text-[18px] font-black italic tracking-tighter leading-none line-through">
+                                          ₱{modalReferencePrice.toLocaleString()}
+                                        </p>
+                                      </div>
+                                    </>
+                                  )}
                                 </div>
                               )}
                               {isAdminView && (
@@ -1782,12 +1883,15 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                       {bundleDealDetails.length > 0 && (
                         <div className="pt-4 space-y-2">
                           <h4 className="text-[12px] font-black uppercase tracking-[0.1em] opacity-30 flex items-center gap-2 text-left">
-                            <Gift size={18} /> BUNDLE DEALS
+                            <Gift size={18} /> {bundleDealDetails.some(detail => detail.isClearance) ? 'BUNDLE & CLEARANCE DEALS' : 'BUNDLE DEALS'}
                           </h4>
                           <div className="space-y-4">
-                            {bundleDealDetails.map(({ deal, includedKits }) => {
+                            {bundleDealDetails.map(({ deal, includedKits, displayName }) => {
                               const isSelectedBundlePanel = selectedBundleDealDetails?.deal?.id === deal.id;
                               const bundleGroup = bundleDealGroups.find(group => group.deal?.id === deal.id);
+                              const collapsedDealPrice = deal.type === 'clearance'
+                                ? (getConfiguredClearanceDiscount(deal, deal.clearanceKitIds?.[0] || deal.kitIds?.[0]) || Number(deal.bundlePrice || 0))
+                                : Number(deal.bundlePrice || 0);
                               return (
                               <div
                                 key={deal.id}
@@ -1800,15 +1904,15 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                     handleSelectGroup(bundleGroup);
                                   }
                                 }}
-                                className={`relative space-y-2 rounded-2xl border px-4 py-3 transition-colors duration-300 cursor-pointer ${
+                                className={`relative space-y-2 rounded-2xl border px-4 py-3 transition-colors duration-300 cursor-pointer ${deal.type === 'clearance' ? (isSelectedBundlePanel ? 'border-amber-500 bg-amber-500/20 shadow-lg shadow-amber-500/10' : 'border-amber-500/20 bg-amber-500/10 hover:border-amber-500/40') : (
                                   isSelectedBundlePanel
                                     ? 'border-emerald-500 bg-emerald-500/20 shadow-lg shadow-emerald-500/10'
                                     : 'border-emerald-500/20 bg-emerald-500/10 hover:border-emerald-500/40'
-                                }`}
+                                )}`}
                               >
                                 <div className="flex items-start justify-between gap-3 px-1">
                                   <div className="min-w-0 flex-1 text-left">
-                                    <p className="truncate text-[13px] font-black uppercase italic leading-tight text-emerald-500">{deal.name}</p>
+                                    <p className={`truncate text-[13px] font-black uppercase italic leading-tight ${deal.type === 'clearance' ? 'text-amber-500' : 'text-emerald-500'}`}>{displayName}</p>
                                   </div>
                                   <div className="shrink-0 pt-0.5 text-right">
                                     <p className={`text-[12px] font-black uppercase`}>{getDealCountdownLabel(deal.validUntil)}</p>
@@ -1819,13 +1923,24 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                   <div>
                                     {includedKits.map((includedKit, includedIndex) => {
                                       const bundleKitPrice = Number(getBundleKitPrice(deal, includedKit, allKits, exclusiveDiscountPercent) || 0);
+                                      const displayedDealPrice = deal.type === 'clearance'
+                                        ? (getConfiguredClearanceDiscount(deal, includedKit.id) || bundleKitPrice)
+                                        : bundleKitPrice;
                                       const stocks = Object.values(includedKit?.stocks || {});
-                                      const sourceStock = stocks.find(stock => stockMatchesDealSource(stock, deal.stockSource || 'onhand'));
+                                      const sourceStock = getPreferredDealStock(stocks, deal.stockSource || 'onhand');
                                       const referencePrice = Number(sourceStock?.sellPrice || stocks[0]?.sellPrice || includedKit?.sellPrice || 0);
-                                      // The strike price represents this kit bought by itself,
-                                      // so it includes its full checkout fees rather than a
-                                      // share of the bundle's one-time fees.
-                                      const bundleReferencePrice = referencePrice + (isAdminView ? 0 : installmentFee + handlingFee + transferFee);
+                                      // Handling and transfer are one-time order fees.
+                                      // Allocate each fee across the bundle rows instead
+                                      // of repeating both fees on every included item.
+                                      const bundleHandlingShare = isAdminView
+                                        ? 0
+                                        : getDistributedFeeShare(handlingFee, includedIndex, includedKits.length);
+                                      const bundleTransferShare = isAdminView
+                                        ? 0
+                                        : getDistributedFeeShare(transferFee, includedIndex, includedKits.length);
+                                      const bundleReferencePrice = referencePrice + (isAdminView
+                                        ? 0
+                                        : installmentFee + bundleHandlingShare + bundleTransferShare);
 
                                       return (
                                         <div
@@ -1861,8 +1976,8 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                             </p>
                                           </div>
                                           <div className="text-right shrink-0">
-                                            <p className="text-[16px] font-black italic text-emerald-600">&#8369;{bundleKitPrice.toLocaleString()}</p>
-                                            {bundleReferencePrice > 0 && bundleReferencePrice !== bundleKitPrice && (
+                                            <p className="text-[16px] font-black italic text-emerald-600">&#8369;{displayedDealPrice.toLocaleString()}</p>
+                                            {bundleReferencePrice > 0 && bundleReferencePrice !== displayedDealPrice && (
                                               <p className="mt-0.5 text-[15px] font-black line-through text-black">&#8369;{bundleReferencePrice.toLocaleString()}</p>
                                             )}
                                           </div>
@@ -1873,7 +1988,9 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                       <p className="text-[16px] font-black uppercase leading-none text-emerald-600">
                                         Save up to &#8369;{(
                                           getBundleSavedAmount(deal)
-                                          + (isAdminView ? 0 : (installmentFee + handlingFee + transferFee) * includedKits.length)
+                                          + (isAdminView
+                                            ? 0
+                                            : installmentFee * includedKits.length + handlingFee + transferFee)
                                         ).toLocaleString()}
                                       </p>
                                     </div>
@@ -1908,9 +2025,23 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                           )}
                                         </div>
                                       ))}
+                                      {deal.type === 'clearance' && Array.from({ length: 2 }, (_, placeholderIndex) => (
+                                        <div
+                                          key={`clearance-placeholder-${placeholderIndex}`}
+                                          className="-ml-1.5 h-20 w-20 cursor-default overflow-hidden rounded-full border-2 border-white bg-white shadow-sm dark:border-neutral-800 dark:bg-neutral-900"
+                                          title="Add another kit to unlock the clearance discount"
+                                          aria-label="Additional kit required for clearance discount"
+                                        >
+                                          <img
+                                            src="/snorlaxgarage.png"
+                                            className="h-full w-full scale-75 object-contain p-2 opacity-60"
+                                            alt=""
+                                          />
+                                        </div>
+                                      ))}
                                     </div>
                                     <div className="flex justify-end">
-                                      <p className="text-[14px] font-black italic leading-none text-amber-500">&#8369;{Number(deal.bundlePrice || 0).toLocaleString()}</p>
+                                      <p className={`text-[14px] font-black italic leading-none ${deal.type === 'clearance' ? 'text-emerald-600' : 'text-amber-500'}`}>&#8369;{collapsedDealPrice.toLocaleString()}</p>
                                     </div>
                                   </div>
                                 )}
@@ -1981,7 +2112,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                             <div className="flex w-full items-center justify-between gap-3">
                               <div className="min-w-0 flex-1 px-4 py-3 rounded-2xl border border-black/5 dark:border-white/10">
                                 <div className="flex items-center justify-center text-center text-[14px] font-black uppercase tracking-tight">
-                                  <span className="text-amber-500 whitespace-nowrap">Lowest Deal Price: &#8369;{activeBundlePrice.toLocaleString()}</span>
+                                  <span className="text-amber-500 whitespace-nowrap">{activeBundleDeal?.type === 'clearance' ? 'Clearance available in basket' : `Lowest Deal Price: ₱${activeBundlePrice.toLocaleString()}`}</span>
                                 </div>
                               </div>
                               <div className="min-w-0 flex-1 flex items-stretch justify-center">
@@ -1989,7 +2120,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                   onClick={() => handleDealCheckout(activeBundleDeal)} 
                                   className="w-full flex items-center justify-center gap-2 px-2 py-4 rounded-full text-white font-black italic uppercase text-[12px] tracking-widest shadow-lg transition-all active:scale-95 whitespace-nowrap bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-emerald-500/20"
                                 >
-                                  <Zap size={14} fill="currentColor" /> GRAB DEAL
+                                  <Zap size={14} fill="currentColor" /> {activeBundleDeal?.type === 'clearance' ? 'ADD TO BASKET' : 'GRAB DEAL'}
                                 </button>
                               </div>
                             </div>
