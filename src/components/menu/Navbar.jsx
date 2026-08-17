@@ -634,7 +634,7 @@ return (
       </defs>
     </svg>
 
-    <nav ref={navbarRef} style={{ height: specs.h }} className={`sticky top-0 z-[110] w-full transition-all duration-500 border-b ${location.pathname === '/checkout' ? 'hidden lg:block' : ''} ${isDarkMode ? 'bg-[#0a0a0a]/80 border-white/10' : 'bg-white/80 border-black/10'} backdrop-blur-md`}>
+    <nav ref={navbarRef} style={{ height: specs.h }} className={`${isStoriesManagerOpen ? 'fixed left-0 right-0 top-0 z-[400]' : 'sticky top-0 z-[110]'} w-full transition-all duration-500 border-b ${location.pathname === '/checkout' ? 'hidden lg:block' : ''} ${isDarkMode ? 'bg-[#0a0a0a]/80 border-white/10' : 'bg-white/80 border-black/10'} backdrop-blur-md`}>
       <div className="h-full mx-auto flex items-center px-4 lg:px-10 relative max-w-[1440px]">
         {isMobile ? (
           <div className="flex items-center h-full z-[120] shrink-0 relative">

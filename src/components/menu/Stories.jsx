@@ -131,8 +131,8 @@ export default function Stories({ isCompact, hideImmediately = false }) {
   const highlightItems = React.useMemo(() => {
     const recentStories = [...activeStories]
       .sort((a, b) => (
-        getTimestamp(b.createdAt || b.publishedAt || b.updatedAt) -
-        getTimestamp(a.createdAt || a.publishedAt || a.updatedAt)
+        getTimestamp(b.storyDate || b.createdAt || b.publishedAt || b.updatedAt) -
+        getTimestamp(a.storyDate || a.createdAt || a.publishedAt || a.updatedAt)
       ))
       .slice(0, 10)
       .map((story) => ({
@@ -537,7 +537,7 @@ export default function Stories({ isCompact, hideImmediately = false }) {
                     <span className="text-garage-blue">GARAGE</span>
                   </h3>
                   <span className="text-[13px] font-bold text-white uppercase tracking-widest md:text-neutral-500 md:dark:text-neutral-400">
-                    {formatStoryDate(activeStory.createdAt || activeStory.lastUpdated)}
+                    {formatStoryDate(activeStory.storyDate || activeStory.createdAt || activeStory.lastUpdated)}
                   </span>
                 </div>
               </div>

@@ -50,7 +50,7 @@ export default function Highlights() {
     return (stories || [])
       .filter((story) => !story.isDraft)
       .sort((a, b) => {
-        const timeDifference = getStoryTime(b.createdAt || b.lastUpdated) - getStoryTime(a.createdAt || a.lastUpdated);
+        const timeDifference = getStoryTime(b.storyDate || b.createdAt || b.lastUpdated) - getStoryTime(a.storyDate || a.createdAt || a.lastUpdated);
         return timeDifference || Number(b.order || 0) - Number(a.order || 0);
       });
   }, [stories]);
@@ -128,7 +128,7 @@ export default function Highlights() {
 
             {highlights.map((story) => {
               const image = getStoryImage(story);
-              const storyDate = getStoryTime(story.createdAt || story.lastUpdated);
+              const storyDate = getStoryTime(story.storyDate || story.createdAt || story.lastUpdated);
 
               return (
                 <div

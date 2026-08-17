@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Maximize2, X, Plus, Trash2, Edit, ChevronUp, ChevronDown, Upload, Image as ImageIcon, Loader2, Save, RotateCw, ZoomIn, BookImage, VenetianMask, Type as TypeOutline, Palette, ALargeSmall, BookOpen, Book, Notebook, NotebookPen, Hand, ChevronLeft } from 'lucide-react';
+import { Maximize2, X, Plus, Trash2, Edit, ChevronUp, ChevronDown, Upload, Image as ImageIcon, Loader2, Save, RotateCw, ZoomIn, BookImage, VenetianMask, Type as TypeOutline, Palette, ALargeSmall, BookOpen, Book, Notebook, NotebookPen, Hand, ChevronLeft, Calendar } from 'lucide-react';
 import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
+import { CustomDateTimePicker } from '../kitcards/AddKitModal';
 
 const FIRESTORE_DOC_LIMIT = 1048576;
 const STORY_WARNING_PERCENT = 80;
@@ -14,6 +15,12 @@ const STORY_GLOW_COLORS = ['#0066ff', '#ff3b30', '#34c759', '#ffcc00', '#af52de'
 
 function getRandomStoryColor() {
   return STORY_GLOW_COLORS[Math.floor(Math.random() * STORY_GLOW_COLORS.length)];
+}
+
+function getCurrentLocalDateTime() {
+  const now = new Date();
+  const offset = now.getTimezoneOffset() * 60000;
+  return new Date(now.getTime() - offset).toISOString().slice(0, 16);
 }
 
 async function compressImage(dataUrl, maxWidth = STORY_BACKGROUND_MAX_SIZE, quality = STORY_IMAGE_QUALITY) {
@@ -58,7 +65,7 @@ function readFileAsDataUrl(file) {
 }
 
 export default function StoriesManagerModal({ isOpen, onClose }) {
-  useTheme(); 
+  const { isDarkMode } = useTheme();
   const { stories, addStory, updateStory, deleteStory, updateStoriesOrder } = useStore();
 
   const [mode, setMode] = useState('list'); // 'list', 'add', 'edit'
@@ -69,6 +76,7 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
   const [description, setDescription] = useState('');
   const [destination, setDestination] = useState('');
   const [items, setItems] = useState('');
+  const [storyDate, setStoryDate] = useState(() => getCurrentLocalDateTime());
   const [value, setValue] = useState(() => getRandomStoryColor()); // Glow color used by story cards
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
@@ -856,6 +864,7 @@ const handleBgPointerDown = (e) => {
     setDescription('');
     setDestination('');
     setItems('');
+    setStoryDate(getCurrentLocalDateTime());
     setValue(getRandomStoryColor());
     setBackgroundImage('');
     setStickers([]);
@@ -882,6 +891,7 @@ const handleBgPointerDown = (e) => {
     setDescription(story.description || '');
     setDestination(story.destination || '');
     setItems(story.items || '');
+    setStoryDate(story.storyDate || getCurrentLocalDateTime());
     setValue(story.value || getRandomStoryColor());
     
     setBackgroundImage(story.backgroundImage || '');
@@ -925,6 +935,7 @@ const handleBgPointerDown = (e) => {
     description: description.trim(),
     destination: destination.trim(),
     items: items.trim(),
+    storyDate: storyDate || getCurrentLocalDateTime(),
     value,
     backgroundImage,
     bgImageSize,
@@ -933,7 +944,7 @@ const handleBgPointerDown = (e) => {
     bgOffset,
     stickers,
     texts
-  }), [label, description, destination, items, value, backgroundImage, bgImageSize, bgZoom, bgRotation, bgOffset, stickers, texts]);
+  }), [label, description, destination, items, storyDate, value, backgroundImage, bgImageSize, bgZoom, bgRotation, bgOffset, stickers, texts]);
 
   const estimatedStorySize = useMemo(() => {
     try {
@@ -1201,14 +1212,14 @@ const renderEditorFormButtons = () => (
   return (
     <AnimatePresence>
       {isOpen && (
-<div className="fixed inset-x-0 bottom-0 top-[56px] z-[300] flex justify-center overflow-hidden overscroll-none bg-neutral-200/80 dark:bg-black/80 sm:top-[60px]">
-  {/* Full-page manager workspace beneath the app navbar */}
+<div className="pointer-events-none fixed inset-0 z-[300] flex items-start justify-center" role="dialog" aria-modal="true" aria-label="Manage stories">
+  {/* Match the Deal Architect page shell; the navbar remains visible above it. */}
   <Motion.div 
     initial={{ x: 40, opacity: 0 }} 
     animate={{ x: 0, opacity: 1 }} 
     exit={{ x: 40, opacity: 0 }}
     transition={{ type: "spring", damping: 30, stiffness: 420 }}
-    className="relative flex h-full w-full max-w-7xl flex-col overflow-hidden overscroll-none border-x border-black/5 bg-white shadow-2xl dark:border-white/5 dark:bg-neutral-900"
+    className="pointer-events-auto relative mt-[56px] flex h-[calc(100dvh-56px)] w-full max-w-7xl min-h-0 flex-col overflow-hidden border-x border-t bg-white text-neutral-900 shadow-2xl dark:border-white/5 dark:bg-neutral-900 dark:text-white sm:mt-[60px] sm:h-[calc(100dvh-60px)]"
   >
 
             {/* MOBILE STICKY/ABSOLUTE HEADER */}
@@ -1511,6 +1522,25 @@ const renderEditorFormButtons = () => (
                       <div className="space-y-1">
                         <label className="text-[10px] font-black uppercase tracking-wider text-neutral-400">Items</label>
                         <input type="text" value={items} onChange={(e) => setItems(e.target.value)} placeholder="E.G. HG GUNDAM VIDAR" className="w-full p-4 rounded-2xl bg-neutral-50 dark:bg-white/5 border text-xs font-semibold focus:outline-none focus:border-garage-blue" maxLength={180} />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-neutral-400">
+                          <Calendar size={12} />
+                          Story Date
+                        </label>
+                        <CustomDateTimePicker
+                          value={storyDate}
+                          onChange={setStoryDate}
+                          isDarkMode={isDarkMode}
+                          placeholder="Select story date"
+                          allowClear={false}
+                          renderInline
+                          align="right"
+                        />
+                        <p className="text-[9px] font-bold text-neutral-400">
+                          This date appears on the story card. New stories default to today.
+                        </p>
                       </div>
 
                     </div>

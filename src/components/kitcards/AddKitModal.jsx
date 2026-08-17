@@ -432,7 +432,7 @@ function getMonthMatrix(viewDate) {
   return cells;
 }
 
-function CustomDateTimePicker({
+export function CustomDateTimePicker({
   value,
   onChange,
   min,
