@@ -512,6 +512,14 @@ const handleBgPointerDown = (e) => {
   if (!backgroundImage) return;
   e.stopPropagation();
 
+  // A layer tool owns the gesture while a sticker/text layer is selected.
+  // Do not allow a tap on the wallpaper to steal focus from that layer, but
+  // still let the wallpaper start the tool gesture ("drag outside" behavior).
+  const hasSelectedLayer = selectedStickerIndex !== null || selectedTextIndex !== null;
+  const hasActiveLayerTool = !isBgSelected
+    && activeDesktopTool !== null
+    && hasSelectedLayer;
+
   // 1. Huwag mag-trigger kung handle ng UI ang na-tap
   if (e.target.closest('[data-handle="true"]')) return;
 
@@ -520,7 +528,7 @@ const handleBgPointerDown = (e) => {
   const wasBgSelected = isBgSelected;
   
   // 3. FORCE DESELECT: Kung background ang na-tap, i-reset ang layers
-  if (!clickedLayer) {
+  if (!clickedLayer && !hasActiveLayerTool) {
     setSelectedStickerIndex(null);
     setSelectedTextIndex(null);
     if (!wasBgSelected) setActiveDesktopTool(null);
@@ -544,7 +552,7 @@ const handleBgPointerDown = (e) => {
 
   // 5. Gesture Logic (Gamit ang updated selection states)
   const activePointers = Array.from(pointerCacheRef.current.values());
-  const hasActiveLayer = Boolean(clickedLayer) && (selectedStickerIndex !== null || selectedTextIndex !== null);
+  const hasActiveLayer = (Boolean(clickedLayer) || hasActiveLayerTool) && hasSelectedLayer;
   const hasActiveTool = activeDesktopTool !== null;
 
   // Siguraduhin na kung may active layer, ang pan/gesture ay para sa layer
@@ -1394,10 +1402,14 @@ const renderEditorFormButtons = () => (
                                 onPointerDown={(e) => { 
                                   if (e.target.closest('[data-handle="true"]')) return;
                                   e.stopPropagation(); 
+                                  const isSameSticker = selectedStickerIndex === index;
                                   setSelectedStickerIndex(index); 
                                   setSelectedTextIndex(null); 
                                   resetBgControls(); 
-                                  if (!isPanActive) setActiveDesktopTool(null);
+                                  // Keep the active sticker tool while interacting with
+                                  // the already-selected sticker. Clear it only when
+                                  // switching to a different sticker layer.
+                                  if (!isSameSticker) setActiveDesktopTool(null);
                                 }}
                               >
                                 <div className="relative group w-full">
