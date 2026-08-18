@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef } from 'react';
+import { motion as Motion, useDragControls } from 'framer-motion';
 import {
   AlertTriangle,
   BadgeDollarSign,
@@ -201,6 +202,7 @@ export default function NotificationModal({
   anchorTop = null
 }) {
   const panelRef = useRef(null);
+  const dragControls = useDragControls();
   const notifications = useMemo(() => {
     const uniqueOrders = new Map();
     orders.forEach((order) => {
@@ -266,8 +268,8 @@ export default function NotificationModal({
     ? {
         top: navbarHeight,
         right: 0,
-        bottom: 0,
-        height: `calc(100dvh - ${navbarHeight})`
+        bottom: '0.75rem',
+        height: `calc(100dvh - ${navbarHeight} - 0.75rem)`
       }
     : {
         top: hasMeasuredAnchor ? `${anchorTop + 8}px` : `calc(${navbarHeight} + 8px)`,
@@ -281,15 +283,26 @@ export default function NotificationModal({
     <>
       <div className="fixed inset-0 z-[100]" onClick={onClose} />
 
-      <div
+      <Motion.div
         ref={panelRef}
         style={panelStyle}
+        initial={isFullscreen ? { y: '-100%', opacity: 0 } : false}
+        animate={isFullscreen ? { y: 0, opacity: 1 } : undefined}
+        transition={{ type: 'spring', damping: 28, stiffness: 360 }}
+        drag={isFullscreen ? 'y' : false}
+        dragListener={false}
+        dragControls={dragControls}
+        dragConstraints={{ top: -420, bottom: 0 }}
+        dragElastic={{ top: 0.2, bottom: 0 }}
+        onDragEnd={(event, info) => {
+          if (isFullscreen && (info.offset.y < -90 || info.velocity.y < -500)) onClose?.();
+        }}
         className={`fixed z-[150] animate-in fade-in slide-in-from-top-2 duration-200 ${isFullscreen ? 'w-full max-w-none sm:max-w-sm' : 'w-[390px] max-w-[calc(100vw-5rem)]'}`}
       >
-        <div className={`${isFullscreen ? 'h-full rounded-none' : 'rounded-[1.5rem]'} overflow-hidden border shadow-[0_24px_70px_rgba(0,0,0,0.22)] ${isDarkMode ? 'border-white/10 bg-[#0a0a0a]' : 'border-black/10 bg-white'}`}>
+        <div className={`${isFullscreen ? 'flex h-full flex-col rounded-b-[2.5rem]' : 'rounded-[1.5rem]'} overflow-hidden border shadow-[0_24px_70px_rgba(0,0,0,0.22)] ${isDarkMode ? 'border-white/10 bg-[#0a0a0a]' : 'border-black/10 bg-white'}`}>
           <div
             style={listStyle}
-            className={`${isFullscreen ? 'h-full max-h-full' : 'max-h-[min(68vh,560px)]'} overscroll-contain overflow-y-auto p-2`}
+            className={`${isFullscreen ? 'min-h-0 flex-1' : 'max-h-[min(68vh,560px)]'} overscroll-contain overflow-y-auto p-2`}
           >
             {notifications.length === 0 ? (
               <div className="py-12 text-center text-neutral-400">
@@ -342,8 +355,28 @@ export default function NotificationModal({
               );
             })}
           </div>
+          {isFullscreen && (
+            <div className="flex shrink-0 justify-center pb-3 pt-2">
+              <div
+                role="button"
+                tabIndex={0}
+                aria-label="Drag up to close notifications"
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                  dragControls.start(event);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape' || event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onClose?.();
+                  }
+                }}
+                className="h-1.5 w-12 cursor-grab touch-none rounded-full bg-black/10 active:cursor-grabbing dark:bg-white/10"
+              />
+            </div>
+          )}
         </div>
-      </div>
+      </Motion.div>
     </>
   );
 }

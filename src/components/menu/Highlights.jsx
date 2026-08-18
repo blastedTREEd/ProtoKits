@@ -77,10 +77,10 @@ export default function Highlights() {
   return (
     <section className="relative overflow-visible border-t border-black/[0.06] bg-neutral-50 px-5 pb-10 dark:border-white/[0.08] dark:bg-[#111111] sm:px-8 lg:px-12">
       <div className="mx-auto max-w-7xl">
-        <div ref={headerRef} className="sticky top-[56px] z-[80] -mx-5 mb-10 flex flex-col gap-5 border-b border-black/5 bg-neutral-50/95 px-5 py-4 backdrop-blur-md transition-all duration-300 dark:border-white/5 dark:bg-[#111111]/95 sm:top-[60px] sm:-mx-8 sm:flex-row sm:items-end sm:justify-between sm:px-8 lg:-mx-12 lg:px-12">
-          <div className="text-left">
+        <div ref={headerRef} className="sticky top-[56px] z-[80] -mx-5 mb-10 flex flex-nowrap items-center justify-between gap-2 border-b border-black/5 bg-neutral-50/95 px-5 py-4 backdrop-blur-md transition-all duration-300 dark:border-white/5 dark:bg-[#111111]/95 sm:top-[60px] sm:-mx-8 sm:gap-4 sm:px-8 lg:-mx-12 lg:px-12">
+          <div className="min-w-0 flex-1 text-left">
             <div className="flex items-center">
-              <h2 className={`${isHeaderStuck ? 'text-[18px]' : 'text-[25px]'} inline-flex items-center gap-1 whitespace-nowrap font-black italic uppercase leading-none tracking-[-0.06em] text-neutral-950 transition-[font-size] duration-300 dark:text-white`}>
+              <h2 className={`${isHeaderStuck ? 'text-[18px]' : 'text-[clamp(18px,6vw,25px)]'} inline-flex min-w-0 items-center gap-1 whitespace-nowrap font-black italic uppercase leading-none tracking-[-0.06em] text-neutral-950 transition-[font-size] duration-300 dark:text-white`}>
                 <span className="text-garage-blue">Garage</span>
                 <span>Stories</span>
                 <Sparkles className="shrink-0" size={16} strokeWidth={2} aria-hidden="true" />
@@ -91,7 +91,7 @@ export default function Highlights() {
             <button
               type="button"
               onClick={handleManageHighlights}
-              className="inline-flex self-start items-center gap-2 rounded-full border border-garage-blue/20 bg-garage-blue/10 px-4 py-2 text-[12px] font-black uppercase tracking-[0.16em] text-garage-blue transition-all hover:border-garage-blue/40 hover:bg-garage-blue/15 sm:self-auto"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-garage-blue/20 bg-garage-blue/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-garage-blue transition-all hover:border-garage-blue/40 hover:bg-garage-blue/15 sm:gap-2 sm:px-4 sm:text-[12px] sm:tracking-[0.16em]"
             >
               <BookImage size={16} strokeWidth={2} />
               Manage

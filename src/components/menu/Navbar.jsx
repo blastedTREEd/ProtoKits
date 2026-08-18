@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { motion as Motion, useDragControls } from 'framer-motion';
 import { 
   Sun, Moon, ShoppingBasket, Home, X, ShelvingUnit,
   CircleUserRound, Settings, LogOut, ContactRound,
@@ -120,6 +121,7 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   const profileModalRef = useRef(null);
   const profileBtnRef = useRef(null);
   const navbarRef = useRef(null);
+  const profileDragControls = useDragControls();
 
   const isMobile = windowWidth < 640;
   const isDesktop = windowWidth >= 1024;
@@ -607,9 +609,9 @@ const profilePanelStyle = isProfileFullscreen
   ? {
       top: specs.h,
       right: 0,
-      bottom: 0,
+      bottom: '0.75rem',
       left: 0,
-      height: `calc(100dvh - ${specs.h})`,
+      height: `calc(100dvh - ${specs.h} - 0.75rem)`,
       zIndex: 1000
     }
   : {
@@ -634,7 +636,7 @@ return (
       </defs>
     </svg>
 
-    <nav ref={navbarRef} style={{ height: specs.h }} className={`${isStoriesManagerOpen ? 'fixed left-0 right-0 top-0 z-[400]' : 'sticky top-0 z-[110]'} w-full transition-all duration-500 border-b ${location.pathname === '/checkout' ? 'hidden lg:block' : ''} ${isDarkMode ? 'bg-[#0a0a0a]/80 border-white/10' : 'bg-white/80 border-black/10'} backdrop-blur-md`}>
+    <nav ref={navbarRef} style={{ height: specs.h }} className={`${isStoriesManagerOpen ? (isDesktop ? 'fixed left-0 right-0 top-0 z-[400]' : 'hidden') : 'sticky top-0 z-[110]'} w-full transition-all duration-500 border-b ${location.pathname === '/checkout' ? 'hidden lg:block' : ''} ${isDarkMode ? 'bg-[#0a0a0a]/80 border-white/10' : 'bg-white/80 border-black/10'} backdrop-blur-md`}>
       <div className="h-full mx-auto flex items-center px-4 lg:px-10 relative max-w-[1440px]">
         {isMobile ? (
           <div className="flex items-center h-full z-[120] shrink-0 relative">
@@ -730,20 +732,12 @@ return (
             <button
               onClick={handleOpenNotifications}
               className="group relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-all duration-300"
-              aria-label={isNotificationModalOpen ? 'Close notifications' : 'Open notifications'}
+              aria-label="Open notifications"
             >
-              {isNotificationModalOpen ? (
-                <div className="rounded-full bg-neutral-500 p-[2px] shadow-sm transition-all duration-300">
-                  <div className="overflow-hidden rounded-full border-2 border-neutral-500 bg-neutral-500 transition-colors">
-                    <X size={specs.utilIcon - 4} strokeWidth={2.5} className="text-white" />
-                  </div>
-                </div>
-              ) : (
-                <Bell
-                  size={specs.utilIcon}
-                  className={`${isDarkMode ? 'text-white' : 'text-neutral-900'} group-hover:text-garage-blue transition-all duration-300`}
-                />
-              )}
+              <Bell
+                size={specs.utilIcon}
+                className={`${isDarkMode ? 'text-white' : 'text-neutral-900'} group-hover:text-garage-blue transition-all duration-300`}
+              />
               {unseenNotificationCount > 0 && !isNotificationModalOpen && (
                 <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full border border-white bg-red-500 px-1 text-[9px] font-black leading-none text-white dark:border-neutral-900">
                   {unseenNotificationCount > 99 ? '99+' : unseenNotificationCount}
@@ -785,9 +779,7 @@ return (
                   className={`rounded-full p-[2px] transition-all duration-300 ${isProfileOpen ? 'bg-neutral-500 shadow-sm' : (isAdmin && isAdminView ? adminRingClass : 'bg-transparent group-hover:bg-gradient-to-br group-hover:from-[#0866FF] group-hover:to-[#00CFFF]')}`}
                 >
                   <div className={`rounded-full overflow-hidden border-2 transition-colors ${isProfileOpen ? 'border-neutral-500 bg-neutral-500' : (isAdmin && isAdminView ? 'border-white dark:border-neutral-900' : 'border-transparent group-hover:border-white dark:group-hover:border-neutral-900')}`}>
-                    {isProfileOpen ? (
-                        <X size={specs.utilIcon - 4} strokeWidth={2.5} className="text-white" />
-                    ) : (isAdmin && isAdminView) ? (
+                    {(isAdmin && isAdminView) ? (
                       garageInfo?.logoURL ? (
                         <img 
                           src={garageInfo.logoURL} 
@@ -820,10 +812,27 @@ return (
               </button>
 
               {isProfileOpen && (
-                <div ref={profileModalRef} style={profilePanelStyle} className={`fixed animate-in fade-in slide-in-from-top-2 duration-200 ${isProfileFullscreen ? 'w-screen' : 'w-72'}`}>
-                  <div className={`${isProfileFullscreen ? 'h-full max-h-full w-full max-w-none rounded-none overscroll-contain sm:ml-auto sm:max-w-sm' : 'max-h-[calc(100dvh-5rem)] rounded-[2rem]'} overflow-y-auto border shadow-2xl ${isDarkMode ? 'border-white/10 bg-[#0a0a0a]' : 'border-black/10 bg-white'}`}>
+                <Motion.div
+                  ref={profileModalRef}
+                  style={profilePanelStyle}
+                  initial={isProfileFullscreen ? { y: '-100%', opacity: 0 } : false}
+                  animate={isProfileFullscreen ? { y: 0, opacity: 1 } : undefined}
+                  transition={{ type: 'spring', damping: 28, stiffness: 360 }}
+                  drag={isProfileFullscreen ? 'y' : false}
+                  dragListener={false}
+                  dragControls={profileDragControls}
+                  dragConstraints={{ top: -420, bottom: 0 }}
+                  dragElastic={{ top: 0.2, bottom: 0 }}
+                  onDragEnd={(event, info) => {
+                    if (isProfileFullscreen && (info.offset.y < -90 || info.velocity.y < -500)) {
+                      setIsProfileOpen(false);
+                    }
+                  }}
+                  className={`fixed animate-in fade-in slide-in-from-top-2 duration-200 ${isProfileFullscreen ? 'w-screen' : 'w-72'}`}
+                >
+                  <div className={`${isProfileFullscreen ? 'flex h-full max-h-full w-full max-w-none flex-col rounded-b-[2.5rem] overscroll-contain sm:ml-auto sm:max-w-sm' : 'max-h-[calc(100dvh-5rem)] rounded-[2rem]'} overflow-hidden border shadow-2xl ${isDarkMode ? 'border-white/10 bg-[#0a0a0a]' : 'border-black/10 bg-white'}`}>
                     
-                    <div className="p-6 flex flex-col items-center text-center space-y-3 border-b border-black/5 dark:border-white/5">
+                    <div className="shrink-0 p-6 flex flex-col items-center text-center space-y-3 border-b border-black/5 dark:border-white/5">
                       <div 
                         className="relative group cursor-pointer py-2"
                         onMouseEnter={() => isAdmin && setIsPhotoHovered(true)}
@@ -905,7 +914,7 @@ return (
                       </div>
                     </div>
 
-                    <div className="p-2 space-y-1">
+                    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 space-y-1">
                       <button onClick={() => { toggleTheme(); setIsProfileOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-colors ${isDarkMode ? 'hover:bg-white/5 text-white' : 'hover:bg-black/5 text-neutral-900'}`}>
                         {isDarkMode ? <Sun size={18} className="text-amber-400" /> : <Moon size={18} className="text-garage-blue" />}
                         <span className="text-[12px] font-black uppercase tracking-widest">{isDarkMode ? 'Light Mode' : 'Dark Mode'}</span>
@@ -992,8 +1001,29 @@ return (
                         </div>
                       )}
                     </div>
+
+                    {isProfileFullscreen && (
+                      <div className="flex shrink-0 justify-center pb-3 pt-2">
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          aria-label="Drag up to close profile"
+                          onPointerDown={(event) => {
+                            event.stopPropagation();
+                            profileDragControls.start(event);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Escape' || event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault();
+                              setIsProfileOpen(false);
+                            }
+                          }}
+                          className="h-1.5 w-12 cursor-grab touch-none rounded-full bg-black/10 active:cursor-grabbing dark:bg-white/10"
+                        />
+                      </div>
+                    )}
                   </div>
-                </div>
+                </Motion.div>
               )}
             </div>
         </div>
@@ -1015,7 +1045,7 @@ return (
     )}
 
  {/* Mini Navbar */}
-        {isMobile && location.pathname !== '/checkout' && (
+        {isMobile && !isStoriesManagerOpen && !isProfileOpen && !isNotificationModalOpen && location.pathname !== '/checkout' && (
           <div className={`fixed bottom-0 left-0 right-0 z-[100] transition-transform duration-300 ${showBottomNav ? 'translate-y-0' : 'translate-y-full'}`}>
             <div style={{ height: specs.h }} className={`flex items-center justify-around px-2 border-t ${isDarkMode ? 'bg-[#121212] border-white/10' : 'bg-white border-black/5'} shadow-2xl`}>
               <button onClick={(e) => handleNavClick('/', e)} className={`flex flex-col items-center justify-center gap-1 transition-colors ${location.pathname === '/' ? 'text-garage-blue' : 'text-neutral-600 dark:text-neutral-400'}`}>

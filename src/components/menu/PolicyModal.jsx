@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useEffect, useRef, useState } from 'react';
-import { AnimatePresence, motion as Motion } from 'framer-motion';
+import { AnimatePresence, motion as Motion, useDragControls } from 'framer-motion';
 import { CreditCard, FileText, Loader2, Shield, Trash2, Truck, X } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 
@@ -34,6 +34,7 @@ const policyComponents = {
 export default function PolicyModal({ policy, isOpen, onClose, zIndexClass = 'z-[220]' }) {
   const { isDarkMode } = useTheme();
   const scrollRef = useRef(null);
+  const dragControls = useDragControls();
   const [canDrag, setCanDrag] = useState(true);
   const activePolicy = policyComponents[policy] || policyComponents.privacy;
   const PolicyContent = activePolicy.Component;
@@ -68,15 +69,20 @@ export default function PolicyModal({ policy, isOpen, onClose, zIndexClass = 'z-
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 25, stiffness: 400 }}
+            drag={canDrag ? 'y' : false}
+            dragListener={false}
+            dragControls={dragControls}
+            dragConstraints={{ top: 0, bottom: 420 }}
+            dragElastic={{ top: 0, bottom: 0.4 }}
+            onDragEnd={(event, info) => {
+              if (info.offset.y > 80 || info.velocity.y > 500) onClose();
+            }}
             className={`relative flex h-[92vh] w-full flex-col overflow-hidden rounded-t-[2.5rem] shadow-2xl lg:h-auto lg:max-h-[90vh] lg:max-w-5xl lg:rounded-[2.5rem] ${isDarkMode ? 'bg-neutral-900' : 'bg-white'}`}
           >
             <div className="flex w-full shrink-0 justify-center pb-2 pt-4 lg:hidden">
-              <Motion.div
-                drag={canDrag ? 'y' : false}
-                dragConstraints={{ top: 0 }}
-                dragElastic={0.4}
-                onDragEnd={(event, info) => {
-                  if (info.offset.y > 80) onClose();
+              <div
+                onPointerDown={(event) => {
+                  if (canDrag) dragControls.start(event);
                 }}
                 className="h-1.5 w-12 cursor-grab touch-none rounded-full bg-black/10 active:cursor-grabbing dark:bg-white/10"
                 aria-label="Drag down to close"

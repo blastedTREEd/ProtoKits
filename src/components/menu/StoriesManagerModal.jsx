@@ -226,7 +226,7 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
 
   useEffect(() => {
     const checkDevice = () => {
-      const split = window.matchMedia('(min-width: 1024px), (min-width: 768px) and (orientation: landscape)').matches;
+      const split = window.matchMedia('(min-width: 1024px)').matches;
       setIsDesktop(split);
       setIsSplitLayout(split);
       // setIsFramedModal(split);
@@ -1221,13 +1221,13 @@ const renderEditorFormButtons = () => (
     <AnimatePresence>
       {isOpen && (
 <div className="pointer-events-none fixed inset-0 z-[300] flex items-start justify-center" role="dialog" aria-modal="true" aria-label="Manage stories">
-  {/* Match the Deal Architect page shell; the navbar remains visible above it. */}
+  {/* Desktop keeps the navbar visible; smaller viewports use the whole screen. */}
   <Motion.div 
     initial={{ x: 40, opacity: 0 }} 
     animate={{ x: 0, opacity: 1 }} 
     exit={{ x: 40, opacity: 0 }}
     transition={{ type: "spring", damping: 30, stiffness: 420 }}
-    className="pointer-events-auto relative mt-[56px] flex h-[calc(100dvh-56px)] w-full max-w-7xl min-h-0 flex-col overflow-hidden border-x border-t bg-white text-neutral-900 shadow-2xl dark:border-white/5 dark:bg-neutral-900 dark:text-white sm:mt-[60px] sm:h-[calc(100dvh-60px)]"
+    className="pointer-events-auto relative mt-0 flex h-dvh w-full max-w-7xl min-h-0 flex-col overflow-hidden border-x border-t bg-white text-neutral-900 shadow-2xl dark:border-white/5 dark:bg-neutral-900 dark:text-white lg:mt-[60px] lg:h-[calc(100dvh-60px)]"
   >
 
             {/* MOBILE STICKY/ABSOLUTE HEADER */}
