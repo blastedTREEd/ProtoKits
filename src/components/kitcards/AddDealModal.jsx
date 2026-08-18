@@ -833,7 +833,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                    )}
                 </div>
 
-                {(dealType === 'bundle_only' || dealType === 'clearance') && (
+                {(dealType === 'bundle_only' || dealType === 'clearance' || dealType === 'mutually_exclusive') && (
                   <div className="flex flex-col gap-4 animate-in zoom-in duration-300">
                     {selectedKitsData.length > 0 && (
                       <div className="space-y-4 text-left">
@@ -869,6 +869,10 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                 <label className="text-[12px] font-black uppercase tracking-widest opacity-40 ml-2">Discount Amount (₱)</label>
                                 <input type="number" value={discountAmount} onChange={e => setDiscountAmount(e.target.value)} placeholder="0.00" className="w-full bg-blue-600/10 border border-blue-600/30 rounded-2xl px-4 py-4 text-sm font-black text-blue-500 outline-none focus:border-blue-500" />
                               </>
+                            ) : dealType === 'mutually_exclusive' ? (
+                              <p className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-4 text-[12px] font-bold leading-relaxed text-red-600 dark:text-red-300">
+                                Select exactly two kits. They cannot be sold together and will be automatically synchronized when either kit is reserved.
+                              </p>
                             ) : (
                               <p className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-4 text-[12px] font-bold leading-relaxed text-amber-600">
                                 Select the kits to clear. Their prices use the cost ceiling unless an item discount override is entered below.
@@ -881,7 +885,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                         <div className="min-w-0 space-y-2">
                           <div className="flex items-center justify-between gap-3 px-2">
                             <label className="text-[12px] font-black uppercase tracking-widest opacity-40">Inclusions ({selectedKitsData.length})</label>
-                            <span className="text-[12px] font-black uppercase tracking-widest opacity-30">{dealType === 'clearance' ? '1 clearance kit' : 'Drag to reorder / X to remove'}</span>
+                            <span className="text-[12px] font-black uppercase tracking-widest opacity-30">{dealType === 'clearance' ? '1 clearance kit' : dealType === 'mutually_exclusive' ? 'Exactly 2 kits / X to remove' : 'Drag to reorder / X to remove'}</span>
                           </div>
                           {getOrderedKits(kits, previewKitIds).map((kit, index) => {
                             const stock = getHighestOnhandStock(kit);
@@ -925,6 +929,10 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                 >
                                   {isExclusive ? 'EXCLUSIVE ✔' : 'STANDARD'}
                                 </button>
+                              ) : dealType === 'mutually_exclusive' ? (
+                                <span className="shrink-0 rounded-lg bg-red-500 px-3 py-2 text-[11px] font-black uppercase tracking-wider italic text-white shadow-md shadow-red-500/20">
+                                  EXCLUDED KIT
+                                </span>
                               ) : (
                                 <div className="flex shrink-0 items-center gap-1">
                                   <span className="h-8 rounded-lg bg-amber-500 px-3 py-2 text-[11px] font-black uppercase tracking-wider italic text-white shadow-md shadow-amber-500/20">
@@ -998,7 +1006,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                             <span className="text-[12px] font-black uppercase tracking-wider">Exclusive Discount Share</span>
                             <span className="text-[12px] font-black italic">{exclusiveDiscountPercent}%</span>
                          </div>
-                       ) : (
+                       ) : dealType === 'clearance' ? (
                          <>
                            <div className="flex justify-between items-center text-amber-500">
                               <span className="text-[12px] font-black uppercase tracking-wider">Clearance Discount</span>
@@ -1009,6 +1017,11 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                               <span className="text-[12px] font-black italic">-₱{Number(financialSummary.standardDiscountTotal || 0).toLocaleString()}</span>
                            </div>
                          </>
+                       ) : (
+                         <div className="flex justify-between items-center text-red-500">
+                           <span className="text-[12px] font-black uppercase tracking-wider">Exclusion Rule</span>
+                           <span className="text-[12px] font-black italic">2 kits only</span>
+                         </div>
                        )}
                        <div className="flex justify-between items-center opacity-40">
                           <span className="text-[12px] font-black uppercase">Standard Combined Sell</span>
@@ -1019,7 +1032,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                           <span className="text-[12px] font-bold">₱{financialSummary.totalCost.toLocaleString()}</span>
                        </div>
                        <div className="flex justify-between items-center text-blue-500">
-                          <span className="text-[12px] font-black uppercase tracking-wider">{dealType === 'clearance' ? 'Total Discount' : 'Promo Discount'}</span>
+                          <span className="text-[12px] font-black uppercase tracking-wider">{dealType === 'clearance' ? 'Total Discount' : dealType === 'mutually_exclusive' ? 'Discount' : 'Promo Discount'}</span>
                           <span className="text-[12px] font-black italic">-₱{Number(dealType === 'clearance' ? financialSummary.discountAmount : (parseFloat(discountAmount) || 0)).toLocaleString()}</span>
                        </div>
                        <div className="h-px bg-white/5 my-1" />

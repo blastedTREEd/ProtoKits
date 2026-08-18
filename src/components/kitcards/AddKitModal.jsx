@@ -344,6 +344,23 @@ function createKitTargetId(name, grade = '', ratio = '', brand = '') {
   return parts.join('_');
 }
 
+function createDuplicateKitId(master, existingKits = []) {
+  const parts = [
+    master?.grade,
+    master?.ratio,
+    master?.series,
+    master?.name
+  ]
+    .map((value) => String(value || '').trim().toLowerCase())
+    .map((value) => value.replace(/\//g, '-').replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''))
+    .filter(Boolean);
+
+  const baseId = parts.join('_') || `kit-duplicate-${Date.now()}`;
+  if (!existingKits.some((kit) => kit?.id === baseId)) return baseId;
+
+  return `${baseId}_copy_${Date.now()}`;
+}
+
 function getEtaSortValue(eta) {
   if (!eta) return Number.MAX_SAFE_INTEGER;
   const parsed = Date.parse(`${eta} 1`);
@@ -1015,6 +1032,57 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       ...prev,
       [field]: value
     }));
+  };
+
+  const handleDuplicateMaster = async () => {
+    if (!selectedExistingKit || isEditingExistingStock) return;
+
+    const duplicateId = createDuplicateKitId(masterForm, kits);
+    const duplicatePayload = {
+      targetId: duplicateId,
+      name: masterForm.name.trim().toUpperCase(),
+      image: masterForm.image.trim(),
+      images: (masterForm.images || []).map((image) => ({
+        id: image.id,
+        url: image.url,
+        type: image.type || 'PROMO IMAGE',
+        isGridImage: image.id === masterForm.image || Boolean(image.isGridImage)
+      })),
+      series: masterForm.series.trim().toUpperCase(),
+      specs: {
+        line: masterForm.grade.trim().toUpperCase(),
+        scale: masterForm.ratio.trim()
+      },
+      description: '',
+      jpPrice: 0,
+      phPrice: 0,
+      dimensions: { l: 0, w: 0, h: 0 },
+      updateMasterOnly: true
+    };
+
+    if (!duplicatePayload.name || !duplicatePayload.image) {
+      alert('The kit name and master image are required before duplicating.');
+      return;
+    }
+
+    if (!window.confirm(`Create a duplicate master for "${duplicatePayload.name}" without brand or stocks?`)) return;
+
+    try {
+      setIsSaving(true);
+      const result = await onSave(duplicatePayload);
+      const finalKitId = result?.id || duplicateId;
+      setRecentEdits((prev) => {
+        const next = [finalKitId, ...prev.filter((id) => id !== finalKitId)].slice(0, 6);
+        localStorage.setItem('sg_recent_kit_edits', JSON.stringify(next));
+        return next;
+      });
+      onClose();
+    } catch (error) {
+      console.error(error);
+      alert('Failed to duplicate kit master.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleStatusChange = (status) => {
@@ -2227,9 +2295,19 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                         1. Kit Master
                                     </h3>
                                     </div>
-                                    {!editingKit && (
-                                    <div className="flex gap-2">
-                                        {selectedKitId && (
+                                    {!isEditingExistingStock && (
+                                    <div className="flex flex-wrap justify-end gap-2">
+                                        {selectedExistingKit && (
+                                            <button
+                                                type="button"
+                                                onClick={handleDuplicateMaster}
+                                                disabled={isSaving}
+                                                className="rounded-xl border border-blue-500/20 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-blue-500 transition-all hover:bg-blue-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                                            >
+                                                Duplicate
+                                            </button>
+                                        )}
+                                        {!editingKit && selectedKitId && (
                                             <button
                                                 type="button"
                                                 onClick={handleDeleteKit}
@@ -2239,6 +2317,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                             </button>
                                         )}
                                         <button
+                                            type="button"
                                             onClick={resetToNewKit}
                                             className="rounded-xl border border-white/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest opacity-70 transition-all hover:border-blue-500 hover:text-blue-500"
                                         >

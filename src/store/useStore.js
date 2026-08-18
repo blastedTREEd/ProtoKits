@@ -1083,7 +1083,7 @@ export const useStore = create(
       addKit: async (kitData) => {
         console.log("SG DEBUG: addKit store action triggered with data:", kitData);
         try {
-          const { stockUpdateKey, newStock, updateMasterOnly, id: oldKitId, ...masterInfo } = kitData;
+          const { stockUpdateKey, newStock, updateMasterOnly, id: oldKitId, targetId: requestedKitId, ...masterInfo } = kitData;
           const normalizedNewStock = newStock ? withStockConditionDefaults(newStock) : newStock;
           const parts = [];
           const b = (masterInfo.brand || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
@@ -1094,7 +1094,7 @@ export const useStore = create(
           if (r) parts.push(r);
           const n = (masterInfo.name || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
           if (n) parts.push(n);
-          const targetKitId = parts.join('_');
+          const targetKitId = requestedKitId || parts.join('_');
           console.log("SG DEBUG: Generated targetKitId:", targetKitId);
 
           const timing = new Date().toISOString();
