@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Package, Gift, Plus, Trash2, Box, Sparkles, ClockFading, Pencil, Search, Loader2, X, Wallet, AlertCircle, TrendingUp, Filter, Zap, ArrowBigDownDash, ArrowBigUpDash, ChevronDown, MoreHorizontal, Image as ImageIcon, Settings } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
@@ -145,7 +145,22 @@ export default function Kits({ isActive = true }) {
   const pendingRestoreRef = useRef(null);
   const location = useLocation();
   const navigate = useNavigate();
-  const { kitId: routeKitId } = useParams();
+  // Kits is kept mounted outside the matching <Route> for faster tab
+  // switching, so useParams() cannot read /kits/:kitId here. Read the
+  // selected kit from the pathname instead.
+  const routeKitId = useMemo(() => {
+    const kitsPathPrefix = '/kits/';
+    if (!location.pathname.startsWith(kitsPathPrefix)) return null;
+
+    const encodedKitId = location.pathname.slice(kitsPathPrefix.length).split('/')[0];
+    if (!encodedKitId) return null;
+
+    try {
+      return decodeURIComponent(encodedKitId);
+    } catch {
+      return encodedKitId;
+    }
+  }, [location.pathname]);
 
   const openCheckoutPage = (items, isGuestPreview = !user || isAnonymousUser) => {
     navigate('/checkout', { state: { items, isGuestPreview } });
@@ -1007,6 +1022,7 @@ export default function Kits({ isActive = true }) {
     const previewKits = includedKits.slice(0, 4);
     const remainingCount = Math.max(0, includedKits.length - 4);
     const countdownLabel = getDealCountdownLabel(deal.validUntil);
+    const isUrgentDeal = countdownLabel === 'LAST DAY' || countdownLabel === 'EXPIRED';
     const dealGradient = getSpectralGradient(deal.id);
     const dealShadow = getShadowColor(dealGradient);
     return (
@@ -1021,7 +1037,7 @@ export default function Kits({ isActive = true }) {
       >
         <div className="relative rounded-[2.1rem] flex flex-col h-full p-3 bg-white dark:bg-[var(--color-surface)]">
           <div className="absolute top-4 left-0 z-50 flex flex-col items-start">
-            <div className={`px-1.5 py-0.5 font-bold uppercase tracking-tigther text-[10px] md:text-[11px] ${countdownLabel === 'EXPIRED' ? 'bg-red-500 border-red-400' : 'bg-emerald-500 border-emerald-400'} text-white shadow-lg`}>
+            <div className={`px-1.5 py-0.5 font-bold uppercase tracking-tigther text-[10px] md:text-[11px] ${isUrgentDeal ? 'bg-red-500 border-red-400' : 'bg-emerald-500 border-emerald-400'} text-white shadow-lg`}>
               {countdownLabel}
             </div>
           </div>
@@ -1234,6 +1250,7 @@ export default function Kits({ isActive = true }) {
                 const previewKits = includedKits.slice(0, 4);
                 const remainingCount = Math.max(0, includedKits.length - 4);
                 const countdownLabel = getDealCountdownLabel(deal.validUntil);
+                const isUrgentDeal = countdownLabel === 'LAST DAY' || countdownLabel === 'EXPIRED';
                 const dealGradient = getSpectralGradient(deal.id);
                 const dealShadow = getShadowColor(dealGradient);
                 return (
@@ -1248,7 +1265,7 @@ export default function Kits({ isActive = true }) {
                   >
                     <div className="relative rounded-[2.1rem] flex flex-col h-full p-3 bg-white dark:bg-[var(--color-surface)]">
                       <div className="absolute top-4 left-0 z-50 flex flex-col items-start">
-                        <div className={`px-1.5 py-0.5 font-bold uppercase tracking-tigther text-[10px] md:text-[11px] ${countdownLabel === 'EXPIRED' ? 'bg-red-500 border-red-400' : 'bg-emerald-500 border-emerald-400'} text-white shadow-lg`}>
+                        <div className={`px-1.5 py-0.5 font-bold uppercase tracking-tigther text-[10px] md:text-[11px] ${isUrgentDeal ? 'bg-red-500 border-red-400' : 'bg-emerald-500 border-emerald-400'} text-white shadow-lg`}>
                            {countdownLabel}
                         </div>
                       </div>

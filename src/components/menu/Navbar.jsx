@@ -652,8 +652,10 @@ const specs = {
   utilIcon: isDesktop ? (isCompactMode ? 22 : 26) : 24,
 };
 
-const displayImg = (!garageInfo?.fbPageId || imgError) ? (garageInfo?.logoURL || '') : `https://graph.facebook.com/${garageInfo.fbPageId}/picture?type=large`;
 const isFallbackLogo = !garageInfo?.fbPageId || imgError;
+const displayImg = isFallbackLogo
+  ? (imgError ? '/snorlaxgarage.png' : (garageInfo?.logoURL || '/snorlaxgarage.png'))
+  : `https://graph.facebook.com/${garageInfo.fbPageId}/picture?type=large`;
 
 const getPageTitle = () => {
   if (!isMobile) return { line1: 'SNORLAX', line2: 'GARAGE' };
@@ -722,13 +724,13 @@ return (
               style={{ width: specs.logoSize, height: specs.logoSize, padding: specs.ringPadding }} 
               className="relative rounded-full flex items-center justify-center bg-gradient-to-br from-[#0866FF] to-[#00CFFF] shadow-xl transition-all duration-500"
             >
-              <div className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center border-[2px] ${isDarkMode ? 'border-neutral-900' : 'border-white'} bg-white dark:bg-neutral-800`}>
+              <div className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center border-[2px] ${isDarkMode ? 'border-neutral-900' : 'border-white'} ${isFallbackLogo ? 'bg-gradient-to-br from-[#0866FF] to-[#00CFFF]' : 'bg-white dark:bg-neutral-800'}`}>
                 {displayImg ? (
                   <img
                     src={displayImg}
                     alt="Logo"
                     onError={() => setImgError(true)}
-                    className={`w-full h-full object-cover transition-all duration-500 ${isFallbackLogo ? 'grayscale-[100%] opacity-70' : ''}`}
+                    className={`w-full h-full ${isFallbackLogo ? 'object-contain' : 'object-cover'} transition-all duration-500`}
                   />
                 ) : (
                   <span className="text-[10px] font-black tracking-tighter text-neutral-400 dark:text-neutral-500">
@@ -755,13 +757,13 @@ return (
               style={{ width: specs.logoSize, height: specs.logoSize, top: '50%', transform: 'translateY(-50%)', padding: specs.ringPadding }} 
               className="absolute rounded-full flex items-center justify-center bg-gradient-to-br from-[#0866FF] to-[#00CFFF] shadow-xl transition-all duration-500"
             >
-              <div className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center border-[2px] ${isDarkMode ? 'border-neutral-900' : 'border-white'} bg-white dark:bg-neutral-800`}>
+              <div className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center border-[2px] ${isDarkMode ? 'border-neutral-900' : 'border-white'} ${isFallbackLogo ? 'bg-gradient-to-br from-[#0866FF] to-[#00CFFF]' : 'bg-white dark:bg-neutral-800'}`}>
                 {displayImg ? (
                   <img
                     src={displayImg}
                     alt="Logo"
                     onError={() => setImgError(true)}
-                    className={`w-full h-full object-cover transition-all duration-500 ${isFallbackLogo ? 'grayscale-[100%] opacity-70' : ''}`}
+                    className={`w-full h-full ${isFallbackLogo ? 'object-contain' : 'object-cover'} transition-all duration-500`}
                   />
                 ) : (
                   <span className="text-sm font-black tracking-tighter text-neutral-400 dark:text-neutral-500">

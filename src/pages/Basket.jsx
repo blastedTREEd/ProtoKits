@@ -80,13 +80,31 @@ export default function Basket() {
     return (deals || []).find(deal => {
       if (deal?.type !== 'mutually_exclusive' || deal.isActive === false) return false;
       const dealKitIds = Array.from(new Set(deal.kitIds || []));
-      if (dealKitIds.length < 2 || !dealKitIds.every(kitId => selectedKitIds.has(kitId))) return false;
+      const configuredPairs = (deal.mutuallyExclusivePairs || []).filter(pair => pair?.bandaiId && pair?.bootlegId);
+      const bandaiKitIds = deal.mutuallyExclusiveGroups?.bandai || deal.bandaiKitIds || [];
+      const bootlegKitIds = deal.mutuallyExclusiveGroups?.bootleg || deal.bootlegKitIds || [];
+      const conflictingPair = configuredPairs.length > 0
+        ? configuredPairs.find(pair => selectedKitIds.has(pair.bandaiId) && selectedKitIds.has(pair.bootlegId))
+        : null;
+      const hasGroupedRule = bandaiKitIds.length > 0 && bootlegKitIds.length > 0;
+      const hasConflict = configuredPairs.length > 0
+        ? Boolean(conflictingPair)
+        : hasGroupedRule
+          ? bandaiKitIds.some(kitId => selectedKitIds.has(kitId))
+            && bootlegKitIds.some(kitId => selectedKitIds.has(kitId))
+        : dealKitIds.length >= 2 && dealKitIds.every(kitId => selectedKitIds.has(kitId));
+      if (!hasConflict) return false;
 
       const validFrom = deal.validFrom ? new Date(deal.validFrom).getTime() : 0;
       const validUntil = deal.validUntil ? new Date(deal.validUntil).getTime() : 0;
       if (validFrom > 0 && validFrom > offerNow) return false;
       if (validUntil > 0 && validUntil <= offerNow) return false;
-      return true;
+      return {
+        ...deal,
+        conflictKitIds: conflictingPair
+          ? [conflictingPair.bandaiId, conflictingPair.bootlegId]
+          : dealKitIds
+      };
     }) || null;
   }, [activeBasket, activeSelection, deals, offerNow]);
 
@@ -912,7 +930,6 @@ export default function Basket() {
                         }
 
                         if (mutuallyExclusiveConflict) {
-                            const conflictKitIds = new Set(mutuallyExclusiveConflict.kitIds || []);
                             return (
                               <>
                                 <div className="flex flex-col items-start md:items-end justify-center">
@@ -921,7 +938,11 @@ export default function Basket() {
                                 </div>
                                 <button
                                   onClick={() => {
-                                    const keepKitId = mutuallyExclusiveConflict.kitIds?.[0];
+                                    const conflictKitIds = new Set(mutuallyExclusiveConflict.conflictKitIds || mutuallyExclusiveConflict.kitIds || []);
+                                    const selectedConflictItem = activeBasket.find(item => (
+                                      activeSelection.includes(item.basketId) && conflictKitIds.has(item.id)
+                                    ));
+                                    const keepKitId = selectedConflictItem?.id;
                                     setManualSelectedIds(prev => prev.filter(basketId => {
                                       const item = activeBasket.find(candidate => candidate.basketId === basketId);
                                       return !item || !conflictKitIds.has(item.id) || item.id === keepKitId;

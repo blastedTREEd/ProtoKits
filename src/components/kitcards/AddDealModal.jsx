@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { X, Plus, Trash2, Gift, Lock, Ban, Search, ChevronRight, ChevronLeft, Loader2, Edit3, Calendar, Clock3, RefreshCw, CheckSquare, Square, GripVertical, Image as ImageIcon } from 'lucide-react';
+import { X, Plus, Trash2, Gift, Lock, Ban, Search, ChevronRight, ChevronLeft, Loader2, Edit3, Calendar, Clock3, RefreshCw, CheckSquare, Square, Image as ImageIcon } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
 import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
@@ -16,6 +16,59 @@ function resolveImage(idOrUrl, imagesArray) {
 function getOrderedKits(kits, kitIds) {
   const kitMap = new Map((kits || []).map(kit => [kit.id, kit]));
   return (kitIds || []).map(id => kitMap.get(id)).filter(Boolean);
+}
+
+function getMutuallyExclusiveKitIds(deal) {
+  if (deal?.mutuallyExclusivePairs?.length > 0) {
+    return Array.from(new Set(deal.mutuallyExclusivePairs.flatMap(pair => [pair.bandaiId, pair.bootlegId]).filter(Boolean)));
+  }
+  const bandaiIds = deal?.mutuallyExclusiveGroups?.bandai || deal?.bandaiKitIds || [];
+  const bootlegIds = deal?.mutuallyExclusiveGroups?.bootleg || deal?.bootlegKitIds || [];
+  if (bandaiIds.length > 0 && bootlegIds.length > 0) {
+    return Array.from(new Set([...bandaiIds, ...bootlegIds]));
+  }
+  const legacyIds = deal?.kitIds?.length
+    ? deal.kitIds
+    : [deal?.targetKitId, deal?.forbiddenKitId, ...(deal?.requiredKitIds || [])];
+  return Array.from(new Set(legacyIds.filter(Boolean)));
+}
+
+function getMutuallyExclusivePairRows(deal, kits = []) {
+  if (deal?.mutuallyExclusivePairs?.length > 0) {
+    return deal.mutuallyExclusivePairs
+      .filter(pair => pair?.bandaiId || pair?.bootlegId)
+      .map(pair => ({ bandaiId: pair.bandaiId || null, bootlegId: pair.bootlegId || null }));
+  }
+
+  const bandaiIds = deal?.mutuallyExclusiveGroups?.bandai || deal?.bandaiKitIds || [];
+  const bootlegIds = deal?.mutuallyExclusiveGroups?.bootleg || deal?.bootlegKitIds || [];
+  const legacyIds = deal?.kitIds?.length
+    ? deal.kitIds
+    : [deal?.targetKitId, deal?.forbiddenKitId, ...(deal?.requiredKitIds || [])];
+  const kitMap = new Map((kits || []).map(kit => [kit.id, kit]));
+  const legacyKits = legacyIds.map(id => kitMap.get(id)).filter(Boolean);
+  const brandBandaiIds = legacyKits
+    .filter(kit => String(kit.brand || '').toLowerCase().includes('bandai'))
+    .map(kit => kit.id);
+  const brandBootlegIds = legacyKits
+    .filter(kit => !String(kit.brand || '').toLowerCase().includes('bandai'))
+    .map(kit => kit.id);
+  const fallbackBandaiIds = bandaiIds.length > 0
+    ? bandaiIds
+    : brandBandaiIds.length > 0
+      ? brandBandaiIds
+      : legacyIds.filter((_, index) => index === 0);
+  const fallbackBootlegIds = bootlegIds.length > 0
+    ? bootlegIds
+    : brandBootlegIds.length > 0
+      ? brandBootlegIds
+      : legacyIds.filter((_, index) => index === 1);
+  const rowCount = Math.max(fallbackBandaiIds.length, fallbackBootlegIds.length);
+
+  return Array.from({ length: rowCount }, (_, index) => ({
+    bandaiId: fallbackBandaiIds[index] || null,
+    bootlegId: fallbackBootlegIds[index] || null
+  }));
 }
 
 function getPreviewTileClass(total, index) {
@@ -274,7 +327,7 @@ function DealDatePicker({
 
 /* ─── Main Modal ─── */
 export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
-  const { kits, deals, addDeal, updateDeal, deleteDeal, shippingSettings } = useStore();
+  const { kits, deals, shelf, addDeal, removeFromBasket, updateDeal, deleteDeal, loadAllKits, loadAllDeals, loadMissingKits, shippingSettings } = useStore();
   const { isDarkMode } = useTheme();
   
   const [dealType, setDealType] = useState('bundle_only'); 
@@ -291,6 +344,10 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
   const [exclusiveKitIds, setExclusiveKitIds] = useState([]);
   const [clearanceKitIds, setClearanceKitIds] = useState([]);
   const [clearanceDiscounts, setClearanceDiscounts] = useState({});
+  const [clearanceOriginalOverrides, setClearanceOriginalOverrides] = useState({});
+  const [clearanceCurrentDiscounts, setClearanceCurrentDiscounts] = useState({});
+  const [mutuallyExclusivePairRows, setMutuallyExclusivePairRows] = useState([]);
+  const [isLoadingMutualKits, setIsLoadingMutualKits] = useState(false);
 
   // Bulk selection state for right column
   const [selectedDealIds, setSelectedDealIds] = useState([]);
@@ -302,10 +359,25 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     return clearanceDeals.find(deal => deal.isActive !== false) || clearanceDeals[0] || null;
   }, [deals]);
 
+  const mutuallyExclusiveMasterDeal = useMemo(() => {
+    const mutualDeals = (deals || []).filter(deal => (
+      deal.type === 'mutually_exclusive'
+      || deal.type === 'requirement'
+      || deal.type === 'exclusion'
+    ));
+    return mutualDeals.find(deal => deal.isActive !== false) || mutualDeals[0] || null;
+  }, [deals]);
+
   const visibleDeals = useMemo(() => {
-    if (!clearanceMasterDeal) return deals || [];
-    return (deals || []).filter(deal => deal.type !== 'clearance' || deal.id === clearanceMasterDeal.id);
-  }, [deals, clearanceMasterDeal]);
+    return (deals || []).filter(deal => {
+      const isMutualDeal = deal.type === 'mutually_exclusive'
+        || deal.type === 'requirement'
+        || deal.type === 'exclusion';
+      const isClearanceMaster = deal.type !== 'clearance' || deal.id === clearanceMasterDeal?.id;
+      const isMutualMaster = !isMutualDeal || deal.id === mutuallyExclusiveMasterDeal?.id;
+      return isClearanceMaster && isMutualMaster;
+    });
+  }, [deals, clearanceMasterDeal, mutuallyExclusiveMasterDeal]);
 
 
   // Pre-fill if editing
@@ -316,10 +388,14 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       if (mappedType === 'requirement' || mappedType === 'exclusion') mappedType = 'mutually_exclusive';
       
       setDealType(mappedType);
-      setDealName(mappedType === 'clearance' ? '' : (dealToEdit.name || ''));
+      setDealName(mappedType === 'clearance'
+        ? ''
+        : mappedType === 'mutually_exclusive'
+          ? 'BANDAI VS BOOTLEG'
+          : (dealToEdit.name || ''));
       setActiveEditId(dealToEdit.id);
-      setValidFrom(dealToEdit.validFrom || '');
-      setValidUntil(dealToEdit.validUntil || '');
+      setValidFrom(mappedType === 'mutually_exclusive' ? '' : (dealToEdit.validFrom || ''));
+      setValidUntil(mappedType === 'mutually_exclusive' ? '' : (dealToEdit.validUntil || ''));
       
       let disc = 0;
       if (dealToEdit.discountAmount !== undefined) {
@@ -340,19 +416,37 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
           (dealToEdit.clearanceKitIds?.length ? dealToEdit.clearanceKitIds : kids)
         ));
       }
+      if (mappedType === 'mutually_exclusive') {
+        kids = getMutuallyExclusiveKitIds(dealToEdit);
+      }
       setSelectedKitIds(kids);
-      setPreviewKitIds((dealToEdit.previewKitIds || kids).filter(id => kids.includes(id)));
+      setMutuallyExclusivePairRows(mappedType === 'mutually_exclusive' ? getMutuallyExclusivePairRows(dealToEdit, kits) : []);
+      setPreviewKitIds(mappedType === 'mutually_exclusive'
+        ? []
+        : (dealToEdit.previewKitIds || kids).filter(id => kids.includes(id)));
       setExclusiveKitIds(dealToEdit.exclusiveKitIds || []);
       setClearanceKitIds(mappedType === 'clearance' ? kids : []);
-      setClearanceDiscounts(mappedType === 'clearance'
-        ? Object.fromEntries(kids.map(id => [id, dealToEdit.clearanceDiscounts?.[id] ?? '']))
-        : {});
+      const originalClearanceOverrides = mappedType === 'clearance'
+        ? Object.fromEntries(kids
+          .filter(id => dealToEdit.clearanceDiscounts?.[id] !== '' && dealToEdit.clearanceDiscounts?.[id] !== null && dealToEdit.clearanceDiscounts?.[id] !== undefined)
+          .map(id => [id, dealToEdit.clearanceDiscounts[id]]))
+        : {};
+      const currentClearanceDiscounts = mappedType === 'clearance'
+        ? Object.fromEntries(kids.map(id => [
+          id,
+          dealToEdit.clearanceDiscounts?.[id] ?? dealToEdit.kitDiscounts?.[id]?.discount ?? ''
+        ]))
+        : {};
+      setClearanceOriginalOverrides(originalClearanceOverrides);
+      setClearanceCurrentDiscounts(currentClearanceDiscounts);
+      setClearanceDiscounts({});
       setMobileTab('creator');
     } else if (isOpen) {
       setDealType('bundle_only'); 
       setDealName(''); 
       setDiscountAmount(''); 
       setSelectedKitIds([]);
+      setMutuallyExclusivePairRows([]);
       setSearchTerm('');
       setActiveEditId(null);
       setValidFrom('');
@@ -361,15 +455,30 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       setDraggedPreviewKitId(null);
       setExclusiveKitIds([]);
       setClearanceKitIds([]);
+      setClearanceOriginalOverrides({});
+      setClearanceCurrentDiscounts({});
       setClearanceDiscounts({});
       setSelectedDealIds([]);
       setMobileTab('creator');
     }
-  }, [dealToEdit, isOpen]);
+  }, [dealToEdit, isOpen, kits]);
 
   const selectedKitsData = useMemo(() => {
     return getOrderedKits(kits, selectedKitIds);
   }, [kits, selectedKitIds]);
+
+  const mutuallyExclusiveGroups = useMemo(() => {
+    const kitMap = new Map((kits || []).map(kit => [kit.id, kit]));
+    const bandai = mutuallyExclusivePairRows
+      .map(row => kitMap.get(row.bandaiId))
+      .filter(Boolean);
+    const bootleg = mutuallyExclusivePairRows
+      .map(row => kitMap.get(row.bootlegId))
+      .filter(Boolean);
+    return { bandai, bootleg };
+  }, [kits, mutuallyExclusivePairRows]);
+
+  const isBandaiKitId = (kitId) => String(kits.find(kit => kit.id === kitId)?.brand || '').toLowerCase().includes('bandai');
 
   const previewKitsData = useMemo(() => {
     return getOrderedKits(kits, previewKitIds).slice(0, 4);
@@ -399,10 +508,17 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
           costPrice: Number(stock.costPrice || 0)
         };
       });
-      return getClearanceBundlePricing(rows, clearanceKitIds, clearanceDiscounts);
+      return getClearanceBundlePricing(rows, clearanceKitIds, { ...clearanceOriginalOverrides, ...clearanceDiscounts });
     }
     return getBundleDiscountBreakdown(kits, selectedKitIds, exclusiveKitIds, parseFloat(discountAmount) || 0, exclusiveDiscountPercent);
-  }, [dealType, selectedKitsData, clearanceKitIds, clearanceDiscounts, kits, selectedKitIds, exclusiveKitIds, discountAmount, exclusiveDiscountPercent]);
+  }, [dealType, selectedKitsData, clearanceKitIds, clearanceOriginalOverrides, clearanceDiscounts, kits, selectedKitIds, exclusiveKitIds, discountAmount, exclusiveDiscountPercent]);
+
+  const getClearanceDiscountPlaceholder = (kitId, fallbackDiscount = 0) => {
+    const currentDiscount = clearanceCurrentDiscounts[kitId];
+    return currentDiscount !== '' && currentDiscount !== null && currentDiscount !== undefined
+      ? currentDiscount
+      : fallbackDiscount;
+  };
 
   const kitSearchResults = useMemo(() => {
     if (!searchTerm) return [];
@@ -450,7 +566,9 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
         setClearanceKitIds(next);
         setClearanceDiscounts(prevDiscounts => {
           const nextDiscounts = { ...prevDiscounts };
-          if (next.includes(id)) nextDiscounts[id] = nextDiscounts[id] ?? '';
+          if (next.includes(id) && nextDiscounts[id] === undefined && clearanceOriginalOverrides[id] === undefined) {
+            nextDiscounts[id] = '';
+          }
           else delete nextDiscounts[id];
           return nextDiscounts;
         });
@@ -460,7 +578,6 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     }
 
     if (dealType === 'mutually_exclusive') {
-      // Mutually exclusive can only have 2 kits
       setSelectedKitIds(prev => {
         if (prev.includes(id)) {
           setExclusiveKitIds(ex => ex.filter(i => i !== id));
@@ -470,12 +587,33 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
             delete next[id];
             return next;
           });
+          setMutuallyExclusivePairRows(rows => {
+            const rowIndex = rows.findIndex(row => row.bandaiId === id || row.bootlegId === id);
+            if (rowIndex < 0) return rows;
+
+            const row = rows[rowIndex];
+            const nextRow = row.bandaiId === id
+              ? { ...row, bandaiId: null }
+              : { ...row, bootlegId: null };
+            const nextRows = rows.filter((_, index) => index !== rowIndex);
+            if (nextRow.bandaiId || nextRow.bootlegId) nextRows.push(nextRow);
+            return nextRows;
+          });
           return prev.filter(i => i !== id);
         }
-        if (prev.length >= 2) {
-          alert("Mutually exclusive strategy only supports up to 2 kits.");
-          return prev;
-        }
+
+        const isBandai = isBandaiKitId(id);
+        setMutuallyExclusivePairRows(rows => {
+          const partnerRowIndex = rows.findIndex(row => isBandai
+            ? !row.bandaiId && row.bootlegId
+            : !row.bootlegId && row.bandaiId);
+          if (partnerRowIndex >= 0) {
+            return rows.map((row, index) => index === partnerRowIndex
+              ? (isBandai ? { ...row, bandaiId: id } : { ...row, bootlegId: id })
+              : row);
+          }
+          return [...rows, isBandai ? { bandaiId: id, bootlegId: null } : { bandaiId: null, bootlegId: id }];
+        });
         return [...prev, id];
       });
     } else {
@@ -495,16 +633,16 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     }
   };
 
-  const handleEditSavedDeal = (deal) => {
+  const handleEditSavedDeal = (deal, kitCatalog = kits) => {
     let mappedType = deal.type || 'bundle_only';
     if (mappedType === 'bundle' || mappedType === 'bundle_discount') mappedType = 'bundle_only';
     if (mappedType === 'requirement' || mappedType === 'exclusion') mappedType = 'mutually_exclusive';
     
     setDealType(mappedType);
-    setDealName(deal.name || '');
+    setDealName(mappedType === 'mutually_exclusive' ? 'BANDAI VS BOOTLEG' : (deal.name || ''));
     setActiveEditId(deal.id);
-    setValidFrom(deal.validFrom || '');
-    setValidUntil(deal.validUntil || '');
+    setValidFrom(mappedType === 'mutually_exclusive' ? '' : (deal.validFrom || ''));
+    setValidUntil(mappedType === 'mutually_exclusive' ? '' : (deal.validUntil || ''));
     
     let disc = 0;
     if (deal.discountAmount !== undefined) {
@@ -525,13 +663,30 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
         (deal.clearanceKitIds?.length ? deal.clearanceKitIds : kids)
       ));
     }
+    if (mappedType === 'mutually_exclusive') {
+      kids = getMutuallyExclusiveKitIds(deal);
+    }
     setSelectedKitIds(kids);
-    setPreviewKitIds((deal.previewKitIds || kids).filter(id => kids.includes(id)));
+    setMutuallyExclusivePairRows(mappedType === 'mutually_exclusive' ? getMutuallyExclusivePairRows(deal, kitCatalog) : []);
+    setPreviewKitIds(mappedType === 'mutually_exclusive'
+      ? []
+      : (deal.previewKitIds || kids).filter(id => kids.includes(id)));
     setExclusiveKitIds(deal.exclusiveKitIds || []);
     setClearanceKitIds(mappedType === 'clearance' ? kids : []);
-    setClearanceDiscounts(mappedType === 'clearance'
-      ? Object.fromEntries(kids.map(id => [id, deal.clearanceDiscounts?.[id] ?? '']))
-      : {});
+    const originalClearanceOverrides = mappedType === 'clearance'
+      ? Object.fromEntries(kids
+        .filter(id => deal.clearanceDiscounts?.[id] !== '' && deal.clearanceDiscounts?.[id] !== null && deal.clearanceDiscounts?.[id] !== undefined)
+        .map(id => [id, deal.clearanceDiscounts[id]]))
+      : {};
+    const currentClearanceDiscounts = mappedType === 'clearance'
+      ? Object.fromEntries(kids.map(id => [
+        id,
+        deal.clearanceDiscounts?.[id] ?? deal.kitDiscounts?.[id]?.discount ?? ''
+      ]))
+      : {};
+    setClearanceOriginalOverrides(originalClearanceOverrides);
+    setClearanceCurrentDiscounts(currentClearanceDiscounts);
+    setClearanceDiscounts({});
     setSearchTerm('');
     setMobileTab('creator');
   };
@@ -545,14 +700,57 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     setDealType('clearance');
     setDealName('');
     setSelectedKitIds([]);
+    setMutuallyExclusivePairRows([]);
     setExclusiveKitIds([]);
     setClearanceKitIds([]);
+    setClearanceOriginalOverrides({});
+    setClearanceCurrentDiscounts({});
     setClearanceDiscounts({});
     setActiveEditId(null);
     setValidFrom('');
     setValidUntil('');
     setPreviewKitIds([]);
     setDraggedPreviewKitId(null);
+  };
+
+  const handleSelectMutuallyExclusiveStrategy = async () => {
+    setIsLoadingMutualKits(true);
+    try {
+      await Promise.all([loadAllKits(), loadAllDeals()]);
+
+      const latestDeals = useStore.getState().deals || deals || [];
+      const latestMutualMaster = latestDeals
+        .filter(deal => deal.type === 'mutually_exclusive' || deal.type === 'requirement' || deal.type === 'exclusion')
+        .find(deal => deal.isActive !== false)
+        || latestDeals.find(deal => deal.type === 'mutually_exclusive' || deal.type === 'requirement' || deal.type === 'exclusion')
+        || null;
+
+      if (latestMutualMaster) {
+        await loadMissingKits(getMutuallyExclusiveKitIds(latestMutualMaster));
+        handleEditSavedDeal(latestMutualMaster, useStore.getState().kits || kits);
+        return;
+      }
+
+      setDealType('mutually_exclusive');
+      setDealName('BANDAI VS BOOTLEG');
+      setSelectedKitIds([]);
+      setMutuallyExclusivePairRows([]);
+      setExclusiveKitIds([]);
+      setClearanceKitIds([]);
+      setClearanceOriginalOverrides({});
+      setClearanceCurrentDiscounts({});
+      setClearanceDiscounts({});
+      setActiveEditId(null);
+      setValidFrom('');
+      setValidUntil('');
+      setPreviewKitIds([]);
+      setDraggedPreviewKitId(null);
+    } catch (error) {
+      console.error('SG LOG: Could not load kits for mutual-exclusion strategy:', error);
+      alert(`Could not load kits: ${error.message}`);
+    } finally {
+      setIsLoadingMutualKits(false);
+    }
   };
 
   const movePreviewKit = (draggedId, targetId) => {
@@ -569,30 +767,62 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
   };
 
   const handleSave = async () => {
-    if (dealType !== 'clearance' && !dealName) return alert("Please enter a deal name");
+    if (dealType !== 'clearance' && dealType !== 'mutually_exclusive' && !dealName) return alert("Please enter a deal name");
     if (dealType === 'clearance' && selectedKitIds.length === 0) {
       return alert("Add at least 1 kit to the clearance eligible list");
     }
-    if (dealType !== 'clearance' && selectedKitIds.length < 2) {
-      return alert(dealType === 'mutually_exclusive' ? "Pick exactly 2 kits for mutual exclusion" : "Pick at least 2 kits for this deal");
-    }
-    if (dealType === 'mutually_exclusive' && selectedKitIds.length !== 2) {
-      return alert("Pick exactly 2 kits for mutual exclusion");
+    if (dealType === 'mutually_exclusive') {
+      if (mutuallyExclusiveGroups.bandai.length === 0 || mutuallyExclusiveGroups.bootleg.length === 0) {
+        return alert("Add at least one BANDAI kit and one BOOTLEG kit");
+      }
+      if (mutuallyExclusiveGroups.bandai.length !== mutuallyExclusiveGroups.bootleg.length) {
+        return alert("Each BANDAI kit must have one BOOTLEG partner");
+      }
+      if (mutuallyExclusivePairRows.some(row => !row.bandaiId || !row.bootlegId)) {
+        return alert("Pair or remove every kit without a partner before saving");
+      }
+    } else if (dealType !== 'clearance' && selectedKitIds.length < 2) {
+      return alert("Pick at least 2 kits for this deal");
     }
     
-    const dealId = activeEditId || (dealType === 'clearance' ? clearanceMasterDeal?.id : null);
+    const dealId = activeEditId
+      || (dealType === 'clearance'
+        ? clearanceMasterDeal?.id
+        : dealType === 'mutually_exclusive'
+          ? mutuallyExclusiveMasterDeal?.id
+          : null);
+    const mutuallyExclusivePairs = dealType === 'mutually_exclusive'
+      ? mutuallyExclusivePairRows.map(row => ({
+          bandaiId: row.bandaiId,
+          bootlegId: row.bootlegId
+        }))
+      : [];
+    const effectiveClearanceDiscounts = { ...clearanceOriginalOverrides, ...clearanceDiscounts };
     let dealData = {
       id: dealId,
       type: dealType,
-      name: dealType === 'clearance' ? 'CLEARANCE ELIGIBLE KITS' : dealName.toUpperCase(),
+      name: dealType === 'clearance'
+        ? 'CLEARANCE ELIGIBLE KITS'
+        : dealType === 'mutually_exclusive'
+          ? 'BANDAI VS BOOTLEG'
+          : dealName.toUpperCase(),
       isActive: true,
       kitIds: selectedKitIds,
-      previewKitIds,
+      previewKitIds: dealType === 'mutually_exclusive' ? [] : previewKitIds,
       exclusiveKitIds: dealType === 'bundle_only' ? exclusiveKitIds : [],
       clearanceKitIds: dealType === 'clearance' ? selectedKitIds : [],
       clearanceDiscounts: dealType === 'clearance'
-        ? Object.fromEntries(selectedKitIds.map(id => [id, clearanceDiscounts[id] ?? '']))
+        ? Object.fromEntries(selectedKitIds.map(id => [id, effectiveClearanceDiscounts[id] ?? '']))
         : {},
+      mutuallyExclusiveGroups: dealType === 'mutually_exclusive'
+        ? {
+            bandai: mutuallyExclusiveGroups.bandai.map(kit => kit.id),
+            bootleg: mutuallyExclusiveGroups.bootleg.map(kit => kit.id)
+          }
+        : {},
+      bandaiKitIds: dealType === 'mutually_exclusive' ? mutuallyExclusiveGroups.bandai.map(kit => kit.id) : [],
+      bootlegKitIds: dealType === 'mutually_exclusive' ? mutuallyExclusiveGroups.bootleg.map(kit => kit.id) : [],
+      mutuallyExclusivePairs,
     };
 
     if (dealType === 'bundle_only') {
@@ -645,6 +875,12 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       dealData.stockSource = 'onhand';
     }
 
+    if (dealType === 'mutually_exclusive') {
+      dealData.validFrom = '';
+      dealData.validUntil = '';
+      dealData.stockSource = 'onhand';
+    }
+
     // Check if all included kits have purchasable stock — auto-deactivate if not
     if (dealType === 'bundle_only' || dealType === 'clearance') {
       const unfulfillableKits = selectedKitIds.filter(kidId => {
@@ -663,10 +899,23 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     try {
       setIsSaving(true);
       await addDeal(dealData);
+
+      if (dealType === 'mutually_exclusive') {
+        const selectedShelfItems = (shelf || []).filter(item => selectedKitIds.includes(item.id));
+        for (const shelfItem of selectedShelfItems) {
+          try {
+            await removeFromBasket(shelfItem.basketId);
+          } catch (releaseError) {
+            console.error('SG LOG: Could not release selected mutual-exclusion shelf stock:', releaseError);
+          }
+        }
+      }
+
       alert("Success! Deal synchronized.");
       setDealName('');
       setDiscountAmount('');
       setSelectedKitIds([]);
+      setMutuallyExclusivePairRows([]);
       setSearchTerm('');
       setActiveEditId(null);
       setValidFrom('');
@@ -675,6 +924,8 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       setDraggedPreviewKitId(null);
       setExclusiveKitIds([]);
       setClearanceKitIds([]);
+      setClearanceOriginalOverrides({});
+      setClearanceCurrentDiscounts({});
       setClearanceDiscounts({});
       setMobileTab('list');
     } catch (e) { 
@@ -683,6 +934,66 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const renderMutuallyExclusivePairs = () => {
+    const kitMap = new Map((kits || []).map(kit => [kit.id, kit]));
+    const pairEntries = mutuallyExclusivePairRows.map((pair, index) => ({
+      index,
+      bandai: kitMap.get(pair.bandaiId),
+      bootleg: kitMap.get(pair.bootlegId)
+    }));
+
+    const renderPairSide = (label, kit, pairIndex) => {
+      return (
+        <div className="flex min-w-0 items-center gap-2 rounded-xl border border-blue-500/30 bg-blue-500/10 px-2 py-2">
+          {kit ? (
+            <>
+              <img src={resolveImage(kit.image, kit.images)} className="h-8 w-8 shrink-0 rounded-lg object-cover bg-white" alt="" />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[12px] font-black uppercase text-[var(--color-text-main)]" title={kit.name}>{kit.name}</div>
+                <span className="mt-0.5 block truncate text-[12px] font-black uppercase text-[var(--color-text-main)]">
+                  {[kit.brand, kit.specs?.line, kit.specs?.scale].filter(Boolean).join(' / ') || 'No brand, line, or scale'}
+                </span>
+              </div>
+              <div className="shrink-0 text-right leading-tight">
+                <span className="block text-[12px] font-black uppercase text-emerald-500">SELL ₱{getBundleStandardSellPrice(getHighestOnhandStock(kit), kit).toLocaleString()}</span>
+                <span className="block text-[12px] font-black uppercase text-[var(--color-text-main)]">COST ₱{Number(getHighestOnhandStock(kit).costPrice || kit.costPrice || 0).toLocaleString()}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => toggleKitSelection(kit.id)}
+                className="shrink-0 rounded-full p-1 opacity-50 transition-all hover:bg-red-500/10 hover:text-red-500 hover:opacity-100"
+                title={`Remove ${label} kit from pair ${pairIndex + 1}`}
+              >
+                <X size={12} />
+              </button>
+            </>
+          ) : (
+            <span className="w-full px-1 py-2 text-center text-[10px] font-black uppercase tracking-wide opacity-50">
+              Add {label} partner
+            </span>
+          )}
+        </div>
+      );
+    };
+
+    return (
+      <div className="space-y-3">
+        {pairEntries.map(({ index, bandai, bootleg }) => (
+          <div key={`mutual-pair-${index}`} className="space-y-2">
+            <div className="mb-2 flex items-center justify-between gap-2 px-1">
+              <span className="text-[11px] font-black uppercase tracking-widest text-[var(--color-text-main)]">Pair {index + 1}</span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-[var(--color-text-main)]">Cannot be sold together</span>
+            </div>
+            <div className="grid grid-cols-1 gap-2">
+              {renderPairSide('BANDAI', bandai, index)}
+              {renderPairSide('BOOTLEG', bootleg, index)}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
   };
 
   const handleExcludeClearanceKit = async (deal, kitId) => {
@@ -876,26 +1187,20 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
              <div className="space-y-2 text-left">
                 <label className="text-[12px] font-black uppercase tracking-widest opacity-40 ml-2">Select Strategy</label>
                 <div className="grid grid-cols-3 gap-2">
-                   <button onClick={() => { setDealType('bundle_only'); setSelectedKitIds([]); setExclusiveKitIds([]); setClearanceKitIds([]); setClearanceDiscounts({}); }} className={`py-3 rounded-2xl border flex flex-col items-center gap-1 transition-all ${dealType === 'bundle_only' ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg' : 'bg-black/5 border-[var(--color-border)] opacity-60'}`}>
+                   <button onClick={() => { setDealType('bundle_only'); setDealName(''); setActiveEditId(null); setSelectedKitIds([]); setMutuallyExclusivePairRows([]); setExclusiveKitIds([]); setClearanceKitIds([]); setClearanceOriginalOverrides({}); setClearanceCurrentDiscounts({}); setClearanceDiscounts({}); }} className={`py-3 rounded-2xl border flex flex-col items-center gap-1 transition-all ${dealType === 'bundle_only' ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg' : 'bg-black/5 border-[var(--color-border)] opacity-60'}`}>
                       <Lock size={16} /> <span className="text-[11px] font-black uppercase">Bundle Deal</span>
                    </button>
                    <button type="button" aria-pressed={dealType === 'clearance'} onClick={handleSelectClearanceStrategy} className={`py-3 rounded-2xl border flex flex-col items-center gap-1 transition-all ${dealType === 'clearance' ? 'bg-amber-500 border-amber-500 text-white shadow-lg' : 'bg-black/5 border-[var(--color-border)] opacity-60'}`}>
                       <Gift size={16} /> <span className="text-[11px] font-black uppercase">Clearance</span>
                    </button>
-                   <button onClick={() => { setDealType('mutually_exclusive'); setSelectedKitIds([]); setExclusiveKitIds([]); setClearanceKitIds([]); setClearanceDiscounts({}); }} className={`py-3 rounded-2xl border flex flex-col items-center gap-1 transition-all ${dealType === 'mutually_exclusive' ? 'bg-red-600 border-red-600 text-white shadow-lg' : 'bg-black/5 border-[var(--color-border)] opacity-60'}`}>
-                      <Ban size={16} /> <span className="text-[11px] font-black uppercase">Mut. Excl</span>
+                   <button type="button" aria-pressed={dealType === 'mutually_exclusive'} onClick={handleSelectMutuallyExclusiveStrategy} disabled={isLoadingMutualKits} className={`py-3 rounded-2xl border flex flex-col items-center gap-1 transition-all ${dealType === 'mutually_exclusive' ? 'bg-red-600 border-red-600 text-white shadow-lg' : 'bg-black/5 border-[var(--color-border)] opacity-60'} ${isLoadingMutualKits ? 'cursor-wait opacity-70' : ''}`}>
+                      {isLoadingMutualKits ? <Loader2 size={16} className="animate-spin" /> : <Ban size={16} />} <span className="text-[11px] font-black uppercase">Mutually Exclusive</span>
                    </button>
                 </div>
-                {dealType === 'clearance' && (
-                  <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-left text-[11px] font-bold leading-relaxed text-amber-700 dark:text-amber-300">
-                    <p className="font-black uppercase tracking-widest">Clearance eligible kit master list</p>
-                    <p className="mt-1 opacity-80">Add the on-hand kits eligible for clearance. The strongest selected clearance discount is used in the basket when another on-hand kit is included.</p>
-                  </div>
-                )}
              </div>
 
              <div className="space-y-4">
-                {dealType !== 'clearance' && (
+                {dealType !== 'clearance' && dealType !== 'mutually_exclusive' && (
                   <div className="space-y-1 text-left">
                      <label className="text-[12px] font-black uppercase tracking-widest opacity-40 ml-2">Deal Name</label>
                      <input value={dealName} onChange={e => setDealName(e.target.value)} placeholder="E.G. PROMO PACK" className="w-full bg-black/5 border border-[var(--color-border)] rounded-2xl px-4 py-3 text-xs font-bold outline-none focus:border-blue-500 uppercase text-[var(--color-text-main)]" />
@@ -941,7 +1246,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                   <div className="flex flex-col gap-4 animate-in zoom-in duration-300">
                     {selectedKitsData.length > 0 && (
                       <div className="space-y-4 text-left">
-                        <div className="grid grid-cols-2 gap-4">
+                         <div className={`${dealType === 'clearance' || dealType === 'mutually_exclusive' ? 'hidden' : 'grid grid-cols-2 gap-4'}`}>
                           {/* Card Preview Column */}
                           <div className="space-y-1">
                             <div className="flex items-center justify-between gap-3 px-1">
@@ -986,7 +1291,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                         </div>
 
                         {/* Inclusions */}
-                        <div className="min-w-0 space-y-2">
+                         <div className={`${dealType === 'mutually_exclusive' ? 'hidden' : 'min-w-0 space-y-2'}`}>
                           <div className="flex items-center justify-between gap-3 px-2">
                             <label className="text-[12px] font-black uppercase tracking-widest opacity-40">Inclusions ({selectedKitsData.length})</label>
                             <span className="text-[12px] font-black uppercase tracking-widest opacity-30">{dealType === 'clearance' ? 'Eligible kits / X to remove' : dealType === 'mutually_exclusive' ? 'Exactly 2 kits / X to remove' : 'Drag to reorder / X to remove'}</span>
@@ -995,6 +1300,10 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                             const stock = getHighestOnhandStock(kit);
                             const isExclusive = exclusiveKitIds.includes(kit.id);
                             const discountRow = financialSummary.rows.find(row => row.kit.id === kit.id);
+                            const currentClearanceDiscount = getClearanceDiscountPlaceholder(
+                              kit.id,
+                              discountRow?.discount ?? discountRow?.clearanceDiscount ?? 0
+                            );
                             return (
                             <div
                               key={kit.id}
@@ -1005,9 +1314,13 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                               onDragEnd={() => setDraggedPreviewKitId(null)}
                               className={`flex cursor-grab items-center gap-2 rounded-xl border px-3 py-2 transition-all active:cursor-grabbing ${index < 4 ? 'border-blue-500/30 bg-blue-500/10' : 'border-[var(--color-border)] bg-black/5'}`}
                             >
-                              <GripVertical size={14} className="shrink-0 opacity-40" />
                               <img src={resolveImage(kit.image, kit.images)} className="h-7 w-7 rounded-lg object-cover bg-white" alt="" />
-                              <span className="min-w-0 flex-1 truncate text-[12px] font-black uppercase">{kit.name}</span>
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate text-[12px] font-black uppercase" title={kit.name}>{kit.name}</div>
+                                <span className="mt-0.5 block truncate text-[12px] font-black uppercase">
+                                  {[kit.brand, kit.specs?.line, kit.specs?.scale].filter(Boolean).join(' / ') || 'No brand, line, or scale'}
+                                </span>
+                              </div>
                               <div className="shrink-0 text-right leading-tight mr-1">
                                 <span className="block text-[12px] font-black uppercase text-emerald-500">SELL ₱{Number(stock.sellPrice || kit.sellPrice || 0).toLocaleString()}</span>
                                 <span className="block text-[12px] font-black uppercase opacity-35">COST ₱{Number(stock.costPrice || 0).toLocaleString()}</span>
@@ -1033,25 +1346,16 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                 >
                                   {isExclusive ? 'EXCLUSIVE ✔' : 'STANDARD'}
                                 </button>
-                              ) : dealType === 'mutually_exclusive' ? (
-                                <span className="shrink-0 rounded-lg bg-red-500 px-3 py-2 text-[11px] font-black uppercase tracking-wider italic text-white shadow-md shadow-red-500/20">
-                                  EXCLUDED KIT
-                                </span>
                               ) : (
-                                <div className="flex shrink-0 items-center gap-1">
-                                  <span className="h-8 rounded-lg bg-amber-500 px-3 py-2 text-[11px] font-black uppercase tracking-wider italic text-white shadow-md shadow-amber-500/20">
-                                    CLEARANCE KIT
-                                  </span>
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    value={clearanceDiscounts[kit.id] ?? ''}
-                                    onChange={(event) => setClearanceDiscounts(prev => ({ ...prev, [kit.id]: event.target.value }))}
-                                    placeholder="Override"
-                                    title="Discount override from original sell price"
-                                    className="h-7 w-20 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2 text-[11px] font-black text-amber-600 outline-none focus:border-amber-500"
-                                  />
-                                </div>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={clearanceDiscounts[kit.id] ?? ''}
+                                  onChange={(event) => setClearanceDiscounts(prev => ({ ...prev, [kit.id]: event.target.value }))}
+                                  placeholder={`₱${Number(currentClearanceDiscount || 0).toLocaleString()}`}
+                                  title="Type a discount amount to override the current discount"
+                                  className="h-10 w-28 shrink-0 appearance-none rounded-lg border border-[var(--color-border)] bg-black/5 px-3 py-2 text-[12px] font-black uppercase tracking-wider text-black outline-none placeholder:text-[12px] placeholder:font-black placeholder:italic placeholder:text-black focus:border-amber-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                />
                               )}
                               <button
                                 type="button"
@@ -1067,17 +1371,20 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                               </button>
                             </div>
                             );
-                          })}
-                        </div>
-                      </div>
+                           })}
+                         </div>
+                         {dealType === 'mutually_exclusive' && (
+                           renderMutuallyExclusivePairs()
+                         )}
+                       </div>
                     )}
                     <div className="hidden space-y-1 text-left">
                       <label className="text-[12px] font-black uppercase tracking-widest opacity-40 ml-2">Discount Amount (₱)</label>
                       <input type="number" value={discountAmount} onChange={e => setDiscountAmount(e.target.value)} placeholder="0.00" className="w-full bg-blue-600/10 border border-blue-600/30 rounded-2xl px-4 py-4 text-sm font-black text-blue-500 outline-none focus:border-blue-500" />
                     </div>
 
-                    {/* Bundle deals expire; the clearance eligibility master list does not. */}
-                    {dealType !== 'clearance' && <div className="order-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* Bundle deals expire; clearance and brand-exclusion master lists do not. */}
+                    {dealType !== 'clearance' && dealType !== 'mutually_exclusive' && <div className="order-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1 text-left">
                         <label className="text-[12px] font-black uppercase tracking-widest opacity-40 ml-2 flex items-center gap-1.5">
                           <Calendar size={10} /> Valid From
@@ -1104,7 +1411,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                       </div>
                     </div>}
 
-                    {dealType !== 'clearance' && <div className="order-4 bg-black/5 rounded-2xl p-4 flex flex-col gap-2 text-left border border-white/5">
+                    {dealType !== 'clearance' && dealType !== 'mutually_exclusive' && <div className="order-4 bg-black/5 rounded-2xl p-4 flex flex-col gap-2 text-left border border-white/5">
                        {dealType === 'bundle_only' ? (
                          <div className="flex justify-between items-center text-emerald-500">
                             <span className="text-[12px] font-black uppercase tracking-wider">Exclusive Discount Share</span>
@@ -1161,7 +1468,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
 
              <div className="flex gap-3">
                {activeEditId && (
-                 <button onClick={() => { setActiveEditId(null); setDealName(''); setDiscountAmount(''); setSelectedKitIds([]); setValidFrom(''); setValidUntil(''); setPreviewKitIds([]); setDraggedPreviewKitId(null); setExclusiveKitIds([]); setClearanceKitIds([]); setClearanceDiscounts({}); setMobileTab('list'); }} className="px-5 py-4 rounded-2xl bg-black/5 hover:bg-black/10 border border-[var(--color-border)] font-black uppercase text-[11px] tracking-widest transition-all">Cancel</button>
+                 <button onClick={() => { setActiveEditId(null); setDealName(''); setDiscountAmount(''); setSelectedKitIds([]); setValidFrom(''); setValidUntil(''); setPreviewKitIds([]); setDraggedPreviewKitId(null); setExclusiveKitIds([]); setClearanceKitIds([]); setClearanceOriginalOverrides({}); setClearanceCurrentDiscounts({}); setClearanceDiscounts({}); setMobileTab('list'); }} className="px-5 py-4 rounded-2xl bg-black/5 hover:bg-black/10 border border-[var(--color-border)] font-black uppercase text-[11px] tracking-widest transition-all">Cancel</button>
                )}
                <button 
                   disabled={isSaving}
@@ -1220,22 +1527,23 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                   </div>
                 ) : (
                   visibleDeals.map(deal => {
+                    const isMutualDeal = deal.type === 'mutually_exclusive' || deal.type === 'requirement' || deal.type === 'exclusion';
                     const strategyLabel = deal.type === 'clearance' ? 'Clearance' : (deal.type === 'bundle_discount' || deal.type === 'bundle_only') ? 'Bundle Deal' :
-                                          deal.type === 'mutually_exclusive' ? 'Mutually Exclusive' : 'Legacy Bundle';
+                                          isMutualDeal ? 'Bandai vs Bootleg' : 'Legacy Bundle';
                     
                     const badgeClass = deal.type === 'clearance' ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' : (deal.type === 'bundle_discount' || deal.type === 'bundle_only') ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' :
-                                       deal.type === 'mutually_exclusive' ? 'bg-red-500/10 text-red-500 border border-red-500/20' : 'bg-amber-500/10 text-amber-500 border border-amber-500/20';
+                                       isMutualDeal ? 'bg-red-500/10 text-red-500 border border-red-500/20' : 'bg-amber-500/10 text-amber-500 border border-amber-500/20';
 
                     const dealEligibleKitIds = deal.type === 'clearance'
                       ? (deal.clearanceKitIds?.length ? deal.clearanceKitIds : deal.kitIds || [])
-                      : deal.kitIds || [];
+                      : isMutualDeal ? getMutuallyExclusiveKitIds(deal) : deal.kitIds || [];
                     const orderedKitIds = [
                       ...(deal.type === 'clearance' ? dealEligibleKitIds : (deal.previewKitIds || [])),
                       ...dealEligibleKitIds.filter(id => !(deal.type === 'clearance' ? dealEligibleKitIds : (deal.previewKitIds || [])).includes(id))
                     ];
                     const includedKits = getOrderedKits(kits, orderedKitIds);
                     const isChecked = selectedDealIds.includes(deal.id);
-                    const isExpired = deal.type !== 'clearance'
+                    const isExpired = !isMutualDeal && deal.type !== 'clearance'
                       && deal.validUntil
                       && parseLocalDateTime(deal.validUntil)
                       && parseLocalDateTime(deal.validUntil) < new Date();
@@ -1284,9 +1592,9 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                 </span>
                               )}
                             </div>
-                            <h4 className="text-sm font-black uppercase italic tracking-tight mt-2 text-[var(--color-text-main)] leading-none">{deal.type === 'clearance' ? 'Clearance Eligible Kits' : deal.name}</h4>
+                             <h4 className="text-sm font-black uppercase italic tracking-tight mt-2 text-[var(--color-text-main)] leading-none">{deal.type === 'clearance' ? 'Clearance Eligible Kits' : isMutualDeal ? 'BANDAI VS BOOTLEG' : deal.name}</h4>
                             {/* Validity dates */}
-                            {deal.type !== 'clearance' && (deal.validFrom || deal.validUntil) && (
+                            {!isMutualDeal && deal.type !== 'clearance' && (deal.validFrom || deal.validUntil) && (
                               <p className="text-[12px] font-bold opacity-40 mt-1.5 flex items-center gap-1">
                                 <Calendar size={9} />
                                 {deal.validFrom ? parseLocalDateTime(deal.validFrom)?.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '—'}
@@ -1307,8 +1615,38 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                         </div>
 
                         {/* Kit Thumbnails */}
-                        <div className="w-full space-y-2 py-1">
-                          {includedKits.map(k => {
+                        <div className="w-full space-y-3 py-1">
+                          {(() => {
+                            const storedBandaiIds = deal.mutuallyExclusiveGroups?.bandai || deal.bandaiKitIds || [];
+                            const storedBootlegIds = deal.mutuallyExclusiveGroups?.bootleg || deal.bootlegKitIds || [];
+                            const hasStoredGroups = storedBandaiIds.length > 0 && storedBootlegIds.length > 0;
+                            const sections = isMutualDeal
+                              ? [
+                                  {
+                                    label: 'BANDAI',
+                                    kits: includedKits.filter(k => hasStoredGroups
+                                      ? storedBandaiIds.includes(k.id)
+                                      : String(k.brand || '').toLowerCase().includes('bandai'))
+                                  },
+                                  {
+                                    label: 'BOOTLEG',
+                                    kits: includedKits.filter(k => hasStoredGroups
+                                      ? storedBootlegIds.includes(k.id)
+                                      : !String(k.brand || '').toLowerCase().includes('bandai'))
+                                  }
+                                ]
+                              : [{ label: null, kits: includedKits }];
+
+                            return sections.map(section => section.kits.length > 0 && (
+                              <div key={section.label || 'included-kits'} className="space-y-2">
+                                {section.label && (
+                                  <div className="flex items-center gap-2 px-2 pt-1 text-[11px] font-black uppercase tracking-[0.2em] text-red-500">
+                                    <span className="h-px flex-1 bg-current/20" />
+                                    <span>{section.label}</span>
+                                    <span className="h-px flex-1 bg-current/20" />
+                                  </div>
+                                )}
+                                {section.kits.map(k => {
                             const configuredDiscount = deal.clearanceDiscounts?.[k.id];
                             const clearanceDiscount = deal.type === 'clearance'
                               ? Number(
@@ -1341,20 +1679,17 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                               )}
                             </div>
                             );
-                          })}
+                                })}
+                              </div>
+                            ));
+                          })()}
                         </div>
 
                         {/* Prices/Conditions */}
-                        {deal.type !== 'clearance' && <div className="flex justify-between items-center text-[12px] border-t border-neutral-500/10 pt-2 opacity-85">
-                          {deal.type === 'mutually_exclusive' ? (
-                            <span className="font-black text-red-500 uppercase tracking-widest">Exclusion Rules Applied</span>
-                          ) : (
-                            <>
-                              <span className="font-bold opacity-40">₱{(deal.totalSell || 0).toLocaleString()} (Standard)</span>
-                              <span className="font-black italic text-emerald-500">₱{(deal.discountAmount || 0).toLocaleString()} Disc</span>
-                            </>
-                          )}
-                        </div>}
+                         {!isMutualDeal && deal.type !== 'clearance' && <div className="flex justify-between items-center text-[12px] border-t border-neutral-500/10 pt-2 opacity-85">
+                           <span className="font-bold opacity-40">₱{(deal.totalSell || 0).toLocaleString()} (Standard)</span>
+                           <span className="font-black italic text-emerald-500">₱{(deal.discountAmount || 0).toLocaleString()} Disc</span>
+                         </div>}
                       </div>
                     );
                   })

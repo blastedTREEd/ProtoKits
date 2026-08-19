@@ -737,6 +737,29 @@ export const useStore = create(
         // All kits are loaded on snapshot initialization. Client-side pagination is handled in pages/Kits.jsx.
       },
 
+      loadAllKits: async () => {
+        const currentKits = get().kits || [];
+        if (currentKits.length > 0 && get()._loadedDatasets.kits) return currentKits;
+
+        const snap = await getDocs(query(collection(db, 'kits'), orderBy('lastUpdated', 'desc')));
+        const allKits = sortKitsByAvailability(snap.docs.map(kitDoc => ({ id: kitDoc.id, ...kitDoc.data() })));
+        set({ kits: allKits });
+        get().markLoaded('kits');
+        return allKits;
+      },
+
+      loadAllDeals: async () => {
+        const currentDeals = get().deals || [];
+        if (get()._loadedDatasets.deals) return currentDeals;
+
+        const snap = await getDocs(collection(db, 'deals'));
+        const allDeals = docsToArray(snap);
+        set({ deals: allDeals });
+        get().markLoaded('deals');
+        get().syncAllDeals();
+        return allDeals;
+      },
+
 
       subscribeNotifyList: (scope = {}) => {
         const { uid, isAdminMode } = scope;
@@ -2709,22 +2732,30 @@ export const useStore = create(
 
         for (const deal of activeExclusions) {
           if (!deal.kitIds || deal.kitIds.length < 2) continue;
-          
-          const kitAId = deal.kitIds[0];
-          const kitBId = deal.kitIds[1];
 
-          const kitA = kits.find(k => k.id === kitAId);
-          const kitB = kits.find(k => k.id === kitBId);
-          if (!kitA || !kitB) continue;
+          const bandaiKitIds = deal.mutuallyExclusiveGroups?.bandai || deal.bandaiKitIds || [];
+          const bootlegKitIds = deal.mutuallyExclusiveGroups?.bootleg || deal.bootlegKitIds || [];
+          const configuredPairs = (deal.mutuallyExclusivePairs || []).filter(pair => pair?.bandaiId && pair?.bootlegId);
+          const pairGroups = configuredPairs.length > 0
+            ? configuredPairs.map(pair => [[pair.bandaiId], [pair.bootlegId]])
+            : [bandaiKitIds.length > 0 && bootlegKitIds.length > 0
+              ? [bandaiKitIds, bootlegKitIds]
+              : [[deal.kitIds[0]], [deal.kitIds[1]]]];
 
-          // Check if any stock of Kit A is reserved/ordered by a customer (non-admin/non-deal reservation)
-          // or is attached to an order.
-          const isAReserved = Object.values(kitA.stocks || {}).some(
-            s => (s.isReserved && s.reservationType !== 'admin') || s.order?.orderId
-          );
-          const isBReserved = Object.values(kitB.stocks || {}).some(
-            s => (s.isReserved && s.reservationType !== 'admin') || s.order?.orderId
-          );
+          for (const groups of pairGroups) {
+            const groupedKits = groups.map(groupIds => groupIds
+              .map(kitId => kits.find(kit => kit.id === kitId))
+              .filter(Boolean));
+            if (groupedKits.some(group => group.length === 0)) continue;
+
+            // A group is considered taken when any kit in that group has a
+            // customer reservation or an attached order. The opposite group is
+            // then kept off the shelf until the taken group becomes available.
+            const groupIsReserved = group => group.some(kit => Object.values(kit.stocks || {}).some(
+              stock => (stock.isReserved && stock.reservationType !== 'admin') || stock.order?.orderId
+            ));
+            const isFirstGroupReserved = groupIsReserved(groupedKits[0]);
+            const isSecondGroupReserved = groupIsReserved(groupedKits[1]);
 
           // Helper to keep a kit to shelf
           const keepToShelf = (targetKit) => {
@@ -2794,16 +2825,16 @@ export const useStore = create(
             });
           };
 
-          if (isAReserved && !isBReserved) {
-            // A is taken, B must be kept to shelf
-            keepToShelf(kitB);
-          } else if (isBReserved && !isAReserved) {
-            // B is taken, A must be kept to shelf
-            keepToShelf(kitA);
-          } else if (!isAReserved && !isBReserved) {
-            // Both are free, release any deal reservations on both
-            releaseFromShelf(kitA);
-            releaseFromShelf(kitB);
+            if (isFirstGroupReserved && !isSecondGroupReserved) {
+              // A BANDAI kit is taken, so its BOOTLEG partner stays on shelf.
+              groupedKits[1].forEach(kit => keepToShelf(kit));
+            } else if (isSecondGroupReserved && !isFirstGroupReserved) {
+              // A BOOTLEG kit is taken, so its BANDAI partner stays on shelf.
+              groupedKits[0].forEach(kit => keepToShelf(kit));
+            } else if (!isFirstGroupReserved && !isSecondGroupReserved) {
+              // Both partners are free, release reservations created by this deal.
+              groupedKits.flat().forEach(kit => releaseFromShelf(kit));
+            }
           }
         }
 

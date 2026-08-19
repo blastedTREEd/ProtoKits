@@ -153,12 +153,12 @@ export default function Prints() {
     });
   }, [blueprints, searchTerm]);
 
-  // Admins only need the Garage Projects listings that can currently be
-  // produced. Public users can still browse every published print listing.
+  // Stopped-for-production blueprints remain available to admins for status
+  // management, but must not be listed to public users.
   const garageProjects = useMemo(() => (
     (isAdmin && isAdminView)
-      ? filteredBlueprints.filter(project => project?.canAddToBasket !== false)
-      : filteredBlueprints
+      ? filteredBlueprints
+      : filteredBlueprints.filter(project => project?.canAddToBasket !== false)
   ), [filteredBlueprints, isAdmin, isAdminView]);
 
   const vaultProjectTitles = useMemo(() => {
