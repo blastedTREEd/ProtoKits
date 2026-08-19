@@ -5,13 +5,13 @@ import {
   BadgeDollarSign,
   Bell,
   CheckCircle2,
-  ChevronRight,
   Clock3,
   Gift,
   Package,
   PackageCheck,
   ReceiptText,
   Truck,
+  X,
   XCircle
 } from 'lucide-react';
 import {
@@ -167,6 +167,7 @@ const formatActivityTime = (value) => {
 
 const getOrderSummary = (order) => {
   if (['back_in_stock', 'low_stock', 'offer_missed'].includes(order?.notificationKind)) return '';
+  if (['offer_released', 'bundle_ending'].includes(order?.notificationKind)) return '';
   if (String(order?.status || '').trim().toLowerCase() === 'cancelled') return '';
   if (order?.notificationKind) return order.summary || '';
 
@@ -198,6 +199,8 @@ export default function NotificationModal({
   orders = [],
   readVersions = {},
   onOpenOrder,
+  onDismissNotification,
+  allowSwipeDismiss = false,
   emptyLabel = 'No order updates yet',
   isFullscreen = false,
   dimBackdrop = isFullscreen,
@@ -207,6 +210,7 @@ export default function NotificationModal({
 }) {
   const panelRef = useRef(null);
   const dragControls = useDragControls();
+  const swipingNotificationRef = useRef(null);
   const notifications = useMemo(() => {
     const uniqueOrders = new Map();
     orders.forEach((order) => {
@@ -328,7 +332,7 @@ export default function NotificationModal({
             {notifications.length === 0 ? (
               <div className="py-12 text-center text-neutral-400">
                 <Bell size={40} className="mx-auto mb-4" strokeWidth={1} />
-                <p className="text-[10px] font-black uppercase tracking-widest">{emptyLabel}</p>
+                <p className="text-[12px] font-black uppercase tracking-widest">{emptyLabel}</p>
               </div>
             ) : notifications.map((order) => {
               const details = getStatusDetails(order);
@@ -342,11 +346,37 @@ export default function NotificationModal({
                 : (order.orderId || order.title || 'Notification');
 
               return (
-                <button
+                <Motion.div
                   key={order.id}
-                  type="button"
-                  onClick={() => onOpenOrder?.(order)}
-                  className={`group relative flex w-full items-start gap-3 overflow-hidden rounded-2xl px-3 py-3 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${isUnread ? 'bg-blue-500/10 hover:bg-blue-500/15 dark:bg-blue-500/15 dark:hover:bg-blue-500/20' : 'hover:bg-blue-500/5'}`}
+                  role="button"
+                  tabIndex={0}
+                  drag={allowSwipeDismiss ? 'x' : false}
+                  dragDirectionLock
+                  dragConstraints={allowSwipeDismiss ? { left: 0, right: 240 } : undefined}
+                  dragElastic={allowSwipeDismiss ? { left: 0, right: 0.2 } : undefined}
+                  dragMomentum={false}
+                  onDragStart={() => {
+                    swipingNotificationRef.current = order.id;
+                  }}
+                  onDragEnd={(event, info) => {
+                    if (allowSwipeDismiss && (info.offset.x > 90 || info.velocity.x > 500)) {
+                      onDismissNotification?.(order);
+                    }
+                  }}
+                  onClick={() => {
+                    if (swipingNotificationRef.current === order.id) {
+                      swipingNotificationRef.current = null;
+                      return;
+                    }
+                    onOpenOrder?.(order);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      onOpenOrder?.(order);
+                    }
+                  }}
+                  className={`group relative flex w-full items-center gap-3 overflow-hidden rounded-2xl px-3 py-3 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${isUnread ? 'bg-blue-500/10 hover:bg-blue-500/15 dark:bg-blue-500/15 dark:hover:bg-blue-500/20' : 'hover:bg-blue-500/5'}`}
                 >
                   <span className={`absolute bottom-3 left-0 top-3 w-1 rounded-full ${details.accent}`} />
                   <span className={`ml-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${details.iconClass}`}>
@@ -354,25 +384,38 @@ export default function NotificationModal({
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center justify-between gap-2">
-                      <span className="truncate text-[13px] font-black uppercase italic text-neutral-900 dark:text-white">
+                      <span className="truncate text-[15px] font-black uppercase italic text-neutral-900 dark:text-white">
                         {headline}
                       </span>
-                      <span className="shrink-0 text-[11px] font-black uppercase tracking-wider text-blue-600">
+                      <span className="shrink-0 text-[13px] font-black uppercase tracking-wider text-blue-600">
                         {order.notificationLabel || order.status || 'Updated'}
                       </span>
                     </span>
-                    <span className="mt-1 block text-[12px] font-semibold leading-4 text-neutral-600 dark:text-neutral-300">
+                    <span className="mt-1 block text-[14px] font-semibold leading-5 text-neutral-600 dark:text-neutral-300">
                       {details.message}
                     </span>
                     {orderSummary && (
-                      <span className="mt-1 block truncate text-[11px] font-medium text-neutral-400">{orderSummary}</span>
+                      <span className="mt-1 block truncate text-[13px] font-medium text-neutral-400">{orderSummary}</span>
                     )}
-                    <span className="mt-1.5 block text-[11px] font-bold uppercase tracking-wider text-neutral-400">
+                    <span className="mt-1.5 block text-[13px] font-bold uppercase tracking-wider text-neutral-400">
                       {formatActivityTime(activityTime)}
                     </span>
                   </span>
-                  <ChevronRight size={16} className="mt-3 shrink-0 text-neutral-300 transition-transform group-hover:translate-x-0.5 group-hover:text-blue-500" />
-                </button>
+                  <span className="flex shrink-0 items-center justify-center self-center">
+                    <button
+                      type="button"
+                      aria-label="Dismiss notification"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onDismissNotification?.(order);
+                      }}
+                      className="rounded-full p-1 text-neutral-300 transition-colors hover:bg-red-500/10 hover:text-red-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+                    >
+                      <X size={16} />
+                    </button>
+                  </span>
+                </Motion.div>
               );
             })}
           </div>

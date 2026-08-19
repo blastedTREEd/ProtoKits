@@ -150,7 +150,7 @@ export const buildCommerceNotifications = ({
       notificationKind: 'bundle_ending',
       notificationVersion: `bundle-ending:${deal.id}:${deal.validUntil}`,
       notificationLabel: 'Ends today',
-      title: 'Bundle deal ends today',
+      title: 'HURRY!',
       message: `${matchingKit?.name || 'An item in your basket'} is included in ${deal.name || 'a bundle deal'} ending today.`,
       summary: deal.name || '',
       kitId: matchingKitId,

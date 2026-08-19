@@ -519,6 +519,19 @@ useEffect(() => {
     navigate('/orders', { state: { openOrderId: notification.id } });
   };
 
+  const handleDismissNotification = (notification) => {
+    if (!notification?.id) return;
+
+    setNotificationDismissedVersions((currentDismissedVersions) => {
+      const nextDismissedVersions = {
+        ...currentDismissedVersions,
+        [notification.id]: getNotificationVersion(notification)
+      };
+      saveNotificationVersions('dismissed', notificationOwnerKey, nextDismissedVersions);
+      return nextDismissedVersions;
+    });
+  };
+
   const openAfterLandingNavbarCompacts = (openPanel) => {
     const needsCompactScroll = location.pathname === '/' && !isDesktop && window.scrollY <= 40;
     if (!needsCompactScroll) {
@@ -1232,6 +1245,8 @@ return (
       orders={visibleNotifications}
       readVersions={notificationReadVersions}
       onOpenOrder={handleOpenNotificationOrder}
+      onDismissNotification={handleDismissNotification}
+      allowSwipeDismiss={!isDesktop}
       emptyLabel={isAdminNotificationView ? 'No admin updates yet' : 'No order updates yet'}
       isFullscreen={isProfileFullscreen}
       dimBackdrop={isMobile}
