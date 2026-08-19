@@ -88,6 +88,14 @@ export default function Prints() {
     });
   }, [blueprints, searchTerm]);
 
+  // Admins only need the Garage Projects listings that can currently be
+  // produced. Public users can still browse every published print listing.
+  const garageProjects = useMemo(() => (
+    (isAdmin && isAdminView)
+      ? filteredBlueprints.filter(project => project?.canAddToBasket !== false)
+      : filteredBlueprints
+  ), [filteredBlueprints, isAdmin, isAdminView]);
+
   const vaultProjectTitles = useMemo(() => {
     const map = new Map();
     const vault = projectVault || [];
@@ -109,7 +117,7 @@ export default function Prints() {
     });
   }, [projectVault, searchTerm, isAdmin, isAdminView, vaultProjectTitles]);
   
-  const totalMatches = filteredBlueprints.length + filteredVault.length;
+  const totalMatches = garageProjects.length + filteredVault.length;
 
   useEffect(() => {
     if (viewMode === 'estimating') {
@@ -356,7 +364,7 @@ export default function Prints() {
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-4 sm:portrait:grid-cols-3 md:grid-cols-4 md:portrait:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-3 items-stretch">
               {/* --- Section Divider: Garage Projects --- */}
-              {filteredBlueprints.length > 0 && (
+              {garageProjects.length > 0 && (
                 <div className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-3 backdrop-blur-md transition-[top] duration-300 dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Garage Projects</span>
@@ -364,7 +372,7 @@ export default function Prints() {
                 </div>
               )}
 
-              {filteredBlueprints.map((project) => {
+              {garageProjects.map((project) => {
                 return (
                   <ProjectCard 
                     key={project.id}
@@ -404,6 +412,24 @@ export default function Prints() {
                   />
                 );
               })}
+
+              {!(isAdmin && isAdminView) && filteredVault.length === 0 && !searchTerm && (
+                <div className="col-span-full flex justify-center py-16">
+                  <button
+                    type="button"
+                    onClick={enterEstimating}
+                    className="flex max-w-md cursor-pointer flex-col items-center rounded-3xl border border-blue-200 bg-blue-50/70 px-8 py-10 text-center shadow-sm transition-all hover:border-blue-400 hover:bg-blue-100/80 hover:shadow-lg active:scale-[0.98] dark:border-blue-900/60 dark:bg-blue-950/20 dark:hover:border-blue-700 dark:hover:bg-blue-950/40"
+                    aria-label="Start a new project estimation"
+                  >
+                    <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg shadow-blue-600/25">
+                      <Calculator size={24} strokeWidth={2.5} />
+                    </div>
+                    <p className="text-sm font-black uppercase tracking-widest text-blue-600 dark:text-blue-400">
+                      Tap to start new project estimation
+                    </p>
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

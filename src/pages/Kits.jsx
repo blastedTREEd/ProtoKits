@@ -921,7 +921,7 @@ export default function Kits({ isActive = true }) {
       aria-label={label}
       title={label}
     >
-      {React.createElement(icon, { size: 16, strokeWidth: 2.5 })}
+      {React.createElement(icon, { size: 20, strokeWidth: 2.5 })}
     </button>
   ));
 
