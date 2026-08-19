@@ -4,8 +4,8 @@ export default function KitSkeleton() {
   return (
     <div className={`group rounded-3xl border p-3 flex flex-col bg-white dark:bg-[#121212] border-black/5 dark:border-white/5 shadow-lg`}>
       {/* Image Placeholder with Logo */}
-      <div className="relative aspect-square rounded-2xl overflow-hidden mb-3 bg-neutral-200 dark:bg-neutral-800 border border-black/5 dark:border-white/5 shrink-0 animate-pulse-blue flex items-center justify-center">
-        <img src="/snorlaxgarage.png" alt="Loading..." className="w-full h-full opacity-20 object-contain" />
+      <div className="relative aspect-square rounded-2xl overflow-hidden mb-3 bg-gradient-to-br from-blue-100 via-blue-200 to-blue-400 dark:from-blue-900 dark:via-blue-800 dark:to-blue-600 border border-blue-200 dark:border-blue-900 shrink-0 animate-pulse-blue flex items-center justify-center">
+        <img src="/snorlaxgarage.png" alt="Loading..." className="h-3/4 w-3/4 opacity-20 object-contain" />
       </div>
 
       {/* Content Placeholder */}
