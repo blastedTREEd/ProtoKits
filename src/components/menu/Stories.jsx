@@ -357,7 +357,7 @@ export default function Stories({ isCompact, hideImmediately = false }) {
                   <div
                     key={`${highlight.id}-${index}`}
                     onClick={() => handleHighlightClick(highlight)}
-                    className={`story-card w-28 h-44 rounded-[1.5rem] flex-shrink-0 relative overflow-hidden group p-1 shadow-xl ${isLoadingCard
+                    className={`story-card w-28 aspect-[3/4] rounded-[1.5rem] flex-shrink-0 relative overflow-hidden group p-1 shadow-xl ${isLoadingCard
                       ? 'cursor-default bg-gradient-to-br from-[#0866FF] to-[#00CFFF]'
                       : 'cursor-pointer glass-card'
                     }`}

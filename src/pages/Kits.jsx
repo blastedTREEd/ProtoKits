@@ -207,6 +207,67 @@ export default function Kits({ isActive = true }) {
 
   // Infinite Scroll States
   const [showSkeletons, setShowSkeletons] = useState(false);
+  const [isContentHeaderHidden, setIsContentHeaderHidden] = useState(false);
+  const contentHeaderScrollRef = useRef({ previousY: window.scrollY, frame: 0, hidden: false, direction: 0, distance: 0 });
+
+  useEffect(() => {
+    const scrollState = contentHeaderScrollRef.current;
+    const handleContentHeaderScroll = () => {
+      if (scrollState.frame) return;
+
+      scrollState.frame = window.requestAnimationFrame(() => {
+        const currentScrollY = window.scrollY;
+        const previousScrollY = scrollState.previousY;
+        const delta = currentScrollY - previousScrollY;
+        const direction = delta > 0 ? 1 : delta < 0 ? -1 : scrollState.direction;
+
+        if (direction !== scrollState.direction) {
+          scrollState.distance = Math.abs(delta);
+        } else if (direction !== 0) {
+          scrollState.distance += Math.abs(delta);
+        }
+        scrollState.direction = direction;
+
+        let nextHidden = scrollState.hidden;
+        if (window.innerWidth >= 768 || currentScrollY <= 8) {
+          nextHidden = false;
+        } else if (direction === 1 && scrollState.distance >= 2) {
+          nextHidden = true;
+        } else if (direction === -1 && scrollState.distance >= 12) {
+          nextHidden = false;
+        }
+
+        if (nextHidden !== scrollState.hidden) {
+          scrollState.hidden = nextHidden;
+          setIsContentHeaderHidden(nextHidden);
+        }
+        scrollState.previousY = currentScrollY;
+        scrollState.frame = 0;
+      });
+    };
+
+    window.addEventListener('scroll', handleContentHeaderScroll, { passive: true });
+    window.addEventListener('resize', handleContentHeaderScroll, { passive: true });
+    return () => {
+      if (scrollState.frame) {
+        window.cancelAnimationFrame(scrollState.frame);
+        scrollState.frame = 0;
+      }
+      window.removeEventListener('scroll', handleContentHeaderScroll);
+      window.removeEventListener('resize', handleContentHeaderScroll);
+    };
+  }, []);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      contentHeaderScrollRef.current.hidden = false;
+      contentHeaderScrollRef.current.previousY = window.scrollY;
+      contentHeaderScrollRef.current.direction = 0;
+      contentHeaderScrollRef.current.distance = 0;
+      setIsContentHeaderHidden(false);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [location.pathname]);
 
   const [offerClock, setOfferClock] = useState(() => Date.now());
 
@@ -927,12 +988,14 @@ export default function Kits({ isActive = true }) {
 
   const sortOptions = [
     { id: 'latest', label: 'Latest', icon: ClockFading, active: sortType === 'latest', nextSort: 'latest' },
-    { id: 'price', label: 'Price', icon: sortType === 'price-desc' ? ArrowBigUpDash : ArrowBigDownDash, active: sortType.startsWith('price-'), nextSort: sortType === 'price-asc' ? 'price-desc' : 'price-asc' },
-    { id: 'name', label: 'Name', icon: sortType === 'alpha-desc' ? ArrowBigUpDash : ArrowBigDownDash, active: sortType.startsWith('alpha-'), nextSort: sortType === 'alpha-asc' ? 'alpha-desc' : 'alpha-asc' },
-    { id: 'stock', label: 'Stock', icon: sortType === 'avail-desc' ? ArrowBigUpDash : ArrowBigDownDash, active: sortType.startsWith('avail-'), nextSort: sortType === 'avail-asc' ? 'avail-desc' : 'avail-asc' }
+    { id: 'price', label: 'Price', icon: sortType === 'price-asc' ? ArrowBigUpDash : ArrowBigDownDash, active: sortType.startsWith('price-'), nextSort: sortType === 'price-asc' ? 'price-desc' : 'price-asc' },
+    { id: 'name', label: 'Name', icon: sortType === 'alpha-asc' ? ArrowBigUpDash : ArrowBigDownDash, active: sortType.startsWith('alpha-'), nextSort: sortType === 'alpha-asc' ? 'alpha-desc' : 'alpha-asc' },
+    { id: 'stock', label: 'Stock', icon: sortType === 'avail-asc' ? ArrowBigUpDash : ArrowBigDownDash, active: sortType.startsWith('avail-'), nextSort: sortType === 'avail-asc' ? 'avail-desc' : 'avail-asc' }
   ];
 
-  const sectionHeaderPosition = 'top-[116px] sm:top-[120px]';
+  const sectionHeaderPosition = isContentHeaderHidden
+    ? 'top-[56px] sm:top-[60px] md:top-[120px]'
+    : 'top-[116px] sm:top-[120px] md:top-[120px]';
 
   const renderDealCard = (deal) => {
     if (!deal) return null;
@@ -1018,12 +1081,12 @@ export default function Kits({ isActive = true }) {
   return (
     <PageTemplate isDarkMode={isDarkMode}>
       <div className="min-h-screen w-full bg-neutral-50 dark:bg-[#0a0a0a] transition-colors duration-500 pb-20 font-sans text-left">
-        <div className="sticky top-[56px] sm:top-[60px] z-[90] h-[60px] overflow-visible bg-neutral-50/90 dark:bg-[#0a0a0a]/90 backdrop-blur-md border-b border-black/5 dark:border-white/5">
+        <div className={`sticky top-[56px] sm:top-[60px] z-[100] h-[60px] overflow-visible bg-neutral-50/90 dark:bg-[#0a0a0a]/90 backdrop-blur-md border-b border-black/5 dark:border-white/5 transition-transform duration-300 ease-out will-change-transform ${isContentHeaderHidden ? '-translate-y-full md:translate-y-0' : 'translate-y-0'}`}>
           <div className="h-full w-full px-4 lg:px-8 flex items-center justify-center gap-4">
             <div className="hidden lg:block absolute left-8">
                 <h1 className="text-sm font-black italic uppercase tracking-tighter text-neutral-900 dark:text-white leading-none whitespace-nowrap">GARAGE KITS</h1>
             </div>
-            <div className="flex flex-1 max-w-2xl items-center gap-4 pr-12 xl:pr-0">
+            <div className={`flex flex-1 max-w-2xl items-center gap-4 ${(isAdmin && isAdminView) ? 'pr-12 xl:pr-0' : 'pr-0'}`}>
                   <div className="relative flex-1">
                       <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 opacity-20 text-neutral-900 dark:text-white" />
                       <input
@@ -1124,7 +1187,7 @@ export default function Kits({ isActive = true }) {
             <div className="grid grid-cols-2 sm:grid-cols-4 sm:portrait:grid-cols-3 md:grid-cols-4 md:portrait:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-3 items-start justify-items-center">
               {/* --- Section Divider: Deals --- */}
               {(filteredDeals.length > 0 || activeOfferKits.length > 0 || kitGroups.clearance.length > 0) && (
-                <div className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-3 backdrop-blur-md transition-[top] duration-300 dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
+                <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-3 backdrop-blur-md transition-[top] duration-300 ease-out will-change-[top] dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Deals</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
@@ -1274,7 +1337,7 @@ export default function Kits({ isActive = true }) {
 
               {/* --- Section Divider: Available Kits --- */}
               {kitGroups.available.length > 0 && (
-                <div className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-3 backdrop-blur-md transition-[top] duration-300 dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
+                <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-3 backdrop-blur-md transition-[top] duration-300 ease-out will-change-[top] dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Available Kits</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
@@ -1312,7 +1375,7 @@ export default function Kits({ isActive = true }) {
 
               {/* --- Section Divider: Collection --- */}
               {kitGroups.collection.length > 0 && (
-                <div className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-3 backdrop-blur-md transition-[top] duration-300 dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
+                <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-3 backdrop-blur-md transition-[top] duration-300 ease-out will-change-[top] dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Collection</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
@@ -1350,7 +1413,7 @@ export default function Kits({ isActive = true }) {
 
               {/* --- Section Divider: Out of Stock --- */}
               {kitGroups.outOfStock.length > 0 && (
-                <div className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-3 backdrop-blur-md transition-[top] duration-300 dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
+                <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-3 backdrop-blur-md transition-[top] duration-300 ease-out will-change-[top] dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Out of Stock</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />

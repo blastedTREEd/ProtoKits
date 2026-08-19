@@ -107,11 +107,11 @@
 .story-card {
   clip-path: inset(0 round 1.5rem);
   -webkit-clip-path: inset(0 round 1.5rem);
-  border-color: rgba(0, 0, 0, 0.025) !important;
+  border: 1px solid var(--color-border) !important;
 }
 
 .dark .story-card {
-  border-color: rgba(255, 255, 255, 0.07) !important;
+  border-color: var(--color-border) !important;
 }
 
 .story-card-media {
@@ -137,6 +137,11 @@
   background: rgba(0, 0, 0, 0.4);
   border-color: rgba(255, 255, 255, 0.1);
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+}
+
+.dark .story-card.glass-card {
+  background: var(--color-surface);
+  border-color: var(--color-border);
 }
 
 :root {

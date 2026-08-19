@@ -120,7 +120,9 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   const [authError, setAuthError] = useState(null);
   const [showBottomNav, setShowBottomNav] = useState(true);
   const [forceHide, setForceHide] = useState(false); 
-  const [lastScrollY, setLastScrollY] = useState(0);
+  const [isPastScrollThreshold, setIsPastScrollThreshold] = useState(() => window.scrollY > 40);
+  const lastScrollYRef = useRef(window.scrollY);
+  const scrollFrameRef = useRef(0);
   const [imgError, setImgError] = useState(false);
   const [profileImgError, setProfileImgError] = useState(false);
 
@@ -353,32 +355,33 @@ useEffect(() => {
     };
   }, []);
 useEffect(() => {
-  let ticking = false;
-
   const handleScroll = () => {
-    if (!ticking) {
-      window.requestAnimationFrame(() => {
-        if (forceHide) {
-          setShowBottomNav(false);
-        } else {
-          const currentScrollY = window.scrollY;
-          // Hide if scrolling down more than 50px, show if scrolling up
-          if (currentScrollY > lastScrollY && currentScrollY > 50) {
-            setShowBottomNav(false);
-          } else {
-            setShowBottomNav(true);
-          }
-          setLastScrollY(currentScrollY);
-        }
-        ticking = false;
-      });
-      ticking = true;
-    }
+    if (scrollFrameRef.current) return;
+    scrollFrameRef.current = window.requestAnimationFrame(() => {
+      const currentScrollY = window.scrollY;
+      const previousScrollY = lastScrollYRef.current;
+      const nextBottomNavVisible = forceHide
+        ? false
+        : !(currentScrollY > previousScrollY && currentScrollY > 50);
+      const nextPastScrollThreshold = currentScrollY > 40;
+
+      setShowBottomNav((visible) => visible === nextBottomNavVisible ? visible : nextBottomNavVisible);
+      setIsPastScrollThreshold((pastThreshold) => pastThreshold === nextPastScrollThreshold ? pastThreshold : nextPastScrollThreshold);
+      lastScrollYRef.current = currentScrollY;
+      scrollFrameRef.current = 0;
+    });
   };
 
+  lastScrollYRef.current = window.scrollY;
   window.addEventListener('scroll', handleScroll);
-  return () => window.removeEventListener('scroll', handleScroll);
-}, [lastScrollY, forceHide, location.pathname]);
+  return () => {
+    if (scrollFrameRef.current) {
+      window.cancelAnimationFrame(scrollFrameRef.current);
+      scrollFrameRef.current = 0;
+    }
+    window.removeEventListener('scroll', handleScroll);
+  };
+}, [forceHide, location.pathname]);
 
   // Keep pages with mobile sticky footers aligned with the animated mini navbar.
   useEffect(() => {
@@ -387,7 +390,7 @@ useEffect(() => {
     }));
   }, [showBottomNav]);
 
-  const isCompactMode = location.pathname !== "/" || scrolledCompact || lastScrollY > 40 || isStoriesManagerOpen || isNotificationModalOpen || isProfileOpen || isMobile;
+  const isCompactMode = location.pathname !== "/" || scrolledCompact || isPastScrollThreshold || isStoriesManagerOpen || isNotificationModalOpen || isProfileOpen || isMobile;
 
   useEffect(() => {
     if (!user?.uid) {
@@ -510,19 +513,23 @@ useEffect(() => {
     }
 
     setIsNotificationModalOpen(false);
-    openAfterLandingNavbarCompacts(() => setIsProfileOpen(true));
+    openAfterLandingNavbarCompacts(() => {
+      setNotificationAnchorTop(navbarRef.current?.getBoundingClientRect().bottom ?? null);
+      setIsProfileOpen(true);
+    });
   };
 
   useEffect(() => {
-    if (!isNotificationModalOpen) return undefined;
+    if (!isNotificationModalOpen && !isProfileOpen) return undefined;
 
-    const updateNotificationAnchor = () => {
+    const updateNavbarAnchor = () => {
       setNotificationAnchorTop(navbarRef.current?.getBoundingClientRect().bottom ?? null);
     };
 
-    window.addEventListener('resize', updateNotificationAnchor);
-    return () => window.removeEventListener('resize', updateNotificationAnchor);
-  }, [isNotificationModalOpen]);
+    updateNavbarAnchor();
+    window.addEventListener('resize', updateNavbarAnchor);
+    return () => window.removeEventListener('resize', updateNavbarAnchor);
+  }, [isNotificationModalOpen, isProfileOpen]);
 
   const handleLogin = async () => {
     const authAttemptId = useStore.getState().beginAuthAttempt(() => handleLogin());
@@ -663,19 +670,22 @@ const getPageTitle = () => {
 
 const pageTitle = getPageTitle();
 const isCurrentPageMaintenanceInvalid = isMaintenanceInvalidPath(location.pathname);
+const navbarAnchorTop = Number.isFinite(notificationAnchorTop)
+  ? `${notificationAnchorTop}px`
+  : specs.h;
 // Increase this inset to shorten both fullscreen sheets; decrease it to extend them.
 // On mobile, keep the cutoff at half of the hidden mini-navbar height.
 const fullscreenModalBottomInset = isMobile ? `calc(${specs.h} / 2)` : '0.75rem';
 const profilePanelStyle = isProfileFullscreen
   ? {
-      top: specs.h,
+      top: navbarAnchorTop,
       right: 0,
       bottom: fullscreenModalBottomInset,
       left: 0,
       zIndex: 105
     }
   : {
-      top: `calc(${specs.h} + 8px)`,
+      top: `calc(${navbarAnchorTop} + 8px)`,
       right: '2.5rem',
       zIndex: 1000
     };
@@ -1170,7 +1180,7 @@ return (
       emptyLabel={isAdminNotificationView ? 'No admin updates yet' : 'No order updates yet'}
       isFullscreen={isProfileFullscreen}
       dimBackdrop={isMobile}
-      navbarHeight={specs.h}
+      navbarHeight={navbarAnchorTop}
       bottomInset={fullscreenModalBottomInset}
       anchorTop={notificationAnchorTop}
     />

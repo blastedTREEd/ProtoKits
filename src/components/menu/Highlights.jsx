@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Sparkles, Image as ImageIcon, Plus, BookImage } from 'lucide-react';
+import { Sparkles, Image as ImageIcon, Plus, BookImage, ChevronDown } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 
 function getStoryTime(value) {
@@ -21,6 +21,7 @@ export default function Highlights() {
   const canManageStories = isAdmin && isAdminView;
   const headerRef = useRef(null);
   const [isHeaderStuck, setIsHeaderStuck] = useState(false);
+  const [isHighlightsExpanded, setIsHighlightsExpanded] = useState(false);
 
   useEffect(() => {
     let animationFrame;
@@ -73,6 +74,22 @@ export default function Highlights() {
   };
 
   const isLoadingHighlights = isLoading && highlights.length === 0;
+  const hasMoreHighlights = highlights.length > 6;
+
+  const getCollapsedStoryVisibility = (index) => {
+    if (isHighlightsExpanded || index < 6) return '';
+    if (index < 8) return 'hidden sm:block';
+    if (index < 10) return 'hidden sm:block md:hidden lg:block';
+    return 'hidden';
+  };
+
+  const expandButtonVisibility = highlights.length > 10
+    ? ''
+    : highlights.length > 8
+      ? 'sm:hidden md:block lg:hidden'
+      : highlights.length > 6
+        ? 'sm:hidden md:hidden lg:hidden'
+        : 'hidden';
 
   return (
     <section className="relative overflow-visible border-t border-black/[0.06] bg-neutral-50 px-5 pb-10 dark:border-white/[0.08] dark:bg-[#111111] sm:px-8 lg:px-12">
@@ -87,8 +104,23 @@ export default function Highlights() {
               </h2>
             </div>
           </div>
-          {canManageStories && (
+          {(canManageStories || (hasMoreHighlights && !isHighlightsExpanded)) && (
             <div className="flex shrink-0 items-center gap-2">
+              {hasMoreHighlights && !isHighlightsExpanded && (
+                <button
+                  type="button"
+                  onClick={() => setIsHighlightsExpanded(true)}
+                  className={`${expandButtonVisibility} inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-gradient-to-r from-garage-blue to-cyan-400 px-3 py-2 text-[9px] font-black uppercase tracking-[0.12em] text-white shadow-lg shadow-blue-500/25 transition-all hover:-translate-y-0.5 hover:shadow-xl active:scale-95 sm:px-4 sm:text-[10px]`}
+                  aria-expanded={false}
+                  aria-controls="garage-highlights-grid"
+                >
+                  Show all
+                  <ChevronDown size={14} strokeWidth={2.5} aria-hidden="true" />
+                </button>
+              )}
+
+              {canManageStories && (
+                <>
               <button
                 type="button"
                 onClick={handleCreateHighlight}
@@ -107,26 +139,29 @@ export default function Highlights() {
               >
                 <BookImage size={18} strokeWidth={2} />
               </button>
+                </>
+              )}
             </div>
           )}
         </div>
 
         {highlights.length > 0 || canManageStories || isLoadingHighlights ? (
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-5 sm:gap-4 md:grid-cols-4 lg:grid-cols-5">
+          <>
+          <div id="garage-highlights-grid" className="grid grid-cols-3 items-start gap-2 sm:grid-cols-5 sm:gap-4 md:grid-cols-4 lg:grid-cols-5">
             {isLoadingHighlights && Array.from({ length: 5 }).map((_, index) => (
-              <div key={`highlight-skeleton-${index}`} className="relative aspect-[3/4] overflow-hidden rounded-2xl bg-neutral-200 shadow-sm ring-1 ring-black/[0.05] dark:bg-neutral-900 dark:ring-white/[0.08]">
+              <div key={`highlight-skeleton-${index}`} className="relative aspect-[3/4] self-start overflow-hidden rounded-2xl border border-black/[0.05] bg-neutral-200 shadow-sm dark:border-2 dark:border-neutral-500 dark:bg-neutral-900">
                 <img src="/snorlaxgarage.png" alt="Loading highlights" className="h-full w-full object-contain p-6 opacity-20" />
               </div>
             ))}
 
-            {highlights.map((story) => {
+            {highlights.map((story, index) => {
               const image = getStoryImage(story);
               const storyDate = getStoryTime(story.storyDate || story.createdAt || story.lastUpdated);
 
               return (
                 <div
                   key={story.id}
-                  className="group relative aspect-[3/4] overflow-hidden rounded-2xl bg-neutral-200 shadow-sm ring-1 ring-black/[0.05] transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl hover:shadow-blue-500/10 dark:bg-neutral-900 dark:ring-white/[0.08]"
+                  className={`${getCollapsedStoryVisibility(index)} group relative aspect-[3/4] self-start overflow-hidden rounded-2xl border border-black/[0.05] bg-neutral-200 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl hover:shadow-blue-500/10 dark:border-2 dark:border-neutral-500 dark:bg-neutral-900`}
                 >
                   <button
                     type="button"
@@ -177,6 +212,8 @@ export default function Highlights() {
               );
             })}
           </div>
+
+          </>
         ) : (
           <div className="flex min-h-64 flex-col items-center justify-center rounded-3xl border border-dashed border-black/10 bg-white/70 px-6 text-center dark:border-white/10 dark:bg-white/[0.03]">
             <ImageIcon className="mb-4 text-garage-blue" size={26} />
