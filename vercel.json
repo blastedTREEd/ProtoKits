@@ -1,6 +1,24 @@
 {
   "headers": [
     {
+      "source": "/((?!assets|api).*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/assets/:path*",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
       "source": "/snorlaxgarage.png",
       "headers": [
         {
@@ -39,7 +57,7 @@
   ],
   "rewrites": [
     {
-      "source": "/((?!api|@vite|@react-refresh|@fs|src|node_modules).*)",
+      "source": "/((?!api|assets|@vite|@react-refresh|@fs|src|node_modules).*)",
       "destination": "/index.html"
     }
   ]
