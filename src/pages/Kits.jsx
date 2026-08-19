@@ -54,7 +54,6 @@ const getSpectralGradient = (id) => {
 
 const getShadowColor = (gradientClass) => GRADIENT_COLORS[gradientClass] || 'rgba(8,102,255,0.2)';
 const KIT_RETURN_STORAGE_KEY = 'sg:kits:returnTarget';
-const INITIAL_KIT_DISPLAY_LIMIT = 24;
 
 function parseDealDate(value) {
   if (!value) return null;
@@ -132,15 +131,6 @@ export default function Kits({ isActive = true }) {
   const [isSortOpen, setIsSortOpen] = useState(false);
   const sortRef = useRef(null);
   
-  // Reset displayLimit when filters change by deriving a key
-  const displayResetKey = `${searchTerm}-${sortType}-${isAdminView}`;
-  const [displayLimit, setDisplayLimit] = useState(INITIAL_KIT_DISPLAY_LIMIT);
-  const [prevResetKey, setPrevResetKey] = useState(displayResetKey);
-  if (displayResetKey !== prevResetKey) {
-    setPrevResetKey(displayResetKey);
-    setDisplayLimit(INITIAL_KIT_DISPLAY_LIMIT);
-  }
-
   const [isAddKitModalOpen, setIsAddKitModalOpen] = useState(false); 
   const [isAddDealModalOpen, setIsAddDealModalOpen] = useState(false);
   const [selectedDeal, setSelectedDeal] = useState(null);
@@ -225,7 +215,6 @@ export default function Kits({ isActive = true }) {
     return () => window.clearInterval(timer);
   }, []);
 
-  const sentinelRef = useRef(null);
   const userId = user?.uid;
 
   const activeOfferKitIds = useMemo(() => {
@@ -285,6 +274,21 @@ export default function Kits({ isActive = true }) {
       }).length;
     };
 
+    const isPreOrderStock = (stock) => {
+      const status = String(stock?.status || '').toLowerCase();
+      return status.includes('pre') || status.includes('batch');
+    };
+
+    const isAvailableStock = (stock) => {
+      const isVisible = (isAdmin && isAdminView) || !stock?.publicReleaseDate || stock.publicReleaseDate <= nowStr;
+      return isVisible && !stock?.order?.orderId && !stock?.isReserved;
+    };
+
+    const isPreOrderOnly = (kit) => {
+      const availableStocks = Object.values(kit?.stocks || {}).filter(isAvailableStock);
+      return availableStocks.length > 0 && availableStocks.every(isPreOrderStock);
+    };
+
     const getLowestPrice = (k) => {
       const stocks = Object.values(k?.stocks || {}).filter(s => !s?.order?.orderId && !s?.isReserved);
       if (stocks.length > 0) {
@@ -306,6 +310,30 @@ export default function Kits({ isActive = true }) {
         return new Date(val).getTime() || 0;
       });
       return Math.max(...timestamps, 0);
+    };
+
+    const getAvailabilityEvent = (kit) => {
+      const createdAt = kit?.createdAt
+        ? (typeof kit.createdAt.toMillis === 'function'
+          ? kit.createdAt.toMillis()
+          : kit.createdAt.seconds
+            ? kit.createdAt.seconds * 1000
+            : new Date(kit.createdAt).getTime() || 0)
+        : 0;
+      const availabilityEventAt = Math.max(
+        ...[kit?.lastAvailableAt, kit?.lastRestockedAt].map((value) => {
+          if (!value) return 0;
+          if (typeof value.toMillis === 'function') return value.toMillis();
+          if (value.seconds) return value.seconds * 1000;
+          return new Date(value).getTime() || 0;
+        }),
+        0
+      );
+      const isNewlyAdded = availabilityEventAt <= createdAt;
+      return {
+        isNewlyAdded,
+        time: isNewlyAdded ? (createdAt || getTime(kit)) : availabilityEventAt
+      };
     };
 
     let filtered = [...storeKits];
@@ -429,15 +457,33 @@ export default function Kits({ isActive = true }) {
             _avail: avail,
             _price: getLowestPrice(kit),
             _time: getTime(kit),
+            _availabilityEventTime: getAvailabilityEvent(kit).time,
+            _isNewlyAdded: getAvailabilityEvent(kit).isNewlyAdded,
+            _isPreOrderOnly: isPreOrderOnly(kit),
             _statusOrder: statusOrder
         };
     });
 
+    // Public users start with sellable kits only. Collection and out-of-stock
+    // kits remain searchable once a deliberate search term is entered.
+    const displayableKits = (!isAdminView && !searchTerm.trim())
+      ? processedKits.filter(kit => kit._statusOrder === 2)
+      : processedKits;
+
     // Latest view follows public availability events. Newly stocked kits and
     // stocks returned from the admin shelf move to the front immediately.
     if (!searchTerm && sortType === 'latest') {
-      return [...processedKits].sort((a, b) => {
+      return [...displayableKits].sort((a, b) => {
         if (a._statusOrder !== b._statusOrder) return b._statusOrder - a._statusOrder;
+        if (a._statusOrder === 2 && a._isPreOrderOnly !== b._isPreOrderOnly) {
+          return Number(b._isPreOrderOnly) - Number(a._isPreOrderOnly);
+        }
+        if (a._statusOrder === 2 && a._isNewlyAdded !== b._isNewlyAdded) {
+          return Number(b._isNewlyAdded) - Number(a._isNewlyAdded);
+        }
+        if (a._statusOrder === 2 && a._availabilityEventTime !== b._availabilityEventTime) {
+          return b._availabilityEventTime - a._availabilityEventTime;
+        }
         return b._time - a._time;
       });
     }
@@ -445,10 +491,10 @@ export default function Kits({ isActive = true }) {
     // --- Stable sort logic: mag-re-sort lang kapag nagbago ang sort criteria (search, sortType, view) ---
     const currentSortCriteria = `${searchTerm}||${sortType}||${isAdminView}`;
     const sortCriteriaChanged = currentSortCriteria !== stableSortCache.criteria;
-    const currentFilteredIds = new Set(processedKits.map(k => k.id));
+    const currentFilteredIds = new Set(displayableKits.map(k => k.id));
     // Alamin kung may bago o nawala na kit (hindi lang stock change)
     const cachedIds = new Set(stableSortCache.ids);
-    const hasNewKits = processedKits.some(k => !cachedIds.has(k.id));
+    const hasNewKits = displayableKits.some(k => !cachedIds.has(k.id));
     const hasRemovedKits = stableSortCache.ids.some(id => !currentFilteredIds.has(id));
     const needsResort = sortCriteriaChanged || hasNewKits || hasRemovedKits || stableSortCache.ids.length === 0;
 
@@ -456,15 +502,24 @@ export default function Kits({ isActive = true }) {
       // Kailangan mag-sort: either nagbago ang criteria o may bago/nawala na kit
       let sorted;
       if (searchTerm) {
-        sorted = [...processedKits].sort((a, b) => {
+        sorted = [...displayableKits].sort((a, b) => {
           if (a._statusOrder !== b._statusOrder) return b._statusOrder - a._statusOrder;
+          if (a._statusOrder === 2 && a._isPreOrderOnly !== b._isPreOrderOnly) {
+            return Number(b._isPreOrderOnly) - Number(a._isPreOrderOnly);
+          }
+          if (a._statusOrder === 2 && a._isNewlyAdded !== b._isNewlyAdded) {
+            return Number(b._isNewlyAdded) - Number(a._isNewlyAdded);
+          }
+          if (a._statusOrder === 2 && a._availabilityEventTime !== b._availabilityEventTime) {
+            return b._availabilityEventTime - a._availabilityEventTime;
+          }
           if (a._avail !== b._avail) return b._avail - a._avail;
           return a.name.localeCompare(b.name);
         });
       } else if (sortType === 'latest') {
-        sorted = processedKits;
+        sorted = displayableKits;
       } else {
-        sorted = [...processedKits].sort((a, b) => {
+        sorted = [...displayableKits].sort((a, b) => {
           if (a._statusOrder !== b._statusOrder) return b._statusOrder - a._statusOrder;
           switch (sortType) {
             case 'price-asc': return a._price - b._price;
@@ -481,7 +536,7 @@ export default function Kits({ isActive = true }) {
     }
 
     // Hindi nagbago ang sort criteria — gamitin ang cached order para hindi mag-jump ang cards
-    const kitMap = new Map(processedKits.map(k => [k.id, k]));
+    const kitMap = new Map(displayableKits.map(k => [k.id, k]));
     return stableSortCache.ids.map(id => kitMap.get(id)).filter(Boolean);
   }, [activeOfferKitIds, deals, storeKits, isAdmin, isAdminView, searchTerm, sortType, stableSortCache]);
 
@@ -498,14 +553,12 @@ export default function Kits({ isActive = true }) {
     return () => window.clearTimeout(timer);
   }, [allFilteredKits, searchTerm, sortType, isAdminView]);
 
-  const visibleKits = useMemo(() => {
-    return allFilteredKits.slice(0, displayLimit);
-  }, [allFilteredKits, displayLimit]);
+  const visibleKits = allFilteredKits;
 
   const visibleKitsWithRouteSelection = useMemo(() => {
     if (!routeKitId || activeOfferKitIds.has(routeKitId) || visibleKits.some(kit => kit.id === routeKitId)) return visibleKits;
     // Prefer the processed copy so the route kit keeps its status metadata.
-    // Falling back to raw store data is needed when search/pagination hides it,
+    // Falling back to raw store data is needed when the public default filter hides it,
     // but that copy must be decorated before kitGroups filters it.
     const routeKit = allFilteredKits.find(kit => kit.id === routeKitId)
       || (storeKits || []).find(kit => kit.id === routeKitId);
@@ -532,12 +585,44 @@ export default function Kits({ isActive = true }) {
   }, [activeOfferKitIds, routeKitId, searchTerm, storeKits]);
 
   // --- Grupo-grupo ang kits ayon sa status para sa section dividers ---
+  const activeClearanceDeals = useMemo(() => {
+    const clearanceDeals = (deals || []).filter((deal) => (
+      deal?.type === 'clearance' && deal.isActive !== false
+    ));
+    const fulfillable = clearanceDeals.filter((deal) => (
+      (deal.kitIds?.length ? deal.kitIds : (deal.clearanceKitIds || [])).every((kitId) => {
+        const kit = (storeKits || []).find((candidate) => candidate.id === kitId);
+        if (!kit) return false;
+        return Object.values(kit.stocks || {}).some((stock) => (
+          isBundlePurchasableStock(stock, deal.stockSource || 'onhand')
+        ));
+      })
+    ));
+
+    return (isAdmin && isAdminView)
+      ? fulfillable
+      : fulfillable.filter((deal) => getDealCountdownLabel(deal.validUntil) !== 'EXPIRED');
+  }, [deals, isAdmin, isAdminView, storeKits]);
+
+  const clearanceKitIds = useMemo(() => {
+    const ids = new Set();
+    activeClearanceDeals.forEach((deal) => {
+      const kitIds = deal.kitIds?.length ? deal.kitIds : (deal.clearanceKitIds || []);
+      kitIds.forEach((kitId) => ids.add(kitId));
+    });
+    return ids;
+  }, [activeClearanceDeals]);
+
   const kitGroups = useMemo(() => {
-    const available = visibleKitsWithRouteSelection.filter(k => k._statusOrder === 2);
-    const collection = visibleKitsWithRouteSelection.filter(k => k._statusOrder === 1);
-    const outOfStock = visibleKitsWithRouteSelection.filter(k => k._statusOrder === 0);
-    return { available, collection, outOfStock };
-  }, [visibleKitsWithRouteSelection]);
+    const clearance = visibleKitsWithRouteSelection.filter((kit) => (
+      clearanceKitIds.has(kit.id) && !activeOfferKitIds.has(kit.id)
+    ));
+    const regularKits = visibleKitsWithRouteSelection.filter((kit) => !clearanceKitIds.has(kit.id));
+    const available = regularKits.filter(k => k._statusOrder === 2);
+    const collection = regularKits.filter(k => k._statusOrder === 1);
+    const outOfStock = regularKits.filter(k => k._statusOrder === 0);
+    return { clearance, available, collection, outOfStock };
+  }, [activeOfferKitIds, clearanceKitIds, visibleKitsWithRouteSelection]);
 
   useEffect(() => {
     if (routeKitId || location.pathname !== '/kits' || !allFilteredKits.length) return;
@@ -555,18 +640,6 @@ export default function Kits({ isActive = true }) {
     if (!target?.kitId) {
       window.sessionStorage.removeItem(KIT_RETURN_STORAGE_KEY);
       return;
-    }
-
-    const index = allFilteredKits.findIndex(kit => kit.id === target.kitId);
-    if (index >= 0) {
-      const neededLimit = Math.max(Number(target.displayLimit || 0), index + 1);
-      if (displayLimit < neededLimit) {
-        pendingRestoreRef.current = target;
-        setTimeout(() => {
-          setDisplayLimit(neededLimit);
-        }, 0);
-        return;
-      }
     }
 
     pendingRestoreRef.current = target;
@@ -587,33 +660,12 @@ export default function Kits({ isActive = true }) {
       window.requestAnimationFrame(restore);
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [allFilteredKits, displayLimit, location.pathname, routeKitId]);
-
-  // Infinite Scroll Observer (Client-side pagination)
-  useEffect(() => {
-    if (isLoading) return;
-    if (visibleKits.length >= allFilteredKits.length) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) {
-          setDisplayLimit(prev => Math.min(prev + 12, allFilteredKits.length));
-        }
-      },
-      { 
-        rootMargin: '800px', // Trigger fetch when sentinel is 800px from the viewport
-        threshold: 0.0
-      }
-    );
-
-    if (sentinelRef.current) observer.observe(sentinelRef.current);
-    return () => observer.disconnect();
-  }, [isLoading, visibleKits.length, allFilteredKits.length]);
+  }, [allFilteredKits, location.pathname, routeKitId]);
   const filteredDeals = useMemo(() => {
     if (!deals || !Array.isArray(deals)) return [];
     // Mutually exclusive deals have no deal card — hide from kits grid
-    // Clearance is an item-level offer shown on the kit card/detail panel,
-    // not a standalone multi-kit card in the Deals section.
+    // Clearance is rendered as its participating kit cards in the Deals
+    // section, not as a standalone multi-kit deal card.
     const visible = deals.filter(d => d?.type !== 'mutually_exclusive' && d?.type !== 'clearance');
     // Auto-hide unfulfillable deals: every kit must have at least one available stock
     const fulfillable = visible.filter(d => {
@@ -629,9 +681,17 @@ export default function Kits({ isActive = true }) {
     const active = (isAdmin && isAdminView)
       ? fulfillable
       : fulfillable.filter(d => getDealCountdownLabel(d.validUntil) !== 'EXPIRED');
-    if (!searchTerm) return active;
     const lowerSearch = searchTerm.toLowerCase();
-    return active.filter(deal => deal?.name?.toLowerCase().includes(lowerSearch));
+    const matchingDeals = searchTerm
+      ? active.filter(deal => deal?.name?.toLowerCase().includes(lowerSearch))
+      : active;
+
+    return [...matchingDeals].sort((a, b) => {
+      const aExpired = getDealCountdownLabel(a.validUntil) === 'EXPIRED';
+      const bExpired = getDealCountdownLabel(b.validUntil) === 'EXPIRED';
+      if (aExpired !== bExpired) return Number(aExpired) - Number(bExpired);
+      return 0;
+    });
   }, [deals, storeKits, searchTerm, isAdmin, isAdminView]);
 
   const handleSaveNewKit = async (newKit) => {
@@ -823,7 +883,6 @@ export default function Kits({ isActive = true }) {
     window.sessionStorage.setItem(KIT_RETURN_STORAGE_KEY, JSON.stringify({
       kitId: item.kit?.id,
       scrollY: window.scrollY,
-      displayLimit,
       savedAt: Date.now()
     }));
     
@@ -874,6 +933,87 @@ export default function Kits({ isActive = true }) {
   ];
 
   const sectionHeaderPosition = 'top-[116px] sm:top-[120px]';
+
+  const renderDealCard = (deal) => {
+    if (!deal) return null;
+    const orderedKitIds = [
+      ...(deal.previewKitIds || []),
+      ...(deal.kitIds || []).filter(id => !(deal.previewKitIds || []).includes(id))
+    ];
+    const includedKits = getOrderedKits(storeKits, orderedKitIds);
+    const previewKits = includedKits.slice(0, 4);
+    const remainingCount = Math.max(0, includedKits.length - 4);
+    const countdownLabel = getDealCountdownLabel(deal.validUntil);
+    const dealGradient = getSpectralGradient(deal.id);
+    const dealShadow = getShadowColor(dealGradient);
+    return (
+      <div key={deal.id} onClick={() => handleDealCardClick(deal)} className={`w-full group relative rounded-[2.2rem] p-[2px] ${isSpectralMode ? `bg-gradient-to-br ${dealGradient}` : 'bg-black/5 dark:bg-white/5'} transition-all duration-500 lg:hover:-translate-y-1 cursor-pointer overflow-hidden h-full`}
+        style={{
+          boxShadow: isDarkMode
+            ? isSpectralMode
+              ? `0 20px 25px -5px ${dealShadow}, 0 8px 10px -6px ${dealShadow}`
+              : `0 20px 25px -5px rgba(0,0,0,0.5), 0 8px 10px -6px rgba(0,0,0,0.5)`
+            : `0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1)`
+        }}
+      >
+        <div className="relative rounded-[2.1rem] flex flex-col h-full p-3 bg-white dark:bg-[var(--color-surface)]">
+          <div className="absolute top-4 left-0 z-50 flex flex-col items-start">
+            <div className={`px-1.5 py-0.5 font-bold uppercase tracking-tigther text-[10px] md:text-[11px] ${countdownLabel === 'EXPIRED' ? 'bg-red-500 border-red-400' : 'bg-emerald-500 border-emerald-400'} text-white shadow-lg`}>
+              {countdownLabel}
+            </div>
+          </div>
+          <div className="relative aspect-square rounded-2xl overflow-hidden mb-3 bg-white dark:bg-[var(--color-surface)] shrink-0">
+            <div className="grid gap-1.5 h-full w-full grid-cols-2 grid-rows-2">
+              {previewKits.length > 0 ? previewKits.map((kit, idx) => (
+                <div key={kit?.id || idx} className={`relative w-full h-full rounded-xl overflow-hidden ${getPreviewTileClass(previewKits.length, idx)}`}>
+                  <img src={(() => { const id = kit?.image; if (!id) return ''; if (id.startsWith('data:') || id.startsWith('http')) return id; const match = (kit?.images || []).find(img => img.id === id); return match?.url || id; })()} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt="" />
+                  {idx === 3 && remainingCount > 0 && (
+                    <div className="absolute inset-0 flex items-center justify-center text-white text-[13px] font-black italic drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]">
+                      +{remainingCount}
+                    </div>
+                  )}
+                </div>
+              )) : <div className="col-span-2 flex items-center justify-center text-emerald-600 opacity-20"><Gift size={40} strokeWidth={1} /></div>}
+            </div>
+          </div>
+          <div className="px-1 text-center flex-1 flex flex-col min-w-0">
+            <div className=" flex items-center justify-center min-w-0">
+              <h3 className="text-[12px] lg:text-[13px] font-bold uppercase tracking-tighter leading-tight line-clamp-2 w-full group-hover:text-emerald-600 transition-colors" title={deal.name}>{deal.name}</h3>
+            </div>
+            <div className="mt-auto min-w-0 min-h-[50px] flex flex-col justify-end">
+              <div className="flex items-center justify-between gap-2 min-w-0 w-full pb-1">
+                <div className="flex flex-col items-start pb-1 min-w-0 flex-1 text-left">
+                  <span className={`text-[13px] md:text-[15px] lg:text-[13px] font-black uppercase tracking-tighter truncate w-full block ${(isAdmin && isAdminView) ? 'text-blue-500 dark:text-blue-400' : 'text-emerald-500 dark:text-emerald-400'}`}>{(isAdmin && isAdminView) ? 'EDIT DEAL' : 'GRAB DEAL!'}</span>
+                  <div className="flex items-baseline gap-1 w-full min-w-0">
+                    <span className="text-[13px] md:text-[15px] lg:text-[13px] font-black italic tracking-tighter leading-none text-amber-500 dark:text-amber-400">₱{(deal.bundlePrice || 0).toLocaleString()}</span>
+                  </div>
+                </div>
+                {(isAdmin && isAdminView) ? (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setDealToEdit(deal); setIsAddDealModalOpen(true); }}
+                    className="flex items-center justify-center w-8 h-8 rounded-full transition-all shadow-lg active:scale-95 bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-blue-500/40 lg:hover:scale-110 shrink-0"
+                    title="Edit Deal"
+                  >
+                    <Settings size={14} />
+                  </button>
+                ) : (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleDealCheckout(deal); }}
+                    className="flex items-center justify-center w-8 h-8 rounded-full transition-all shadow-lg active:scale-95 bg-gradient-to-br from-emerald-500 to-emerald-600 text-white shadow-emerald-500/40 lg:hover:scale-110 shrink-0"
+                    title="Grab Deal"
+                  >
+                    <Zap size={14} fill="currentColor" />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+  const activeDeals = filteredDeals.filter(deal => getDealCountdownLabel(deal.validUntil) !== 'EXPIRED');
+  const expiredDeals = filteredDeals.filter(deal => getDealCountdownLabel(deal.validUntil) === 'EXPIRED');
 
   return (
     <PageTemplate isDarkMode={isDarkMode}>
@@ -983,7 +1123,7 @@ export default function Kits({ isActive = true }) {
           <main className="min-w-350 mx-auto px-4 md:px-8">
             <div className="grid grid-cols-2 sm:grid-cols-4 sm:portrait:grid-cols-3 md:grid-cols-4 md:portrait:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-3 items-start justify-items-center">
               {/* --- Section Divider: Deals --- */}
-              {(filteredDeals.length > 0 || activeOfferKits.length > 0) && (
+              {(filteredDeals.length > 0 || activeOfferKits.length > 0 || kitGroups.clearance.length > 0) && (
                 <div className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-3 backdrop-blur-md transition-[top] duration-300 dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Deals</span>
@@ -1021,7 +1161,7 @@ export default function Kits({ isActive = true }) {
                 );
               })}
 
-              {filteredDeals.map(deal => {
+              {activeDeals.map(deal => {
                 if (!deal) return null;
                 const orderedKitIds = [
                   ...(deal.previewKitIds || []),
@@ -1045,7 +1185,7 @@ export default function Kits({ isActive = true }) {
                   >
                     <div className="relative rounded-[2.1rem] flex flex-col h-full p-3 bg-white dark:bg-[var(--color-surface)]">
                       <div className="absolute top-4 left-0 z-50 flex flex-col items-start">
-                        <div className="px-1.5 py-0.5 font-bold uppercase tracking-tigther text-[10px] md:text-[11px] bg-emerald-500 text-white border-emerald-400 shadow-lg">
+                        <div className={`px-1.5 py-0.5 font-bold uppercase tracking-tigther text-[10px] md:text-[11px] ${countdownLabel === 'EXPIRED' ? 'bg-red-500 border-red-400' : 'bg-emerald-500 border-emerald-400'} text-white shadow-lg`}>
                            {countdownLabel}
                         </div>
                       </div>
@@ -1099,6 +1239,38 @@ export default function Kits({ isActive = true }) {
                   </div>
                 );
               })}
+
+              {kitGroups.clearance.map((kit) => {
+                const isUpdating = kitToEdit?.id === kit.id;
+                return (
+                  <div
+                    key={`clearance-kit-${kit.id}`}
+                    ref={(node) => {
+                      if (node) kitCardRefs.current.set(kit.id, node);
+                      else kitCardRefs.current.delete(kit.id);
+                    }}
+                    className={`w-full h-full transition-opacity duration-500 ${isUpdating ? 'opacity-30' : 'opacity-100'}`}
+                  >
+                    {isUpdating ? (
+                      <KitSkeleton />
+                    ) : (
+                      <ProductCard
+                        kit={kit}
+                        onBuyNowClick={handleBuyNowFromCard}
+                        onDealCheckout={handleDealCheckout}
+                        onEdit={handleEditKit}
+                        onEditDeal={(deal) => {
+                          setDealToEdit(deal);
+                          setIsAddDealModalOpen(true);
+                        }}
+                        routeKitId={routeKitId}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+
+              {expiredDeals.map(renderDealCard)}
 
               {/* --- Section Divider: Available Kits --- */}
               {kitGroups.available.length > 0 && (
@@ -1218,31 +1390,18 @@ export default function Kits({ isActive = true }) {
 
               {isLoading && allFilteredKits.length === 0 ? (
                 Array.from({ length: 15 }).map((_, i) => <div key={`skeleton-init-${i}`} className="w-full h-full"><KitSkeleton /></div>)
-              ) : visibleKits.length < allFilteredKits.length ? (
-                <>
-                  {Array.from({ length: searchTerm ? 1 : (isAdminView ? 5 : 6) }).map((_, i) => (
-                    <div key={`skeleton-buffer-${i}`} className="w-full h-full">
-                      <KitSkeleton />
-                    </div>
-                  ))}
-                  {searchTerm && (
-                    <div className="col-span-2 sm:col-span-3 lg:col-span-4 xl:col-span-5 2xl:col-span-5 py-6 text-center">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-neutral-900 dark:text-white opacity-60">
-                            Loading ...
-                        </p>
-                    </div>
-                  )}
-                </>
-              ) : allFilteredKits.length > 0 && (
+              ) : allFilteredKits.length > 0 && !isLoading && (
                 <div className="col-span-2 sm:col-span-3 lg:col-span-4 xl:col-span-5 2xl:col-span-5 py-12 text-center">
                   <p className="text-[11px] font-black uppercase tracking-widest text-neutral-900 dark:text-white">
                     {searchTerm ? (
-                      "All kits loaded!"
+                      "All matching kits loaded!"
+                    ) : (!isAdminView ? (
+                      "All available kits loaded!"
                     ) : (
                       <>
                         All kits loaded! To stay updated, follow <a href="https://www.facebook.com/profile.php?id=61576855103826" target="_blank" rel="noopener noreferrer" className="text-garage-blue  hover:underline">SnorlaxGarage</a> on Facebook
                       </>
-                    )}
+                    ))}
                   </p>
                 </div>
               )}
@@ -1253,8 +1412,6 @@ export default function Kits({ isActive = true }) {
                 <LoadingState message="Loading kits..." />
               </div>
             )}
-
-            <div ref={sentinelRef} className="h-40 w-full flex items-center justify-center mt-8" />
 
             {allFilteredKits.length === 0 && !isLoading && searchTerm !== "" && (
               <div className="py-20 flex flex-col items-center justify-center opacity-20 text-neutral-900 dark:text-white">

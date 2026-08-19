@@ -688,7 +688,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
         bundlePrice,
         isClearance: deal.type === 'clearance',
         displayName: deal.type === 'clearance'
-          ? `${kit?.name || 'Kit'} + 1 OR MORE KITS`
+          ? 'CLEARANCE DEAL'
           : deal.name
       };
     }).filter(detail => Number.isFinite(Number(detail.currentItemPrice)) && Number(detail.currentItemPrice) > 0);
@@ -1410,7 +1410,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     gridStatusBadges.push({
       label: 'Clearance Deal',
       isActiveDeal: true,
-      className: 'bg-amber-500 text-white border-amber-400 shadow-lg'
+      className: 'bg-red-500 text-white border-red-400 shadow-lg'
     });
   } else if (isExclusiveToBundle) {
     gridStatusBadges.push({
@@ -1898,11 +1898,11 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                               >
                                 <div className="flex items-start justify-between gap-3 px-1">
                                   <div className="min-w-0 flex-1 text-left">
-                                    <p className="truncate text-[13px] font-black uppercase italic leading-tight text-emerald-500">{displayName}</p>
+                                    <p className={`truncate text-[13px] font-black uppercase italic leading-tight ${deal.type === 'clearance' ? 'text-red-500' : 'text-emerald-500'}`}>{displayName}</p>
                                   </div>
                                   <div className="shrink-0 pt-0.5 text-right">
-                                    <p className="text-[12px] font-black uppercase">
-                                      {deal.type === 'clearance' ? 'NO EXPIRY' : getDealCountdownLabel(deal.validUntil)}
+                                    <p className={`text-[12px] font-black uppercase ${deal.type !== 'clearance' && getDealCountdownLabel(deal.validUntil) === 'LAST DAY' ? 'text-red-500' : ''}`}>
+                                      {deal.type === 'clearance' ? '+1 / MORE KITS' : getDealCountdownLabel(deal.validUntil)}
                                     </p>
                                   </div>
                                 </div>
@@ -1982,8 +1982,8 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                     })}
                                     {deal.type === 'clearance' && (
                                       [
-                                        'ANY KIT OF YOUR CHOICE',
-                                        'MORE KITS...'
+                                        '+1 KIT',
+                                        'OR MORE'
                                       ].map((placeholderName, placeholderIndex) => (
                                         <div
                                           key={`clearance-expanded-placeholder-${placeholderIndex}`}
@@ -2053,7 +2053,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                       {deal.type === 'clearance' && Array.from({ length: 2 }, (_, placeholderIndex) => (
                                         <div
                                           key={`clearance-placeholder-${placeholderIndex}`}
-                                          className="-ml-1.5 h-20 w-20 cursor-default overflow-hidden rounded-full border-2 border-white bg-white shadow-sm dark:border-neutral-800 dark:bg-neutral-900"
+                                          className="-ml-1.5 h-20 w-20 cursor-default overflow-hidden rounded-full border-2 border-blue-200 bg-gradient-to-br from-blue-100 via-blue-200 to-blue-400 shadow-sm dark:border-blue-900 dark:from-blue-900 dark:via-blue-800 dark:to-blue-600"
                                           title="Add another kit to unlock the clearance discount"
                                           aria-label="Additional kit required for clearance discount"
                                         >
