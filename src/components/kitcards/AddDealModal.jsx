@@ -43,12 +43,18 @@ function isBundlePurchasableStock(stock, source = 'onhand') {
   return !stock.isReserved || stock.reservationType === 'admin';
 }
 
+// Deal Architect totals use the catalog/base sell price. Checkout fees,
+// including the per-item installment fee, are applied after the deal price.
+function getBundleStandardSellPrice(stock, kit) {
+  return Number(stock?.sellPrice ?? kit?.sellPrice ?? 0) || 0;
+}
+
 function getBundleDiscountBreakdown(kits = [], selectedIds = [], exclusiveIds = [], discountAmount = 0, exclusivePercent = 100) {
   const selected = getOrderedKits(kits, selectedIds);
   const exclusiveSet = new Set(exclusiveIds);
   const rows = selected.map(kit => {
     const stock = getHighestOnhandStock(kit);
-    const sell = Number(stock.sellPrice || kit.sellPrice || 0);
+    const sell = getBundleStandardSellPrice(stock, kit);
     const cost = Number(stock.costPrice || 0);
     const isExclusive = exclusiveSet.has(kit.id);
     return { kit, stock, sell, cost, isExclusive, discount: 0, finalPrice: sell };
@@ -291,6 +297,16 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
   const [isBulkProcessing, setIsBulkProcessing] = useState(false);
   const [mobileTab, setMobileTab] = useState('creator'); // 'creator' | 'list'
 
+  const clearanceMasterDeal = useMemo(() => {
+    const clearanceDeals = (deals || []).filter(deal => deal.type === 'clearance');
+    return clearanceDeals.find(deal => deal.isActive !== false) || clearanceDeals[0] || null;
+  }, [deals]);
+
+  const visibleDeals = useMemo(() => {
+    if (!clearanceMasterDeal) return deals || [];
+    return (deals || []).filter(deal => deal.type !== 'clearance' || deal.id === clearanceMasterDeal.id);
+  }, [deals, clearanceMasterDeal]);
+
 
   // Pre-fill if editing
   useEffect(() => {
@@ -300,7 +316,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       if (mappedType === 'requirement' || mappedType === 'exclusion') mappedType = 'mutually_exclusive';
       
       setDealType(mappedType);
-      setDealName(dealToEdit.name || '');
+      setDealName(mappedType === 'clearance' ? '' : (dealToEdit.name || ''));
       setActiveEditId(dealToEdit.id);
       setValidFrom(dealToEdit.validFrom || '');
       setValidUntil(dealToEdit.validUntil || '');
@@ -320,15 +336,16 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
         if (dealToEdit.requiredKitIds) kids.push(...dealToEdit.requiredKitIds);
       }
       if (mappedType === 'clearance') {
-        const clearanceKitId = (dealToEdit.clearanceKitIds || [])[0] || kids[0];
-        kids = clearanceKitId ? [clearanceKitId] : [];
+        kids = Array.from(new Set(
+          (dealToEdit.clearanceKitIds?.length ? dealToEdit.clearanceKitIds : kids)
+        ));
       }
       setSelectedKitIds(kids);
       setPreviewKitIds((dealToEdit.previewKitIds || kids).filter(id => kids.includes(id)));
       setExclusiveKitIds(dealToEdit.exclusiveKitIds || []);
       setClearanceKitIds(mappedType === 'clearance' ? kids : []);
-      setClearanceDiscounts(mappedType === 'clearance' && kids[0]
-        ? { [kids[0]]: dealToEdit.clearanceDiscounts?.[kids[0]] ?? '' }
+      setClearanceDiscounts(mappedType === 'clearance'
+        ? Object.fromEntries(kids.map(id => [id, dealToEdit.clearanceDiscounts?.[id] ?? '']))
         : {});
       setMobileTab('creator');
     } else if (isOpen) {
@@ -378,7 +395,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
           kit,
           stock,
           kitId: kit.id,
-          sellPrice: Number(stock.sellPrice || kit.sellPrice || 0),
+          sellPrice: getBundleStandardSellPrice(stock, kit),
           costPrice: Number(stock.costPrice || 0)
         };
       });
@@ -429,14 +446,15 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
   const toggleKitSelection = (id) => {
     if (dealType === 'clearance') {
       setSelectedKitIds(prev => {
-        if (prev.includes(id)) {
-          setClearanceKitIds([]);
-          setClearanceDiscounts({});
-          return [];
-        }
-        setClearanceKitIds([id]);
-        setClearanceDiscounts(prevDiscounts => ({ [id]: prevDiscounts[id] ?? '' }));
-        return [id];
+        const next = prev.includes(id) ? prev.filter(kitId => kitId !== id) : [...prev, id];
+        setClearanceKitIds(next);
+        setClearanceDiscounts(prevDiscounts => {
+          const nextDiscounts = { ...prevDiscounts };
+          if (next.includes(id)) nextDiscounts[id] = nextDiscounts[id] ?? '';
+          else delete nextDiscounts[id];
+          return nextDiscounts;
+        });
+        return next;
       });
       return;
     }
@@ -503,18 +521,38 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       if (deal.requiredKitIds) kids.push(...deal.requiredKitIds);
     }
     if (mappedType === 'clearance') {
-      const clearanceKitId = (deal.clearanceKitIds || [])[0] || kids[0];
-      kids = clearanceKitId ? [clearanceKitId] : [];
+      kids = Array.from(new Set(
+        (deal.clearanceKitIds?.length ? deal.clearanceKitIds : kids)
+      ));
     }
     setSelectedKitIds(kids);
     setPreviewKitIds((deal.previewKitIds || kids).filter(id => kids.includes(id)));
     setExclusiveKitIds(deal.exclusiveKitIds || []);
     setClearanceKitIds(mappedType === 'clearance' ? kids : []);
-    setClearanceDiscounts(mappedType === 'clearance' && kids[0]
-      ? { [kids[0]]: deal.clearanceDiscounts?.[kids[0]] ?? '' }
+    setClearanceDiscounts(mappedType === 'clearance'
+      ? Object.fromEntries(kids.map(id => [id, deal.clearanceDiscounts?.[id] ?? '']))
       : {});
     setSearchTerm('');
     setMobileTab('creator');
+  };
+
+  const handleSelectClearanceStrategy = () => {
+    if (clearanceMasterDeal) {
+      handleEditSavedDeal(clearanceMasterDeal);
+      return;
+    }
+
+    setDealType('clearance');
+    setDealName('');
+    setSelectedKitIds([]);
+    setExclusiveKitIds([]);
+    setClearanceKitIds([]);
+    setClearanceDiscounts({});
+    setActiveEditId(null);
+    setValidFrom('');
+    setValidUntil('');
+    setPreviewKitIds([]);
+    setDraggedPreviewKitId(null);
   };
 
   const movePreviewKit = (draggedId, targetId) => {
@@ -531,9 +569,9 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
   };
 
   const handleSave = async () => {
-    if (!dealName) return alert("Please enter a deal name");
-    if (dealType === 'clearance' && selectedKitIds.length !== 1) {
-      return alert("Pick exactly 1 kit for a clearance deal");
+    if (dealType !== 'clearance' && !dealName) return alert("Please enter a deal name");
+    if (dealType === 'clearance' && selectedKitIds.length === 0) {
+      return alert("Add at least 1 kit to the clearance eligible list");
     }
     if (dealType !== 'clearance' && selectedKitIds.length < 2) {
       return alert(dealType === 'mutually_exclusive' ? "Pick exactly 2 kits for mutual exclusion" : "Pick at least 2 kits for this deal");
@@ -542,16 +580,19 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       return alert("Pick exactly 2 kits for mutual exclusion");
     }
     
+    const dealId = activeEditId || (dealType === 'clearance' ? clearanceMasterDeal?.id : null);
     let dealData = {
-      id: activeEditId || null,
+      id: dealId,
       type: dealType,
-      name: dealName.toUpperCase(),
+      name: dealType === 'clearance' ? 'CLEARANCE ELIGIBLE KITS' : dealName.toUpperCase(),
       isActive: true,
       kitIds: selectedKitIds,
       previewKitIds,
       exclusiveKitIds: dealType === 'bundle_only' ? exclusiveKitIds : [],
-      clearanceKitIds: dealType === 'clearance' ? [selectedKitIds[0]] : [],
-      clearanceDiscounts: dealType === 'clearance' ? { [selectedKitIds[0]]: clearanceDiscounts[selectedKitIds[0]] ?? '' } : {},
+      clearanceKitIds: dealType === 'clearance' ? selectedKitIds : [],
+      clearanceDiscounts: dealType === 'clearance'
+        ? Object.fromEntries(selectedKitIds.map(id => [id, clearanceDiscounts[id] ?? '']))
+        : {},
     };
 
     if (dealType === 'bundle_only') {
@@ -579,7 +620,6 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
 
     if (dealType === 'clearance') {
       const clearanceSummary = financialSummary;
-      if (selectedKitIds.length !== 1) return alert('Choose exactly one clearance kit.');
       dealData.bundlePrice = clearanceSummary.bundlePrice;
       dealData.totalCost = clearanceSummary.totalCost;
       dealData.totalSell = clearanceSummary.totalSell;
@@ -597,11 +637,11 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
           costPrice: row.costPrice
         }
       ]));
-      const publishDate = new Date();
-      const defaultValidUntil = new Date(publishDate);
-      defaultValidUntil.setDate(defaultValidUntil.getDate() + 7);
-      dealData.validFrom = validFrom || formatLocalDateTimeValue(publishDate);
-      dealData.validUntil = validUntil || formatLocalDateTimeValue(defaultValidUntil);
+      // Clearance eligibility is permanent. Clear any legacy validity values
+      // when an existing clearance master record is saved so old expiries do
+      // not continue to affect public availability or checkout.
+      dealData.validFrom = '';
+      dealData.validUntil = '';
       dealData.stockSource = 'onhand';
     }
 
@@ -645,6 +685,68 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     }
   };
 
+  const handleExcludeClearanceKit = async (deal, kitId) => {
+    const currentKitIds = Array.from(new Set(
+      deal.clearanceKitIds?.length ? deal.clearanceKitIds : deal.kitIds || []
+    ));
+    if (currentKitIds.length <= 1) {
+      alert('A clearance master list must keep at least one eligible kit.');
+      return;
+    }
+
+    const nextKitIds = currentKitIds.filter(id => id !== kitId);
+    const nextDiscounts = Object.fromEntries(nextKitIds.map(id => [
+      id,
+      deal.clearanceDiscounts?.[id] ?? ''
+    ]));
+    const rows = getOrderedKits(kits, nextKitIds).map(kit => {
+      const stock = getHighestOnhandStock(kit);
+      return {
+        kit,
+        stock,
+        kitId: kit.id,
+        sellPrice: getBundleStandardSellPrice(stock, kit),
+        costPrice: Number(stock.costPrice || 0)
+      };
+    });
+    const summary = getClearanceBundlePricing(rows, nextKitIds, nextDiscounts);
+
+    try {
+      await updateDeal(deal.id, {
+        kitIds: nextKitIds,
+        clearanceKitIds: nextKitIds,
+        clearanceDiscounts: nextDiscounts,
+        previewKitIds: nextKitIds,
+        bundlePrice: summary.bundlePrice,
+        totalCost: summary.totalCost,
+        totalSell: summary.totalSell,
+        discountAmount: summary.discountAmount,
+        clearanceDiscountTotal: summary.clearanceDiscountTotal,
+        standardDiscountTotal: summary.standardDiscountTotal,
+        kitDiscounts: Object.fromEntries(summary.rows.map(row => [
+          row.kitId,
+          {
+            discount: Math.round(row.discount || 0),
+            finalPrice: row.finalPrice,
+            isClearance: row.isClearance,
+            clearancePrice: row.clearancePrice,
+            sellPrice: row.sellPrice,
+            costPrice: row.costPrice
+          }
+        ]))
+      });
+      if (activeEditId === deal.id) {
+        setSelectedKitIds(nextKitIds);
+        setClearanceKitIds(nextKitIds);
+        setClearanceDiscounts(nextDiscounts);
+        setPreviewKitIds(nextKitIds);
+      }
+    } catch (error) {
+      console.error('Error excluding clearance kit:', error);
+      alert(`Error excluding kit: ${error.message}`);
+    }
+  };
+
   const handleDelete = async (id) => {
     if (!window.confirm("Are you sure you want to delete this deal? This will immediately release any exclusions or reserves associated with it.")) return;
     try {
@@ -673,11 +775,11 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
   };
 
   const handleSelectAll = () => {
-    if (!deals || deals.length === 0) return;
-    if (selectedDealIds.length === deals.length) {
+    if (!visibleDeals || visibleDeals.length === 0) return;
+    if (selectedDealIds.length === visibleDeals.length) {
       setSelectedDealIds([]);
     } else {
-      setSelectedDealIds(deals.map(d => d.id));
+      setSelectedDealIds(visibleDeals.map(d => d.id));
     }
   };
 
@@ -719,7 +821,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     }
   };
 
-  const allSelected = deals && deals.length > 0 && selectedDealIds.length === deals.length;
+  const allSelected = visibleDeals.length > 0 && selectedDealIds.length === visibleDeals.length;
 
   return (
     <div className="pointer-events-none fixed inset-0 z-[300] flex items-start justify-center" role="dialog" aria-modal="true" aria-label="Deal entry">
@@ -763,7 +865,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
             onClick={() => setMobileTab('list')} 
             className={`flex-1 py-3 text-center text-[11px] font-black uppercase tracking-wider transition-all border-b-2 ${mobileTab === 'list' ? 'border-blue-600 text-blue-500 bg-blue-500/5' : 'border-transparent opacity-65'}`}
           >
-            Active List ({deals?.length || 0})
+            Active List ({visibleDeals.length})
           </button>
         </div>
 
@@ -777,7 +879,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                    <button onClick={() => { setDealType('bundle_only'); setSelectedKitIds([]); setExclusiveKitIds([]); setClearanceKitIds([]); setClearanceDiscounts({}); }} className={`py-3 rounded-2xl border flex flex-col items-center gap-1 transition-all ${dealType === 'bundle_only' ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg' : 'bg-black/5 border-[var(--color-border)] opacity-60'}`}>
                       <Lock size={16} /> <span className="text-[11px] font-black uppercase">Bundle Deal</span>
                    </button>
-                   <button type="button" aria-pressed={dealType === 'clearance'} onClick={() => { setDealType('clearance'); setSelectedKitIds([]); setExclusiveKitIds([]); setClearanceKitIds([]); setClearanceDiscounts({}); }} className={`py-3 rounded-2xl border flex flex-col items-center gap-1 transition-all ${dealType === 'clearance' ? 'bg-amber-500 border-amber-500 text-white shadow-lg' : 'bg-black/5 border-[var(--color-border)] opacity-60'}`}>
+                   <button type="button" aria-pressed={dealType === 'clearance'} onClick={handleSelectClearanceStrategy} className={`py-3 rounded-2xl border flex flex-col items-center gap-1 transition-all ${dealType === 'clearance' ? 'bg-amber-500 border-amber-500 text-white shadow-lg' : 'bg-black/5 border-[var(--color-border)] opacity-60'}`}>
                       <Gift size={16} /> <span className="text-[11px] font-black uppercase">Clearance</span>
                    </button>
                    <button onClick={() => { setDealType('mutually_exclusive'); setSelectedKitIds([]); setExclusiveKitIds([]); setClearanceKitIds([]); setClearanceDiscounts({}); }} className={`py-3 rounded-2xl border flex flex-col items-center gap-1 transition-all ${dealType === 'mutually_exclusive' ? 'bg-red-600 border-red-600 text-white shadow-lg' : 'bg-black/5 border-[var(--color-border)] opacity-60'}`}>
@@ -786,17 +888,19 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                 </div>
                 {dealType === 'clearance' && (
                   <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-left text-[11px] font-bold leading-relaxed text-amber-700 dark:text-amber-300">
-                    <p className="font-black uppercase tracking-widest">Single clearance kit</p>
-                    <p className="mt-1 opacity-80">Select one on-hand kit. Its clearance discount is unlocked in the basket only when another on-hand kit is selected with it.</p>
+                    <p className="font-black uppercase tracking-widest">Clearance eligible kit master list</p>
+                    <p className="mt-1 opacity-80">Add the on-hand kits eligible for clearance. The strongest selected clearance discount is used in the basket when another on-hand kit is included.</p>
                   </div>
                 )}
              </div>
 
              <div className="space-y-4">
-                <div className="space-y-1 text-left">
-                   <label className="text-[12px] font-black uppercase tracking-widest opacity-40 ml-2">Deal Name</label>
-                   <input value={dealName} onChange={e => setDealName(e.target.value)} placeholder="E.G. PROMO PACK" className="w-full bg-black/5 border border-[var(--color-border)] rounded-2xl px-4 py-3 text-xs font-bold outline-none focus:border-blue-500 uppercase text-[var(--color-text-main)]" />
-                </div>
+                {dealType !== 'clearance' && (
+                  <div className="space-y-1 text-left">
+                     <label className="text-[12px] font-black uppercase tracking-widest opacity-40 ml-2">Deal Name</label>
+                     <input value={dealName} onChange={e => setDealName(e.target.value)} placeholder="E.G. PROMO PACK" className="w-full bg-black/5 border border-[var(--color-border)] rounded-2xl px-4 py-3 text-xs font-bold outline-none focus:border-blue-500 uppercase text-[var(--color-text-main)]" />
+                  </div>
+                )}
 
                 <div className="space-y-1 text-left relative">
                    <label className="text-[12px] font-black uppercase tracking-widest opacity-40 ml-2">Search & Add Kits</label>
@@ -885,7 +989,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                         <div className="min-w-0 space-y-2">
                           <div className="flex items-center justify-between gap-3 px-2">
                             <label className="text-[12px] font-black uppercase tracking-widest opacity-40">Inclusions ({selectedKitsData.length})</label>
-                            <span className="text-[12px] font-black uppercase tracking-widest opacity-30">{dealType === 'clearance' ? '1 clearance kit' : dealType === 'mutually_exclusive' ? 'Exactly 2 kits / X to remove' : 'Drag to reorder / X to remove'}</span>
+                            <span className="text-[12px] font-black uppercase tracking-widest opacity-30">{dealType === 'clearance' ? 'Eligible kits / X to remove' : dealType === 'mutually_exclusive' ? 'Exactly 2 kits / X to remove' : 'Drag to reorder / X to remove'}</span>
                           </div>
                           {getOrderedKits(kits, previewKitIds).map((kit, index) => {
                             const stock = getHighestOnhandStock(kit);
@@ -972,8 +1076,8 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                       <input type="number" value={discountAmount} onChange={e => setDiscountAmount(e.target.value)} placeholder="0.00" className="w-full bg-blue-600/10 border border-blue-600/30 rounded-2xl px-4 py-4 text-sm font-black text-blue-500 outline-none focus:border-blue-500" />
                     </div>
 
-                    {/* Validity Date Pickers */}
-                    <div className="order-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* Bundle deals expire; the clearance eligibility master list does not. */}
+                    {dealType !== 'clearance' && <div className="order-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1 text-left">
                         <label className="text-[12px] font-black uppercase tracking-widest opacity-40 ml-2 flex items-center gap-1.5">
                           <Calendar size={10} /> Valid From
@@ -998,9 +1102,9 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                           align="right"
                         />
                       </div>
-                    </div>
+                    </div>}
 
-                    <div className="order-4 bg-black/5 rounded-2xl p-4 flex flex-col gap-2 text-left border border-white/5">
+                    {dealType !== 'clearance' && <div className="order-4 bg-black/5 rounded-2xl p-4 flex flex-col gap-2 text-left border border-white/5">
                        {dealType === 'bundle_only' ? (
                          <div className="flex justify-between items-center text-emerald-500">
                             <span className="text-[12px] font-black uppercase tracking-wider">Exclusive Discount Share</span>
@@ -1024,7 +1128,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                          </div>
                        )}
                        <div className="flex justify-between items-center opacity-40">
-                          <span className="text-[12px] font-black uppercase">Standard Combined Sell</span>
+                          <span className="text-[12px] font-black uppercase">Standard Combined Sell (Excl. Installment)</span>
                           <span className="text-[12px] font-bold">₱{financialSummary.totalSell.toLocaleString()}</span>
                        </div>
                        <div className="flex justify-between items-center opacity-40">
@@ -1042,7 +1146,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                              ₱{financialSummary.projectedProfit.toLocaleString()}
                           </span>
                        </div>
-                    </div>
+                    </div>}
                   </div>
                 )}
              </div>
@@ -1050,7 +1154,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
              <div className="bg-blue-600/5 border border-blue-600/10 p-4 rounded-2xl text-left">
                 <p className="text-[12px] font-bold leading-relaxed opacity-70 italic">
                    {dealType === 'bundle_only' ? "Bundle deal discounts are split between exclusive and standard items using the configured exclusive discount percentage." : dealType === 'clearance' ?
-                    "Clearance uses one selected kit. Its sell-price difference from the cost ceiling is unlocked in the basket and distributed across other on-hand kits by their remaining cost-ceiling capacity." :
+                    "Clearance uses one master list of eligible kits. When selected with another on-hand kit in the basket, the strongest eligible clearance discount is distributed across the order." :
                     "Item A and Item B cannot be sold together. Automatic reserving & shelf synchronization will run reactively."}
                 </p>
              </div>
@@ -1081,7 +1185,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                       <h3 className="text-xs font-black uppercase tracking-widest">Active Deals & Bundles</h3>
                       <span className="text-[12px] opacity-40 uppercase font-bold mt-1 block">Modify or delete active settings</span>
                    </div>
-                   <span className="text-[12px] font-black px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-500 uppercase">{deals?.length || 0} Saved</span>
+                   <span className="text-[12px] font-black px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-500 uppercase">{visibleDeals.length} Saved</span>
                 </div>
 
                 {/* Bulk action buttons */}
@@ -1109,31 +1213,40 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
              </div>
 
              <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-3 custom-scrollbar">
-                {(!deals || deals.length === 0) ? (
+                {visibleDeals.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center opacity-30 p-10">
                     <Gift size={40} className="stroke-[1.5]" />
                     <p className="text-[12px] font-black uppercase tracking-widest mt-3">No active deals found</p>
                   </div>
                 ) : (
-                  deals.map(deal => {
+                  visibleDeals.map(deal => {
                     const strategyLabel = deal.type === 'clearance' ? 'Clearance' : (deal.type === 'bundle_discount' || deal.type === 'bundle_only') ? 'Bundle Deal' :
                                           deal.type === 'mutually_exclusive' ? 'Mutually Exclusive' : 'Legacy Bundle';
                     
                     const badgeClass = deal.type === 'clearance' ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' : (deal.type === 'bundle_discount' || deal.type === 'bundle_only') ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' :
                                        deal.type === 'mutually_exclusive' ? 'bg-red-500/10 text-red-500 border border-red-500/20' : 'bg-amber-500/10 text-amber-500 border border-amber-500/20';
 
+                    const dealEligibleKitIds = deal.type === 'clearance'
+                      ? (deal.clearanceKitIds?.length ? deal.clearanceKitIds : deal.kitIds || [])
+                      : deal.kitIds || [];
                     const orderedKitIds = [
-                      ...(deal.previewKitIds || []),
-                      ...(deal.kitIds || []).filter(id => !(deal.previewKitIds || []).includes(id))
+                      ...(deal.type === 'clearance' ? dealEligibleKitIds : (deal.previewKitIds || [])),
+                      ...dealEligibleKitIds.filter(id => !(deal.type === 'clearance' ? dealEligibleKitIds : (deal.previewKitIds || [])).includes(id))
                     ];
                     const includedKits = getOrderedKits(kits, orderedKitIds);
                     const isChecked = selectedDealIds.includes(deal.id);
-                    const isExpired = deal.validUntil && parseLocalDateTime(deal.validUntil) && parseLocalDateTime(deal.validUntil) < new Date();
+                    const isExpired = deal.type !== 'clearance'
+                      && deal.validUntil
+                      && parseLocalDateTime(deal.validUntil)
+                      && parseLocalDateTime(deal.validUntil) < new Date();
                     const isInactive = deal.isActive === false;
 
                     // Fulfillability check: every kit in the deal must have at least one available stock
+                    const fulfillableKitIds = deal.type === 'clearance'
+                      ? dealEligibleKitIds
+                      : (deal.kitIds || []);
                     const isFulfillable = (deal.type === 'bundle_discount' || deal.type === 'bundle_only' || deal.type === 'clearance')
-                      ? (deal.kitIds || []).every(kitId => {
+                      ? fulfillableKitIds.every(kitId => {
                           const kit = (kits || []).find(k => k.id === kitId);
                           if (!kit) return false;
                           const stocks = Object.values(kit.stocks || {});
@@ -1165,15 +1278,15 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                   {(deal.stockSource || 'onhand') === 'preorder' ? 'Pre-Order' : 'Onhand'}
                                 </span>
                               )}
-                              {(deal.type === 'bundle_discount' || deal.type === 'bundle_only' || deal.type === 'clearance') && (
+                              {(deal.type === 'bundle_discount' || deal.type === 'bundle_only') && (
                                 <span className={`text-[11px] font-black uppercase px-1.5 py-0.5 rounded-full tracking-wider ${deal.type === 'clearance' ? 'bg-amber-500/10 text-amber-400' : 'bg-emerald-500/10 text-emerald-400'}`}>
                                   {getDealCountdownLabel(deal.validUntil)}
                                 </span>
                               )}
                             </div>
-                            <h4 className="text-sm font-black uppercase italic tracking-tight mt-2 text-[var(--color-text-main)] leading-none">{deal.name}</h4>
+                            <h4 className="text-sm font-black uppercase italic tracking-tight mt-2 text-[var(--color-text-main)] leading-none">{deal.type === 'clearance' ? 'Clearance Eligible Kits' : deal.name}</h4>
                             {/* Validity dates */}
-                            {(deal.validFrom || deal.validUntil) && (
+                            {deal.type !== 'clearance' && (deal.validFrom || deal.validUntil) && (
                               <p className="text-[12px] font-bold opacity-40 mt-1.5 flex items-center gap-1">
                                 <Calendar size={9} />
                                 {deal.validFrom ? parseLocalDateTime(deal.validFrom)?.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '—'}
@@ -1195,19 +1308,44 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
 
                         {/* Kit Thumbnails */}
                         <div className="w-full space-y-2 py-1">
-                          {includedKits.map(k => (
+                          {includedKits.map(k => {
+                            const configuredDiscount = deal.clearanceDiscounts?.[k.id];
+                            const clearanceDiscount = deal.type === 'clearance'
+                              ? Number(
+                                configuredDiscount !== '' && configuredDiscount !== null && configuredDiscount !== undefined
+                                  ? configuredDiscount
+                                  : deal.kitDiscounts?.[k.id]?.discount || 0
+                              )
+                              : 0;
+                            return (
                             <div key={k.id} className="flex w-full min-w-0 items-center gap-2 px-3 py-2 rounded-xl bg-black/5 dark:bg-white/5 border border-white/5">
                               <img src={resolveImage(k.image, k.images)} className="w-7 h-7 rounded-lg object-cover bg-white" alt="" />
                               <div className="min-w-0 flex-1">
                                 <span className="block truncate text-[12px] font-black uppercase">{k.name}</span>
                                 <span className="block truncate text-[12px] font-bold uppercase opacity-40">{[k.brand, k.specs?.line].filter(Boolean).join(' / ') || 'No brand or line'}</span>
                               </div>
+                              {deal.type === 'clearance' && clearanceDiscount > 0 && (
+                                <span className="shrink-0 text-[12px] font-black italic text-emerald-500">
+                                  ₱{clearanceDiscount.toLocaleString()} OFF
+                                </span>
+                              )}
+                              {deal.type === 'clearance' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleExcludeClearanceKit(deal, k.id)}
+                                  className="shrink-0 rounded-full p-1.5 text-neutral-400 transition-colors hover:bg-red-500/10 hover:text-red-500"
+                                  title="Exclude kit from clearance eligibility"
+                                >
+                                  <X size={13} />
+                                </button>
+                              )}
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
 
                         {/* Prices/Conditions */}
-                        <div className="flex justify-between items-center text-[12px] border-t border-neutral-500/10 pt-2 opacity-85">
+                        {deal.type !== 'clearance' && <div className="flex justify-between items-center text-[12px] border-t border-neutral-500/10 pt-2 opacity-85">
                           {deal.type === 'mutually_exclusive' ? (
                             <span className="font-black text-red-500 uppercase tracking-widest">Exclusion Rules Applied</span>
                           ) : (
@@ -1216,7 +1354,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                               <span className="font-black italic text-emerald-500">₱{(deal.discountAmount || 0).toLocaleString()} Disc</span>
                             </>
                           )}
-                        </div>
+                        </div>}
                       </div>
                     );
                   })

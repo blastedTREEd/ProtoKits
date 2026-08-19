@@ -23,6 +23,10 @@ function getCurrentLocalDateTime() {
   return new Date(now.getTime() - offset).toISOString().slice(0, 16);
 }
 
+function getStoryBackgroundImage(story) {
+  return story?.backgroundImage || story?.image || '';
+}
+
 async function compressImage(dataUrl, maxWidth = STORY_BACKGROUND_MAX_SIZE, quality = STORY_IMAGE_QUALITY) {
   return new Promise((resolve) => {
     const img = new Image();
@@ -902,7 +906,7 @@ const handleBgPointerDown = (e) => {
     setStoryDate(story.storyDate || getCurrentLocalDateTime());
     setValue(story.value || getRandomStoryColor());
     
-    setBackgroundImage(story.backgroundImage || '');
+    setBackgroundImage(getStoryBackgroundImage(story));
     setBgZoom(story.bgZoom || 1);
     setBgRotation(story.bgRotation || 0);
     setBgOffset(story.bgOffset || { x: 0, y: 0 });
@@ -1146,8 +1150,8 @@ const handleSave = async (e, isPublish) => { // Gawin nating explicit boolean an
       className="flex items-center gap-3 p-3 bg-neutral-50 dark:bg-white/5 rounded-2xl border border-neutral-100 dark:border-white/5 group hover:border-garage-blue/20 transition-all"
     >
       <div className="w-12 h-16 rounded-xl overflow-hidden relative border border-black/10 dark:border-white/10 flex-shrink-0 bg-neutral-200 dark:bg-neutral-800 flex items-center justify-center">
-        {story.backgroundImage ? (
-          <img src={story.backgroundImage} alt={story.label} className="w-full h-full object-cover" />
+        {getStoryBackgroundImage(story) ? (
+          <img src={getStoryBackgroundImage(story)} alt={story.label} className="w-full h-full object-cover" />
         ) : (
           <ImageIcon size={18} className="text-neutral-400" />
         )}

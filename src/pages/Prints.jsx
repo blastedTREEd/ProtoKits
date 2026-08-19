@@ -6,7 +6,7 @@ import ProjectCard from '../components/calculator/ProjectCard';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
 import LoginPromptModal from '../components/menu/LoginPromptModal';
-import { Droplet, Calculator, Search, Box, Plus, X, HandCoins, Lock, Zap, Rocket } from 'lucide-react';
+import { Droplet, Calculator, Search, Box, X, HandCoins, MoreHorizontal } from 'lucide-react';
 import FilamentManagerModal from '../components/calculator/FilamentManagerModal';
 import RatesManagerModal from '../components/calculator/RatesManagerModal';
 import ProductCardSkeleton from '../components/common/ProductCardSkeleton';
@@ -18,73 +18,6 @@ const isPrintListing = (project) => (
   || project?.listingType === 'print'
   || (!!project?.production && (!!project?.image || (Array.isArray(project?.images) && project.images.length > 0)))
 );
-
-const ADMIN_TOOL_STYLES = {
-  blue: {
-    media: 'bg-blue-600/10 dark:bg-blue-600/20',
-    circle: 'from-blue-600 to-cyan-400',
-    shadow: 'shadow-blue-600/20',
-    accent: 'text-blue-600 dark:text-blue-400',
-    badge: 'bg-cyan-300 border-blue-600',
-    hover: 'group-hover:from-blue-600 group-hover:to-cyan-500'
-  },
-  emerald: {
-    media: 'bg-emerald-600/10 dark:bg-emerald-600/20',
-    circle: 'from-emerald-600 to-lime-400',
-    shadow: 'shadow-emerald-600/20',
-    accent: 'text-emerald-600 dark:text-emerald-400',
-    badge: 'bg-lime-300 border-emerald-600',
-    hover: 'group-hover:from-emerald-600 group-hover:to-lime-500'
-  },
-  rose: {
-    media: 'bg-rose-600/10 dark:bg-rose-600/20',
-    circle: 'from-rose-600 to-red-400',
-    shadow: 'shadow-rose-600/20',
-    accent: 'text-rose-600 dark:text-rose-400',
-    badge: 'bg-red-300 border-rose-600',
-    hover: 'group-hover:from-rose-600 group-hover:to-red-500'
-  }
-};
-
-function AdminToolCard({ onClick, icon, title, action, tone, shadow }) {
-  const styles = ADMIN_TOOL_STYLES[tone];
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`w-full group relative rounded-[2.2rem] p-[2px] bg-black/5 dark:bg-white/5 transition-all duration-500 lg:hover:-translate-y-1 cursor-pointer overflow-hidden ${shadow}`}
-    >
-      <div className="relative rounded-[2.1rem] flex flex-col h-full overflow-hidden bg-white dark:bg-[var(--color-surface)]">
-        <div className="p-3 flex flex-col h-full">
-          <div className={`relative aspect-square rounded-2xl overflow-hidden mb-3 shrink-0 flex items-center justify-center ${styles.media}`}>
-            <div className={`relative flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-tr ${styles.circle} text-white shadow-xl ${styles.shadow} transition-transform group-hover:scale-105`}>
-              {React.createElement(icon, { size: 40, className: 'group-hover:rotate-12 transition-transform' })}
-              <div className={`absolute -top-1 -right-1 rounded-full p-1 border-2 ${styles.badge}`}>
-                <Plus size={12} strokeWidth={4} />
-              </div>
-            </div>
-          </div>
-
-          <div className="px-1 text-center flex-1 flex flex-col min-w-0">
-            <div className="h-[2.5em] flex items-center justify-center min-w-0">
-              <span className={`text-[13px] font-bold uppercase tracking-tighter leading-tight ${styles.accent}`}>
-                {title}
-              </span>
-            </div>
-
-            <div className="mt-auto min-w-0 min-h-[50px] flex items-center pb-1">
-              <div className={`h-9 w-full rounded-full flex items-center justify-center gap-1.5 bg-gradient-to-br ${styles.circle} ${styles.hover} text-white shadow-lg ${styles.shadow} transition-all`}>
-                <Plus size={14} strokeWidth={3} />
-                <span className="text-[10px] font-black uppercase tracking-widest">{action}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </button>
-  );
-}
 
 export default function Prints() {
   const { isDarkMode } = useTheme();
@@ -101,29 +34,13 @@ export default function Prints() {
     return () => clearTimeout(handler);
   }, [searchTerm]);
 
-  const [showSearchBar, setShowSearchBar] = useState(true);
-  const [lastScrollY, setLastScrollY] = useState(0);
-  // Change the sticky offset with the search header instead of translating
-  // every separator, which would also shift separators in normal flow.
-  const sectionHeaderPosition = showSearchBar
-    ? 'top-[116px] sm:top-[120px]'
-    : 'top-[56px] sm:top-[60px]';
+  const [isToolsOpen, setIsToolsOpen] = useState(false);
+  const sectionHeaderPosition = 'top-[116px] sm:top-[120px]';
 
   const isAdmin = useStore((state) => state.isAdmin);
   const isAdminView = useStore((state) => state.isAdminView);
 
   const projectVault = useStore((state) => state.projectVault);
-  const orders = useStore((state) => state.orders);
-  
-  const estimationLimitReached = useMemo(() => {
-    if (isAdmin && isAdminView) return false;
-    const completedProjectsCount = (orders || []).filter(o => 
-      o.status?.toLowerCase() === 'completed' && 
-      o.items?.some(item => item.type === 'project')
-    ).length;
-    const limit = 3 + completedProjectsCount;
-    return (projectVault || []).length >= limit;
-  }, [orders, projectVault, isAdmin, isAdminView]);
   
   const blueprints = useStore((state) => state.blueprints);
 
@@ -210,18 +127,10 @@ export default function Prints() {
   }, [searchTerm]);
 
   useEffect(() => {
-    const handleScroll = () => {
-      if (document.activeElement?.tagName !== 'INPUT' && window.innerWidth < 1024) {
-        const currentScrollY = window.scrollY;
-        if (currentScrollY > lastScrollY && currentScrollY > 100) setShowSearchBar(false);
-        else setShowSearchBar(true);
-        setLastScrollY(currentScrollY);
-      }
-    };
-
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, [lastScrollY]);
+    const closeToolsOnScroll = () => setIsToolsOpen(false);
+    window.addEventListener('scroll', closeToolsOnScroll, { passive: true });
+    return () => window.removeEventListener('scroll', closeToolsOnScroll);
+  }, []);
 
   const enterEstimating = () => {
     setModifyingProject(null);
@@ -339,21 +248,49 @@ export default function Prints() {
     }
   };
 
+  const headerActions = isAdmin && isAdminView
+    ? [
+        { id: 'new-project', label: 'New Project', icon: Box, tone: 'border-blue-500/20 bg-blue-500/10 text-blue-600 hover:bg-blue-500/20', onClick: openNewPrintModal },
+        { id: 'inventory', label: 'Inventory', icon: Droplet, tone: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20', onClick: () => setShowFilamentModal(true) },
+        { id: 'printing-rates', label: 'Printing Rates', icon: HandCoins, tone: 'border-rose-500/20 bg-rose-500/10 text-rose-600 hover:bg-rose-500/20', onClick: () => setShowRatesModal(true) }
+      ]
+    : [
+        { id: 'estimate', label: 'Estimate', icon: Calculator, tone: 'border-blue-500/20 bg-blue-500/10 text-blue-600 hover:bg-blue-500/20', onClick: enterEstimating }
+      ];
+
+  const renderHeaderActions = () => headerActions.map(({ id, label, icon, tone, onClick }) => (
+    <button
+      key={id}
+      type="button"
+      onClick={() => {
+        setIsToolsOpen(false);
+        onClick();
+      }}
+      className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border shadow-sm transition-all hover:scale-110 active:scale-95 ${tone}`}
+      aria-label={label}
+      title={label}
+    >
+      {React.createElement(icon, { size: 16, strokeWidth: 2.5 })}
+    </button>
+  ));
+
   return (
     <PageTemplate isDarkMode={isDarkMode}>
       <div className="min-h-screen w-full bg-neutral-50 dark:bg-[#0a0a0a] transition-colors duration-500 pb-20 font-sans">
         
         {/* Header Search (All Viewports) */}
-        <div className={`sticky top-[56px] sm:top-[60px] z-[90] h-[60px] bg-neutral-50/90 dark:bg-[#0a0a0a]/90 backdrop-blur-md border-b border-black/5 dark:border-white/5 transition-transform duration-300 ${showSearchBar ? 'translate-y-0' : '-translate-y-full'}`}>
+        <div className="sticky top-[56px] sm:top-[60px] z-[90] h-[60px] overflow-visible bg-neutral-50/90 dark:bg-[#0a0a0a]/90 backdrop-blur-md border-b border-black/5 dark:border-white/5">
           <div className="h-full w-full px-4 md:px-8 flex items-center justify-center gap-4">
             
-            <div className="flex-1 max-w-2xl flex items-center gap-4">
+            <div className="flex flex-1 max-w-2xl items-center gap-4 pr-12 xl:pr-0">
                 <div className="relative flex-1">
                     <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 opacity-20 text-neutral-900 dark:text-white" />
                     <input
                       type="text"
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
+                      onFocus={() => setIsToolsOpen(false)}
+                      onClick={() => setIsToolsOpen(false)}
                       onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
                       placeholder="SEARCH PROJECTS..."
                       className="w-full pl-12 pr-12 py-3 bg-white dark:bg-white/5 border border-black/5 dark:border-white/10 rounded-2xl text-[11px] font-black uppercase tracking-widest outline-none focus:border-blue-500 transition-all"
@@ -380,6 +317,34 @@ export default function Prints() {
                     )}
                 </div>
             </div>
+            {isAdmin && isAdminView ? (
+              <>
+                <div className="absolute right-4 hidden items-center gap-1.5 xl:flex xl:right-8">
+                  {renderHeaderActions()}
+                </div>
+                <div className="absolute right-4 top-1/2 z-[100] flex -translate-y-1/2 flex-col items-end gap-1.5 xl:hidden">
+                  <button
+                    type="button"
+                    onClick={() => setIsToolsOpen((isOpen) => !isOpen)}
+                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-black/10 bg-black/5 text-neutral-700 shadow-sm transition-all hover:scale-105 hover:bg-black/10 active:scale-95 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10"
+                    aria-label={isToolsOpen ? 'Hide print admin tools' : 'Show print admin tools'}
+                    aria-expanded={isToolsOpen}
+                    title={isToolsOpen ? 'Hide print admin tools' : 'Show print admin tools'}
+                  >
+                    <MoreHorizontal size={18} strokeWidth={2.5} />
+                  </button>
+                  {isToolsOpen && (
+                    <div className="absolute left-1/2 top-full mt-1.5 flex -translate-x-1/2 flex-col items-center gap-1.5 rounded-2xl border border-black/5 bg-white/95 p-1.5 shadow-2xl backdrop-blur-md dark:border-white/10 dark:bg-neutral-900/95">
+                      {renderHeaderActions()}
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="absolute right-4 top-1/2 z-[100] flex -translate-y-1/2 items-center xl:right-8">
+                {renderHeaderActions()}
+              </div>
+            )}
           </div>
         </div>
 
@@ -392,45 +357,11 @@ export default function Prints() {
             <div className="grid grid-cols-2 sm:grid-cols-4 sm:portrait:grid-cols-3 md:grid-cols-4 md:portrait:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-3 items-stretch">
               {/* --- Section Divider: Garage Projects --- */}
               {filteredBlueprints.length > 0 && (
-                <div className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md transition-[top] duration-300 dark:bg-[#0a0a0a]/90 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
+                <div className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-3 backdrop-blur-md transition-[top] duration-300 dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Garage Projects</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                 </div>
-              )}
-
-              {isAdmin && isAdminView && (
-                <AdminToolCard
-                  onClick={openNewPrintModal}
-                  icon={Box}
-                  title="New Project"
-                  action="Create"
-                  tone="blue"
-                  shadow={shadow}
-                />
-              )}
-
-
-              {isAdmin && isAdminView && (
-                <AdminToolCard
-                  onClick={() => setShowFilamentModal(true)}
-                  icon={Droplet}
-                  title="Inventory Stock"
-                  action="Manage"
-                  tone="emerald"
-                  shadow={shadow}
-                />
-              )}
-
-              {isAdmin && isAdminView && (
-                <AdminToolCard
-                  onClick={() => setShowRatesModal(true)}
-                  icon={HandCoins}
-                  title="Printing Rates"
-                  action="Manage"
-                  tone="rose"
-                  shadow={shadow}
-                />
               )}
 
               {filteredBlueprints.map((project) => {
@@ -451,49 +382,11 @@ export default function Prints() {
 
               {/* --- Section Divider: Vault (Personal Projects) --- */}
               {(filteredVault.length > 0 || !(isAdmin && isAdminView)) && (
-                <div className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md transition-[top] duration-300 dark:bg-[#0a0a0a]/90 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
+                <div className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-3 backdrop-blur-md transition-[top] duration-300 dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">User Projects</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                 </div>
-              )}
-
-              {!(isAdmin && isAdminView) && (
-                <button 
-                  type="button"
-                  onClick={enterEstimating}
-                  className={`w-full group relative rounded-[2.2rem] p-[2px] bg-black/5 dark:bg-white/5 transition-all duration-500 lg:hover:-translate-y-1 cursor-pointer overflow-hidden ${shadow}`}
-                >
-                  <div className="relative rounded-[2.1rem] flex flex-col h-full overflow-hidden bg-white dark:bg-[var(--color-surface)]">
-                    <div className="p-3 flex flex-col h-full">
-                      <div className="relative aspect-square rounded-2xl overflow-hidden mb-3 shrink-0 flex items-center justify-center bg-blue-600/10 dark:bg-blue-600/20">
-                        <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-tr from-blue-600 to-cyan-400 text-white shadow-xl shadow-blue-600/20 transition-transform group-hover:scale-105">
-                          <Calculator size={40} className="group-hover:rotate-12 transition-transform" />
-                          <div className={`absolute -top-1 -right-1 rounded-full p-1 border-2 ${
-                              estimationLimitReached ? 'bg-blue-300 border-blue-600' : 'bg-cyan-300 border-blue-600'
-                          }`}>
-                            {estimationLimitReached ? <Lock size={12} strokeWidth={4} /> : <Plus size={12} strokeWidth={4} />}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="px-1 text-center flex-1 flex flex-col min-w-0">
-                        <div className="h-[2.5em] flex items-center justify-center min-w-0">
-                          <span className="text-[13px] font-bold uppercase tracking-tighter leading-tight text-blue-600 dark:text-blue-400 transition-colors">
-                            NEW PROJECT
-                          </span>
-                        </div>
-
-                        <div className="mt-auto min-w-0 min-h-[50px] flex items-center pb-1">
-                          <div className="h-9 w-full rounded-full flex items-center justify-center gap-1.5 bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg shadow-blue-500/40 transition-all group-hover:from-blue-600 group-hover:to-cyan-500">
-                            <Rocket size={14} strokeWidth={2.5} />
-                            <span className="text-[10px] font-black uppercase tracking-widest">ESTIMATE</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </button>
               )}
 
               {filteredVault.map((project) => {

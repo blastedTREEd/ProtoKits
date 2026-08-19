@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { BookImage, Sparkles, Image as ImageIcon, Plus } from 'lucide-react';
+import { Sparkles, Image as ImageIcon, Plus, BookImage } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 
 function getStoryTime(value) {
@@ -88,38 +88,31 @@ export default function Highlights() {
             </div>
           </div>
           {canManageStories && (
-            <button
-              type="button"
-              onClick={handleManageHighlights}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-garage-blue/20 bg-garage-blue/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-garage-blue transition-all hover:border-garage-blue/40 hover:bg-garage-blue/15 sm:gap-2 sm:px-4 sm:text-[12px] sm:tracking-[0.16em]"
-            >
-              <BookImage size={16} strokeWidth={2} />
-              Manage
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={handleCreateHighlight}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-garage-blue text-white shadow-lg shadow-blue-500/25 transition-all hover:scale-110 hover:bg-blue-600 active:scale-110"
+                aria-label="Create a new garage story"
+                title="Create a new garage story"
+              >
+                <Plus size={20} strokeWidth={2.5} />
+              </button>
+                            <button
+                type="button"
+                onClick={handleManageHighlights}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-garage-blue/20 bg-garage-blue/10 text-garage-blue shadow-md transition-all hover:scale-110 hover:border-garage-blue/40 hover:bg-garage-blue/15 hover:shadow-lg active:scale-110"
+                aria-label="Manage garage stories"
+                title="Manage garage stories"
+              >
+                <BookImage size={18} strokeWidth={2} />
+              </button>
+            </div>
           )}
         </div>
 
         {highlights.length > 0 || canManageStories || isLoadingHighlights ? (
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-5 sm:gap-4 md:grid-cols-4 lg:grid-cols-5">
-            {canManageStories && (
-              <button
-                type="button"
-                onClick={handleCreateHighlight}
-                className="group relative aspect-[3/4] overflow-hidden rounded-2xl border-2 border-dashed border-garage-blue/40 bg-garage-blue/[0.04] text-left transition-all duration-300 hover:-translate-y-1 hover:border-garage-blue hover:bg-garage-blue/10 hover:shadow-2xl hover:shadow-blue-500/10 dark:border-garage-blue/50 dark:bg-garage-blue/[0.08] dark:hover:bg-garage-blue/15"
-                aria-label="Create a new garage story"
-              >
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-4 text-center">
-                  <span className="flex h-12 w-12 items-center justify-center rounded-full bg-garage-blue text-white shadow-lg shadow-blue-500/25 transition-transform duration-300 group-hover:scale-110">
-                    <Plus size={22} strokeWidth={2.5} />
-                  </span>
-                  <span>
-                    <span className="block text-sm font-black uppercase tracking-tight text-neutral-950 dark:text-white">New story</span>
-                    <span className="mt-1 block text-[9px] font-bold uppercase tracking-[0.16em] text-garage-blue">Create story</span>
-                  </span>
-                </div>
-              </button>
-            )}
-
             {isLoadingHighlights && Array.from({ length: 5 }).map((_, index) => (
               <div key={`highlight-skeleton-${index}`} className="relative aspect-[3/4] overflow-hidden rounded-2xl bg-neutral-200 shadow-sm ring-1 ring-black/[0.05] dark:bg-neutral-900 dark:ring-white/[0.08]">
                 <img src="/snorlaxgarage.png" alt="Loading highlights" className="h-full w-full object-contain p-6 opacity-20" />

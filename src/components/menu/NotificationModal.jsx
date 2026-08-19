@@ -198,7 +198,9 @@ export default function NotificationModal({
   onOpenOrder,
   emptyLabel = 'No order updates yet',
   isFullscreen = false,
+  dimBackdrop = isFullscreen,
   navbarHeight = '60px',
+  bottomInset = '0.75rem',
   anchorTop = null
 }) {
   const panelRef = useRef(null);
@@ -267,9 +269,9 @@ export default function NotificationModal({
   const panelStyle = isFullscreen
     ? {
         top: navbarHeight,
+        left: 0,
         right: 0,
-        bottom: '0.75rem',
-        height: `calc(100dvh - ${navbarHeight} - 0.75rem)`
+        bottom: bottomInset
       }
     : {
         top: hasMeasuredAnchor ? `${anchorTop + 8}px` : `calc(${navbarHeight} + 8px)`,
@@ -281,25 +283,29 @@ export default function NotificationModal({
 
   return (
     <>
-      <div className="fixed inset-0 z-[100]" onClick={onClose} />
+      {isFullscreen && dimBackdrop && <div className="fixed inset-0 z-[100] bg-black/30" onClick={onClose} />}
 
-      <Motion.div
-        ref={panelRef}
-        style={panelStyle}
-        initial={isFullscreen ? { y: '-100%', opacity: 0 } : false}
-        animate={isFullscreen ? { y: 0, opacity: 1 } : undefined}
-        transition={{ type: 'spring', damping: 28, stiffness: 360 }}
-        drag={isFullscreen ? 'y' : false}
-        dragListener={false}
-        dragControls={dragControls}
-        dragConstraints={{ top: -420, bottom: 0 }}
-        dragElastic={{ top: 0.2, bottom: 0 }}
-        onDragEnd={(event, info) => {
-          if (isFullscreen && (info.offset.y < -90 || info.velocity.y < -500)) onClose?.();
-        }}
-        className={`fixed z-[150] animate-in fade-in slide-in-from-top-2 duration-200 ${isFullscreen ? 'w-full max-w-none sm:max-w-sm' : 'w-[390px] max-w-[calc(100vw-5rem)]'}`}
+      <div
+        style={isFullscreen ? panelStyle : undefined}
+        className={isFullscreen ? 'fixed z-[105] overflow-hidden' : 'contents'}
       >
-        <div className={`${isFullscreen ? 'flex h-full flex-col rounded-b-[2.5rem]' : 'rounded-[1.5rem]'} overflow-hidden border shadow-[0_24px_70px_rgba(0,0,0,0.22)] ${isDarkMode ? 'border-white/10 bg-[#0a0a0a]' : 'border-black/10 bg-white'}`}>
+        <Motion.div
+          ref={panelRef}
+          style={isFullscreen ? undefined : panelStyle}
+          initial={isFullscreen ? { y: '-100%', opacity: 0 } : false}
+          animate={isFullscreen ? { y: 0, opacity: 1 } : undefined}
+          transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+          drag={isFullscreen ? 'y' : false}
+          dragListener={false}
+          dragControls={dragControls}
+          dragConstraints={{ top: -420, bottom: 0 }}
+          dragElastic={{ top: 0.2, bottom: 0 }}
+          onDragEnd={(event, info) => {
+            if (isFullscreen && (info.offset.y < -90 || info.velocity.y < -500)) onClose?.();
+          }}
+          className={`${isFullscreen ? '' : 'animate-in fade-in slide-in-from-top-2 duration-200'} ${isFullscreen ? 'absolute inset-0 w-full max-w-none sm:ml-auto sm:max-w-sm' : 'fixed z-[150] w-[390px] max-w-[calc(100vw-5rem)]'}`}
+        >
+        <div className={`${isFullscreen ? 'flex h-full max-h-full flex-col rounded-b-[2.5rem]' : 'rounded-[1.5rem]'} overflow-hidden border shadow-[0_24px_70px_rgba(0,0,0,0.22)] ${isDarkMode ? 'border-white/10 bg-[#0a0a0a]' : 'border-black/10 bg-white'}`}>
           <div
             style={listStyle}
             className={`${isFullscreen ? 'min-h-0 flex-1' : 'max-h-[min(68vh,560px)]'} overscroll-contain overflow-y-auto p-2`}
@@ -376,7 +382,8 @@ export default function NotificationModal({
             </div>
           )}
         </div>
-      </Motion.div>
+        </Motion.div>
+      </div>
     </>
   );
 }

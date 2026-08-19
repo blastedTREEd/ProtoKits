@@ -13,9 +13,10 @@ import Toast from './components/common/Toast';
 import { useStore } from './store/useStore';
 import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { RefreshCw, X } from 'lucide-react';
+import { preloadKits } from './routePreloads';
 
 const Landing = lazy(() => import('./pages/Landing'));
-const Kits = lazy(() => import('./pages/Kits'));
+const Kits = lazy(preloadKits);
 const Prints = lazy(() => import('./pages/Prints'));
 const Blueprints = lazy(() => import('./pages/Blueprints'));
 const AboutUs = lazy(() => import('./pages/AboutUs'));
@@ -179,6 +180,15 @@ const RouterContent = () => {
   const _loadedDatasets = useStore((state) => state._loadedDatasets);
   const isAdminView = useStore((state) => state.isAdminView);
   const isAdmin = useStore((state) => state.isAdmin);
+  const isKitsPath = location.pathname === '/kits' || location.pathname.startsWith('/kits/');
+  const [hasVisitedKits, setHasVisitedKits] = useState(() => isKitsPath);
+
+  // Keep the Kits tree mounted after its first visit. Switching away then
+  // only toggles visibility, avoiding a large card-tree teardown when many
+  // kits have already been rendered.
+  useEffect(() => {
+    if (isKitsPath) setHasVisitedKits(true);
+  }, [isKitsPath]);
 
   // Keep _activePath in sync and trigger background listeners when ready
   useLayoutEffect(() => {
@@ -216,10 +226,15 @@ const RouterContent = () => {
           <LoadingState {...loadingDetails} />
         </div>
       }>
+          {hasVisitedKits && (
+            <div className={isKitsPath ? 'contents' : 'hidden'} aria-hidden={!isKitsPath}>
+              <Kits isActive={isKitsPath} />
+            </div>
+          )}
           <Routes>
             <Route path="/" element={<Landing />} />
-            <Route path="/kits" element={<Kits />} />
-            <Route path="/kits/:kitId" element={<Kits />} />
+            <Route path="/kits" element={null} />
+            <Route path="/kits/:kitId" element={null} />
             <Route path="/prints" element={<Prints />} />
             <Route path="/prints/:projectId" element={<Prints />} />
             <Route path="/blueprints" element={<Blueprints />} />

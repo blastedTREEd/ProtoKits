@@ -126,7 +126,7 @@ function normalizeMasterImages(kit) {
         .map((image, index) => ({
           id: image.id || `master_${index}`,
           url: image.url,
-          type: MASTER_IMAGE_TYPES.includes(image.type) ? image.type : 'BOX ART',
+          type: MASTER_IMAGE_TYPES.includes(image.type) ? image.type : 'PROMO IMAGE',
           isGridImage: Boolean(image.isGridImage || image.url === kit?.image)
         }))
     : [];
@@ -2618,17 +2618,21 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                                 </span>
                                                             )}
                                                         </button>
-                                                        <select
-                                                            value={image.type}
-                                                            onChange={(event) => updateMasterImageType(image.id, event.target.value)}
-                                                            className={`mt-2 w-full rounded-xl border px-2 py-2 text-[9px] font-black uppercase outline-none ${inputClass}`}
+                                                        <button
+                                                            type="button"
+                                                            aria-pressed={image.type === 'BOX ART'}
+                                                            onClick={() => updateMasterImageType(
+                                                                image.id,
+                                                                image.type === 'BOX ART' ? 'PROMO IMAGE' : 'BOX ART'
+                                                            )}
+                                                            className={`mt-2 w-full rounded-xl border px-2 py-2 text-[9px] font-black uppercase outline-none transition-colors ${
+                                                                image.type === 'BOX ART'
+                                                                    ? 'border-blue-600 bg-blue-600 text-white'
+                                                                    : `${inputClass} hover:border-blue-500 hover:text-blue-600`
+                                                            }`}
                                                         >
-                                                            {MASTER_IMAGE_TYPES.map((type) => (
-                                                                <option key={type} value={type}>
-                                                                    {type}
-                                                                </option>
-                                                            ))}
-                                                        </select>
+                                                            {image.type === 'BOX ART' ? 'BOX ART' : 'PROMO IMAGE'}
+                                                        </button>
                                                         <div className="mt-2 grid grid-cols-[1fr_auto] gap-2">
                                                             <button
                                                                 type="button"

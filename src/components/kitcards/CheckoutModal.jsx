@@ -121,10 +121,14 @@ const isDealActiveForCheckout = (deal, now = Date.now()) => {
   if (!deal || !['bundle_only', 'bundle_discount', 'clearance'].includes(deal.type)) return false;
   if (deal.isActive === false) return false;
 
-  const validFrom = parseDealDate(deal.validFrom);
-  const validUntil = parseDealDate(deal.validUntil, true);
-  if (validFrom && validFrom.getTime() > now) return false;
-  if (validUntil && validUntil.getTime() <= now) return false;
+  // Clearance is a permanent eligibility list. Bundle deals still honor
+  // their configured validity window.
+  if (deal.type !== 'clearance') {
+    const validFrom = parseDealDate(deal.validFrom);
+    const validUntil = parseDealDate(deal.validUntil, true);
+    if (validFrom && validFrom.getTime() > now) return false;
+    if (validUntil && validUntil.getTime() <= now) return false;
+  }
   return true;
 };
 

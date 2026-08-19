@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { Package, Gift, Plus, Trash2, Box, Sparkles, Clock, Pencil, Search, Loader2, X, Wallet, AlertCircle, TrendingUp, Filter, Zap, ArrowUpWideNarrow, ArrowDownWideNarrow, SortAsc, SortDesc, ListOrdered, ChevronDown, Image as ImageIcon, Settings } from 'lucide-react';
+import { Package, Gift, Plus, Trash2, Box, Sparkles, ClockFading, Pencil, Search, Loader2, X, Wallet, AlertCircle, TrendingUp, Filter, Zap, ArrowBigDownDash, ArrowBigUpDash, ChevronDown, MoreHorizontal, Image as ImageIcon, Settings } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
@@ -54,6 +54,7 @@ const getSpectralGradient = (id) => {
 
 const getShadowColor = (gradientClass) => GRADIENT_COLORS[gradientClass] || 'rgba(8,102,255,0.2)';
 const KIT_RETURN_STORAGE_KEY = 'sg:kits:returnTarget';
+const INITIAL_KIT_DISPLAY_LIMIT = 24;
 
 function parseDealDate(value) {
   if (!value) return null;
@@ -92,87 +93,27 @@ function stockMatchesDealSource(stock, source = 'onhand') {
   return source === 'preorder' ? isPreOrder : !isPreOrder;
 }
 
-const KIT_ADMIN_TOOL_STYLES = {
-  blue: {
-    media: 'bg-blue-600/10 dark:bg-blue-600/20',
-    circle: 'from-blue-600 to-cyan-400',
-    shadow: 'shadow-blue-600/20',
-    accent: 'text-blue-600 dark:text-blue-400',
-    badge: 'bg-cyan-300 border-blue-600',
-    hover: 'group-hover:from-blue-600 group-hover:to-cyan-500'
-  },
-  emerald: {
-    media: 'bg-emerald-600/10 dark:bg-emerald-600/20',
-    circle: 'from-emerald-600 to-lime-400',
-    shadow: 'shadow-emerald-600/20',
-    accent: 'text-emerald-600 dark:text-emerald-400',
-    badge: 'bg-lime-300 border-emerald-600',
-    hover: 'group-hover:from-emerald-600 group-hover:to-lime-500'
-  },
-  amber: {
-    media: 'bg-amber-600/10 dark:bg-amber-600/20',
-    circle: 'from-amber-600 to-yellow-400',
-    shadow: 'shadow-amber-600/20',
-    accent: 'text-amber-600 dark:text-amber-400',
-    badge: 'bg-yellow-300 border-amber-600',
-    hover: 'group-hover:from-amber-600 group-hover:to-yellow-500'
-  },
-  indigo: {
-    media: 'bg-indigo-600/10 dark:bg-indigo-600/20',
-    circle: 'from-indigo-600 to-violet-400',
-    shadow: 'shadow-indigo-600/20',
-    accent: 'text-indigo-600 dark:text-indigo-400',
-    badge: 'bg-violet-300 border-indigo-600',
-    hover: 'group-hover:from-indigo-600 group-hover:to-violet-500'
-  }
-};
-
-function KitAdminToolCard({ onClick, icon, title, action, tone, shadow }) {
-  const styles = KIT_ADMIN_TOOL_STYLES[tone];
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`w-full group relative rounded-[2.2rem] p-[2px] bg-black/5 dark:bg-white/5 transition-all duration-500 lg:hover:-translate-y-1 cursor-pointer overflow-hidden ${shadow}`}
-    >
-      <div className="relative rounded-[2.1rem] flex flex-col h-full overflow-hidden bg-white dark:bg-[var(--color-surface)]">
-        <div className="p-3 flex flex-col h-full">
-          <div className={`relative aspect-square rounded-2xl overflow-hidden mb-3 shrink-0 flex items-center justify-center ${styles.media}`}>
-            <div className={`relative flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-tr ${styles.circle} text-white shadow-xl ${styles.shadow} transition-transform group-hover:scale-105`}>
-              {React.createElement(icon, { size: 40, className: 'group-hover:rotate-12 transition-transform' })}
-              <div className={`absolute -top-1 -right-1 rounded-full p-1 border-2 ${styles.badge}`}>
-                <Plus size={12} strokeWidth={4} />
-              </div>
-            </div>
-          </div>
-
-          <div className="px-1 text-center flex-1 flex flex-col min-w-0">
-            <div className="h-[2.5em] flex items-center justify-center min-w-0">
-              <span className={`text-[13px] font-bold uppercase tracking-tighter leading-tight ${styles.accent}`}>
-                {title}
-              </span>
-            </div>
-
-            <div className="mt-auto min-w-0 min-h-[50px] flex items-center pb-1">
-              <div className={`h-9 w-full rounded-full flex items-center justify-center gap-1.5 bg-gradient-to-br ${styles.circle} ${styles.hover} text-white shadow-lg ${styles.shadow} transition-all`}>
-                <Plus size={14} strokeWidth={3} />
-                <span className="text-[10px] font-black uppercase tracking-widest">{action}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </button>
-  );
-}
-
 function isBundlePurchasableStock(stock, source = 'onhand') {
   if (!stock || stock.order?.orderId || !stockMatchesDealSource(stock, source)) return false;
   return !stock.isReserved || stock.reservationType === 'admin';
 }
 
-export default function Kits() {
+function getRouteKitStatus(kit, isAdmin, isAdminView) {
+  const nowStr = new Date().toISOString().slice(0, 16);
+  const stocks = Object.values(kit?.stocks || {});
+  const availableCount = stocks.filter(stock => {
+    const isVisible = (isAdmin && isAdminView) || !stock?.publicReleaseDate || stock.publicReleaseDate <= nowStr;
+    return isVisible && !stock?.order?.orderId && !stock?.isReserved;
+  }).length;
+  const hasReserved = stocks.some(stock => stock.isReserved && !stock.order?.orderId);
+
+  return {
+    _avail: availableCount,
+    _statusOrder: availableCount > 0 ? 2 : hasReserved ? 1 : 0
+  };
+}
+
+export default function Kits({ isActive = true }) {
   const { 
     isAdmin, isAdminView, kits: storeKits, deals, 
     isLoading, addKit, isInventoryAuditOpen, setInventoryAuditOpen,
@@ -193,11 +134,11 @@ export default function Kits() {
   
   // Reset displayLimit when filters change by deriving a key
   const displayResetKey = `${searchTerm}-${sortType}-${isAdminView}`;
-  const [displayLimit, setDisplayLimit] = useState(60);
+  const [displayLimit, setDisplayLimit] = useState(INITIAL_KIT_DISPLAY_LIMIT);
   const [prevResetKey, setPrevResetKey] = useState(displayResetKey);
   if (displayResetKey !== prevResetKey) {
     setPrevResetKey(displayResetKey);
-    setDisplayLimit(60);
+    setDisplayLimit(INITIAL_KIT_DISPLAY_LIMIT);
   }
 
   const [isAddKitModalOpen, setIsAddKitModalOpen] = useState(false); 
@@ -209,8 +150,7 @@ export default function Kits() {
   const [isSalesDashboardModalOpen, setIsSalesDashboardModalOpen] = useState(false);
   const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
   const [itemsForCheckout, setItemsForCheckout] = useState([]); 
-  const [showSearchBar, setShowSearchBar] = useState(true);
-  const [lastScrollY, setLastScrollY] = useState(0);
+  const [isAdminToolsOpen, setIsAdminToolsOpen] = useState(false);
   const kitCardRefs = useRef(new Map());
   const pendingRestoreRef = useRef(null);
   const location = useLocation();
@@ -220,6 +160,30 @@ export default function Kits() {
   const openCheckoutPage = (items, isGuestPreview = !user || isAnonymousUser) => {
     navigate('/checkout', { state: { items, isGuestPreview } });
   };
+
+  useEffect(() => {
+    if (isActive) return;
+
+    // The page remains mounted for faster tab switching, but its transient
+    // dialogs and controls must not remain open while it is hidden.
+    const cleanupTimer = window.setTimeout(() => {
+      setIsAddKitModalOpen(false);
+      setIsAddDealModalOpen(false);
+      setSelectedDeal(null);
+      setDealToEdit(null);
+      setKitToEdit(null);
+      setIsSupplierBalancesModalOpen(false);
+      setIsSalesDashboardModalOpen(false);
+      setIsLoginPromptOpen(false);
+      setItemsForCheckout([]);
+      setIsAdminToolsOpen(false);
+      setIsSortOpen(false);
+      setInventoryAuditOpen(false);
+      setLoginModalOpen(false);
+    }, 0);
+
+    return () => window.clearTimeout(cleanupTimer);
+  }, [isActive, setInventoryAuditOpen, setLoginModalOpen]);
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -238,6 +202,17 @@ export default function Kits() {
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Keep scrolling focused on the search and filter controls instead of the
+  // temporary admin action floater.
+  useEffect(() => {
+    const closeFloatingControlsOnScroll = () => {
+      setIsAdminToolsOpen(false);
+      setIsSortOpen(false);
+    };
+    window.addEventListener('scroll', closeFloatingControlsOnScroll, { passive: true });
+    return () => window.removeEventListener('scroll', closeFloatingControlsOnScroll);
   }, []);
 
   // Infinite Scroll States
@@ -292,8 +267,6 @@ export default function Kits() {
     const clearanceSearchTextByKitId = new Map();
     (deals || []).forEach(deal => {
       if (deal?.type !== 'clearance' || deal.isActive === false) return;
-      const validUntil = parseDealDate(deal.validUntil);
-      if (!(isAdmin && isAdminView) && validUntil && validUntil.getTime() <= offerClock) return;
 
       const dealSearchText = `clearance clearance deal ${deal.name || ''}`;
       (deal.clearanceKitIds?.length ? deal.clearanceKitIds : deal.kitIds || []).forEach(kitId => {
@@ -510,7 +483,7 @@ export default function Kits() {
     // Hindi nagbago ang sort criteria — gamitin ang cached order para hindi mag-jump ang cards
     const kitMap = new Map(processedKits.map(k => [k.id, k]));
     return stableSortCache.ids.map(id => kitMap.get(id)).filter(Boolean);
-  }, [activeOfferKitIds, deals, offerClock, storeKits, isAdmin, isAdminView, searchTerm, sortType, stableSortCache]);
+  }, [activeOfferKitIds, deals, storeKits, isAdmin, isAdminView, searchTerm, sortType, stableSortCache]);
 
   useEffect(() => {
     const currentSortCriteria = `${searchTerm}||${sortType}||${isAdminView}`;
@@ -531,14 +504,24 @@ export default function Kits() {
 
   const visibleKitsWithRouteSelection = useMemo(() => {
     if (!routeKitId || activeOfferKitIds.has(routeKitId) || visibleKits.some(kit => kit.id === routeKitId)) return visibleKits;
-    const routeKit = (storeKits || []).find(kit => kit.id === routeKitId);
-    return routeKit ? [routeKit, ...visibleKits] : visibleKits;
-  }, [activeOfferKitIds, routeKitId, storeKits, visibleKits]);
+    // Prefer the processed copy so the route kit keeps its status metadata.
+    // Falling back to raw store data is needed when search/pagination hides it,
+    // but that copy must be decorated before kitGroups filters it.
+    const routeKit = allFilteredKits.find(kit => kit.id === routeKitId)
+      || (storeKits || []).find(kit => kit.id === routeKitId);
+    if (!routeKit) return visibleKits;
+
+    const routeKitWithStatus = routeKit._statusOrder === undefined
+      ? { ...routeKit, ...getRouteKitStatus(routeKit, isAdmin, isAdminView) }
+      : routeKit;
+    return [routeKitWithStatus, ...visibleKits];
+  }, [activeOfferKitIds, allFilteredKits, isAdmin, isAdminView, routeKitId, storeKits, visibleKits]);
 
   const activeOfferKits = useMemo(() => {
     const search = searchTerm.trim().toLowerCase();
     return (storeKits || []).filter(kit => {
       if (!activeOfferKitIds.has(kit.id)) return false;
+      if (kit.id === routeKitId) return true;
       if (!search) return true;
       return [kit.name, kit.brand, kit.series, kit.specs?.line, kit.specs?.scale]
         .filter(Boolean)
@@ -546,7 +529,7 @@ export default function Kits() {
         .toLowerCase()
         .includes(search);
     });
-  }, [activeOfferKitIds, searchTerm, storeKits]);
+  }, [activeOfferKitIds, routeKitId, searchTerm, storeKits]);
 
   // --- Grupo-grupo ang kits ayon sa status para sa section dividers ---
   const kitGroups = useMemo(() => {
@@ -626,23 +609,6 @@ export default function Kits() {
     if (sentinelRef.current) observer.observe(sentinelRef.current);
     return () => observer.disconnect();
   }, [isLoading, visibleKits.length, allFilteredKits.length]);
-
-
-
-  // Handle scroll-based search bar visibility
-  useEffect(() => {
-    const handleSearchBarScroll = () => {
-      if (document.activeElement?.tagName !== 'INPUT' && window.innerWidth < 1024) {
-        const currentScrollY = window.scrollY;
-        if (currentScrollY > lastScrollY && currentScrollY > 100) setShowSearchBar(false);
-        else setShowSearchBar(true);
-        setLastScrollY(currentScrollY);
-      }
-    };
-    window.addEventListener('scroll', handleSearchBarScroll);
-    return () => window.removeEventListener('scroll', handleSearchBarScroll);
-  }, [lastScrollY]);
-
   const filteredDeals = useMemo(() => {
     if (!deals || !Array.isArray(deals)) return [];
     // Mutually exclusive deals have no deal card — hide from kits grid
@@ -877,28 +843,55 @@ export default function Kits() {
   };
   
   const { isDarkMode, isSpectralMode } = useTheme();
-  // Keep normal-flow separators in place while the search header collapses.
-  // Only their sticky offset changes, preventing the next separator from
-  // being pulled upward into the space left by the hidden header.
-  const sectionHeaderPosition = showSearchBar
-    ? 'top-[116px] sm:top-[120px]'
-    : 'top-[56px] sm:top-[60px]';
+  const adminToolActions = [
+    { id: 'add-kit', label: 'Add Kit', icon: Plus, tone: 'border-blue-500/20 bg-blue-500/10 text-blue-600 hover:bg-blue-500/20', onClick: () => setIsAddKitModalOpen(true) },
+    { id: 'new-deal', label: 'New Deal', icon: Gift, tone: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20', onClick: () => setIsAddDealModalOpen(true) },
+    { id: 'balances', label: 'Balances', icon: Wallet, tone: 'border-amber-500/20 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20', onClick: () => setIsSupplierBalancesModalOpen(true) },
+    { id: 'sales', label: 'Sales', icon: TrendingUp, tone: 'border-indigo-500/20 bg-indigo-500/10 text-indigo-600 hover:bg-indigo-500/20', onClick: () => setIsSalesDashboardModalOpen(true) }
+  ];
+
+  const renderAdminToolButtons = () => adminToolActions.map(({ id, label, icon, tone, onClick }) => (
+    <button
+      key={id}
+      type="button"
+      onClick={() => {
+        setIsAdminToolsOpen(false);
+        onClick();
+      }}
+      className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border shadow-sm transition-all hover:scale-110 active:scale-95 ${tone}`}
+      aria-label={label}
+      title={label}
+    >
+      {React.createElement(icon, { size: 16, strokeWidth: 2.5 })}
+    </button>
+  ));
+
+  const sortOptions = [
+    { id: 'latest', label: 'Latest', icon: ClockFading, active: sortType === 'latest', nextSort: 'latest' },
+    { id: 'price', label: 'Price', icon: sortType === 'price-desc' ? ArrowBigUpDash : ArrowBigDownDash, active: sortType.startsWith('price-'), nextSort: sortType === 'price-asc' ? 'price-desc' : 'price-asc' },
+    { id: 'name', label: 'Name', icon: sortType === 'alpha-desc' ? ArrowBigUpDash : ArrowBigDownDash, active: sortType.startsWith('alpha-'), nextSort: sortType === 'alpha-asc' ? 'alpha-desc' : 'alpha-asc' },
+    { id: 'stock', label: 'Stock', icon: sortType === 'avail-desc' ? ArrowBigUpDash : ArrowBigDownDash, active: sortType.startsWith('avail-'), nextSort: sortType === 'avail-asc' ? 'avail-desc' : 'avail-asc' }
+  ];
+
+  const sectionHeaderPosition = 'top-[116px] sm:top-[120px]';
 
   return (
     <PageTemplate isDarkMode={isDarkMode}>
       <div className="min-h-screen w-full bg-neutral-50 dark:bg-[#0a0a0a] transition-colors duration-500 pb-20 font-sans text-left">
-        <div className={`sticky top-[56px] sm:top-[60px] z-[90] h-[60px] bg-neutral-50/90 dark:bg-[#0a0a0a]/90 backdrop-blur-md border-b border-black/5 dark:border-white/5 transition-transform duration-300 ${showSearchBar ? 'translate-y-0' : '-translate-y-full'}`}>
+        <div className="sticky top-[56px] sm:top-[60px] z-[90] h-[60px] overflow-visible bg-neutral-50/90 dark:bg-[#0a0a0a]/90 backdrop-blur-md border-b border-black/5 dark:border-white/5">
           <div className="h-full w-full px-4 lg:px-8 flex items-center justify-center gap-4">
             <div className="hidden lg:block absolute left-8">
                 <h1 className="text-sm font-black italic uppercase tracking-tighter text-neutral-900 dark:text-white leading-none whitespace-nowrap">GARAGE KITS</h1>
             </div>
-            <div className="flex-1 max-w-2xl flex items-center gap-4">
+            <div className="flex flex-1 max-w-2xl items-center gap-4 pr-12 xl:pr-0">
                   <div className="relative flex-1">
                       <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 opacity-20 text-neutral-900 dark:text-white" />
                       <input
                       type="text"
                       value={inputValue}
                       onChange={(e) => setInputValue(e.target.value)}
+                      onFocus={() => setIsAdminToolsOpen(false)}
+                      onClick={() => setIsAdminToolsOpen(false)}
                       onKeyDown={(e) => {
                         if (e.key === 'Escape') {
                           e.preventDefault();
@@ -919,7 +912,11 @@ export default function Kits() {
                   </div>
                   <div className="relative" ref={sortRef}>
                     <button 
-                      onClick={() => setIsSortOpen(!isSortOpen)}
+                      onFocus={() => setIsAdminToolsOpen(false)}
+                      onClick={() => {
+                        setIsAdminToolsOpen(false);
+                        setIsSortOpen(!isSortOpen);
+                      }}
                       className="flex items-center gap-2 px-4 py-3 bg-black/5 dark:bg-white/5 rounded-2xl border border-black/5 dark:border-white/10 shrink-0 z-10 hover:bg-blue-600 transition-all active:scale-95 group"
                     >
                         <Filter 
@@ -931,32 +928,24 @@ export default function Kits() {
                     </button>
 
                     {isSortOpen && (
-                      <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-neutral-900 border border-black/5 dark:border-white/10 rounded-2xl shadow-2xl z-[100] overflow-hidden animate-in fade-in zoom-in duration-200">
+                      <div className="absolute right-0 top-full mt-2 w-max min-w-full bg-white dark:bg-neutral-900 border border-black/5 dark:border-white/10 rounded-2xl shadow-2xl z-[100] overflow-hidden animate-in fade-in zoom-in duration-200">
                         <div className="p-2 space-y-1">
-                          {[
-                            { id: 'latest', label: 'Latest Updates', icon: <Clock size={14} /> },
-                            { id: 'price-asc', label: 'Price: Lowest', icon: <ArrowUpWideNarrow size={14} /> },
-                            { id: 'price-desc', label: 'Price: Highest', icon: <ArrowDownWideNarrow size={14} /> },
-                            { id: 'alpha-asc', label: 'Name: A - Z', icon: <SortAsc size={14} /> },
-                            { id: 'alpha-desc', label: 'Name: Z - A', icon: <SortDesc size={14} /> },
-                            { id: 'avail-asc', label: 'Stock: Least', icon: <ListOrdered size={14} /> },
-                            { id: 'avail-desc', label: 'Stock: Most', icon: <ListOrdered size={14} /> },
-                          ].map((option) => (
+                          {sortOptions.map((option) => (
                             <button
                               key={option.id}
                               onClick={() => {
-                                 setSortType(option.id);
+                                 setSortType(option.nextSort);
                                  setIsSortOpen(false);
                                  window.scrollTo({ top: 0, behavior: 'smooth' });
                               }}
                               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
-                                sortType === option.id 
+                                option.active
                                   ? 'bg-blue-600 text-white' 
                                   : 'hover:bg-black/5 dark:hover:bg-white/5 opacity-60 hover:opacity-100'
                               }`}
                             >
-                              {option.icon}
-                              {option.label}
+                              {React.createElement(option.icon, { size: 14 })}
+                              <span className="whitespace-nowrap">{option.label}</span>
                             </button>
                           ))}
                         </div>
@@ -964,6 +953,30 @@ export default function Kits() {
                     )}
                   </div>
               </div>
+              {isAdmin && isAdminView && (
+                <>
+                  <div className="absolute right-4 hidden items-center gap-1.5 xl:flex xl:right-8">
+                    {renderAdminToolButtons()}
+                  </div>
+                  <div className="absolute right-4 top-1/2 z-[100] flex -translate-y-1/2 flex-col items-end gap-1.5 xl:hidden">
+                    <button
+                      type="button"
+                      onClick={() => setIsAdminToolsOpen((isOpen) => !isOpen)}
+                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-black/10 bg-black/5 text-neutral-700 shadow-sm transition-all hover:scale-105 hover:bg-black/10 active:scale-95 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10"
+                      aria-label={isAdminToolsOpen ? 'Hide admin tools' : 'Show admin tools'}
+                      aria-expanded={isAdminToolsOpen}
+                      title={isAdminToolsOpen ? 'Hide admin tools' : 'Show admin tools'}
+                    >
+                      <MoreHorizontal size={18} strokeWidth={2.5} />
+                    </button>
+                    {isAdminToolsOpen && (
+                      <div className="absolute left-1/2 top-full mt-1.5 flex -translate-x-1/2 flex-col items-center gap-1.5 rounded-2xl border border-black/5 bg-white/95 p-1.5 shadow-2xl backdrop-blur-md dark:border-white/10 dark:bg-neutral-900/95">
+                        {renderAdminToolButtons()}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
@@ -971,7 +984,7 @@ export default function Kits() {
             <div className="grid grid-cols-2 sm:grid-cols-4 sm:portrait:grid-cols-3 md:grid-cols-4 md:portrait:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-3 items-start justify-items-center">
               {/* --- Section Divider: Deals --- */}
               {(filteredDeals.length > 0 || activeOfferKits.length > 0) && (
-                <div className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md transition-[top] duration-300 dark:bg-[#0a0a0a]/90 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
+                <div className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-3 backdrop-blur-md transition-[top] duration-300 dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Deals</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
@@ -1007,43 +1020,6 @@ export default function Kits() {
                   </div>
                 );
               })}
-
-              {isAdmin && isAdminView && (
-                <>
-                  <KitAdminToolCard
-                    onClick={() => setIsAddKitModalOpen(true)}
-                    icon={Plus}
-                    title="Add Kit"
-                    action="Add Kit"
-                    tone="blue"
-                    shadow={isDarkMode ? 'shadow-[0_8px_30px_rgba(0,0,0,0.5)]' : 'shadow-[0_4px_12px_rgba(0,0,0,0.05)]'}
-                  />
-                  <KitAdminToolCard
-                    onClick={() => setIsAddDealModalOpen(true)}
-                    icon={Gift}
-                    title="New Deal"
-                    action="Create"
-                    tone="emerald"
-                    shadow={isDarkMode ? 'shadow-[0_8px_30px_rgba(0,0,0,0.5)]' : 'shadow-[0_4px_12px_rgba(0,0,0,0.05)]'}
-                  />
-                  <KitAdminToolCard
-                    onClick={() => setIsSupplierBalancesModalOpen(true)}
-                    icon={Wallet}
-                    title="Balances"
-                    action="View"
-                    tone="amber"
-                    shadow={isDarkMode ? 'shadow-[0_8px_30px_rgba(0,0,0,0.5)]' : 'shadow-[0_4px_12px_rgba(0,0,0,0.05)]'}
-                  />
-                  <KitAdminToolCard
-                    onClick={() => setIsSalesDashboardModalOpen(true)}
-                    icon={TrendingUp}
-                    title="Sales Dashboard"
-                    action="Open"
-                    tone="indigo"
-                    shadow={isDarkMode ? 'shadow-[0_8px_30px_rgba(0,0,0,0.5)]' : 'shadow-[0_4px_12px_rgba(0,0,0,0.05)]'}
-                  />
-                </>
-              )}
 
               {filteredDeals.map(deal => {
                 if (!deal) return null;
@@ -1126,7 +1102,7 @@ export default function Kits() {
 
               {/* --- Section Divider: Available Kits --- */}
               {kitGroups.available.length > 0 && (
-                <div className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md transition-[top] duration-300 dark:bg-[#0a0a0a]/90 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
+                <div className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-3 backdrop-blur-md transition-[top] duration-300 dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Available Kits</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
@@ -1164,7 +1140,7 @@ export default function Kits() {
 
               {/* --- Section Divider: Collection --- */}
               {kitGroups.collection.length > 0 && (
-                <div className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md transition-[top] duration-300 dark:bg-[#0a0a0a]/90 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
+                <div className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-3 backdrop-blur-md transition-[top] duration-300 dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Collection</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
@@ -1202,7 +1178,7 @@ export default function Kits() {
 
               {/* --- Section Divider: Out of Stock --- */}
               {kitGroups.outOfStock.length > 0 && (
-                <div className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md transition-[top] duration-300 dark:bg-[#0a0a0a]/90 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
+                <div className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-3 backdrop-blur-md transition-[top] duration-300 dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Out of Stock</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />

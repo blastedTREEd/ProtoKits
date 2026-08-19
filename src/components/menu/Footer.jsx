@@ -41,7 +41,7 @@ export default function Footer() {
 
   return (
     <>
-      <footer className="border-t border-black/5 bg-neutral-100 px-6 pb-20 pt-6 dark:border-white/5 dark:bg-[#111] md:pb-12">
+      <footer id="site-footer" className="border-t border-black/5 bg-neutral-100 px-6 pb-20 pt-6 dark:border-white/5 dark:bg-[#111] md:pb-12">
         <div className="container mx-auto grid max-w-7xl grid-cols-1 gap-8 md:grid-cols-4">
           <div className="col-span-1 md:col-span-2">
               <h3 className="mb-2 text-sm font-black uppercase tracking-widest">SnorlaxGarage</h3>

@@ -350,31 +350,45 @@ export default function Stories({ isCompact, hideImmediately = false }) {
             style={{ '--scroll-speed': '50s' }}
           >
             {displayStories.map((highlight, index) => (
-              <div 
-                key={`${highlight.id}-${index}`}
-                onClick={() => handleHighlightClick(highlight)}
-                className={`story-card w-28 h-44 rounded-[1.5rem] flex-shrink-0 relative overflow-hidden group glass-card p-1 shadow-xl ${highlight.type === 'loading' ? 'cursor-default' : 'cursor-pointer'}`}
-              >
+              (() => {
+                const isLoadingCard = highlight.type === 'loading';
+
+                return (
+                  <div
+                    key={`${highlight.id}-${index}`}
+                    onClick={() => handleHighlightClick(highlight)}
+                    className={`story-card w-28 h-44 rounded-[1.5rem] flex-shrink-0 relative overflow-hidden group p-1 shadow-xl ${isLoadingCard
+                      ? 'cursor-default bg-gradient-to-br from-[#0866FF] to-[#00CFFF]'
+                      : 'cursor-pointer glass-card'
+                    }`}
+                  >
                 <div 
-                  className="story-card-media w-full h-full rounded-[1.3rem] relative overflow-hidden"
-                  style={{ backgroundColor: `${highlight.value || '#0866ff'}20` }}
+                  className={`story-card-media w-full h-full rounded-[1.3rem] relative overflow-hidden ${isLoadingCard ? 'bg-gradient-to-br from-[#0866FF] to-[#00CFFF]' : ''}`}
+                  style={isLoadingCard ? undefined : { backgroundColor: `${highlight.value || '#0866ff'}20` }}
                 >
                   {/* Story Image — kung meron sa DB, i-render as background */}
                   {highlight.image && (
                     <img 
                       src={highlight.image}
                       alt={highlight.label}
-                      className="story-card-image absolute inset-0 w-full h-full object-cover z-[1]"
+                      className={`story-card-image absolute z-[1] ${isLoadingCard
+                        ? 'inset-0 m-auto h-[68%] w-[68%] max-h-full max-w-full object-contain'
+                        : 'inset-0 h-full w-full object-cover'
+                      }`}
                     />
                   )}
 
                   {/* Visual Glow Layer - Ito na yung actual color from DB */}
-                  <div 
-                    className={`absolute -inset-4 opacity-80 dark:opacity-30 blur-2xl transition-opacity group-hover:opacity-50 ${isLoading && 'animate-pulse'}`}
-                    style={{ backgroundColor: highlight.value || '#0866ff' }}
-                  />
+                  {!isLoadingCard && (
+                    <div
+                      className="absolute -inset-4 opacity-80 blur-2xl transition-opacity group-hover:opacity-50 dark:opacity-30"
+                      style={{ backgroundColor: highlight.value || '#0866ff' }}
+                    />
+                  )}
                 </div>
-              </div>
+                  </div>
+                );
+              })()
             ))}
           </div>
         </div>

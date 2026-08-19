@@ -1,16 +1,18 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion as Motion, useDragControls } from 'framer-motion';
 import { 
   Sun, Moon, ShoppingBasket, Home, X, ShelvingUnit,
   CircleUserRound, Settings, LogOut, ContactRound,
-  Shield, ShieldCheck, Box, Printer, ClipboardList, UserPlus, PackageOpen, Truck, Bell
+  Shield, ShieldCheck, Box, Printer, ClipboardList, UserPlus, PackageOpen, Truck, Bell, FileText
 } from 'lucide-react';
 import { FcGoogle } from 'react-icons/fc';
 import { FaFacebook } from 'react-icons/fa';
 
 import { useTheme } from '../../context/ThemeContext';
 import { useStore } from '../../store/useStore';
+import { preloadKits } from '../../routePreloads';
 import { signOut, signInWithPopup } from 'firebase/auth'; 
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { auth, fbProvider, googleProvider, db } from '../../firebase/firebase';
@@ -31,6 +33,10 @@ const notificationStateStorageKey = (stateType, userId) => `snorlaxgarage:notifi
 const clearBrowserNotificationCounter = () => {
   document.title = document.title.replace(/^\(\d+\)\s*/, '');
 };
+
+const ProfileModalLayer = ({ enabled, children }) => (
+  enabled ? createPortal(children, document.body) : children
+);
 
 const loadNotificationVersions = (stateType, userId) => {
   if (!userId) return {};
@@ -122,6 +128,7 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   const profileBtnRef = useRef(null);
   const navbarRef = useRef(null);
   const profileDragControls = useDragControls();
+  const policyScrollCleanupRef = useRef(null);
 
   const isMobile = windowWidth < 640;
   const isDesktop = windowWidth >= 1024;
@@ -380,7 +387,7 @@ useEffect(() => {
     }));
   }, [showBottomNav]);
 
-  const isCompactMode = location.pathname !== "/" || scrolledCompact || lastScrollY > 40 || isStoriesManagerOpen || isNotificationModalOpen || isMobile;
+  const isCompactMode = location.pathname !== "/" || scrolledCompact || lastScrollY > 40 || isStoriesManagerOpen || isNotificationModalOpen || isProfileOpen || isMobile;
 
   useEffect(() => {
     if (!user?.uid) {
@@ -419,12 +426,22 @@ useEffect(() => {
   }, [isAdminNotificationView, user?.uid]);
 
   const handleNavClick = (path) => {
+    policyScrollCleanupRef.current?.();
+    policyScrollCleanupRef.current = null;
+    setIsProfileOpen(false);
+    setIsNotificationModalOpen(false);
+
     if (location.pathname === path) {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } else {
       navigate(path);
     }
   };
+
+  useEffect(() => {
+    policyScrollCleanupRef.current?.();
+    policyScrollCleanupRef.current = null;
+  }, [location.pathname]);
 
   const handleOpenNotificationOrder = (notification) => {
     if (!notification?.id) return;
@@ -539,6 +556,10 @@ useEffect(() => {
 
 
   const handleLogout = async () => {
+  const actionLabel = originalAdminUser ? 'exit admin mode' : 'log out';
+  const confirmed = window.confirm(`Are you sure you want to ${actionLabel}?`);
+  if (!confirmed) return;
+
   if (originalAdminUser) {
     stopImpersonating();
   } else {
@@ -558,6 +579,43 @@ const handleInventoryAudit = () => {
   setIsProfileOpen(false);
   setInventoryAuditOpen(true);
   if (location.pathname !== '/kits') navigate('/kits');
+};
+
+const handleOpenPolicies = () => {
+  policyScrollCleanupRef.current?.();
+  policyScrollCleanupRef.current = null;
+  setIsProfileOpen(false);
+
+  let initialTimer = null;
+  let settleTimer = null;
+  let layoutObserver = null;
+  const cleanup = () => {
+    if (initialTimer) window.clearTimeout(initialTimer);
+    if (settleTimer) window.clearTimeout(settleTimer);
+    layoutObserver?.disconnect();
+    if (policyScrollCleanupRef.current === cleanup) policyScrollCleanupRef.current = null;
+  };
+  policyScrollCleanupRef.current = cleanup;
+
+  initialTimer = window.setTimeout(() => {
+    const footer = document.getElementById('site-footer');
+    if (!footer) return cleanup();
+
+    const scrollToFooter = (behavior = 'smooth') => {
+      footer.scrollIntoView({ behavior, block: 'start' });
+    };
+
+    scrollToFooter();
+
+    // Kits can append cards after the first scroll. Keep the footer aligned
+    // while the page settles, then stop observing once loading has stabilized.
+    if (typeof ResizeObserver !== 'undefined') {
+      layoutObserver = new ResizeObserver(() => scrollToFooter('auto'));
+      layoutObserver.observe(document.body);
+      if (footer.parentElement) layoutObserver.observe(footer.parentElement);
+    }
+    settleTimer = window.setTimeout(cleanup, 5000);
+  }, 0);
 };
 
 useEffect(() => {
@@ -605,14 +663,16 @@ const getPageTitle = () => {
 
 const pageTitle = getPageTitle();
 const isCurrentPageMaintenanceInvalid = isMaintenanceInvalidPath(location.pathname);
+// Increase this inset to shorten both fullscreen sheets; decrease it to extend them.
+// On mobile, keep the cutoff at half of the hidden mini-navbar height.
+const fullscreenModalBottomInset = isMobile ? `calc(${specs.h} / 2)` : '0.75rem';
 const profilePanelStyle = isProfileFullscreen
   ? {
       top: specs.h,
       right: 0,
-      bottom: '0.75rem',
+      bottom: fullscreenModalBottomInset,
       left: 0,
-      height: `calc(100dvh - ${specs.h} - 0.75rem)`,
-      zIndex: 1000
+      zIndex: 105
     }
   : {
       top: `calc(${specs.h} + 8px)`,
@@ -636,7 +696,15 @@ return (
       </defs>
     </svg>
 
-    <nav ref={navbarRef} style={{ height: specs.h }} className={`${isStoriesManagerOpen ? (isDesktop ? 'fixed left-0 right-0 top-0 z-[400]' : 'hidden') : 'sticky top-0 z-[110]'} w-full transition-all duration-500 border-b ${location.pathname === '/checkout' ? 'hidden lg:block' : ''} ${isDarkMode ? 'bg-[#0a0a0a]/80 border-white/10' : 'bg-white/80 border-black/10'} backdrop-blur-md`}>
+    {isProfileOpen && isMobile && (
+      <div
+        className="fixed inset-0 z-[100] bg-black/30"
+        aria-hidden="true"
+        onClick={() => setIsProfileOpen(false)}
+      />
+    )}
+
+    <nav ref={navbarRef} style={{ height: specs.h }} className={`${isStoriesManagerOpen ? (isDesktop ? 'fixed left-0 right-0 top-0 z-[400]' : 'hidden') : 'sticky top-0 z-[110]'} w-full transition-all duration-500 border-b ${location.pathname === '/checkout' ? 'hidden lg:block' : ''} ${isDarkMode ? 'bg-[#0a0a0a] border-white/10' : 'bg-white border-black/10'}`}>
       <div className="h-full mx-auto flex items-center px-4 lg:px-10 relative max-w-[1440px]">
         {isMobile ? (
           <div className="flex items-center h-full z-[120] shrink-0 relative">
@@ -715,7 +783,15 @@ return (
               ? 'bg-gradient-to-br from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent'
               : 'text-neutral-400 dark:text-neutral-400 group-hover:bg-gradient-to-br group-hover:from-[#0866FF] group-hover:to-[#00CFFF] group-hover:bg-clip-text group-hover:text-transparent';
             return (
-              <Link key={link.to} to={link.to} onClick={(e) => handleNavClick(link.to, e)} className="relative flex flex-col md:flex-row items-center justify-center gap-1 font-bold transition-colors group">
+              <Link
+                key={link.to}
+                to={link.to}
+                onPointerEnter={() => link.to === '/kits' && preloadKits()}
+                onPointerDown={() => link.to === '/kits' && preloadKits()}
+                onFocus={() => link.to === '/kits' && preloadKits()}
+                onClick={(e) => handleNavClick(link.to, e)}
+                className="relative flex flex-col md:flex-row items-center justify-center gap-1 font-bold transition-colors group"
+              >
                 <span className="relative inline-flex items-center justify-center">
                   {React.cloneElement(link.icon, { 
                     size: specs.utilIcon, 
@@ -736,7 +812,7 @@ return (
             >
               <Bell
                 size={specs.utilIcon}
-                className={`${isDarkMode ? 'text-white' : 'text-neutral-900'} group-hover:text-garage-blue transition-all duration-300`}
+                className={`${isNotificationModalOpen ? 'text-blue-500 fill-blue-500' : (isDarkMode ? 'text-white' : 'text-neutral-900')} group-hover:text-garage-blue transition-all duration-300`}
               />
               {unseenNotificationCount > 0 && !isNotificationModalOpen && (
                 <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full border border-white bg-red-500 px-1 text-[9px] font-black leading-none text-white dark:border-neutral-900">
@@ -776,9 +852,9 @@ return (
                 className={`p-1 transition-all duration-300 relative group ${isProfileOpen ? 'scale-110' : 'scale-100'}`}
               >
                 <div 
-                  className={`rounded-full p-[2px] transition-all duration-300 ${isProfileOpen ? 'bg-neutral-500 shadow-sm' : (isAdmin && isAdminView ? adminRingClass : 'bg-transparent group-hover:bg-gradient-to-br group-hover:from-[#0866FF] group-hover:to-[#00CFFF]')}`}
+                  className={`rounded-full p-[2px] transition-all duration-300 ${isProfileOpen ? 'bg-gradient-to-br from-[#0866FF] to-[#00CFFF] shadow-sm' : (isAdmin && isAdminView ? adminRingClass : 'bg-transparent group-hover:bg-gradient-to-br group-hover:from-[#0866FF] group-hover:to-[#00CFFF]')}`}
                 >
-                  <div className={`rounded-full overflow-hidden border-2 transition-colors ${isProfileOpen ? 'border-neutral-500 bg-neutral-500' : (isAdmin && isAdminView ? 'border-white dark:border-neutral-900' : 'border-transparent group-hover:border-white dark:group-hover:border-neutral-900')}`}>
+                  <div className={`rounded-full overflow-hidden border-2 transition-colors ${isProfileOpen ? 'border-white dark:border-neutral-900' : (isAdmin && isAdminView ? 'border-white dark:border-neutral-900' : 'border-transparent group-hover:border-white dark:group-hover:border-neutral-900')}`}>
                     {(isAdmin && isAdminView) ? (
                       garageInfo?.logoURL ? (
                         <img 
@@ -812,25 +888,30 @@ return (
               </button>
 
               {isProfileOpen && (
-                <Motion.div
-                  ref={profileModalRef}
-                  style={profilePanelStyle}
-                  initial={isProfileFullscreen ? { y: '-100%', opacity: 0 } : false}
-                  animate={isProfileFullscreen ? { y: 0, opacity: 1 } : undefined}
-                  transition={{ type: 'spring', damping: 28, stiffness: 360 }}
-                  drag={isProfileFullscreen ? 'y' : false}
-                  dragListener={false}
-                  dragControls={profileDragControls}
-                  dragConstraints={{ top: -420, bottom: 0 }}
-                  dragElastic={{ top: 0.2, bottom: 0 }}
-                  onDragEnd={(event, info) => {
-                    if (isProfileFullscreen && (info.offset.y < -90 || info.velocity.y < -500)) {
-                      setIsProfileOpen(false);
-                    }
-                  }}
-                  className={`fixed animate-in fade-in slide-in-from-top-2 duration-200 ${isProfileFullscreen ? 'w-screen' : 'w-72'}`}
-                >
-                  <div className={`${isProfileFullscreen ? 'flex h-full max-h-full w-full max-w-none flex-col rounded-b-[2.5rem] overscroll-contain sm:ml-auto sm:max-w-sm' : 'max-h-[calc(100dvh-5rem)] rounded-[2rem]'} overflow-hidden border shadow-2xl ${isDarkMode ? 'border-white/10 bg-[#0a0a0a]' : 'border-black/10 bg-white'}`}>
+                <ProfileModalLayer enabled={isProfileFullscreen}>
+                  <div
+                    style={isProfileFullscreen ? profilePanelStyle : undefined}
+                    className={isProfileFullscreen ? 'fixed z-[105] overflow-hidden' : 'contents'}
+                  >
+                  <Motion.div
+                    ref={profileModalRef}
+                    style={isProfileFullscreen ? undefined : profilePanelStyle}
+                    initial={isProfileFullscreen ? { y: '-100%', opacity: 0 } : false}
+                    animate={isProfileFullscreen ? { y: 0, opacity: 1 } : undefined}
+                    transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+                    drag={isProfileFullscreen ? 'y' : false}
+                    dragListener={false}
+                    dragControls={profileDragControls}
+                    dragConstraints={{ top: -420, bottom: 0 }}
+                    dragElastic={{ top: 0.2, bottom: 0 }}
+                    onDragEnd={(event, info) => {
+                      if (isProfileFullscreen && (info.offset.y < -90 || info.velocity.y < -500)) {
+                        setIsProfileOpen(false);
+                      }
+                    }}
+                    className={`${isProfileFullscreen ? '' : 'animate-in fade-in slide-in-from-top-2 duration-200'} ${isProfileFullscreen ? 'absolute inset-0 w-full max-w-none sm:ml-auto sm:max-w-sm' : 'fixed w-72'}`}
+                  >
+                  <div className={`${isProfileFullscreen ? 'flex h-full max-h-full flex-col rounded-b-[2.5rem]' : 'max-h-[calc(100dvh-5rem)] rounded-[2rem]'} overflow-hidden border shadow-[0_24px_70px_rgba(0,0,0,0.22)] ${isDarkMode ? 'border-white/10 bg-[#0a0a0a]' : 'border-black/10 bg-white'}`}>
                     
                     <div className="shrink-0 p-6 flex flex-col items-center text-center space-y-3 border-b border-black/5 dark:border-white/5">
                       <div 
@@ -899,12 +980,6 @@ return (
                           </div>
                         )}
                         
-                        {isAdmin && (
-                          <div className="mt-2 text-[8px] font-black uppercase tracking-[0.2em] opacity-40 group-hover:opacity-100 transition-opacity">
-                            Click to switch to {isAdminView ? 'Customer' : 'Admin'} View
-                          </div>
-                        )}
-
                         {isBanned && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest">Banned</span>}
                       </div>
                       <div>
@@ -1000,6 +1075,14 @@ return (
                           )}
                         </div>
                       )}
+
+                      <button
+                        onClick={handleOpenPolicies}
+                        className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-colors ${isDarkMode ? 'hover:bg-white/5 text-white' : 'hover:bg-black/5 text-neutral-900'}`}
+                      >
+                        <FileText size={18} className="opacity-40" />
+                        <span className="text-[12px] font-black uppercase tracking-widest">Policies</span>
+                      </button>
                     </div>
 
                     {isProfileFullscreen && (
@@ -1023,7 +1106,9 @@ return (
                       </div>
                     )}
                   </div>
-                </Motion.div>
+                  </Motion.div>
+                  </div>
+                </ProfileModalLayer>
               )}
             </div>
         </div>
@@ -1058,7 +1143,12 @@ return (
                   ? 'bg-gradient-to-br from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent'
                   : 'text-neutral-600 dark:text-neutral-400 hover:bg-gradient-to-br hover:from-[#0866FF] hover:to-[#00CFFF] hover:bg-clip-text hover:text-transparent';
                 return (
-                  <button key={link.to} onClick={(e) => handleNavClick(link.to, e)} className={`group flex flex-col items-center justify-center gap-1 transition-colors ${buttonClass}`}>
+                  <button
+                    key={link.to}
+                    onPointerDown={() => link.to === '/kits' && preloadKits()}
+                    onClick={(e) => handleNavClick(link.to, e)}
+                    className={`group flex flex-col items-center justify-center gap-1 transition-colors ${buttonClass}`}
+                  >
                     <span className="relative inline-flex items-center justify-center">
                       {React.cloneElement(link.icon, { size: 20, className: isActive ? 'text-blue-500' : '' })}
                     </span>
@@ -1079,7 +1169,9 @@ return (
       onOpenOrder={handleOpenNotificationOrder}
       emptyLabel={isAdminNotificationView ? 'No admin updates yet' : 'No order updates yet'}
       isFullscreen={isProfileFullscreen}
+      dimBackdrop={isMobile}
       navbarHeight={specs.h}
+      bottomInset={fullscreenModalBottomInset}
       anchorTop={notificationAnchorTop}
     />
 
