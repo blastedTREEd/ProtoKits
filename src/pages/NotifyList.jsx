@@ -62,6 +62,14 @@ function getOfferCostDetails(item, kits, shelf, additionalCharges) {
   };
 }
 
+function hasPubliclyAvailableStock(kit) {
+  return Object.values(kit?.stocks || {}).some((stock) => {
+    if (stock?.order?.orderId || stock?.isReserved) return false;
+    const publicReleaseTime = dateToMillis(stock?.publicReleaseDate);
+    return !publicReleaseTime || publicReleaseTime <= Date.now();
+  });
+}
+
 export default function NotifyList() {
   const { isDarkMode } = useTheme();
   const {
@@ -114,8 +122,24 @@ export default function NotifyList() {
         .map((kit) => kit.id)
     );
     const visible = isReleaseMode
-      ? notifyList.filter((item) => getOfferStatus(item) === 'pending' && collectionKitIds.has(item.kitId))
-      : (user ? notifyList.filter((item) => item.uid === user.uid) : []);
+      ? notifyList.filter((item) => {
+          const status = getOfferStatus(item);
+          // Pending offers need a reserved shelf kit before they can be
+          // accepted. Released offers remain visible as active customer
+          // checkout windows even after the kit leaves the admin shelf.
+          return (status === 'pending' && collectionKitIds.has(item.kitId)) || status === 'released';
+        })
+      : (user ? notifyList.filter((item) => {
+          if (item.uid !== user.uid) return false;
+          const status = getOfferStatus(item);
+          const kit = (kits || []).find((entry) => entry.id === item.kitId);
+
+          // Released offers are represented by the limited-time Deals card.
+          // Pending offers are no longer needed once the kit is publicly back
+          // in stock and can be purchased normally.
+          return status !== 'released'
+            && !(status === 'pending' && kit && hasPubliclyAvailableStock(kit));
+        }) : []);
     return [...visible].sort((a, b) => {
       const aStatus = getOfferStatus(a);
       const bStatus = getOfferStatus(b);
@@ -159,24 +183,25 @@ export default function NotifyList() {
       return rows;
     }
 
-    const reasonable = [];
-    const unreasonable = [];
+    const pending = [];
+    const active = [];
     myNotifyList.forEach((item) => {
-      const pricing = getOfferCostDetails(item, kits, shelf, checkoutAdditionalCharges);
-      (pricing.isReasonable ? reasonable : unreasonable).push(item);
+      const status = getOfferStatus(item);
+      if (status === 'released') active.push(item);
+      else if (status === 'pending') pending.push(item);
     });
 
     const rows = [];
-    if (reasonable.length > 0) {
-      rows.push({ type: 'separator', key: 'reasonable', label: 'Reasonable Offers', tone: 'reasonable' });
-      reasonable.forEach((item) => rows.push({ type: 'offer', key: item.id, item }));
+    if (pending.length > 0) {
+      rows.push({ type: 'separator', key: 'pending', label: 'Pending Offers', tone: 'pending' });
+      pending.forEach((item) => rows.push({ type: 'offer', key: item.id, item }));
     }
-    if (unreasonable.length > 0) {
-      rows.push({ type: 'separator', key: 'unreasonable', label: 'Unreasonable Offers', tone: 'unreasonable' });
-      unreasonable.forEach((item) => rows.push({ type: 'offer', key: item.id, item }));
+    if (active.length > 0) {
+      rows.push({ type: 'separator', key: 'active', label: 'Active Offers', tone: 'active' });
+      active.forEach((item) => rows.push({ type: 'offer', key: item.id, item }));
     }
     return rows;
-  }, [checkoutAdditionalCharges, isReleaseMode, kits, myNotifyList, shelf]);
+  }, [isReleaseMode, myNotifyList]);
 
   const toggleSelection = (id) => {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
@@ -300,6 +325,14 @@ export default function NotifyList() {
                       text: 'from-blue-500 to-indigo-500'
                     },
                     accepted: {
+                      line: 'via-emerald-500',
+                      text: 'from-emerald-500 to-cyan-500'
+                    },
+                    pending: {
+                      line: 'via-blue-500',
+                      text: 'from-blue-500 to-indigo-500'
+                    },
+                    active: {
                       line: 'via-emerald-500',
                       text: 'from-emerald-500 to-cyan-500'
                     }

@@ -64,6 +64,32 @@ const sortKitsByAvailability = (kits = []) => {
   });
 };
 
+// A released offer is represented by the same hunt document that powers the
+// user's limited-time Deals card. If its released stock is removed from the
+// user's basket or the admin shelf, remove that offer record as well so the
+// card disappears for every listener immediately.
+const removeReleasedOffersForRemovedItem = async (item, includeAdminShelfLookup = false) => {
+  if (!item?.id) return;
+
+  let offerDocs = [];
+  if (item.offerId) {
+    const offerSnap = await getDoc(doc(db, 'hunts', item.offerId));
+    if (offerSnap.exists()) offerDocs = [offerSnap];
+  } else if (includeAdminShelfLookup && item.stockKey) {
+    const offersSnap = await getDocs(query(collection(db, 'hunts'), where('kitId', '==', item.id)));
+    offerDocs = offersSnap.docs;
+  }
+
+  const releasedOfferDocs = offerDocs.filter((offerDoc) => {
+    const offer = offerDoc.data();
+    return String(offer?.status || '').toLowerCase() === 'released'
+      && offer?.kitId === item.id
+      && offer?.releasedStockKey === item.stockKey;
+  });
+
+  await Promise.all(releasedOfferDocs.map((offerDoc) => deleteDoc(offerDoc.ref)));
+};
+
 const mergeKitsStable = (currentKits = [], incomingKits = []) => {
   const incomingById = new Map(incomingKits.map((kit) => [kit.id, kit]));
   const currentIds = new Set(currentKits.map((kit) => kit.id));
@@ -239,6 +265,7 @@ export const useStore = create(
       deals: [],
       notifyList: [],
       userOffers: [],
+      userOffersLoaded: false,
       orders: [],
       usersList: [],
       adminsList: [],
@@ -778,6 +805,31 @@ export const useStore = create(
 
       loadBlueprints: async () => {
         // No-op. Blueprints are subscribed to in real-time via fetchInitialData / startBackgroundListeners.
+      },
+
+      loadBlueprintProductionStatuses: async (blueprintIds = []) => {
+        const ids = [...new Set(
+          (Array.isArray(blueprintIds) ? blueprintIds : [])
+            .filter(Boolean)
+            .map((id) => String(id))
+        )];
+
+        if (ids.length === 0) return {};
+
+        const entries = await Promise.all(ids.map(async (blueprintId) => {
+          try {
+            const snapshot = await getDoc(doc(db, 'blueprints', blueprintId));
+            return [
+              blueprintId,
+              snapshot.exists() ? snapshot.data().canAddToBasket !== false : null
+            ];
+          } catch (error) {
+            console.error('SG LOG: Blueprint production status lookup failed:', error);
+            return [blueprintId, null];
+          }
+        }));
+
+        return Object.fromEntries(entries);
       },
 
       loadPrintResources: () => {
@@ -1598,6 +1650,12 @@ export const useStore = create(
 
       deleteFromNotifyList: async (notifyId) => {
         await deleteDoc(doc(db, "hunts", notifyId));
+        // Keep the derived Deals section in sync without waiting for the
+        // Firestore listener round-trip.
+        set((state) => ({
+          notifyList: (state.notifyList || []).filter((item) => item.id !== notifyId),
+          userOffers: (state.userOffers || []).filter((item) => item.id !== notifyId)
+        }));
       },
 
       updateOfferPrice: async (notifyId, targetPrice) => {
@@ -1729,7 +1787,7 @@ export const useStore = create(
           console.log("DEBUG: No sgUser found, switching to guest mode.");
           const guestProjectVault = JSON.parse(localStorage.getItem('sg_guest_project_vault') || '[]');
           const guestBasket = JSON.parse(localStorage.getItem('sg_guest_basket') || '[]');
-          set({ user: null, isAnonymousUser: false, isAdmin: false, isAdminView: false, usersList: [], projectVault: guestProjectVault, guestBasket, shelf: [], userOffers: [], unsubUser: null, unsubShelf: null, unsubAdmin: null, unsubBasket: null, unsubOffers: null, syncStatus: 'Restoring local basket' });
+          set({ user: null, isAnonymousUser: false, isAdmin: false, isAdminView: false, usersList: [], projectVault: guestProjectVault, guestBasket, shelf: [], userOffers: [], userOffersLoaded: true, unsubUser: null, unsubShelf: null, unsubAdmin: null, unsubBasket: null, unsubOffers: null, syncStatus: 'Restoring local basket' });
           
           get().markLoaded('userProfile');
           get().markLoaded('basket');
@@ -1740,6 +1798,7 @@ export const useStore = create(
         }
 
         const isAnonymousUser = sgUser.isAnonymous === true;
+        set({ userOffersLoaded: isAnonymousUser });
         console.log("DEBUG: sgUser detected, syncing data for UID:", sgUser.uid);
         const userRef = doc(db, 'users', sgUser.uid);
         const adminRef = doc(db, 'admins', sgUser.uid);
@@ -1905,10 +1964,10 @@ export const useStore = create(
         });
 
         const unsubOffers = onSnapshot(query(collection(db, 'hunts'), where('uid', '==', sgUser.uid)), (offersSnap) => {
-          set({ userOffers: docsToArray(offersSnap) });
+          set({ userOffers: docsToArray(offersSnap), userOffersLoaded: true });
         }, (err) => {
           console.error("SG LOG: Offers subscription error:", err);
-          set({ userOffers: [] });
+          set({ userOffers: [], userOffersLoaded: true });
         });
 
         let unsubAdmin = null;
@@ -2152,6 +2211,7 @@ export const useStore = create(
         const { user, isAdmin, isAdminView, shelf, basket } = get();
         if (!user) { localStorage.removeItem('sg_guest_basket'); set({ guestBasket: [] }); return; }
         const field = (isAdmin && isAdminView) ? 'shelf' : 'basket';
+        const removedItems = (isAdmin && isAdminView) ? shelf : basket;
         set({ [field]: [] });
         
         const batch = writeBatch(db);
@@ -2165,6 +2225,14 @@ export const useStore = create(
           });
         }
         await batch.commit();
+
+        await Promise.all((removedItems || []).map(async (item) => {
+          try {
+            await removeReleasedOffersForRemovedItem(item, isAdmin && isAdminView);
+          } catch (error) {
+            console.error('SG LOG: Failed to remove released offer after clearing basket:', error);
+          }
+        }));
       },
 
       removeFromBasket: async (basketId) => {
@@ -2215,6 +2283,12 @@ export const useStore = create(
             }
           } else {
             await deleteDoc(doc(db, 'users', user.uid, 'basket', basketId));
+          }
+
+          try {
+            await removeReleasedOffersForRemovedItem(item, isAdminContext);
+          } catch (error) {
+            console.error('SG LOG: Failed to remove released offer after removing item:', error);
           }
         } catch (error) {
           console.error("SG LOG: Failed to remove basket item:", error);

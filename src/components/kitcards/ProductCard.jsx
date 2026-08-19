@@ -22,19 +22,6 @@ function resolveImage(idOrUrl, imagesArray) {
   return match?.url || '';
 }
 
-function formatOfferBadgeLabel(expiry, now) {
-  const remainingMs = new Date(expiry).getTime() - now;
-  if (!Number.isFinite(remainingMs) || remainingMs <= 0) return '';
-
-  const remainingMinutes = Math.ceil(remainingMs / (60 * 1000));
-  if (remainingMinutes < 60) {
-    return `${remainingMinutes} MINUTE${remainingMinutes === 1 ? '' : 'S'} LEFT`;
-  }
-
-  const remainingHours = Math.floor(remainingMinutes / 60);
-  return `${remainingHours} HR${remainingHours === 1 ? '' : 'S'} LEFT`;
-}
-
 const Gallery = ({ galleryImages, galleryIndex, setGalleryIndex, handleTouchStart, handleTouchEnd, className, thumbnailsContainerRef }) => {
     useEffect(() => {
         if (thumbnailsContainerRef.current) {
@@ -314,7 +301,7 @@ const GRADIENT_COLORS = {
 
 const getShadowColor = (gradientClass) => GRADIENT_COLORS[gradientClass] || 'rgba(8,102,255,0.2)';
 
-export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckout, onEdit, onClick, routeKitId, onEditDeal }) {
+export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckout, onEdit, onClick, routeKitId, onEditDeal, isAdminLimitedTimeOffer = false }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { isDarkMode, isSpectralMode } = useTheme();
@@ -1344,7 +1331,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     ? acceptedOfferPrice
     : Number(selectedBundleDealDetails?.currentItemPrice || sellPrice || 0);
   const modalReferencePrice = acceptedOfferPrice > 0
-    ? getStockStandaloneSellPrice({}, kit, acceptedOfferStock) + handlingFee + installmentFee + transferFee
+    ? acceptedOfferPrice + handlingFee + installmentFee + transferFee
     : displayPrice;
   const activeBundleDeal = selectedBundleDealDetails?.deal || null;
   const modalTopPrice = selectedBundleDealDetails?.deal
@@ -1367,9 +1354,16 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   const showPublicModalPrice = !isAdminView && (!isPublicOfferMode || Boolean(acceptedOffer));
   const isActiveAcceptedOffer = isCollectionOnly
     && Boolean(acceptedOffer && acceptedOfferStock && offerCountdown && offerCountdown !== 'EXPIRED');
-  const activeOfferBadgeLabel = isActiveAcceptedOffer
-    ? formatOfferBadgeLabel(acceptedOffer.offerExpiresAt, now)
-    : '';
+  const isLimitedTimeAcceptedOffer = Boolean(
+    (acceptedOffer
+      && acceptedOfferStock
+      && offerCountdown
+      && offerCountdown !== 'EXPIRED')
+    || (isAdminView && isAdminLimitedTimeOffer)
+  );
+  const canAddLimitedTimeOfferToBasket = Boolean(
+    !isAdminView && isLimitedTimeAcceptedOffer && acceptedOfferStock
+  );
   const gridStatusBadges = [];
   if (isEarlyAccess) {
     gridStatusBadges.push({
@@ -1383,9 +1377,9 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       className: 'bg-emerald-500 text-white border-emerald-400 shadow-lg flex items-center gap-1'
     });
   }
-  if (isActiveAcceptedOffer) {
+  if (isLimitedTimeAcceptedOffer) {
     gridStatusBadges.push({
-      label: activeOfferBadgeLabel,
+      label: 'Limited Time',
       isActiveDeal: true,
       className: 'bg-red-500 text-white border-red-400 shadow-lg'
     });
@@ -1663,10 +1657,12 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                       </button>
                   ) : (
                     <button 
-                      onClick={(e) => { e.stopPropagation(); availableCount <= 0 ? handleOpenModal() : handleAddToCart(); }} 
+                      onClick={(e) => { e.stopPropagation(); (availableCount > 0 || canAddLimitedTimeOfferToBasket) ? handleAddToCart() : handleOpenModal(); }}
                       className="flex items-center justify-center w-8 h-8 rounded-full transition-all shadow-lg active:scale-95 bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-blue-500/40 lg:hover:scale-110 shrink-0"
                     >
-                      {availableCount <= 0 ? (hasBundleExclusiveDeal ? <Gift size={14} className="text-white" /> : <Bell size={14} className="text-white fill-white" />) : <Plus size={16} strokeWidth={3} />}
+                      {(availableCount > 0 || canAddLimitedTimeOfferToBasket)
+                        ? <Plus size={16} strokeWidth={3} />
+                        : (hasBundleExclusiveDeal ? <Gift size={14} className="text-white" /> : <Bell size={14} className="text-white fill-white" />)}
                     </button>
                   )}
                 </div>
@@ -1734,7 +1730,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                     <p className={`${selectedBundleDealDetails?.deal ? 'text-[13px] md:text-[22px]' : 'text-[10px] md:text-[14px]'} font-black italic tracking-tighter leading-none whitespace-nowrap ${selectedBundleDealDetails?.deal ? 'text-emerald-600' : 'text-amber-600'}`}>
                                       {selectedBundleDealDetails?.deal
                                         ? <>&#8369;{(selectedBundleDealDetails.isClearance ? modalClearanceDiscount : getBundleSavedAmount(activeBundleDeal)).toLocaleString()} OFF ELIGIBLE</>
-                                        : 'LOWEST PRICE'}
+                                        : isLimitedTimeAcceptedOffer ? 'ACCEPTED OFFER' : 'LOWEST PRICE'}
                                     </p>
                                     <p className={`${selectedBundleDealDetails?.deal ? 'text-[10px] md:text-[14px]' : 'text-[13px] md:text-[22px]'} font-black italic tracking-tighter leading-tight line-through`}>
                                       ₱{modalReferencePrice.toLocaleString()}
@@ -1783,7 +1779,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                     <p className={`${selectedBundleDealDetails?.deal ? 'text-[18px]' : 'text-[12px]'} font-black italic tracking-tighter leading-none whitespace-nowrap ${selectedBundleDealDetails?.deal ? 'text-emerald-600' : 'text-amber-600'}`}>
                                       {selectedBundleDealDetails?.deal
                                         ? <>&#8369;{(selectedBundleDealDetails.isClearance ? modalClearanceDiscount : getBundleSavedAmount(activeBundleDeal)).toLocaleString()} OFF ELIGIBLE</>
-                                        : 'LOWEST PRICE'}
+                                        : isLimitedTimeAcceptedOffer ? 'ACCEPTED OFFER' : 'LOWEST PRICE'}
                                     </p>
                                     <p className={`${selectedBundleDealDetails?.deal ? 'text-[12px]' : 'text-[18px]'} font-black italic tracking-tighter leading-none line-through`}>
                                       ₱{modalReferencePrice.toLocaleString()}

@@ -166,6 +166,8 @@ const formatActivityTime = (value) => {
 };
 
 const getOrderSummary = (order) => {
+  if (['back_in_stock', 'low_stock', 'offer_missed'].includes(order?.notificationKind)) return '';
+  if (String(order?.status || '').trim().toLowerCase() === 'cancelled') return '';
   if (order?.notificationKind) return order.summary || '';
 
   const items = Array.isArray(order?.items) && order.items.length > 0
@@ -281,6 +283,18 @@ export default function NotificationModal({
     ? { maxHeight: `min(68vh, 560px, calc(100dvh - ${anchorTop + 24}px))` }
     : undefined;
 
+  const startPanelDrag = (event) => {
+    event.stopPropagation();
+    dragControls.start(event);
+  };
+
+  const handleNotificationListPointerDown = (event) => {
+    // Notification cards remain scrollable/clickable. Only the list
+    // background itself starts the panel dismissal gesture.
+    if (event.target !== event.currentTarget) return;
+    startPanelDrag(event);
+  };
+
   return (
     <>
       {isFullscreen && dimBackdrop && <div className="fixed inset-0 z-[100] bg-black/30" onClick={onClose} />}
@@ -308,7 +322,8 @@ export default function NotificationModal({
         <div className={`${isFullscreen ? 'flex h-full max-h-full flex-col rounded-b-[2.5rem]' : 'rounded-[1.5rem]'} overflow-hidden border shadow-[0_24px_70px_rgba(0,0,0,0.22)] ${isDarkMode ? 'border-white/10 bg-[#0a0a0a]' : 'border-black/10 bg-white'}`}>
           <div
             style={listStyle}
-            className={`${isFullscreen ? 'min-h-0 flex-1' : 'max-h-[min(68vh,560px)]'} overscroll-contain overflow-y-auto p-2`}
+            onPointerDown={isFullscreen ? handleNotificationListPointerDown : undefined}
+            className={`${isFullscreen ? 'min-h-0 flex-1' : 'max-h-[min(68vh,560px)]'} overscroll-contain overflow-y-auto space-y-2 p-2 ${isFullscreen && notifications.length === 0 ? 'touch-none cursor-grab' : ''}`}
           >
             {notifications.length === 0 ? (
               <div className="py-12 text-center text-neutral-400">
@@ -362,7 +377,10 @@ export default function NotificationModal({
             })}
           </div>
           {isFullscreen && (
-            <div className="flex shrink-0 justify-center pb-3 pt-2">
+            <div
+              onPointerDown={startPanelDrag}
+              className="flex min-h-12 w-full shrink-0 cursor-grab touch-none items-center justify-center pb-3 pt-2 active:cursor-grabbing"
+            >
               <div
                 role="button"
                 tabIndex={0}

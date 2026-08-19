@@ -116,7 +116,7 @@ export default function Kits({ isActive = true }) {
   const { 
     isAdmin, isAdminView, kits: storeKits, deals, 
     isLoading, addKit, isInventoryAuditOpen, setInventoryAuditOpen,
-    user, isAnonymousUser, userOffers, setLoginModalOpen, addToBasket,
+    user, isAnonymousUser, userOffers, notifyList, subscribeNotifyList, setLoginModalOpen, addToBasket,
     shippingSettings
   } = useStore();
 
@@ -293,19 +293,27 @@ export default function Kits({ isActive = true }) {
 
   const userId = user?.uid;
 
-  const activeOfferKitIds = useMemo(() => {
-    if (isAdminView || !userId) return new Set();
+  useEffect(() => {
+    if (!isAdminView) return undefined;
+    const unsubscribe = subscribeNotifyList({ isAdminMode: true });
+    return () => unsubscribe && unsubscribe();
+  }, [isAdminView, subscribeNotifyList]);
 
-    return new Set((userOffers || [])
+  const activeOfferKitIds = useMemo(() => {
+    if (!isAdminView && !userId) return new Set();
+
+    const offers = isAdminView ? notifyList : userOffers;
+
+    return new Set((offers || [])
       .filter(offer => (
-        offer?.uid === userId
+        (isAdminView || offer?.uid === userId)
         && offer?.kitId
         && offer?.releasedStockKey
         && offer?.status === 'released'
         && isOfferCheckoutActive(offer, offerClock)
       ))
       .map(offer => offer.kitId));
-  }, [isAdminView, offerClock, userId, userOffers]);
+  }, [isAdminView, notifyList, offerClock, userId, userOffers]);
 
   useEffect(() => {
     if (isLoading) {
@@ -1210,36 +1218,6 @@ export default function Kits({ isActive = true }) {
                 </div>
               )}
 
-              {activeOfferKits.map((kit) => {
-                const isUpdating = kitToEdit?.id === kit.id;
-                return (
-                  <div
-                    key={`active-offer-${kit.id}`}
-                    ref={(node) => {
-                      if (node) kitCardRefs.current.set(kit.id, node);
-                      else kitCardRefs.current.delete(kit.id);
-                    }}
-                    className={`w-full h-full transition-opacity duration-500 ${isUpdating ? 'opacity-30' : 'opacity-100'}`}
-                  >
-                    {isUpdating ? (
-                      <KitSkeleton />
-                    ) : (
-                      <ProductCard
-                        kit={kit}
-                        onBuyNowClick={handleBuyNowFromCard}
-                        onDealCheckout={handleDealCheckout}
-                        onEdit={handleEditKit}
-                        onEditDeal={(deal) => {
-                          setDealToEdit(deal);
-                          setIsAddDealModalOpen(true);
-                        }}
-                        routeKitId={routeKitId}
-                      />
-                    )}
-                  </div>
-                );
-              })}
-
               {activeDeals.map(deal => {
                 if (!deal) return null;
                 const orderedKitIds = [
@@ -1343,6 +1321,38 @@ export default function Kits({ isActive = true }) {
                           setDealToEdit(deal);
                           setIsAddDealModalOpen(true);
                         }}
+                        routeKitId={routeKitId}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Limited-time offers follow the clearance cards in every view. */}
+              {activeOfferKits.map((kit) => {
+                const isUpdating = kitToEdit?.id === kit.id;
+                return (
+                  <div
+                    key={`admin-active-offer-${kit.id}`}
+                    ref={(node) => {
+                      if (node) kitCardRefs.current.set(kit.id, node);
+                      else kitCardRefs.current.delete(kit.id);
+                    }}
+                    className={`w-full h-full transition-opacity duration-500 ${isUpdating ? 'opacity-30' : 'opacity-100'}`}
+                  >
+                    {isUpdating ? (
+                      <KitSkeleton />
+                    ) : (
+                      <ProductCard
+                        kit={kit}
+                        onBuyNowClick={handleBuyNowFromCard}
+                        onDealCheckout={handleDealCheckout}
+                        onEdit={handleEditKit}
+                        onEditDeal={(deal) => {
+                          setDealToEdit(deal);
+                          setIsAddDealModalOpen(true);
+                        }}
+                        isAdminLimitedTimeOffer={isAdminView && activeOfferKitIds.has(kit.id)}
                         routeKitId={routeKitId}
                       />
                     )}

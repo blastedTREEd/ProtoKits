@@ -383,17 +383,23 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
       if (persistedDiscount > 0) clearanceDiscountOverrides[kitId] = persistedDiscount;
     });
 
-    const pricedRows = getClearanceBundlePricing(
+    const clearancePricing = getClearanceBundlePricing(
       rows,
       selectedClearanceKitIds,
-      clearanceDiscountOverrides,
-      { distributeAcrossAllRows: true }
-    ).rows;
+      clearanceDiscountOverrides
+    );
+    const pricedRows = clearancePricing.rows;
 
     const clearanceDiscount = pricedRows.reduce((sum, row) => sum + Number(row.clearanceDiscount || 0), 0);
     const savings = pricedRows.reduce((sum, row) => sum + Math.max(0, row.refPrice - row.finalPrice), 0);
     if (savings <= 0) return;
-    candidates.push({ deal, rows: pricedRows, savings, clearanceDiscount });
+    candidates.push({
+      deal,
+      rows: pricedRows,
+      savings,
+      clearanceDiscount,
+      unusedClearanceDiscount: Number(clearancePricing.unusedClearanceDiscount || 0)
+    });
   });
 
   // A complete normal bundle takes priority over clearance pricing. If no
@@ -410,6 +416,12 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
   const rowByKitId = new globalThis.Map(best.rows.map(row => [row.kitId, row]));
   const bundleSize = best.rows.length;
   const bundleFeeTotal = Number(fees.handlingFee || 0) + Number(fees.transferFee || 0);
+  const clearanceSourceKitId = deal.type === 'clearance'
+    ? best.rows.find(row => row.isClearance)?.kitId || ''
+    : '';
+  const unusedClearanceDiscount = deal.type === 'clearance'
+    ? Math.max(0, Number(best.unusedClearanceDiscount || 0))
+    : 0;
 
   return preparedItems.map(item => {
     const row = rowByKitId.get(getCheckoutKitId(item));
@@ -433,7 +445,9 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
       allowShelfBundle: true,
       appliedBundlePrice: row.finalPrice,
       price: row.finalPrice,
-      displayPrice: row.finalPrice
+      displayPrice: row.finalPrice,
+      clearanceUnusedDiscount: unusedClearanceDiscount,
+      clearanceSourceKitId
     };
   });
 };
@@ -1413,6 +1427,13 @@ const baseTotal = useMemo(() => {
       return sum + Math.max(0, standalonePrice - dealPrice) * (item.quantity || 1);
     }, 0);
   }, [checkoutItems, kits]);
+
+  const unusedClearanceDiscount = useMemo(() => (
+    checkoutItems.reduce(
+      (maxUnused, item) => Math.max(maxUnused, Number(item.clearanceUnusedDiscount || 0)),
+      0
+    )
+  ), [checkoutItems]);
 
   const isHandlingFeeDiscounted = handlingFeeDiscount > 0 && orderFees.handling > 0;
   const isCashTransferFeeDiscounted = cashTransferFeeDiscount > 0 && orderFees.transfer > 0;
@@ -2991,8 +3012,14 @@ const handleFinalizeOrder = async () => {
         : item.clearanceKitIds
           ? [item.clearanceKitIds]
           : [];
+      const clearanceSourceKitId = item.clearanceSourceKitId || clearanceKitIds[0];
       const isClearanceSource = item.isClearanceBundle === true
-        && clearanceKitIds.some(kitId => String(kitId) === String(itemKitId));
+        && clearanceSourceKitId
+        && String(clearanceSourceKitId) === String(itemKitId);
+      const isClearanceDealItem = !isProjectCheckoutItem(item) && isClearanceSource;
+      const isBundleDealItem = !isProjectCheckoutItem(item)
+        && item.isBundleItem === true
+        && item.isClearanceBundle !== true;
       return {
         id: item.basketId || item.stockKey || item.id || idx,
         image: displayImage,
@@ -3004,6 +3031,12 @@ const handleFinalizeOrder = async () => {
         standaloneUnitPrice,
         isBundleItem: isBundleOrClearanceItem(item),
         isClearanceSource,
+        dealTag: isBundleDealItem
+          ? 'BUNDLE DEAL'
+          : isClearanceDealItem
+            ? 'CLEARANCE DEAL'
+            : '',
+        isClearanceDealItem,
         isDiscounted
       };
     });
@@ -3204,9 +3237,11 @@ const handleFinalizeOrder = async () => {
               <div className="space-y-3">
                 {itemRows.map((row, idx) => (
                   <div key={`${row.id}-${idx}`} className="relative grid grid-cols-[5rem_minmax(0,1fr)_auto] gap-3 rounded-2xl border border-black/5 bg-white p-3 dark:border-white/5 dark:bg-neutral-900 lg:grid-cols-[18rem_minmax(0,1fr)_auto]">
-                    {row.isClearanceSource && (
-                      <span className="absolute left-0 top-5 z-10 bg-orange-500 px-2 py-1 text-[10px] font-black uppercase tracking-wide text-white shadow-sm">
-                        Clearance Deal
+                    {row.dealTag && (
+                      <span className={`absolute left-0 bottom-5 z-10 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm ${
+                        row.isClearanceDealItem ? 'bg-red-500' : 'bg-emerald-600'
+                      }`}>
+                        {row.dealTag}
                       </span>
                     )}
                     <div className="flex items-center justify-center">
@@ -3256,6 +3291,9 @@ const handleFinalizeOrder = async () => {
                 )}
                 {clearanceDiscount > 0 && (
                   <div className="flex justify-between text-emerald-200"><span>Clearance Discount</span><span>-₱{clearanceDiscount.toLocaleString()}</span></div>
+                )}
+                {unusedClearanceDiscount > 0 && (
+                  <div className="flex justify-between text-amber-200"><span>Unused Discount (Cost Cap)</span><span>₱{unusedClearanceDiscount.toLocaleString()}</span></div>
                 )}
                 {fullPaymentInstallmentDiscount > 0 && (
                   <div className="flex justify-between text-emerald-200"><span>Full Payment Discount</span><span>-₱{fullPaymentInstallmentDiscount.toLocaleString()}</span></div>
@@ -4145,6 +4183,12 @@ const handleFinalizeOrder = async () => {
                         <div className="flex justify-between uppercase font-black text-emerald-300">
                           <span>Clearance Discount</span>
                           <span>-₱{clearanceDiscount.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {unusedClearanceDiscount > 0 && (
+                        <div className="flex justify-between uppercase font-black text-amber-200">
+                          <span>Unused Discount (Cost Cap)</span>
+                          <span>₱{unusedClearanceDiscount.toLocaleString()}</span>
                         </div>
                       )}
                       {fullPaymentInstallmentDiscount > 0 && (

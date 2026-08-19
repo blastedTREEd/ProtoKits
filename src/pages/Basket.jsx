@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Trash2, ShoppingBag, ShelvingUnit, ShoppingBasket, PackageOpen, PackagePlus, Plus, Minus } from 'lucide-react';
 import { useStore } from '../store/useStore';
@@ -7,8 +7,9 @@ import PageTemplate from './PageTemplate';
 import LoginPromptModal from '../components/menu/LoginPromptModal';
 import ListItemSkeleton from '../components/common/ListItemSkeleton';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
-import { isOfferCheckoutActive } from '../utils/offerUtils';
+import { isOfferCheckoutActive, valueToMillis } from '../utils/offerUtils';
 import { getIntegerFeeShare, getStockStandaloneSellPrice, isBundleOrClearanceItem } from '../utils/standalonePricing';
+import { distributeRoundedBundlePrices, getClearanceBundlePricing } from '../utils/bundlePricing';
 // Resolves an image ID to its URL from the images array.
 // Backward compatible: if the value is already a URL (base64 or http), returns it directly.
 function resolveImage(idOrUrl, imagesArray) {
@@ -40,16 +41,24 @@ function getBasketItemGroupKey(item = {}) {
   return `${item.id}-${item.stockKey}-${item.offerId || 'standard'}-${item.bundleId || 'standard'}`;
 }
 
+function getOfferHoursLeft(item, now) {
+  const expiry = valueToMillis(item?.offerExpiresAt);
+  if (!expiry || !now || expiry <= now) return 0;
+  return Math.max(1, Math.ceil((expiry - now) / (60 * 60 * 1000)));
+}
+
 export default function Basket() {
   const { isDarkMode } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
   const { 
-    user, isAnonymousUser, basket, shelf, isAdmin, isAdminView, removeFromBasket, kits, addToBasket, addProjectToBasket, decrementProjectQuantity,
-    guestBasket, isLoading, setLoginModalOpen, shippingSettings, loadMissingKits, keepOneOfEachToShelf, deals
+    user, isAnonymousUser, basket, shelf, isAdmin, isAdminView, removeFromBasket, kits, userOffers, userOffersLoaded, addToBasket, addProjectToBasket, decrementProjectQuantity,
+    guestBasket, isLoading, setLoginModalOpen, shippingSettings, loadMissingKits, keepOneOfEachToShelf, deals, loadBlueprintProductionStatuses
   } = useStore();
   const [isKeepingOnes, setIsKeepingOnes] = useState(false);
   const [offerNow, setOfferNow] = useState(0);
+  const [projectProductionStatuses, setProjectProductionStatuses] = useState({});
+  const [isProjectStatusLoading, setIsProjectStatusLoading] = useState(false);
   const [manualSelectedIds, setManualSelectedIds] = useState(() => (
     Array.isArray(location.state?.restoreSelectionIds)
       ? location.state.restoreSelectionIds
@@ -65,10 +74,96 @@ export default function Basket() {
 
   const activeBasket = user && !isAnonymousUser ? ((isAdmin && isAdminView) ? shelf : basket) : guestBasket;
 
+  const projectBlueprintIds = useMemo(() => (
+    [...new Set(
+      activeBasket
+        .filter((item) => item.type === 'project')
+        .map((item) => item.projectData?.id)
+        .filter(Boolean)
+        .map((id) => String(id))
+    )]
+  ), [activeBasket]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (projectBlueprintIds.length === 0) {
+      setProjectProductionStatuses({});
+      setIsProjectStatusLoading(false);
+      return undefined;
+    }
+
+    setIsProjectStatusLoading(true);
+    loadBlueprintProductionStatuses(projectBlueprintIds)
+      .then((statuses) => {
+        if (!cancelled) setProjectProductionStatuses(statuses || {});
+      })
+      .catch((error) => {
+        console.error('SG LOG: Project production status refresh failed:', error);
+        if (!cancelled) setProjectProductionStatuses({});
+      })
+      .finally(() => {
+        if (!cancelled) setIsProjectStatusLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loadBlueprintProductionStatuses, projectBlueprintIds]);
+
+  const stoppedProjectBasketIds = useMemo(() => (
+    activeBasket
+      .filter((item) => item.type === 'project')
+      .filter((item) => {
+        if (item.projectData?.canAddToBasket === false) return true;
+        const blueprintId = item.projectData?.id ? String(item.projectData.id) : '';
+        return Boolean(blueprintId && projectProductionStatuses[blueprintId] === false);
+      })
+      .map((item) => item.basketId)
+      .filter(Boolean)
+  ), [activeBasket, projectProductionStatuses]);
+
+  const clearanceKitIds = useMemo(() => {
+    const ids = new Set();
+    (deals || []).forEach((deal) => {
+      if (deal?.type !== 'clearance' || deal.isActive === false) return;
+      const kitIds = deal.clearanceKitIds?.length ? deal.clearanceKitIds : (deal.kitIds || []);
+      kitIds.forEach((kitId) => ids.add(kitId));
+    });
+    return ids;
+  }, [deals]);
+
   const activeSelection = useMemo(() => {
     const currentBasketIds = activeBasket.map(i => i.basketId);
     return manualSelectedIds.filter(id => currentBasketIds.includes(id));
   }, [activeBasket, manualSelectedIds]);
+
+  const selectedBundleDeal = useMemo(() => {
+    const selectedItems = activeBasket.filter((item) => activeSelection.includes(item.basketId));
+    if (selectedItems.length === 0 || selectedItems.some((item) => item.type === 'project')) return null;
+
+    const selectedKitIds = [...new Set(selectedItems.map((item) => item.id).filter(Boolean))];
+    return (deals || []).find((deal) => {
+      if (deal?.isActive === false || !['bundle_only', 'bundle_discount'].includes(deal?.type)) return false;
+      const bundleKitIds = [...new Set((deal.kitIds || []).filter(Boolean))];
+      if (bundleKitIds.length === 0 || bundleKitIds.length !== selectedItems.length) return false;
+      return bundleKitIds.length === selectedKitIds.length
+        && bundleKitIds.every((kitId) => selectedKitIds.includes(kitId));
+    }) || null;
+  }, [activeBasket, activeSelection, deals]);
+
+  const selectedBundleDealKitIds = useMemo(() => (
+    new Set((selectedBundleDeal?.kitIds || []).filter(Boolean))
+  ), [selectedBundleDeal]);
+
+  const selectedClearanceKitIds = useMemo(() => (
+    new Set(
+      activeBasket
+        .filter(item => activeSelection.includes(item.basketId) && item.type !== 'project')
+        .filter(item => clearanceKitIds.has(item.id) || clearanceKitIds.has(String(item.id)))
+        .map(item => String(item.id))
+    )
+  ), [activeBasket, activeSelection, clearanceKitIds]);
 
   const mutuallyExclusiveConflict = useMemo(() => {
     const selectedKitIds = new Set(
@@ -134,9 +229,10 @@ export default function Basket() {
     }
   }, [isAdminView, isAdmin, navigate, location.pathname]);
   
-  const isBasketRowsLoading = isLoading || missingKitIds.length > 0;
+  const isOfferStateLoading = Boolean(user && !isAnonymousUser && !isAdminView && !userOffersLoaded);
+  const isBasketRowsLoading = isLoading || missingKitIds.length > 0 || isOfferStateLoading || isProjectStatusLoading;
 
-  const { handlingFee, installmentFee, transferFee } = useMemo(() => {
+  const { handlingFee, installmentFee, transferFee, exclusiveDiscountPercent } = useMemo(() => {
     return getCheckoutPaymentFees({ shippingSettings });
   }, [shippingSettings]);
 
@@ -199,6 +295,130 @@ export default function Basket() {
     return basePrice + itemHandlingFee + itemInstallmentFee + itemTransferFee;
   }, [getBasketStandaloneFeeShare, installmentFee, kits]);
 
+  const selectedClearancePricing = useMemo(() => {
+    const selectedItems = activeBasket.filter((item) => activeSelection.includes(item.basketId));
+    if (selectedItems.length < 2 || selectedBundleDeal) return { prices: new Map(), sourceBasketId: '' };
+
+    const selectedRows = selectedItems.filter((item) => {
+      if (item.type === 'project' || (item.bundleId && !item.isClearanceBundle)) return false;
+      const kit = kits.find((candidate) => candidate.id === item.id);
+      const stock = kit?.stocks?.[item.stockKey];
+      const status = String(stock?.status || item.status || '').toLowerCase();
+      return !status.includes('pre') && !status.includes('batch') && !status.includes('eta');
+    });
+    if (selectedRows.length !== selectedItems.length) return { prices: new Map(), sourceBasketId: '' };
+
+    const rowsByKitId = new Map(selectedRows.map((item) => {
+      const kit = kits.find((candidate) => candidate.id === item.id);
+      const stock = kit?.stocks?.[item.stockKey];
+      return [String(item.id), {
+        item,
+        kit,
+        kitId: String(item.id),
+        refPrice: Number(stock?.sellPrice || item.sellPrice || kit?.sellPrice || item.price || 0),
+        sellPrice: Number(stock?.sellPrice || item.sellPrice || kit?.sellPrice || item.price || 0),
+        costPrice: Number(stock?.costPrice || item.costPrice || 0)
+      }];
+    }));
+
+    const candidates = (deals || [])
+      .filter((deal) => deal?.type === 'clearance' && deal.isActive !== false)
+      .map((deal) => {
+        const configuredIds = Array.isArray(deal.clearanceKitIds) && deal.clearanceKitIds.length > 0
+          ? deal.clearanceKitIds
+          : deal.clearanceKitId
+            ? [deal.clearanceKitId]
+            : (deal.kitIds || []).slice(0, 1);
+        const selectedClearanceKitIds = [...new Set(configuredIds.map(String))]
+          .filter((kitId) => rowsByKitId.has(kitId));
+        if (selectedClearanceKitIds.length === 0) return null;
+
+        const rows = [...rowsByKitId.values()];
+        const clearanceDiscountOverrides = { ...(deal.clearanceDiscounts || {}) };
+        selectedClearanceKitIds.forEach((kitId) => {
+          const configuredDiscount = clearanceDiscountOverrides[kitId];
+          if (configuredDiscount !== '' && configuredDiscount !== null && configuredDiscount !== undefined) return;
+
+          const storedKitDiscount = Number(deal.kitDiscounts?.[kitId]?.discount || 0);
+          const storedClearancePrice = Number(deal.kitDiscounts?.[kitId]?.clearancePrice || 0);
+          const row = rows.find((candidate) => candidate.kitId === kitId);
+          const storedPriceDiscount = row && storedClearancePrice > 0
+            ? Math.max(0, row.refPrice - storedClearancePrice)
+            : 0;
+          const persistedDiscount = storedPriceDiscount || storedKitDiscount || Number(deal.clearanceDiscountTotal || 0);
+          if (persistedDiscount > 0) clearanceDiscountOverrides[kitId] = persistedDiscount;
+        });
+
+        const clearancePricing = getClearanceBundlePricing(
+          rows,
+          selectedClearanceKitIds,
+          clearanceDiscountOverrides
+        );
+        const pricedRows = clearancePricing.rows;
+        const savings = pricedRows.reduce((sum, row) => sum + Math.max(0, row.refPrice - row.finalPrice), 0);
+        const clearanceDiscount = pricedRows.reduce((sum, row) => sum + Number(row.clearanceDiscount || 0), 0);
+        const sourceRow = pricedRows.find(row => row.isClearance);
+        return savings > 0
+          ? { pricedRows, savings, clearanceDiscount, sourceBasketId: sourceRow?.item?.basketId || '' }
+          : null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.clearanceDiscount - a.clearanceDiscount || b.savings - a.savings);
+
+    const best = candidates[0];
+    return best
+      ? {
+        prices: new Map(best.pricedRows.map((row) => [row.item.basketId, row.finalPrice])),
+        sourceBasketId: best.sourceBasketId || ''
+      }
+      : { prices: new Map(), sourceBasketId: '' };
+  }, [activeBasket, activeSelection, deals, kits, selectedBundleDeal]);
+
+  const selectedBundlePriceByBasketId = useMemo(() => {
+    if (!selectedBundleDeal) return new Map();
+
+    const selectedItems = activeBasket.filter((item) => activeSelection.includes(item.basketId));
+    const rows = selectedItems.map((item) => {
+      const kit = kits.find((candidate) => candidate.id === item.id);
+      const referencePrice = Math.max(0, Number(
+        getStockStandaloneSellPrice(item, kit) || item.sellPrice || item.price || 0
+      ));
+      return {
+        item,
+        kitId: item.id,
+        refPrice: referencePrice,
+        isExclusive: (selectedBundleDeal.exclusiveKitIds || []).includes(item.id)
+      };
+    });
+
+    const targetTotal = Math.max(0, Number(selectedBundleDeal.bundlePrice || 0));
+    const normalTotal = rows.reduce((sum, row) => sum + row.refPrice, 0);
+    if (rows.length === 0 || targetTotal <= 0 || targetTotal >= normalTotal) return new Map();
+
+    const exclusiveRefTotal = rows
+      .filter((row) => row.isExclusive)
+      .reduce((sum, row) => sum + row.refPrice, 0);
+    const standardRefTotal = rows
+      .filter((row) => !row.isExclusive)
+      .reduce((sum, row) => sum + row.refPrice, 0);
+    const totalDiscount = normalTotal - targetTotal;
+    const exclusivePool = rows.some((row) => row.isExclusive)
+      ? totalDiscount * ((Number(exclusiveDiscountPercent) || 0) / 100)
+      : 0;
+    const standardPool = totalDiscount - exclusivePool;
+
+    const pricedRows = distributeRoundedBundlePrices(rows.map((row) => {
+      const kitDiscount = row.isExclusive && exclusiveRefTotal > 0
+        ? exclusivePool * (row.refPrice / exclusiveRefTotal)
+        : !row.isExclusive && standardRefTotal > 0
+          ? standardPool * (row.refPrice / standardRefTotal)
+          : 0;
+      return { ...row, rawPrice: Math.max(0, row.refPrice - kitDiscount) };
+    }), targetTotal);
+
+    return new Map(pricedRows.map((row) => [row.item.basketId, row.finalPrice]));
+  }, [activeBasket, activeSelection, exclusiveDiscountPercent, kits, selectedBundleDeal]);
+
   const isBasketBundleFullySelected = useCallback((item) => {
     if (!isBundleOrClearanceItem(item) || !item.bundleId) return false;
     const bundleItems = activeBasket.filter(candidate => candidate.bundleId === item.bundleId);
@@ -225,6 +445,20 @@ export default function Basket() {
       + transfer;
     const standaloneBasePrice = Math.max(0, standalonePrice - totalFees);
 
+    const selectedBundlePrice = Array.isArray(item.basketIds)
+      ? item.basketIds
+        .map((basketId) => selectedBundlePriceByBasketId.get(basketId))
+        .find((price) => Number.isFinite(price))
+      : selectedBundlePriceByBasketId.get(item.basketId);
+    if (Number.isFinite(selectedBundlePrice)) return selectedBundlePrice;
+
+    const selectedClearancePrice = Array.isArray(item.basketIds)
+      ? item.basketIds
+        .map((basketId) => selectedClearancePricing.prices.get(basketId))
+        .find((price) => Number.isFinite(price))
+      : selectedClearancePricing.prices.get(item.basketId);
+    if (Number.isFinite(selectedClearancePrice)) return selectedClearancePrice;
+
     if (isBasketBundleFullySelected(item)) {
       const dealPrice = Number(item.appliedBundlePrice || item.price || item.sellPrice || 0);
       if (dealPrice > 0) return dealPrice;
@@ -237,7 +471,7 @@ export default function Basket() {
     if (offerPrice > 0 && isSelected) return offerPrice;
 
     return standaloneBasePrice;
-  }, [activeSelection, getBasketStandaloneFeeShare, getBasketStandalonePrice, installmentFee, isBasketBundleFullySelected]);
+  }, [activeSelection, getBasketStandaloneFeeShare, getBasketStandalonePrice, installmentFee, isBasketBundleFullySelected, selectedBundlePriceByBasketId, selectedClearancePricing]);
 
   const getBasketPriceComparison = useCallback((item) => {
     const standalonePrice = getBasketStandalonePrice(item);
@@ -335,6 +569,14 @@ export default function Basket() {
         if (item.type === 'project') return;
         const kitSource = kits.find(k => k.id === item.id);
         const batchIdentifier = item.batchKey;
+
+        const currentOffer = item.offerId
+          ? (userOffers || []).find((offer) => offer.id === item.offerId)
+          : null;
+        // Do not validate offer-backed rows until the live offers listener has
+        // finished loading. Once loaded, a missing offer or a changed released
+        // stock key means the item was removed or returned to the shelf.
+        if (item.offerId && !userOffersLoaded) return;
         
         const availableInBatch = Object.values(kitSource?.stocks || {}).filter(s => {
             const sStatus = s.status?.toLowerCase() || 'default';
@@ -343,7 +585,16 @@ export default function Basket() {
             return sBatch === batchIdentifier && !s.isReserved && !s.order?.orderId;
         }).length;
 
-        const isActiveOffer = isOfferCheckoutActive(item, offerNow);
+        const isActiveOffer = item.offerId
+          ? Boolean(
+              currentOffer
+              && currentOffer.uid === user?.uid
+              && currentOffer.kitId === item.id
+              && currentOffer.releasedStockKey === item.stockKey
+              && isOfferCheckoutActive(currentOffer, offerNow)
+              && isOfferCheckoutActive(item, offerNow)
+            )
+          : isOfferCheckoutActive(item, offerNow);
         const isReservedByOthers = (item.status === 'reserved'); 
         const availableLimit = item.offerId
           ? (isActiveOffer ? 1 : 0)
@@ -370,7 +621,57 @@ export default function Basket() {
     }
 
     return { isValid, itemRules, totalPrice, selectedItems };
-  }, [activeBasket, activeSelection, getBasketDiscountedPrice, kits, offerNow]);
+  }, [activeBasket, activeSelection, getBasketDiscountedPrice, isAnonymousUser, kits, offerNow, user?.uid, userOffers, userOffersLoaded]);
+
+  const invalidBasketItemIds = useMemo(() => {
+    const toRemoveIds = [];
+    Object.entries(validation.itemRules).forEach(([key, rule]) => {
+      const limit = rule.limit ?? 0;
+      const matchingItemsInBasket = activeBasket.filter(item => {
+        const kit = kits.find(k => k.id === item.id);
+        const stock = kit?.stocks?.[item.stockKey];
+        const status = stock?.status?.toLowerCase() || 'default';
+        const eta = stock?.eta ? `-${stock.eta.toLowerCase().replace(/\s+/g, '-')}` : '';
+        return getBasketValidationKey(item.id, `${status}${eta}`, item.offerId) === key;
+      });
+
+      if (matchingItemsInBasket.length > limit) {
+        const excessCount = matchingItemsInBasket.length - limit;
+        const sorted = [...matchingItemsInBasket].sort((a, b) => (
+          new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+        ));
+        toRemoveIds.push(...sorted.slice(0, excessCount).map(item => item.basketId));
+      }
+    });
+    return [...new Set([...stoppedProjectBasketIds, ...toRemoveIds])];
+  }, [activeBasket, kits, stoppedProjectBasketIds, validation.itemRules]);
+
+  const autoUpdatedValidationRef = useRef('');
+  useEffect(() => {
+    if (
+      location.pathname !== '/basket'
+      || (isAdmin && isAdminView)
+      || isBasketRowsLoading
+      || invalidBasketItemIds.length === 0
+    ) return;
+
+    const updateSignature = invalidBasketItemIds.join('|');
+    if (autoUpdatedValidationRef.current === updateSignature) return;
+    autoUpdatedValidationRef.current = updateSignature;
+
+    setManualSelectedIds((currentIds) => (
+      currentIds.filter((id) => !invalidBasketItemIds.includes(id))
+    ));
+
+    void (async () => {
+      for (const basketId of invalidBasketItemIds) {
+        await removeFromBasket(basketId);
+      }
+    })().catch((error) => {
+      autoUpdatedValidationRef.current = '';
+      console.error('SG LOG: Automatic basket update failed:', error);
+    });
+  }, [invalidBasketItemIds, isAdmin, isAdminView, isBasketRowsLoading, location.pathname, removeFromBasket]);
 
   const shelfStats = useMemo(() => {
     if (!isAdmin || !isAdminView) return null;
@@ -667,7 +968,20 @@ export default function Basket() {
                 
                 const itemStatusLabel = String(stock?.status || item.status || '');
                 const isPreOrder = /pre[-\s]?order/i.test(itemStatusLabel);
+                const hasMultipleSelectedClearanceKits = selectedClearanceKitIds.size >= 2;
+                const isWinningSelectedClearanceKit = item.basketIds?.includes(
+                  selectedClearancePricing.sourceBasketId
+                );
+                const isClearanceKit = item.type !== 'project' && (
+                  hasMultipleSelectedClearanceKits
+                    ? isSelected && isWinningSelectedClearanceKit
+                    : Boolean(item.isClearanceBundle) || clearanceKitIds.has(item.id)
+                );
+                const isBundleDealSelection = selectedBundleDealKitIds.has(item.id);
                 const etaLabel = stock?.eta || item.eta || 'TBA';
+                const offerHoursLeft = item.offerId && isOfferCheckoutActive(item, offerNow)
+                  ? getOfferHoursLeft(item, offerNow)
+                  : 0;
                 const shelfCostPrice = Number(item.costPrice ?? stock?.costPrice ?? 0);
                 const shelfSellPrice = Number(item.sellPrice ?? stock?.sellPrice ?? getBasketStandalonePrice(item));
                 const basketPriceComparison = getBasketPriceComparison(item);
@@ -689,11 +1003,23 @@ export default function Basket() {
                     onClick={() => item.basketIds.forEach(toggleSelection)}
                     className={`${cardClasses} relative`}
                   >
-                    {item.type !== 'project' && isPreOrder && etaLabel && (
+                    {item.type !== 'project' && offerHoursLeft > 0 ? (
+                      <span className="absolute left-0 bottom-5 z-10 bg-red-500 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm">
+                        {offerHoursLeft} HRS LEFT
+                      </span>
+                    ) : isBundleDealSelection ? (
+                      <span className="absolute left-0 bottom-5 z-10 bg-emerald-600 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm">
+                        BUNDLE DEAL
+                      </span>
+                    ) : isClearanceKit ? (
+                      <span className="absolute left-0 bottom-5 z-10 bg-red-500 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm">
+                        CLEARANCE DEAL
+                      </span>
+                    ) : item.type !== 'project' && isPreOrder && etaLabel ? (
                       <span className="absolute left-0 bottom-5 z-10 bg-blue-600 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm">
                         {etaLabel}
                       </span>
-                    )}
+                    ) : null}
                     <div className="relative flex items-center justify-center">
                       {displayImage ? (
                         <img 

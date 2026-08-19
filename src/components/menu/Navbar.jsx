@@ -26,10 +26,19 @@ import {
   getAvailableStockEntries,
   isActiveHunt
 } from './commerceNotificationUtils';
-import { getNotificationVersion } from './notificationUtils';
+import { getNotificationActivityTime, getNotificationVersion } from './notificationUtils';
 import StoriesManagerModal from './StoriesManagerModal';
 
 const notificationStateStorageKey = (stateType, userId) => `snorlaxgarage:notification-${stateType}:${userId}`;
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const ONE_DAY_NOTIFICATION_KINDS = new Set(['low_stock', 'back_in_stock']);
+
+const isOrderRelatedNotification = (notification) => (
+  !notification?.notificationKind
+  || notification.notificationKind === 'admin_receipt'
+  || Boolean(notification.orderId)
+);
+
 const clearBrowserNotificationCounter = () => {
   document.title = document.title.replace(/^\(\d+\)\s*/, '');
 };
@@ -102,6 +111,7 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   const [notificationHunts, setNotificationHunts] = useState([]);
   const [notificationReadVersions, setNotificationReadVersions] = useState({});
   const [notificationSeenVersions, setNotificationSeenVersions] = useState({});
+  const [notificationDismissedVersions, setNotificationDismissedVersions] = useState({});
   const [outOfStockKitIds, setOutOfStockKitIds] = useState({});
   const [notificationNow, setNotificationNow] = useState(0);
   const [notificationAnchorTop, setNotificationAnchorTop] = useState(null);
@@ -131,6 +141,18 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   const navbarRef = useRef(null);
   const profileDragControls = useDragControls();
   const policyScrollCleanupRef = useRef(null);
+
+  const startProfileDrag = (event) => {
+    event.stopPropagation();
+    profileDragControls.start(event);
+  };
+
+  const handleProfileSurfacePointerDown = (event) => {
+    // Keep menu buttons interactive. Blank panel space can be used as a
+    // larger dismissal surface on mobile and landscape tablet layouts.
+    if (event.target !== event.currentTarget) return;
+    startProfileDrag(event);
+  };
 
   const isMobile = windowWidth < 640;
   const isDesktop = windowWidth >= 1024;
@@ -194,13 +216,25 @@ export default function Navbar({ isCompact: scrolledCompact }) {
       ? [...adminReceiptNotifications, ...adminOfferNotifications]
       : [...effectiveNotificationOrders, ...commerceNotifications]
   ), [adminOfferNotifications, adminReceiptNotifications, commerceNotifications, effectiveNotificationOrders, isAdminNotificationView]);
-  const unseenNotificationCount = allNotifications.reduce((count, notification) => (
+  const visibleNotifications = useMemo(() => allNotifications.filter((notification) => {
+    const version = getNotificationVersion(notification);
+    if (notificationDismissedVersions[notification.id] === version) return false;
+
+    if (ONE_DAY_NOTIFICATION_KINDS.has(notification.notificationKind)) {
+      const postedAt = getNotificationActivityTime(notification);
+      if (postedAt > 0 && notificationNow - postedAt >= ONE_DAY_MS) return false;
+    }
+
+    return true;
+  }), [allNotifications, getNotificationActivityTime, notificationDismissedVersions, notificationNow]);
+  const unseenNotificationCount = visibleNotifications.reduce((count, notification) => (
     notificationSeenVersions[notification.id] === getNotificationVersion(notification) ? count : count + 1
   ), 0);
 
   useEffect(() => {
     setNotificationReadVersions(loadNotificationVersions('reads', notificationOwnerKey));
     setNotificationSeenVersions(loadNotificationVersions('seen', notificationOwnerKey));
+    setNotificationDismissedVersions(loadNotificationVersions('dismissed', notificationOwnerKey));
     setOutOfStockKitIds(loadNotificationVersions('out-of-stock', notificationOwnerKey));
   }, [notificationOwnerKey]);
 
@@ -457,6 +491,18 @@ useEffect(() => {
       saveNotificationVersions('reads', notificationOwnerKey, nextReadVersions);
       return nextReadVersions;
     });
+
+    if (!isOrderRelatedNotification(notification)) {
+      setNotificationDismissedVersions((currentDismissedVersions) => {
+        const nextDismissedVersions = {
+          ...currentDismissedVersions,
+          [notification.id]: getNotificationVersion(notification)
+        };
+        saveNotificationVersions('dismissed', notificationOwnerKey, nextDismissedVersions);
+        return nextDismissedVersions;
+      });
+    }
+
     setIsNotificationModalOpen(false);
     if (notification.notificationKind === 'admin_offer') {
       navigate('/notify-list');
@@ -493,7 +539,7 @@ useEffect(() => {
     setIsProfileOpen(false);
     setNotificationSeenVersions((currentSeenVersions) => {
       const nextSeenVersions = { ...currentSeenVersions };
-      allNotifications.forEach((notification) => {
+      visibleNotifications.forEach((notification) => {
         nextSeenVersions[notification.id] = getNotificationVersion(notification);
       });
       saveNotificationVersions('seen', notificationOwnerKey, nextSeenVersions);
@@ -924,8 +970,8 @@ return (
                     className={`${isProfileFullscreen ? '' : 'animate-in fade-in slide-in-from-top-2 duration-200'} ${isProfileFullscreen ? 'absolute inset-0 w-full max-w-none sm:ml-auto sm:max-w-sm' : 'fixed w-72'}`}
                   >
                   <div className={`${isProfileFullscreen ? 'flex h-full max-h-full flex-col rounded-b-[2.5rem]' : 'max-h-[calc(100dvh-5rem)] rounded-[2rem]'} overflow-hidden border shadow-[0_24px_70px_rgba(0,0,0,0.22)] ${isDarkMode ? 'border-white/10 bg-[#0a0a0a]' : 'border-black/10 bg-white'}`}>
-                    
-                    <div className="shrink-0 p-6 flex flex-col items-center text-center space-y-3 border-b border-black/5 dark:border-white/5">
+                    <div className={isProfileFullscreen ? 'min-h-0 flex-1 overflow-y-auto overscroll-contain' : 'max-h-[calc(100dvh-5rem)] overflow-y-auto overscroll-contain'}>
+                    <div className="p-6 flex flex-col items-center text-center space-y-3 border-b border-black/5 dark:border-white/5">
                       <div 
                         className="relative group cursor-pointer py-2"
                         onMouseEnter={() => isAdmin && setIsPhotoHovered(true)}
@@ -1001,7 +1047,10 @@ return (
                       </div>
                     </div>
 
-                    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 space-y-1">
+                    <div
+                      onPointerDown={isProfileFullscreen ? handleProfileSurfacePointerDown : undefined}
+                      className="p-2 space-y-1"
+                    >
                       <button onClick={() => { toggleTheme(); setIsProfileOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-colors ${isDarkMode ? 'hover:bg-white/5 text-white' : 'hover:bg-black/5 text-neutral-900'}`}>
                         {isDarkMode ? <Sun size={18} className="text-amber-400" /> : <Moon size={18} className="text-garage-blue" />}
                         <span className="text-[12px] font-black uppercase tracking-widest">{isDarkMode ? 'Light Mode' : 'Dark Mode'}</span>
@@ -1096,9 +1145,13 @@ return (
                         <span className="text-[12px] font-black uppercase tracking-widest">Policies</span>
                       </button>
                     </div>
+                    </div>
 
                     {isProfileFullscreen && (
-                      <div className="flex shrink-0 justify-center pb-3 pt-2">
+                      <div
+                        onPointerDown={startProfileDrag}
+                        className="flex min-h-12 w-full shrink-0 cursor-grab touch-none items-center justify-center pb-3 pt-2 active:cursor-grabbing"
+                      >
                         <div
                           role="button"
                           tabIndex={0}
@@ -1176,7 +1229,7 @@ return (
       isOpen={isNotificationModalOpen}
       onClose={() => setIsNotificationModalOpen(false)}
       isDarkMode={isDarkMode}
-      orders={allNotifications}
+      orders={visibleNotifications}
       readVersions={notificationReadVersions}
       onOpenOrder={handleOpenNotificationOrder}
       emptyLabel={isAdminNotificationView ? 'No admin updates yet' : 'No order updates yet'}

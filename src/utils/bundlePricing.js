@@ -236,6 +236,7 @@ export function getClearanceBundlePricing(rows = [], clearanceKitIds = [], disco
       bundlePrice,
       clearanceDiscountTotal,
       standardDiscountTotal: clearanceDiscountTotal,
+      unusedClearanceDiscount: 0,
       discountAmount: clearanceDiscountTotal,
       projectedProfit: bundlePrice - normalizedRows.reduce((sum, row) => sum + row.costPrice, 0)
     };
@@ -274,6 +275,7 @@ export function getClearanceBundlePricing(rows = [], clearanceKitIds = [], disco
     bundlePrice,
     clearanceDiscountTotal,
     standardDiscountTotal,
+    unusedClearanceDiscount: Math.max(0, clearanceDiscountTotal - standardDiscountTotal),
     discountAmount: clearanceDiscountTotal + standardDiscountTotal,
     projectedProfit: bundlePrice - totalCost
   };

@@ -56,7 +56,6 @@ export const buildCommerceNotifications = ({
 }) => {
   const kitMap = new Map(kits.map((kit) => [kit.id, kit]));
   const basketKitIds = [...new Set(basket.map((item) => item?.id).filter(Boolean))];
-  const activeHunts = hunts.filter((hunt) => isActiveHunt(hunt, now));
   const releasedHunts = hunts.filter((hunt) => (
     String(hunt?.status || '').trim().toLowerCase() === 'released'
     && !hunt?.completedAt
@@ -70,10 +69,10 @@ export const buildCommerceNotifications = ({
       && expiresAt <= now;
   });
   const releasedKitIds = new Set(releasedHunts.map((hunt) => hunt?.kitId).filter(Boolean));
-  const watchedKitIds = new Set([
-    ...basketKitIds,
-    ...activeHunts.map((hunt) => hunt?.kitId).filter(Boolean)
-  ]);
+  // Inventory alerts are only meaningful for kits currently in the basket.
+  // Active offer hunts may still watch a kit, but they must not create a
+  // last-stock or back-in-stock alert after the basket item is removed.
+  const watchedKitIds = new Set(basketKitIds);
   const notifications = [];
 
   missedOffers.forEach((offer) => {
@@ -86,7 +85,6 @@ export const buildCommerceNotifications = ({
       notificationLabel: 'Missed checkout',
       title: 'Offer expired',
       message: `Your accepted offer for ${offer.kitName || kit?.name || 'this kit'} expired before checkout.`,
-      summary: offer.kitName || kit?.name || '',
       kitId: offer.kitId,
       lastUpdated: expiry
     });
@@ -122,7 +120,6 @@ export const buildCommerceNotifications = ({
       notificationLabel: 'Last stock',
       title: 'Only one left',
       message: `${kit.name || 'An item in your basket'} has only one available stock left.`,
-      summary: kit.name || '',
       kitId,
       lastUpdated: activityTime
     });
@@ -178,7 +175,6 @@ export const buildCommerceNotifications = ({
       notificationLabel: 'Back in stock',
       title: 'Back in stock',
       message: `${kit.name || 'An item you wanted'} is available again.`,
-      summary: `${availableStocks.length} available`,
       kitId,
       lastUpdated: activityTime
     });

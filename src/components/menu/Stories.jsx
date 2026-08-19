@@ -34,7 +34,7 @@ function formatStoryDate(value) {
 
 export default function Stories({ isCompact, hideImmediately = false }) {
   // Kunin ang actual data mula sa Zustand store (DB)
-  const { stories, kits, blueprints, isLoading, setStoriesHeight } = useStore();
+  const { stories, kits, blueprints, isLoading, isAdmin, isAdminView, setStoriesHeight } = useStore();
   const navigate = useNavigate();
   const containerRef = useRef(null);
 
@@ -115,9 +115,13 @@ export default function Stories({ isCompact, hideImmediately = false }) {
     Object.entries(kit?.stocks || {}).map(([stockKey, stock]) => ({ stockKey, ...(stock || {}) }))
   ), []);
 
-  const isAvailableStock = useCallback((stock) => (
-    stock && !stock.order?.orderId && !stock.isReserved
-  ), []);
+  const isAvailableStock = useCallback((stock) => {
+    if (!stock || stock.order?.orderId || stock.isReserved) return false;
+    if (isAdmin && isAdminView) return true;
+
+    const releaseTimestamp = getTimestamp(stock.publicReleaseDate);
+    return !releaseTimestamp || releaseTimestamp <= Date.now();
+  }, [getTimestamp, isAdmin, isAdminView]);
 
   const isPreOrderStock = useCallback((stock) => {
     const status = String(stock?.status || '').toLowerCase();
@@ -213,17 +217,14 @@ export default function Stories({ isCompact, hideImmediately = false }) {
         label: kit.name || 'Back in Stock'
       }));
 
-    const usedHighlightLinks = new Set(
-      [...recentStories, ...preOrderItems, ...onhandItems, ...recentlyBackInStockItems]
-        .map((item) => `${item.type}:${item.targetId}`)
-    );
-    const recentProjects = (blueprints || [])
+    const projectCandidates = (blueprints || [])
       .filter((project) => project?.isPublished !== false && project?.status !== 'Draft')
       .sort((a, b) => (
         getTimestamp(b.createdAt || b.updatedAt) - getTimestamp(a.createdAt || a.updatedAt)
       ))
-      .filter((project) => !usedHighlightLinks.has(`project:${project.id}`))
-      .slice(0, 5)
+      .slice(0, 5);
+    const recentProjects = projectCandidates
+      .filter((project) => (isAdmin && isAdminView) || project?.canAddToBasket !== false)
       .map((project) => ({
         id: `project:${project.id}`,
         type: 'project',
@@ -233,12 +234,29 @@ export default function Stories({ isCompact, hideImmediately = false }) {
         label: project.projectName || 'Garage Project'
       }));
 
+    // Keep the strip full when a public project is stopped for production.
+    // Those project slots are temporarily filled with other public kits.
+    const unavailableProjectSlots = projectCandidates.length - recentProjects.length;
+    const replacementKits = selectUniqueKits([...kitItems]
+      .filter((entry) => (
+        entry.availablePreOrders.length > 0 || entry.availableOnhand.length > 0
+      ))
+      .sort((a, b) => b.latestTimestamp - a.latestTimestamp)
+    , unavailableProjectSlots).map((kit) => ({
+        id: `project-replacement:${kit.id}`,
+        type: 'kit',
+        targetId: kit.id,
+        image: getKitImage(kit),
+        label: kit.name || 'Available Kit'
+      }));
+
     const mixedItems = [
       ...recentStories,
       ...preOrderItems,
       ...onhandItems,
       ...recentlyBackInStockItems,
-      ...recentProjects
+      ...recentProjects,
+      ...replacementKits
     ];
 
     // Keep categories visually interleaved without reshuffling on every render.
@@ -252,8 +270,29 @@ export default function Stories({ isCompact, hideImmediately = false }) {
       return hash >>> 0;
     };
 
-    return mixedItems.sort((a, b) => stableHash(a.id) - stableHash(b.id));
-  }, [activeStories, blueprints, getKitImage, getKitStocks, getTimestamp, isAvailableStock, isOnhandStock, isPreOrderStock, kits]);
+    const randomizedItems = mixedItems.sort((a, b) => stableHash(a.id) - stableHash(b.id));
+    const storyItems = randomizedItems.filter((item) => item.type === 'story');
+    const nonStoryItems = randomizedItems.filter((item) => item.type !== 'story');
+
+    // Keep the random-looking order, but never place two story cards beside
+    // each other. Non-story cards are reused only when there are more stories
+    // than separators, and the result always ends with a non-story card so
+    // the repeated marquee also joins without a story/story pair.
+    if (storyItems.length === 0 || nonStoryItems.length === 0) return randomizedItems;
+
+    const separatedItems = [];
+    const itemCount = Math.max(storyItems.length, nonStoryItems.length);
+    for (let index = 0; index < itemCount; index += 1) {
+      if (storyItems[index]) separatedItems.push(storyItems[index]);
+      if (nonStoryItems[index]) {
+        separatedItems.push(nonStoryItems[index]);
+      } else {
+        separatedItems.push(nonStoryItems[index % nonStoryItems.length]);
+      }
+    }
+
+    return separatedItems;
+  }, [activeStories, blueprints, getKitImage, getKitStocks, getTimestamp, isAdmin, isAdminView, isAvailableStock, isOnhandStock, isPreOrderStock, kits]);
 
   // Open a story directly when a highlight tile is selected in the homepage grid.
   useEffect(() => {
