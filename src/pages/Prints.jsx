@@ -255,7 +255,7 @@ export default function Prints() {
         { id: 'printing-rates', label: 'Printing Rates', icon: HandCoins, tone: 'border-rose-500/20 bg-rose-500/10 text-rose-600 hover:bg-rose-500/20', onClick: () => setShowRatesModal(true) }
       ]
     : [
-        { id: 'estimate', label: 'Estimate', icon: Calculator, tone: 'border-blue-500/20 bg-blue-500/10 text-blue-600 hover:bg-blue-500/20', onClick: enterEstimating }
+        { id: 'estimate', label: 'Estimate', icon: Calculator, tone: 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700', onClick: enterEstimating }
       ];
 
   const renderHeaderActions = () => headerActions.map(({ id, label, icon, tone, onClick }) => (
@@ -270,7 +270,7 @@ export default function Prints() {
       aria-label={label}
       title={label}
     >
-      {React.createElement(icon, { size: 16, strokeWidth: 2.5 })}
+      {React.createElement(icon, { size: 20, strokeWidth: 2 })}
     </button>
   ));
 
