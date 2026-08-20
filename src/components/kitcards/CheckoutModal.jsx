@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion'; // eslint-disable-line no-unused-vars
 import { 
-  X, ShoppingBag, Package, Clock, Download, CheckCircle2,
+  X, ShoppingBag, Package, Download, CheckCircle2,
   User, Phone, Home, Building2, Map, Hash, Navigation, MapPin,
   ShieldCheck, Loader2, Settings, Info, Truck, Users, Sparkles,
   MapPinCheckInside, Store, CircleChevronLeft, ChevronDown, MapPinSearch, Eye, Upload
@@ -20,6 +20,13 @@ import DynamicShippingForm from './DynamicShippingForm';
 import PolicyModal from '../menu/PolicyModal';
 import { getIntegerFeeShare, getStockStandaloneSellPrice, isBundleOrClearanceItem } from '../../utils/standalonePricing';
 import { distributeRoundedBundlePrices, getClearanceBundlePricing, getDistributedFeeShare } from '../../utils/bundlePricing';
+import {
+  formatAvailabilityDate,
+  getNextAvailableDate,
+  getUnavailableDateSet,
+  getUnavailableWeekdaySet,
+  toDateKey
+} from '../../utils/availabilitySchedule';
 
 // --- LEAFLET CSS & ICON FIX ---
 import 'leaflet/dist/leaflet.css';
@@ -520,19 +527,6 @@ const checkUsesMeetupLocation = (method, methodConfig, subKey) => {
   return false;
 };
 
-const checkHasSchedule = (method, methodConfig, subKey) => {
-  if (method === 'Self-Pickup' || method === 'Seller Meetup') return true;
-  if (method === 'Lalamove' && subKey === 'self') return true;
-  if (!methodConfig || typeof methodConfig !== 'object') return false;
-  const rk = resolveSuboptionKey(methodConfig, subKey);
-  if (methodConfig.hasSuboptions && rk && methodConfig.suboptions?.[rk]) {
-    const sub = methodConfig.suboptions[rk];
-    if (sub.hasSchedule) return true;
-  }
-  if (methodConfig.hasSchedule) return true;
-  return false;
-};
-
 // Kuhanin ang required fields mula sa Firestore config — walang hardcoded defaults
 // Ginagamit ang resolveSuboptionKey para ma-resolve ang shorthand keys (e.g. 'cop' → 'cash-on-pickup')
 const getRequiredFields = (methodConfig, subKey = null) => {
@@ -647,9 +641,23 @@ const getPaymentMethodConfig = (methods = {}, method = '') => {
   };
 };
 
+const ensureStreetSuffix = (street) => {
+  if (!street) return '';
+  const hasSuffix = /\b(St\.?|Street|Ave\.?|Avenue|Rd\.?|Road|Blvd\.?|Boulevard|Lane|Ln\.?|Dr\.?|Drive|Ct\.?|Court)\b/i.test(street);
+  return hasSuffix ? street : `${street} St.`;
+};
+
+const appendStreetSuffix = (address, street, formattedStreet) => {
+  if (!address || !street || !formattedStreet || formattedStreet === street) return address;
+  const startIndex = address.toLowerCase().indexOf(String(street).toLowerCase());
+  if (startIndex === -1) return address;
+  return `${address.slice(0, startIndex)}${formattedStreet}${address.slice(startIndex + street.length)}`;
+};
+
 const formatPlaceAddress = (place = {}) => {
-  if (place.address) return place.address;
-  const streetLine = [place.houseNo, place.houseDetails || place.street].filter(Boolean).join(' ').trim();
+  const street = ensureStreetSuffix(place.houseDetails || place.street);
+  if (place.address) return appendStreetSuffix(place.address, place.houseDetails || place.street, street);
+  const streetLine = [place.houseNo, street].filter(Boolean).join(' ').trim();
   return [
     place.address || place.vagueAddress,
     streetLine,
@@ -662,10 +670,16 @@ const formatPlaceAddress = (place = {}) => {
 };
 
 const formatPlaceAddressWithoutHouseNo = (place = {}) => {
-  if (place.publicAddress) return place.publicAddress;
+  const street = ensureStreetSuffix(place.houseDetails || place.street);
+  if (place.publicAddress) return appendStreetSuffix(place.publicAddress, place.houseDetails || place.street, street);
+  let savedAddress = place.address || place.vagueAddress || '';
+  const houseNo = String(place.houseNo || '').trim();
+  if (houseNo && savedAddress.toLowerCase().startsWith(houseNo.toLowerCase())) {
+    savedAddress = savedAddress.slice(houseNo.length).replace(/^[,\s]+/, '');
+  }
   return [
-    place.address || place.vagueAddress,
-    place.houseDetails || place.street,
+    savedAddress,
+    street,
     place.subdivision,
     place.barangay,
     place.city,
@@ -937,36 +951,6 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   const [agreedToPolicy, setAgreedToPolicy] = useState(false);
   const [isPaymentPolicyOpen, setIsPaymentPolicyOpen] = useState(false);
   
-  const getMinTime = useCallback((startHour, endHour) => {
-    const now = new Date();
-    let minTime = new Date(now.getTime() + 30 * 60000);
-    const currentMinutes = minTime.getHours() * 60 + minTime.getMinutes();
-    
-    if (currentMinutes < startHour * 60) {
-      minTime.setHours(startHour, 0, 0, 0);
-    } else if (currentMinutes > endHour * 60) {
-      minTime.setDate(minTime.getDate() + 1);
-      minTime.setHours(startHour, 0, 0, 0);
-    }
-    
-    const tzoffset = (new Date()).getTimezoneOffset() * 60000;
-    return (new Date(minTime - tzoffset)).toISOString().slice(0, 16);
-  }, []);
-
-  const handleScheduleChange = (val, startHour, endHour, field) => {
-    if (!val) return;
-
-    const selected = new Date(val);
-    const minAllowedTimeISO = getMinTime(startHour, endHour); 
-    const minAllowed = new Date(minAllowedTimeISO);
-
-    if (selected < minAllowed) {
-      updateCheckoutData(prev => ({ ...prev, [field]: minAllowedTimeISO }));
-    } else {
-      updateCheckoutData(prev => ({ ...prev, [field]: val }));
-    }
-  };
-
   const [checkoutData, setCheckoutData] = useState({
     shippingMethod: '', 
     lbcType: '', 
@@ -975,11 +959,8 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     spxType: '',
     meetupLocation: '',
     meetupLocationIndex: null,
-    meetupSchedule: '',
     pickupLocation: '',
     pickupLocationIndex: null,
-    pickupSchedule: '',
-    lalamoveSchedule: '',
     paymentPlan: '', 
     paymentMethod: '',
     initialPayment: 0
@@ -1144,7 +1125,12 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   const pickupPoints = useMemo(() => {
     const rawPickup = storeAdmin?.pickupDetails?.['pickup-point'];
     if (!rawPickup) return [];
-    return (rawPickup.places || (rawPickup.landmark ? [rawPickup] : [])).filter(p => p.isActive !== false);
+    return (rawPickup.places || (rawPickup.landmark ? [rawPickup] : []))
+      .filter(p => p.isActive !== false)
+      .map(p => ({
+        ...p,
+        pickupAddressMode: p.pickupAddressMode === 'actual-pin' ? 'actual-pin' : 'rate-checking'
+      }));
   }, [storeAdmin]);
 
   const usesPickupPoint = useMemo(() => {
@@ -1271,6 +1257,29 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   const hasProjects = useMemo(() => {
     return checkoutItems.some(isProjectCheckoutItem);
   }, [checkoutItems]);
+
+  const availabilityNotice = useMemo(() => {
+    if (checkoutItems.length === 0) return '';
+
+    const scheduleType = hasProjects ? 'printing' : 'shipping';
+    const schedule = storeAdmin?.availabilitySchedule;
+    const unavailableDates = getUnavailableDateSet(schedule, scheduleType);
+    const unavailableWeekdays = getUnavailableWeekdaySet(schedule, scheduleType);
+    const todayDate = new Date();
+    const todayKey = toDateKey(todayDate);
+    const todayIsUnavailable = unavailableDates.has(todayKey)
+      || unavailableWeekdays.has(todayDate.getDay());
+    const blockedKey = todayIsUnavailable ? todayKey : '';
+
+    if (!blockedKey) return '';
+
+    const nextAvailableDate = getNextAvailableDate(schedule, scheduleType, new Date(`${blockedKey}T00:00:00`));
+    if (!nextAvailableDate) return '';
+    return {
+      warning: 'PLEASE EXPECT SHIPPING DELAY',
+      detail: `Next ${scheduleType} will be on ${formatAvailabilityDate(nextAvailableDate)}.`
+    };
+  }, [checkoutItems.length, hasProjects, storeAdmin?.availabilitySchedule]);
 
   const isCheckoutUnderMaintenance = useMemo(() => {
     if (!isMaintenance) return false;
@@ -1914,8 +1923,7 @@ const baseTotal = useMemo(() => {
     let pickupLocation = '';
     let pickupLocationIndex = null;
     if (hasPickup && pickupPoints.length > 0) {
-      const firstPublicIdx = pickupPoints.findIndex(p => !p.houseNo);
-      const targetIdx = firstPublicIdx !== -1 ? firstPublicIdx : 0;
+      const targetIdx = 0;
       pickupLocation = getCheckoutPlaceLabel(pickupPoints[targetIdx], `Pickup Point ${targetIdx + 1}`);
       pickupLocationIndex = targetIdx;
     }
@@ -1936,10 +1944,7 @@ const baseTotal = useMemo(() => {
       pickupLocation,
       pickupLocationIndex,
       meetupLocation,
-      meetupLocationIndex,
-      meetupSchedule: '',
-      pickupSchedule: '',
-      shippingSchedule: ''
+      meetupLocationIndex
     };
   }, [enabledShippingMethods, getBestSuboptionKey, storeAdmin, checkoutItems, isMethodFreeShipping, pickupPoints]);
 
@@ -2411,8 +2416,13 @@ const handleFinalizeOrder = async () => {
         meetupLocation: usesMeetupLocation ? (checkoutData.meetupLocation || null) : null,
         pickupLocation: usesPickupPoint ? (checkoutData.pickupLocation || null) : null,
         pickupDetails: selectedLocalPlaceDetails ? (() => {
-          // Hanapin ang paired pickup point na may house no. para sa exact pickup address.
-          const exactPlace = pickupPoints.find(p => p.isActive !== false && p.houseNo);
+          // Use the selected pickup point for the exact address when available.
+          // The fallback keeps older paired public/exact pickup-point data working.
+          const exactPlace = selectedLocalPlaceDetails.houseNo
+            ? selectedLocalPlaceDetails
+            : pickupPoints.find(p => p.isActive !== false && p.houseNo && (
+              !selectedLocalPlaceDetails.landmark || p.landmark === selectedLocalPlaceDetails.landmark
+            ));
           const rawAddress = formatPlaceAddress(selectedLocalPlaceDetails) || '';
           const rawPublic = formatPlaceAddressWithoutHouseNo(selectedLocalPlaceDetails) || '';
           const rawExact = exactPlace ? formatPlaceAddress(exactPlace) : '';
@@ -2422,19 +2432,13 @@ const handleFinalizeOrder = async () => {
             address: cleanAddressLandmark(rawAddress, landmark),
             publicAddress: cleanAddressLandmark(rawPublic, landmark),
             exactAddress: cleanAddressLandmark(rawExact, exactPlace?.landmark || landmark),
+            pickupAddressMode: selectedLocalPlaceDetails.pickupAddressMode === 'actual-pin' ? 'actual-pin' : 'rate-checking',
             lat: selectedLocalPlaceDetails.lat || null,
             lng: selectedLocalPlaceDetails.lng || null,
             exactLat: exactPlace?.lat || selectedLocalPlaceDetails.lat || null,
             exactLng: exactPlace?.lng || selectedLocalPlaceDetails.lng || null
           };
         })() : null,
-        preferredSchedule: checkoutData.shippingMethod === 'Seller Meetup' 
-          ? (checkoutData.meetupSchedule || null)
-          : checkoutData.shippingMethod === 'Self-Pickup' 
-            ? (checkoutData.pickupSchedule || null)
-            : checkHasSchedule(checkoutData.shippingMethod, storeAdmin?.shippingMethods?.[checkoutData.shippingMethod], getSelectedShippingSubKey(checkoutData, storeAdmin?.shippingMethods))
-              ? (checkoutData.shippingSchedule || null)
-              : null,
         buyerRole: isAdmin ? 'admin' : 'customer',
         receiverDetails: isNoDetailsMode ? null : isLocalPlaceMethod ? {
             receiverName: deliveryData.receiverName || '',
@@ -2892,8 +2896,9 @@ const handleFinalizeOrder = async () => {
           })
       : [];
     const showLocationSelect = usesPickupPoint || usesMeetupLocation;
-    // Para sa lahat ng courier na gumagamit ng pickup points, itago ang mga may house no. para sa privacy ng admin.
-    const filteredPickupPoints = pickupPoints.filter(p => !p.houseNo);
+    // Pickup points always remain selectable in checkout. Their public address
+    // is rendered without the house number; the exact pin is handled after pickup readiness.
+    const filteredPickupPoints = pickupPoints;
     const locationOptions = usesMeetupLocation
       ? (storeAdmin?.pickupDetails?.meetup?.places || []).filter(p => p.isActive !== false)
       : filteredPickupPoints;
@@ -2947,8 +2952,7 @@ const handleFinalizeOrder = async () => {
       const subConfig = activeMethodConfig?.suboptions?.[subKey] || {};
       const hasPickup = checkUsesPickupPoint(checkoutData.shippingMethod, activeMethodConfig, subKey);
       const hasMeetup = checkUsesMeetupLocation(checkoutData.shippingMethod, activeMethodConfig, subKey);
-      const firstPublicIdx = pickupPoints.findIndex(p => !p.houseNo);
-      const targetIdx = firstPublicIdx !== -1 ? firstPublicIdx : 0;
+      const targetIdx = 0;
       const pickupLoc = hasPickup && pickupPoints.length > 0 ? getCheckoutPlaceLabel(pickupPoints[targetIdx], `Pickup Point ${targetIdx + 1}`) : '';
       const meetupPlaces = (storeAdmin?.pickupDetails?.meetup?.places || []).filter(p => p.isActive !== false);
       const meetupLoc = hasMeetup && meetupPlaces.length > 0 ? getCheckoutPlaceLabel(meetupPlaces[0], 'Meetup Place 1') : '';
@@ -3401,6 +3405,12 @@ const handleFinalizeOrder = async () => {
                 >
                   {isFinalizing ? 'Reserving...' : isGuestLoginRequired ? <><FcGoogle size={16} />Login with Google</> : isPaymentUnavailable ? 'Payment Unavailable' : 'Pay Now'}
                 </button>
+                {availabilityNotice && (
+                  <div className="space-y-0.5 text-center text-[10px] font-black uppercase tracking-widest text-amber-200">
+                    <p>{availabilityNotice.warning}</p>
+                    <p className="text-[9px] text-white/75">{availabilityNotice.detail}</p>
+                  </div>
+                )}
                 {hasIncompleteRequiredDetails && (
                   <p className="text-center text-[11px] font-black uppercase tracking-widest text-white/70">Details Incomplete</p>
                 )}
@@ -3794,7 +3804,7 @@ const handleFinalizeOrder = async () => {
                                       {getCheckoutPlaceAddress(selectedPickupDetails) || 'Pickup Point'}
                                     </p>
                                     <p className="text-[9px] font-black uppercase text-amber-600 dark:text-amber-500 leading-tight ml-6 mt-1 animate-in fade-in duration-300">
-                                      * Complete pin and address will be available once payment receipt is validated.
+                                      * Actual pin and complete address will be available once payment is validated and the order is ready for pickup.
                                     </p>
                                   </div>
                                 </div>
@@ -3830,7 +3840,7 @@ const handleFinalizeOrder = async () => {
                                       {getCheckoutPlaceAddress(selectedPickupDetails)}
                                     </p>
                                     <p className="text-[9px] font-black uppercase text-amber-600 dark:text-amber-500 leading-tight ml-6 mt-1 animate-in fade-in duration-300">
-                                      * Complete pin and address will be available once payment receipt is validated.
+                                      * Actual pin and complete address will be available once payment is validated and the order is ready for pickup.
                                     </p>
                                     </>
                                   )}
@@ -3889,55 +3899,6 @@ const handleFinalizeOrder = async () => {
                                 </div>
                               </div>
                             )}
-                            {/* Dynamic schedule picker — sumusunod sa hasSchedule config ng method/suboption */}
-                            {(() => {
-                              const m = checkoutData.shippingMethod;
-                              const methodCfg = storeAdmin?.shippingMethods?.[m];
-                              const currentSubKey = getSelectedShippingSubKey(checkoutData, storeAdmin?.shippingMethods);
-                              const showSchedule = checkHasSchedule(m, methodCfg, currentSubKey);
-                              if (!showSchedule) return null;
-
-                              if (usesPickupPoint || usesMeetupLocation) {
-                                return (
-                                  <div className="p-4 rounded-2xl bg-blue-500/5 dark:bg-blue-500/10 border border-blue-600/10 space-y-2 pt-2 border-t border-black/5 dark:border-white/5 text-left animate-in fade-in duration-300">
-                                    <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
-                                      <Info size={14} />
-                                      <p className="text-[11px] font-black uppercase italic">Pickup / Meetup Notice</p>
-                                    </div>
-                                    <p className="text-[11px] font-bold text-neutral-800 dark:text-neutral-200 leading-relaxed">
-                                      You will be notified when your order is ready for pickup.
-                                    </p>
-                                  </div>
-                                );
-                              }
-
-                              // Determine schedule field, label, and hours based on method
-                              let schedField = 'shippingSchedule';
-                              let schedLabel = 'Preferred Schedule';
-                              let startHour = 10;
-                              let endHour = 21;
-                              if (m === 'Seller Meetup') { schedField = 'meetupSchedule'; schedLabel = 'Preferred Meetup Schedule'; endHour = 19; }
-                              else if (m === 'Self-Pickup') { schedField = 'pickupSchedule'; schedLabel = 'Preferred Pickup Schedule'; }
-                              else if (m === 'Lalamove' && checkoutData.lalamoveType === 'Self-Booking') { schedField = 'lalamoveSchedule'; schedLabel = 'Preferred Lalamove Schedule'; }
-                              return (
-                                <div className="space-y-2 pt-2 border-t border-black/5 dark:border-white/5">
-                                  <p className="text-[8px] font-black uppercase opacity-30 tracking-[0.2em]">{schedLabel}</p>
-                                  <div className="relative group">
-                                      <Clock className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-600 transition-transform group-focus-within:scale-110" size={16} />
-                                      <motion.input 
-                                        whileTap={{ scale: 0.99 }}
-                                        whileFocus={{ scale: 1.01 }}
-                                        transition={{ duration: 0.1 }}
-                                        type="datetime-local" 
-                                        value={checkoutData[schedField] || ''} 
-                                        min={getMinTime(startHour, endHour)} 
-                                        onChange={(e) => handleScheduleChange(e.target.value, startHour, endHour, schedField)} 
-                                        className="w-full pl-12 pr-4 py-3.5 rounded-2xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-600/50 bg-black/5 dark:bg-white/5 text-neutral-900 dark:text-white border border-transparent hover:border-blue-600/10 transition-all cursor-pointer" 
-                                      />
-                                  </div>
-                                </div>
-                              );
-                            })()}
                           </div>
                         ) : (
                           <>
@@ -3985,7 +3946,7 @@ const handleFinalizeOrder = async () => {
                                       )}
                                       {checkoutData.shippingMethod !== 'Seller Meetup' && (
                                         <p className="text-[9px] font-black uppercase text-amber-600 dark:text-amber-500 leading-tight ml-6 mt-1">
-                                          * Complete pin and address will be available once payment receipt is validated.
+                                          * Actual pin and complete address will be available once payment is validated and the order is ready for pickup.
                                         </p>
                                       )}
                                     </div>
@@ -4422,6 +4383,12 @@ const handleFinalizeOrder = async () => {
                               'Pay Now'
                             )}
                           </motion.button>
+                          {availabilityNotice && (
+                            <div className="space-y-0.5 text-center text-[10px] font-black uppercase tracking-widest text-amber-200">
+                              <p>{availabilityNotice.warning}</p>
+                              <p className="text-[9px] text-white/75">{availabilityNotice.detail}</p>
+                            </div>
+                          )}
                           {hasIncompleteRequiredDetails && (
                             <p className="text-center text-[10px] font-black uppercase tracking-widest text-white/70">Details Incomplete</p>
                           )}

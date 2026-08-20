@@ -200,6 +200,16 @@ export default function ProjectCard({
   const fileLinkHasValue = fileLink.trim().length > 0;
   const fileLinkIsValid = isValidGdriveLink(fileLink);
 
+  const isUnnamedProjectName = (value, defaultTitle = '') => {
+    const normalized = String(value || '').trim().toLowerCase();
+    const normalizedDefaultTitle = String(defaultTitle || '').trim().toLowerCase();
+    return !normalized
+      || normalized === 'unnamed project'
+      || (normalizedDefaultTitle && normalized === normalizedDefaultTitle)
+      || /^project\s*#\s*\d+$/.test(normalized);
+  };
+  const projectNameNeedsUpdate = isVault && isUnnamedProjectName(projectNameLocal, fallbackTitle);
+
   const handleFileLinkSave = async (newLink) => {
     setFileLink(newLink);
     // Reset license when link is cleared
@@ -222,9 +232,16 @@ export default function ProjectCard({
     }
   };
 
-  // Gate basket for vault: if valid GDrive link exists, always require license acknowledgment; if no valid link, allow if design service is selected (and not 3MF)
-  const vaultReadyForBasket = !isVault || (fileLinkIsValid ? licenseAcknowledged : (!!selectedDesignService && !is3MF));
-  const vaultReadyForOrder = !isVault || (fileLinkIsValid && licenseAcknowledged);
+  // Gate vault checkout on a custom project name in addition to the file/license or design-service requirements.
+  const vaultReadyForBasket = !isVault || (
+    !projectNameNeedsUpdate
+    && (fileLinkIsValid ? licenseAcknowledged : (!!selectedDesignService && !is3MF))
+  );
+  const vaultReadyForOrder = !isVault || (
+    !projectNameNeedsUpdate
+    && fileLinkIsValid
+    && licenseAcknowledged
+  );
 
   const { handlingFee, installmentFee, transferFee } = useMemo(() => ({
     handlingFee: Number(shippingSettings?.paymentSettings?.handlingFee || 0),
@@ -300,10 +317,6 @@ export default function ProjectCard({
 
   const isBlueprint = type === 'blueprint';
   const canAddToBasket = project?.canAddToBasket !== false;
-  const isUnnamedProjectName = (value) => {
-    const normalized = String(value || '').trim().toLowerCase();
-    return !normalized || normalized === 'unnamed project';
-  };
   
   const handleToggleProduction = async (e) => {
     e.stopPropagation();
@@ -715,12 +728,12 @@ export default function ProjectCard({
                             ? 'bg-gradient-to-br from-amber-500 to-orange-500 shadow-amber-500/40 text-white hover:scale-110'
                             : 'bg-gradient-to-br from-blue-500 to-blue-600 shadow-blue-500/40 text-white hover:scale-110'
                         }`}
-                        title={!canAddToBasket ? 'Public view only' : isVault && !vaultReadyForBasket ? 'File link required' : 'Add to Basket'}
+                        title={!canAddToBasket ? 'Public view only' : isVault && !vaultReadyForBasket ? (projectNameNeedsUpdate ? 'Custom project name required' : 'File link or 3D service required') : 'Add to Basket'}
                     >
                         {!canAddToBasket ? (
                         <Lock size={13} strokeWidth={3} />
                         ) : isVault && !vaultReadyForBasket ? (
-                        <FileText size={13} strokeWidth={3} />
+                        projectNameNeedsUpdate ? <Pencil size={13} strokeWidth={3} /> : <FileText size={13} strokeWidth={3} />
                         ) : (
                         <Plus size={16} strokeWidth={3} />
                         )}
@@ -749,7 +762,11 @@ export default function ProjectCard({
               {/* Gallery or Calendar Column (Hidden in portrait) */}
               {isVault ? (
                 <div className="hidden sm:landscape:flex sm:landscape:h-full sm:landscape:w-5/12 sm:landscape:flex-1 shrink-0 bg-neutral-100 dark:bg-neutral-900 border-b sm:landscape:border-b-0 sm:landscape:border-r border-black/5 dark:border-white/5 overflow-y-auto">
-                  <GarageCalendar project={{ ...project, selectedDesignService }} />
+                  <GarageCalendar
+                    project={{ ...project, selectedDesignService }}
+                    availabilitySchedule={shippingSettings?.availabilitySchedule}
+                    scheduleType="printing"
+                  />
                 </div>
               ) : (
                 <Gallery 
@@ -769,7 +786,11 @@ export default function ProjectCard({
                   <div className="w-full overflow-hidden block sm:landscape:hidden">
                     {isVault ? (
                       <div className="w-full bg-neutral-100 dark:bg-neutral-900 border-b border-black/5 dark:border-white/5">
-                        <GarageCalendar project={{ ...project, selectedDesignService }} />
+                        <GarageCalendar
+                          project={{ ...project, selectedDesignService }}
+                          availabilitySchedule={shippingSettings?.availabilitySchedule}
+                          scheduleType="printing"
+                        />
                       </div>
                     ) : (
                       <Gallery 
@@ -805,7 +826,7 @@ export default function ProjectCard({
                                 }}
                                 onClick={(e) => e.stopPropagation()}
                                 placeholder="Rename Project"
-                                className="bg-transparent border-b border-dashed border-neutral-300 dark:border-white/20 focus:border-blue-500 focus:outline-none text-[20px] font-black uppercase italic leading-none w-full py-1 text-[var(--color-text-main)] placeholder:opacity-20 transition-colors"
+                                className={`bg-transparent border-b border-dashed focus:outline-none text-[20px] font-black uppercase italic leading-none w-full py-1 text-[var(--color-text-main)] placeholder:opacity-20 transition-colors ${projectNameNeedsUpdate ? 'border-red-400 focus:border-red-500' : 'border-neutral-300 dark:border-white/20 focus:border-blue-500'}`}
                                 autoFocus
                               />
                             ) : (
@@ -818,6 +839,11 @@ export default function ProjectCard({
                             )
                           ) : (
                             <h2 className="text-[20px] font-black uppercase italic leading-tight line-clamp-2 break-words">{displayProjectTitle}</h2>
+                          )}
+                          {isVault && projectNameNeedsUpdate && (
+                            <p className="mt-2 text-[11px] font-black uppercase leading-tight text-red-500">
+                              Rename this default project before checkout.
+                            </p>
                           )}
                         </div>
                       </div>

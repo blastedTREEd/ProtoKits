@@ -1167,6 +1167,17 @@ export default function Orders() {
   };
 
   const isReadyForPickupStatus = (status) => ['Ready for Pickup', 'Ready for Meetup'].includes(status);
+  const canShowExactPickupDetails = (order, paymentVerified) => {
+    if (isAdminMode) return true;
+    if (!paymentVerified) return false;
+
+    const flags = getShippingFlags(order);
+    if (!flags.usesPickupPoint) return true;
+
+    return order?.pickupDetails?.pickupAddressMode === 'actual-pin'
+      && order.status === 'Ready for Pickup';
+  };
+
   const getDisplayStatus = (order) => {
     if (!order) return '';
     const flags = getShippingFlags(order);
@@ -1234,7 +1245,7 @@ export default function Orders() {
     const addressParts = [rd.houseNo, rd.houseDetails, rd.subdivision, rd.barangay, rd.city, rd.province, rd.zipCode].filter(Boolean);
     // Admin always sees the exact pickup point. Customers only see it after all validated payments clear the balance.
     const paymentVerified = hasValidatedFirstReceipt(order) && calculateBalance(order) <= 0;
-    const showExactAddress = isAdminMode || paymentVerified;
+    const showExactAddress = canShowExactPickupDetails(order, paymentVerified);
     const rawPickupAddress = showExactAddress
       ? (order?.pickupDetails?.exactAddress || order?.pickupDetails?.publicAddress || order?.pickupLocation)
       : (order?.pickupDetails?.publicAddress || order?.pickupLocation);
@@ -1259,7 +1270,6 @@ export default function Orders() {
       phoneNumber: rd.phoneNumber || '',
       email: rd.email || order?.buyerEmail || '',
       display: location || 'No details',
-      schedule: order?.preferredSchedule || '',
       landmark: rd.landmark || '',
       lat: (showExactAddress ? order?.pickupDetails?.exactLat : null) || rd.lat || order?.pickupDetails?.lat || null,
       lng: (showExactAddress ? order?.pickupDetails?.exactLng : null) || rd.lng || order?.pickupDetails?.lng || null,
@@ -1404,7 +1414,7 @@ export default function Orders() {
         }];
 
     const detailPaymentVerified = selectedPaymentFullyValidated;
-    const detailShowExact = isAdminMode || detailPaymentVerified;
+    const detailShowExact = canShowExactPickupDetails(selectedOrder, detailPaymentVerified);
     const isPickupMap = selectedShippingFlags.isMeetup || selectedShippingFlags.isSelfPickup || selectedShippingFlags.usesPickupPoint;
     const pickupMapLat = detailShowExact
       ? (selectedOrder.pickupDetails?.exactLat || selectedOrder.pickupDetails?.lat)
@@ -1558,9 +1568,9 @@ export default function Orders() {
                   </span>
                 )}
               </span>
-              {!isAdminMode && (selectedShippingFlags.usesPickupPoint || selectedShippingFlags.usesMeetupLocation) && !selectedPaymentFullyValidated && (
+              {!isAdminMode && (selectedShippingFlags.usesPickupPoint || selectedShippingFlags.usesMeetupLocation) && !canShowExactPickupDetails(selectedOrder, selectedPaymentFullyValidated) && (
                 <span className="text-[13px] font-black uppercase text-amber-600 dark:text-amber-500 mt-1 leading-tight">
-                   * Complete pickup details will be available once all balances are cleared.
+                   * Actual pin and complete address will be available once payment is validated and the order is ready for pickup.
                 </span>
               )}
             </div>

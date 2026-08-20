@@ -12,12 +12,12 @@ import AddDealModal from '../components/kitcards/AddDealModal';
 import DealDetailsModal from '../components/kitcards/DealDetailsModal';
 import SupplierBalancesModal from '../components/kitcards/SupplierBalancesModal';
 import SalesDashboardModal from '../components/kitcards/SalesDashboardModal';
-import InventoryAuditModal from '../components/kitcards/InventoryAuditModal';
 import LoginPromptModal from '../components/menu/LoginPromptModal';
 import LoadingState from '../components/common/LoadingState';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
 import { distributeRoundedBundlePrices, getDistributedFeeShare, getClearanceBundlePricing, getHighestCostStock } from '../utils/bundlePricing';
 import { isOfferCheckoutActive } from '../utils/offerUtils';
+import { getDealGrabLabel } from '../utils/dealSavings';
 
 // --- Spectral gradient helpers (mirrored from ProductCard) ---
 const SPECTRAL_GRADIENTS = [
@@ -115,7 +115,7 @@ function getRouteKitStatus(kit, isAdmin, isAdminView) {
 export default function Kits({ isActive = true }) {
   const { 
     isAdmin, isAdminView, kits: storeKits, deals, 
-    isLoading, addKit, isInventoryAuditOpen, setInventoryAuditOpen,
+    isLoading, addKit, applyOnhandShipmentConditions,
     user, isAnonymousUser, userOffers, notifyList, subscribeNotifyList, setLoginModalOpen, addToBasket,
     shippingSettings
   } = useStore();
@@ -138,6 +138,7 @@ export default function Kits({ isActive = true }) {
   const [kitToEdit, setKitToEdit] = useState(null);
   const [isSupplierBalancesModalOpen, setIsSupplierBalancesModalOpen] = useState(false);
   const [isSalesDashboardModalOpen, setIsSalesDashboardModalOpen] = useState(false);
+  const [isApplyingShipmentConditions, setIsApplyingShipmentConditions] = useState(false);
   const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
   const [itemsForCheckout, setItemsForCheckout] = useState([]); 
   const [isAdminToolsOpen, setIsAdminToolsOpen] = useState(false);
@@ -183,12 +184,11 @@ export default function Kits({ isActive = true }) {
       setItemsForCheckout([]);
       setIsAdminToolsOpen(false);
       setIsSortOpen(false);
-      setInventoryAuditOpen(false);
       setLoginModalOpen(false);
     }, 0);
 
     return () => window.clearTimeout(cleanupTimer);
-  }, [isActive, setInventoryAuditOpen, setLoginModalOpen]);
+  }, [isActive, setLoginModalOpen]);
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -990,7 +990,29 @@ export default function Kits({ isActive = true }) {
     { id: 'add-kit', label: 'Add Kit', icon: Plus, tone: 'border-blue-500/20 bg-blue-500/10 text-blue-600 hover:bg-blue-500/20', onClick: () => setIsAddKitModalOpen(true) },
     { id: 'new-deal', label: 'New Deal', icon: Gift, tone: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20', onClick: () => setIsAddDealModalOpen(true) },
     { id: 'balances', label: 'Balances', icon: Wallet, tone: 'border-amber-500/20 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20', onClick: () => setIsSupplierBalancesModalOpen(true) },
-    { id: 'sales', label: 'Sales', icon: TrendingUp, tone: 'border-indigo-500/20 bg-indigo-500/10 text-indigo-600 hover:bg-indigo-500/20', onClick: () => setIsSalesDashboardModalOpen(true) }
+    { id: 'sales', label: 'Sales', icon: TrendingUp, tone: 'border-indigo-500/20 bg-indigo-500/10 text-indigo-600 hover:bg-indigo-500/20', onClick: () => setIsSalesDashboardModalOpen(true) },
+    {
+      id: 'shipment-conditions',
+      label: 'Fix Shipment Conditions',
+      icon: Sparkles,
+      tone: 'border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-600 hover:bg-fuchsia-500/20',
+      onClick: async () => {
+        if (isApplyingShipmentConditions) return;
+        const confirmed = window.confirm('Update matching on-hand Bandai and Premium Bandai stock conditions?');
+        if (!confirmed) return;
+
+        setIsApplyingShipmentConditions(true);
+        try {
+          const updatedCount = await applyOnhandShipmentConditions();
+          alert(`Updated ${updatedCount} stock record${updatedCount === 1 ? '' : 's'}.`);
+        } catch (error) {
+          console.error('Shipment condition update failed:', error);
+          alert('Unable to update shipment conditions. Check the console for details.');
+        } finally {
+          setIsApplyingShipmentConditions(false);
+        }
+      }
+    }
   ];
 
   const renderAdminToolButtons = () => adminToolActions.map(({ id, label, icon, tone, onClick }) => (
@@ -1070,7 +1092,7 @@ export default function Kits({ isActive = true }) {
             <div className="mt-auto min-w-0 min-h-[50px] flex flex-col justify-end">
               <div className="flex items-center justify-between gap-2 min-w-0 w-full pb-1">
                 <div className="flex flex-col items-start pb-1 min-w-0 flex-1 text-left">
-                  <span className={`text-[13px] md:text-[15px] lg:text-[13px] font-black uppercase tracking-tighter truncate w-full block ${(isAdmin && isAdminView) ? 'text-blue-500 dark:text-blue-400' : 'text-emerald-500 dark:text-emerald-400'}`}>{(isAdmin && isAdminView) ? 'EDIT DEAL' : 'GRAB DEAL!'}</span>
+                  <span className={`text-[13px] md:text-[15px] lg:text-[13px] font-black uppercase tracking-tighter truncate w-full block ${(isAdmin && isAdminView) ? 'text-blue-500 dark:text-blue-400' : 'text-emerald-500 dark:text-emerald-400'}`}>{(isAdmin && isAdminView) ? 'EDIT DEAL' : getDealGrabLabel(deal)}</span>
                   <div className="flex items-baseline gap-1 w-full min-w-0">
                     <span className="text-[13px] md:text-[15px] lg:text-[13px] font-black italic tracking-tighter leading-none text-amber-500 dark:text-amber-400">₱{(deal.bundlePrice || 0).toLocaleString()}</span>
                   </div>
@@ -1268,7 +1290,7 @@ export default function Kits({ isActive = true }) {
                           <div className="mt-auto min-w-0 min-h-[50px] flex flex-col justify-end">
                             <div className="flex items-center justify-between gap-2 min-w-0 w-full pb-1">
                                 <div className="flex flex-col items-start pb-1 min-w-0 flex-1 text-left">
-                                  <span className={`text-[13px] md:text-[15px] lg:text-[13px] font-black uppercase tracking-tighter truncate w-full block ${(isAdmin && isAdminView) ? 'text-blue-500 dark:text-blue-400' : 'text-emerald-500 dark:text-emerald-400'}`}>{(isAdmin && isAdminView) ? 'EDIT DEAL' : 'GRAB DEAL!'}</span>
+                                  <span className={`text-[13px] md:text-[15px] lg:text-[13px] font-black uppercase tracking-tighter truncate w-full block ${(isAdmin && isAdminView) ? 'text-blue-500 dark:text-blue-400' : 'text-emerald-500 dark:text-emerald-400'}`}>{(isAdmin && isAdminView) ? 'EDIT DEAL' : getDealGrabLabel(deal)}</span>
                                   <div className="flex items-baseline gap-1 w-full min-w-0">
                                      <span className="text-[13px] md:text-[15px] lg:text-[13px] font-black italic tracking-tighter leading-none text-amber-500 dark:text-amber-400">₱{(deal.bundlePrice || 0).toLocaleString()}</span>
                                   </div>
@@ -1529,7 +1551,6 @@ export default function Kits({ isActive = true }) {
           />
           <SupplierBalancesModal isOpen={isSupplierBalancesModalOpen} onClose={() => setIsSupplierBalancesModalOpen(false)} />
           <SalesDashboardModal isOpen={isSalesDashboardModalOpen} onClose={() => setIsSalesDashboardModalOpen(false)} />
-          <InventoryAuditModal isOpen={isInventoryAuditOpen} onClose={() => setInventoryAuditOpen(false)} />
           <LoginPromptModal isOpen={isLoginPromptOpen} onClose={() => setIsLoginPromptOpen(false)} onLogin={() => { setLoginModalOpen(true); setIsLoginPromptOpen(false); }} onContinue={() => { setIsLoginPromptOpen(false); openCheckoutPage(itemsForCheckout, true); }} continueLabel="Check Price & Shipping" />
 
       </div>

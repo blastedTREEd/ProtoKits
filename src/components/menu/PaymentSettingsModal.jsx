@@ -5,7 +5,7 @@ import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
 import PaymentOptions from './PaymentOptions';
 
-const PaymentSettingsModal = forwardRef(function PaymentSettingsModal({ isOpen, onClose, embedded = false, visible = true }, ref) {
+const PaymentSettingsModal = forwardRef(function PaymentSettingsModal({ isOpen, onClose, embedded = false, visible = true, onChangesChange = null }, ref) {
   const { isDarkMode } = useTheme();
   const { user, updateShippingSettings, publishCheckoutSettings, shippingSettings, deletePaymentMethods } = useStore();
   const scrollRef = useRef(null);
@@ -144,6 +144,35 @@ const PaymentSettingsModal = forwardRef(function PaymentSettingsModal({ isOpen, 
     getPaymentSavingsState(paymentSettings) !== getPaymentSavingsState(shippingSettings?.paymentSettings)
   );
 
+  const getPaymentComparisonState = (settings = {}) => JSON.stringify({
+    plans: settings.plans || {},
+    methods: cleanPaymentMethods(settings.methods || {}),
+    handlingFee: Number(settings.handlingFee ?? 0),
+    installmentFee: Number(settings.installmentFee ?? 0),
+    cashInFee: Number(settings.cashInFee ?? 0),
+    transferFee: Number(settings.transferFee ?? 0),
+    exclusiveDiscountPercent: Number(settings.exclusiveDiscountPercent ?? 100),
+    preOrderSettleDays: Number(settings.preOrderSettleDays ?? 10),
+    reservationSettleDays: Number(settings.reservationSettleDays ?? 10),
+    projectSettleDays: Number(settings.projectSettleDays ?? 10),
+    maintenanceMode: settings.maintenanceMode === true,
+    maintenanceInvalidTypes: {
+      kit: settings.maintenanceInvalidTypes?.kit !== false,
+      prints: settings.maintenanceInvalidTypes?.prints !== false
+    }
+  });
+
+  const hasPaymentChange = () => (
+    deletedMethods.length > 0
+    || getPaymentComparisonState(paymentSettings) !== getPaymentComparisonState(getInitialSettings(shippingSettings).paymentSettings)
+  );
+
+  useEffect(() => {
+    if (!onChangesChange) return;
+    onChangesChange(hasPaymentChange());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paymentSettings, deletedMethods, shippingSettings, onChangesChange]);
+
   const handleSave = async ({ skipSavingsConfirmation = false } = {}) => {
     if (!skipSavingsConfirmation && hasPaymentSavingsChange() && !window.confirm('This will change payment savings available to customers. Do you want to continue?')) {
       return false;
@@ -214,7 +243,11 @@ const PaymentSettingsModal = forwardRef(function PaymentSettingsModal({ isOpen, 
     }
   };
 
-  useImperativeHandle(ref, () => ({ save: handleSave, hasSavingsChange: hasPaymentSavingsChange }));
+  useImperativeHandle(ref, () => ({
+    save: handleSave,
+    hasChanges: hasPaymentChange,
+    hasSavingsChange: hasPaymentSavingsChange
+  }));
 
   const settingsContent = (
     <div
@@ -229,6 +262,7 @@ const PaymentSettingsModal = forwardRef(function PaymentSettingsModal({ isOpen, 
         handleSave={handleSave}
         deleteMethod={deleteMethod}
         showSave={!embedded}
+        hasChanges={hasPaymentChange()}
       />
     </div>
   );
@@ -275,7 +309,7 @@ const PaymentSettingsModal = forwardRef(function PaymentSettingsModal({ isOpen, 
                  <div className="p-2 rounded-xl bg-garage-blue/10 text-garage-blue">
                    <CreditCard size={20} />
                  </div>
-                 <h2 className="text-lg md:text-xl font-black italic uppercase text-garage-blue">Payment Options</h2>
+                 <h2 className="text-[15px] font-black italic uppercase text-garage-blue">Payment Options</h2>
                </div>
                <button onClick={onClose} className="p-3 rounded-full bg-black/5 hover:bg-red-500/10 transition-all mr-2"><X size={20} /></button>
             </div>

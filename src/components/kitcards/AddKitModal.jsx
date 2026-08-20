@@ -14,7 +14,6 @@ import {
   Image as ImageIcon,
   Loader2,
   PackagePlus,
-  PackageSearch,
   Save,
   Search,
   Tag,
@@ -25,7 +24,6 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useStore } from '../../store/useStore';
-import InventoryAuditModal from './InventoryAuditModal';
 import {
   PRE_ORDER_BOX_CONDITION,
   PRE_ORDER_KIT_CONDITION,
@@ -416,6 +414,35 @@ function normalizeConditionSuggestion(value) {
   return (value || '').trim().toUpperCase();
 }
 
+function parseMasterSearchQuery(query) {
+  const filters = { box: [], kit: [] };
+  const conditionPattern = /(?:^|\s)(box|kit)\s*:\s*(.*?)(?=\s+(?:box|kit)\s*:|$)/gi;
+  let match;
+
+  while ((match = conditionPattern.exec(query)) !== null) {
+    const type = match[1].toLowerCase();
+    const value = normalizeConditionSuggestion(match[2]);
+    if (value) filters[type].push(value);
+  }
+
+  return {
+    text: query.replace(conditionPattern, ' ').replace(/\s+/g, ' ').trim().toLowerCase(),
+    filters
+  };
+}
+
+function stockMatchesConditionFilters(stock, filters) {
+  const legacy = extractLegacyConditions(stock);
+  const conditions = {
+    box: normalizeConditionSuggestion(stock?.boxCondition || legacy.boxCondition),
+    kit: normalizeConditionSuggestion(stock?.kitCondition || legacy.kitCondition)
+  };
+
+  return Object.entries(filters).every(([type, values]) => (
+    values.every((value) => conditions[type].includes(value))
+  ));
+}
+
 function parseLocalDateTime(value) {
   if (!value) return null;
   const [datePart, timePart = '00:00'] = value.split('T');
@@ -698,7 +725,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
   const [batchPreviewRows, setBatchPreviewRows] = useState([]);
   const [batchFileName, setBatchFileName] = useState('');
   const [isMasterListView, setIsMasterListView] = useState(false);
-  const [isInventoryView, setIsInventoryView] = useState(false);
+  const [returnToMasterListOnSave, setReturnToMasterListOnSave] = useState(false);
   const [masterSearchQuery, setMasterSearchQuery] = useState('');
   const [selectedMasterIds, setSelectedMasterIds] = useState([]);
   const [bulkUpdateParam, setBulkUpdateParam] = useState('brand');
@@ -802,20 +829,28 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       });
   }, [selectedExistingKit]);
 
-  const conditionSuggestions = useMemo(() => {
-    const values = new Set();
+  const { box: boxConditionSuggestions, kit: kitConditionSuggestions } = useMemo(() => {
+    const boxValues = new Set();
+    const kitValues = new Set();
 
     (kits || []).forEach((kit) => {
       Object.values(kit?.stocks || {}).forEach((stock) => {
         const legacy = extractLegacyConditions(stock);
-        [stock?.boxCondition, stock?.kitCondition, legacy.boxCondition, legacy.kitCondition]
+        [stock?.boxCondition, legacy.boxCondition]
           .map(normalizeConditionSuggestion)
           .filter(Boolean)
-          .forEach((value) => values.add(value));
+          .forEach((value) => boxValues.add(value));
+        [stock?.kitCondition, legacy.kitCondition]
+          .map(normalizeConditionSuggestion)
+          .filter(Boolean)
+          .forEach((value) => kitValues.add(value));
       });
     });
 
-    return Array.from(values).sort((a, b) => a.localeCompare(b));
+    return {
+      box: Array.from(boxValues).sort((a, b) => a.localeCompare(b)),
+      kit: Array.from(kitValues).sort((a, b) => a.localeCompare(b)),
+    };
   }, [kits]);
 
   const masterSuggestions = useMemo(() => {
@@ -898,7 +933,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       setBatchPreviewRows([]);
       setBatchFileName('');
       setIsMasterListView(false);
-      setIsInventoryView(false);
+      setReturnToMasterListOnSave(false);
       return;
     }
 
@@ -1162,6 +1197,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       stockImages: []
     };
     setSelectedKitId(kit.id || '');
+    setReturnToMasterListOnSave(false);
     setEditingStockKey('');
     setStockMode('idle');
     setShowSearchResults(false);
@@ -1524,10 +1560,12 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       });
     }
 
+    let savedSuccessfully = false;
     try {
       console.log("SG DEBUG: Attempting to save kit payload:", payload);
       setIsSaving(true);
       const result = await onSave(payload);
+      savedSuccessfully = true;
       
       // Update Recent Edits
       const finalKitId = payload.id || result?.id;
@@ -1559,7 +1597,14 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       alert('Failed to save kit.');
     } finally {
       setIsSaving(false);
-      onClose();
+      if (savedSuccessfully) {
+        if (returnToMasterListOnSave) {
+          setReturnToMasterListOnSave(false);
+          setIsMasterListView(true);
+        } else {
+          onClose();
+        }
+      }
     }
   };
 
@@ -1786,10 +1831,10 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
   };
 
   const toggleSelectAllMasters = () => {
-    if (selectedMasterIds.length === masterListFiltered.length) {
+    if (selectedMasterIds.length === masterListSelectableIds.length) {
       setSelectedMasterIds([]);
     } else {
-      setSelectedMasterIds(masterListFiltered.map(k => k.id));
+      setSelectedMasterIds(masterListSelectableIds);
     }
   };
 
@@ -1814,13 +1859,44 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
   };
 
   const masterListFiltered = useMemo(() => {
-    const q = masterSearchQuery.trim().toLowerCase();
-    if (!q) return kits || [];
-    return (kits || []).filter(kit => {
-      const haystack = [kit.name, kit.brand, kit.series, kit.specs?.line].filter(Boolean).join(' ').toLowerCase();
-      return haystack.includes(q);
-    });
+    const { text: textQuery, filters: conditionFilters } = parseMasterSearchQuery(masterSearchQuery.trim());
+    const hasConditionFilters = Object.values(conditionFilters).some((values) => values.length > 0);
+    const filtered = !textQuery && !hasConditionFilters
+      ? (kits || [])
+      : (kits || []).filter(kit => {
+        const haystack = [kit.name, kit.brand, kit.series, kit.specs?.line, kit.specs?.scale]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        const matchesText = !textQuery || haystack.includes(textQuery);
+        const matchesConditions = !hasConditionFilters || Object.values(kit.stocks || {})
+          .some((stock) => stockMatchesConditionFilters(stock, conditionFilters));
+        return matchesText && matchesConditions;
+      });
+
+    return [...filtered].sort((a, b) => (
+      String(a?.name || '').localeCompare(String(b?.name || ''), undefined, { sensitivity: 'base' })
+      || String(a?.id || '').localeCompare(String(b?.id || ''))
+    ));
   }, [kits, masterSearchQuery]);
+
+  const masterListRows = useMemo(() => (
+    masterListFiltered.flatMap((kit) => {
+      const { filters: conditionFilters } = parseMasterSearchQuery(masterSearchQuery.trim());
+      const hasConditionFilters = Object.values(conditionFilters).some((values) => values.length > 0);
+      const stocks = Object.entries(kit.stocks || {})
+        .filter(([, stock]) => !hasConditionFilters || stockMatchesConditionFilters(stock, conditionFilters))
+        .map(([key, stock]) => ({ key, ...stock }))
+        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+      if (stocks.length === 0 && !hasConditionFilters) return [{ kit, stock: {}, stockKey: '', variantIndex: 0 }];
+      return stocks.map((stock, index) => ({ kit, stock, stockKey: stock.key, variantIndex: index }));
+    })
+  ), [masterListFiltered, masterSearchQuery]);
+
+  const masterListSelectableIds = useMemo(() => (
+    Array.from(new Set(masterListFiltered.map((kit) => kit.id)))
+  ), [masterListFiltered]);
 
   const estimatedSize = useMemo(() => {
     // Estimating the FINAL document size for Firestore (1MB limit)
@@ -1944,16 +2020,16 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                 {isMasterListView ? (
                   <div className="min-w-0 w-full max-w-[420px] text-left">
                     <div className="relative">
-                      <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 opacity-35" />
+                      <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2" />
                       <input
                         value={masterSearchQuery}
                         onChange={(e) => setMasterSearchQuery(e.target.value)}
-                        placeholder="Search by name, brand, or series..."
+                        placeholder="Search name, brand, series, BOX:PRISTINE, KIT:SEALED..."
                         className={`${inputClass} h-10 pl-10`}
                       />
                     </div>
-                    <p className="mt-1 text-[12px] font-bold opacity-55">
-                      {masterListFiltered.length} kits in database
+                    <p className="mt-1 text-[12px] font-bold">
+                      {masterListRows.length} stock entries / {masterListFiltered.length} kits
                     </p>
                   </div>
                 ) : (
@@ -1968,13 +2044,12 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
             <button
                 type="button"
                 onClick={() => {
-                  setIsInventoryView(false);
                   setIsMasterListView(!isMasterListView);
                 }}
                 className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2 text-[11px] font-black uppercase tracking-widest transition-all ${
                     isMasterListView 
                     ? 'border-blue-500 bg-blue-500 text-white shadow-lg shadow-blue-500/20' 
-                    : 'border-white/10 opacity-75 hover:border-blue-500 hover:text-blue-500'
+                    : 'border-white/10 hover:border-blue-500 hover:text-blue-500'
                 }`}
             >
                 <History size={14} />
@@ -1982,24 +2057,9 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
             </button>
             <button
                 type="button"
-                onClick={() => {
-                  setIsMasterListView(false);
-                  setIsInventoryView((current) => !current);
-                }}
-                className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2 text-[11px] font-black uppercase tracking-widest transition-all ${
-                    isInventoryView
-                    ? 'border-cyan-500 bg-cyan-500 text-white shadow-lg shadow-cyan-500/20'
-                    : 'border-white/10 opacity-75 hover:border-cyan-500 hover:text-cyan-500'
-                }`}
-            >
-                <PackageSearch size={14} />
-                Inventory
-            </button>
-            <button
-                type="button"
                 onClick={() => batchUploadRef.current?.click()}
                 disabled={isBatchUploading}
-                className="flex items-center justify-center gap-2 rounded-xl border border-white/10 px-4 py-2 text-[11px] font-black uppercase tracking-widest opacity-75 transition-all hover:border-emerald-500 hover:text-emerald-500 disabled:opacity-40"
+                className="flex items-center justify-center gap-2 rounded-xl border border-white/10 px-4 py-2 text-[11px] font-black uppercase tracking-widest transition-all hover:border-emerald-500 hover:text-emerald-500 disabled:opacity-40"
             >
                 {isBatchUploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
                 Batch
@@ -2023,7 +2083,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
             <button
                 type="button"
                 onClick={handleClose}
-                className="hidden md:block rounded-full p-2 opacity-50 transition-all hover:bg-white/10 hover:opacity-100"
+                className="hidden md:block rounded-full p-2 transition-all hover:bg-white/10"
             >
                 <X size={22} />
             </button>
@@ -2031,7 +2091,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
             </div>
 
             <div className="grid min-h-0 flex-1 gap-0 overflow-hidden">
-                <div className={`min-h-0 min-w-0 p-4 sm:p-6 lg:p-8 ${isMasterListView || isInventoryView ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+                <div className={`min-h-0 min-w-0 p-4 sm:p-6 lg:p-8 ${isMasterListView ? 'overflow-hidden' : 'overflow-y-auto'}`}>
                     {isMasterListView ? (
                         <section className="flex h-full min-h-0 flex-col gap-3">
                             {selectedMasterIds.length > 0 && (
@@ -2077,31 +2137,28 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                             )}
 
                             <div className="min-h-0 flex-1 overflow-auto rounded-2xl border border-white/10">
-                                <table className="min-w-full table-fixed border-collapse text-left text-[12px]">
+                                <table className="min-w-[980px] table-fixed border-collapse text-left text-[12px]">
                                     <colgroup>
                                         <col className="w-[4%]" />
                                         <col className="w-[8%]" />
                                         <col className="w-[25%]" />
-                                        <col className="w-[12%]" />
+                                        <col className="w-[20%]" />
                                         <col className="w-[11%]" />
-                                        <col className="w-[7%]" />
-                                        <col className="w-[7%]" />
-                                        <col className="w-[7%]" />
-                                        <col className="w-[7%]" />
-                                        <col className="w-[6%]" />
-                                        <col className="w-[6%]" />
+                                        <col className="w-[14%]" />
+                                        <col className="w-[14%]" />
+                                        <col className="w-[8%]" />
                                     </colgroup>
                                     <thead className="sticky top-0 z-10 bg-blue-600 text-white">
                                         <tr>
                                             <th className="px-4 py-3">
                                                 <input 
                                                     type="checkbox" 
-                                                    checked={selectedMasterIds.length > 0 && selectedMasterIds.length === masterListFiltered.length}
+                                                    checked={selectedMasterIds.length > 0 && selectedMasterIds.length === masterListSelectableIds.length}
                                                     onChange={toggleSelectAllMasters}
                                                     className="h-4 w-4 rounded border-white/20 bg-white/10 accent-blue-500"
                                                 />
                                             </th>
-                                            {['Photo', 'Kit Name', 'Brand', 'Series', 'Line', 'Scale', 'Cost', 'Sell', 'Variants', ''].map((header) => (
+                                            {['Photo', 'Kit Name', 'Brand · Series · Line · Scale', 'Cost / Sell', 'Stock', 'Box / Kit Condition', ''].map((header) => (
                                                 <th key={header} className="px-4 py-3 text-[12px] font-black uppercase tracking-[0.2em]">
                                                     {header}
                                                 </th>
@@ -2109,11 +2166,13 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-white/5">
-                                        {masterListFiltered.map((kit) => {
-                                            const stocks = Object.values(kit.stocks || {}).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-                                            const latestStock = stocks[0] || {};
-                                            const costPrice = latestStock.costPrice || kit.jpPrice || 0;
-                                            const sellPrice = latestStock.sellPrice || kit.phPrice || 0;
+                                        {masterListRows.map(({ kit, stock, stockKey, variantIndex }) => {
+                                            const legacy = extractLegacyConditions(stock);
+                                            const boxCondition = stock.boxCondition || legacy.boxCondition || '—';
+                                            const kitCondition = stock.kitCondition || legacy.kitCondition || '—';
+                                            const costPrice = stock.costPrice || kit.jpPrice || 0;
+                                            const sellPrice = stock.sellPrice || kit.phPrice || 0;
+                                            const isAdminShelfStock = stock.isReserved && stock.reservationType === 'admin';
 
                                             return (
                                                 <tr key={kit.id} className={`group transition-colors hover:bg-white/5 ${selectedMasterIds.includes(kit.id) ? 'bg-blue-600/10' : ''}`}>
@@ -2134,23 +2193,35 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                             <img src={resolveImage(kit.image, kit.images)} alt="" className="h-full w-full object-cover" />
                                                         </button>
                                                     </td>
-                                                    <td className="px-4 py-2 font-black uppercase">{kit.name}</td>
-                                                    <td className="px-4 py-2 font-bold opacity-60 uppercase">{kit.brand}</td>
-                                                    <td className="px-4 py-2 font-bold opacity-60 uppercase">{kit.series}</td>
-                                                    <td className="px-4 py-2 font-bold opacity-60 uppercase">{kit.specs?.line}</td>
-                                                    <td className="px-4 py-2 font-bold opacity-60">{kit.specs?.scale}</td>
-                                                    <td className="px-4 py-2 font-bold opacity-60">{Number(costPrice).toLocaleString()}</td>
-                                                    <td className="px-4 py-2 font-bold opacity-60 text-emerald-500">{Number(sellPrice).toLocaleString()}</td>
+                                                    <td className="px-4 py-2 align-top font-black uppercase">
+                                                        <div className="line-clamp-3 leading-snug" title={kit.name}>{kit.name || 'Unnamed kit'}</div>
+                                                    </td>
+                                                    <td className="px-4 py-2 align-top font-bold uppercase">
+                                                        <div>
+                                                            {[kit.brand, kit.series, kit.specs?.line, kit.specs?.scale]
+                                                              .map((value) => value || '—')
+                                                              .join(' / ')}
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-2 align-top font-bold uppercase">
+                                                        <div>
+                                                            {Number(costPrice).toLocaleString()} / <span className={isAdminShelfStock ? 'text-blue-500' : 'text-emerald-500'}>{Number(sellPrice).toLocaleString()}</span>
+                                                        </div>
+                                                    </td>
                                                     <td className="px-4 py-2">
-                                                        <span className="rounded-full bg-blue-500/20 px-2 py-0.5 text-[12px] font-black text-blue-400">
-                                                            {Object.keys(kit.stocks || {}).length}
-                                                        </span>
+                                                        <div className="font-black">V{variantIndex + 1} / {stock.status || 'Onhand'}</div>
+                                                        {stock.eta && <div className="mt-1 text-[10px] font-bold uppercase">{stock.eta}</div>}
+                                                        {stockKey && <div className="mt-1 break-all text-[9px] font-bold uppercase">{stockKey}</div>}
+                                                    </td>
+                                                    <td className="px-4 py-2 align-top text-[10px] font-bold uppercase">
+                                                        <div className="leading-snug">{boxCondition} / {kitCondition}</div>
                                                     </td>
                                                     <td className="px-4 py-2">
                                                         <button
                                                             type="button"
                                                             onClick={() => {
                                                                 applyKitToForm(kit);
+                                                                setReturnToMasterListOnSave(true);
                                                                 setIsMasterListView(false);
                                                             }}
                                                             className="rounded-lg bg-blue-600 px-3 py-1.5 text-[11px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/20 transition-all active:scale-95"
@@ -2165,12 +2236,6 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                 </table>
                             </div>
                         </section>
-                    ) : isInventoryView ? (
-                        <InventoryAuditModal
-                          isOpen
-                          embedded
-                          onClose={() => setIsInventoryView(false)}
-                        />
                     ) : (
                         <>
                             {batchPreviewRows.length > 0 && (
@@ -2949,12 +3014,12 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                               />
                                             </div>
                                             <datalist id="box-condition-suggestions">
-                                            {conditionSuggestions.map((condition) => (
+                                            {boxConditionSuggestions.map((condition) => (
                                                 <option key={`box-${condition}`} value={condition} />
                                             ))}
                                             </datalist>
                                             <datalist id="kit-condition-suggestions">
-                                            {conditionSuggestions.map((condition) => (
+                                            {kitConditionSuggestions.map((condition) => (
                                                 <option key={`kit-${condition}`} value={condition} />
                                             ))}
                                             </datalist>

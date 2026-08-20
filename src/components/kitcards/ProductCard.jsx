@@ -12,6 +12,7 @@ import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
 import { distributeRoundedBundlePrices, getDistributedFeeShare, getClearanceBundlePricing, getHighestCostStock } from '../../utils/bundlePricing';
 import { formatOfferCountdown, isOfferCheckoutActive } from '../../utils/offerUtils';
 import { getStockStandaloneSellPrice } from '../../utils/standalonePricing';
+import { getDealDiscountAmount, getDealGrabLabel, getDealSaveUpToLabel } from '../../utils/dealSavings';
 
 // Resolves an image ID to its URL from the images array.
 // Backward compatible: if the value is already a URL (base64 or http), returns it directly.
@@ -235,16 +236,6 @@ function getBundleKitPrice(deal, dealKit, allKits = [], fallbackExclusivePercent
   const target = pricedRows.find(row => row.kit.id === dealKit.id);
 
   return target ? target.finalPrice : null;
-}
-
-function getBundleSavedAmount(deal) {
-  if (!deal) return 0;
-  const storedDiscount = Number(deal.discountAmount);
-  if (Number.isFinite(storedDiscount) && storedDiscount > 0) return storedDiscount;
-
-  const totalSell = Number(deal.totalSell || 0);
-  const bundlePrice = Number(deal.bundlePrice || 0);
-  return Math.max(0, totalSell - bundlePrice);
 }
 
 function getConfiguredClearanceDiscount(deal, kitId) {
@@ -1735,7 +1726,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                   <div className="flex flex-col gap-0 pt-1 sm:pt-1.5">
                                     <p className={`${selectedBundleDealDetails?.deal ? 'text-[13px] md:text-[22px]' : 'text-[10px] md:text-[14px]'} font-black italic tracking-tighter leading-none whitespace-nowrap ${selectedBundleDealDetails?.deal ? 'text-emerald-600' : 'text-amber-600'}`}>
                                       {selectedBundleDealDetails?.deal
-                                        ? <>&#8369;{(selectedBundleDealDetails.isClearance ? modalClearanceDiscount : getBundleSavedAmount(activeBundleDeal)).toLocaleString()} OFF ELIGIBLE</>
+                                        ? <>&#8369;{(selectedBundleDealDetails.isClearance ? modalClearanceDiscount : getDealDiscountAmount(activeBundleDeal)).toLocaleString()} OFF ELIGIBLE</>
                                         : isLimitedTimeAcceptedOffer ? 'ACCEPTED OFFER' : 'LOWEST PRICE'}
                                     </p>
                                     <p className={`${selectedBundleDealDetails?.deal ? 'text-[10px] md:text-[14px]' : 'text-[13px] md:text-[22px]'} font-black italic tracking-tighter leading-tight line-through`}>
@@ -1784,7 +1775,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                   <div className="flex flex-col gap-0 pt-1.5">
                                     <p className={`${selectedBundleDealDetails?.deal ? 'text-[18px]' : 'text-[12px]'} font-black italic tracking-tighter leading-none whitespace-nowrap ${selectedBundleDealDetails?.deal ? 'text-emerald-600' : 'text-amber-600'}`}>
                                       {selectedBundleDealDetails?.deal
-                                        ? <>&#8369;{(selectedBundleDealDetails.isClearance ? modalClearanceDiscount : getBundleSavedAmount(activeBundleDeal)).toLocaleString()} OFF ELIGIBLE</>
+                                        ? <>&#8369;{(selectedBundleDealDetails.isClearance ? modalClearanceDiscount : getDealDiscountAmount(activeBundleDeal)).toLocaleString()} OFF ELIGIBLE</>
                                         : isLimitedTimeAcceptedOffer ? 'ACCEPTED OFFER' : 'LOWEST PRICE'}
                                     </p>
                                     <p className={`${selectedBundleDealDetails?.deal ? 'text-[12px]' : 'text-[18px]'} font-black italic tracking-tighter leading-none line-through`}>
@@ -1879,9 +1870,6 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                 ? getConfiguredClearanceDiscount(deal, clearanceDisplayKitId)
                                 : 0;
                               const clearanceDiscountShares = splitWholeAmount(clearanceDiscountTotal, 3);
-                              const collapsedDealPrice = deal.type === 'clearance'
-                                ? (clearanceDiscountTotal || Number(deal.bundlePrice || 0))
-                                : getBundleSavedAmount(deal);
                               return (
                               <div
                                 key={deal.id}
@@ -2013,12 +2001,12 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                     )}
                                     <div className="flex justify-end pt-2">
                                       <p className="text-[16px] font-black uppercase leading-none text-emerald-600">
-                                        Save up to &#8369;{(
-                                          getBundleSavedAmount(deal)
-                                          + (isAdminView
-                                            ? 0
-                                            : installmentFee * includedKits.length + handlingFee + transferFee)
-                                        ).toLocaleString()}
+                                        {getDealSaveUpToLabel(deal, {
+                                          installmentFee: isAdminView ? 0 : installmentFee,
+                                          handlingFee: isAdminView ? 0 : handlingFee,
+                                          transferFee: isAdminView ? 0 : transferFee,
+                                          kitCount: includedKits.length
+                                        })}
                                       </p>
                                     </div>
                                   </div>
@@ -2069,9 +2057,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                     </div>
                                     <div className="flex justify-end">
                                       <p className="text-[14px] font-black italic leading-none text-emerald-600">
-                                        {deal.type === 'clearance'
-                                          ? `GRAB ₱${collapsedDealPrice.toLocaleString()} DISCOUNT`
-                                          : `GRAB ₱${collapsedDealPrice.toLocaleString()} OFF`}
+                                        {getDealGrabLabel(deal)}
                                       </p>
                                     </div>
                                   </div>
@@ -2145,11 +2131,11 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                 <div className="flex items-center justify-center text-center text-[14px] font-black uppercase tracking-tight">
                                   {activeBundleDeal?.type === 'clearance' ? (
                                     <span className="text-emerald-600 whitespace-nowrap">
-                                      ₱{modalClearanceDiscount.toLocaleString()} OFF DEAL
+                                    {getDealGrabLabel(activeBundleDeal)}
                                     </span>
                                   ) : (
                                     <span className="text-emerald-500 whitespace-nowrap">
-                                      ₱{activeBundlePrice.toLocaleString()} BUNDLE DEAL
+                                      ₱{activeBundlePrice.toLocaleString()} BUNDLE
                                     </span>
                                   )}
                                 </div>

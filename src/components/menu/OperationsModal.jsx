@@ -1,20 +1,34 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion as Motion, useDragControls } from 'framer-motion';
-import { CreditCard, Save, Settings, Truck, X } from 'lucide-react';
+import { Calendar, CreditCard, Save, Settings, Truck, X } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import FulfillmentModal from './FulfillmentModal';
 import PaymentSettingsModal from './PaymentSettingsModal';
+import AdminCalendarModal from './AdminCalendarModal';
 
 export default function OperationsModal({ isOpen, onClose, initialTab = 'shipping' }) {
   const { isDarkMode } = useTheme();
   const [activeTab, setActiveTab] = useState(initialTab);
   const [isSaving, setIsSaving] = useState(false);
+  const [panelChanges, setPanelChanges] = useState({ shipping: false, payment: false });
   const dragControls = useDragControls();
   const shippingRef = useRef(null);
   const paymentRef = useRef(null);
+  const hasChanges = panelChanges.shipping || panelChanges.payment;
+
+  const handleShippingChanges = useCallback((changed) => {
+    setPanelChanges(prev => prev.shipping === changed ? prev : { ...prev, shipping: changed });
+  }, []);
+
+  const handlePaymentChanges = useCallback((changed) => {
+    setPanelChanges(prev => prev.payment === changed ? prev : { ...prev, payment: changed });
+  }, []);
 
   useEffect(() => {
-    if (isOpen) setActiveTab(initialTab);
+    if (isOpen) {
+      setActiveTab(initialTab);
+      setPanelChanges({ shipping: false, payment: false });
+    }
   }, [initialTab, isOpen]);
 
   useEffect(() => {
@@ -27,7 +41,7 @@ export default function OperationsModal({ isOpen, onClose, initialTab = 'shippin
   }, [isOpen]);
 
   const handleSave = async () => {
-    if (isSaving) return;
+    if (isSaving || !hasChanges) return;
 
     const savingsSources = [];
     if (shippingRef.current?.hasSavingsChange?.()) savingsSources.push('shipping');
@@ -56,7 +70,7 @@ export default function OperationsModal({ isOpen, onClose, initialTab = 'shippin
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[220] flex items-end justify-center overflow-hidden p-0 lg:items-center lg:p-4">
+        <div className="fixed inset-0 z-[400] flex items-end justify-center overflow-hidden p-0 lg:items-center lg:p-4">
           <Motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -79,7 +93,7 @@ export default function OperationsModal({ isOpen, onClose, initialTab = 'shippin
               if (info.offset.y > 80) onClose();
             }}
             style={{ touchAction: 'pan-y' }}
-            className={`relative flex h-[92vh] min-h-0 w-full flex-col overflow-hidden rounded-t-[2.5rem] shadow-2xl lg:h-[90vh] lg:max-h-[90vh] lg:max-w-5xl lg:rounded-[2.5rem] ${isDarkMode ? 'bg-neutral-900' : 'bg-white'}`}
+            className={`relative flex h-[92vh] min-h-0 w-full flex-col overflow-hidden rounded-t-[2.5rem] text-[13px] shadow-2xl lg:h-[90vh] lg:max-h-[90vh] lg:max-w-5xl lg:rounded-[2.5rem] ${isDarkMode ? 'bg-neutral-900' : 'bg-white'}`}
           >
             <div className="flex shrink-0 justify-center pb-2 pt-4 lg:hidden">
               <div
@@ -94,14 +108,14 @@ export default function OperationsModal({ isOpen, onClose, initialTab = 'shippin
                 <div className="rounded-xl bg-garage-blue/10 p-2 text-garage-blue">
                   <Settings size={20} />
                 </div>
-                <h2 className="truncate text-lg font-black italic uppercase text-garage-blue md:text-xl">Operations</h2>
+                <h2 className="truncate text-[15px] font-black italic uppercase text-garage-blue">Operations</h2>
               </div>
 
               <div className="flex shrink-0 items-center gap-2">
                 <button
                   onClick={handleSave}
-                  disabled={isSaving}
-                  className="flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-white transition-all hover:bg-emerald-500 disabled:cursor-wait disabled:opacity-60 md:px-4"
+                  disabled={isSaving || !hasChanges}
+                  className="flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-[13px] font-black uppercase tracking-widest text-white transition-all hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40 md:px-4"
                 >
                   <Save size={14} />
                   <span>{isSaving ? 'Saving' : 'Save'}</span>
@@ -115,15 +129,21 @@ export default function OperationsModal({ isOpen, onClose, initialTab = 'shippin
             <div className={`flex shrink-0 gap-2 border-b p-3 md:px-6 ${isDarkMode ? 'border-white/5 bg-white/[0.02]' : 'border-black/5 bg-black/[0.02]'}`}>
               <button
                 onClick={() => setActiveTab('shipping')}
-                className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-3 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'shipping' ? 'bg-garage-blue text-white shadow-lg shadow-blue-500/20' : 'opacity-50 hover:opacity-100'}`}
+                className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-3 text-[13px] font-black uppercase tracking-widest transition-all ${activeTab === 'shipping' ? 'bg-garage-blue text-white shadow-lg shadow-blue-500/20' : 'opacity-50 hover:opacity-100'}`}
               >
                 <Truck size={15} /> Shipping Options
               </button>
               <button
                 onClick={() => setActiveTab('payment')}
-                className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-3 text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'payment' ? 'bg-garage-blue text-white shadow-lg shadow-blue-500/20' : 'opacity-50 hover:opacity-100'}`}
+                className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-3 text-[13px] font-black uppercase tracking-widest transition-all ${activeTab === 'payment' ? 'bg-garage-blue text-white shadow-lg shadow-blue-500/20' : 'opacity-50 hover:opacity-100'}`}
               >
                 <CreditCard size={15} /> Payment Options
+              </button>
+              <button
+                onClick={() => setActiveTab('calendar')}
+                className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-3 text-[13px] font-black uppercase tracking-widest transition-all ${activeTab === 'calendar' ? 'bg-garage-blue text-white shadow-lg shadow-blue-500/20' : 'opacity-50 hover:opacity-100'}`}
+              >
+                <Calendar size={15} /> Garage Calendar
               </button>
             </div>
 
@@ -134,12 +154,20 @@ export default function OperationsModal({ isOpen, onClose, initialTab = 'shippin
                 embedded
                 visible={activeTab === 'shipping'}
                 onClose={() => {}}
+                onChangesChange={handleShippingChanges}
               />
               <PaymentSettingsModal
                 ref={paymentRef}
                 isOpen={isOpen}
                 embedded
                 visible={activeTab === 'payment'}
+                onClose={() => {}}
+                onChangesChange={handlePaymentChanges}
+              />
+              <AdminCalendarModal
+                isOpen={isOpen}
+                embedded
+                visible={activeTab === 'calendar'}
                 onClose={() => {}}
               />
             </div>

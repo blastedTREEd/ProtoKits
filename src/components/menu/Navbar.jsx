@@ -5,7 +5,7 @@ import { AnimatePresence, motion as Motion, useDragControls } from 'framer-motio
 import { 
   Sun, Moon, ShoppingBasket, Home, X, ShelvingUnit,
   CircleUserRound, Settings, LogOut, ContactRound,
-  Shield, ShieldCheck, Box, Printer, ClipboardList, UserPlus, PackageOpen, Truck, Bell, FileText
+  Shield, ShieldCheck, Box, Printer, ClipboardList, UserPlus, Truck, Bell, FileText
 } from 'lucide-react';
 import { FcGoogle } from 'react-icons/fc';
 import { FaFacebook } from 'react-icons/fa';
@@ -94,7 +94,6 @@ export default function Navbar({ isCompact: scrolledCompact }) {
     isLoginModalOpen,
     setLoginModalOpen,
     guestBasket,
-    setInventoryAuditOpen,
   } = useStore();
 
   const activeBasket = user ? ((isAdmin && isAdminView) ? shelf : basket) : guestBasket;
@@ -635,18 +634,6 @@ useEffect(() => {
   setIsProfileOpen(false);
 };
 
-useEffect(() => {
-  if (location.pathname !== '/kits' && useStore.getState().isInventoryAuditOpen) {
-    setInventoryAuditOpen(false);
-  }
-}, [location.pathname, setInventoryAuditOpen]);
-
-const handleInventoryAudit = () => {
-  setIsProfileOpen(false);
-  setInventoryAuditOpen(true);
-  if (location.pathname !== '/kits') navigate('/kits');
-};
-
 const handleOpenPolicies = () => {
   policyScrollCleanupRef.current?.();
   policyScrollCleanupRef.current = null;
@@ -739,7 +726,11 @@ const navbarAnchorTop = Number.isFinite(notificationAnchorTop)
 const fullscreenModalBottomInset = isMobile ? `calc(${specs.h} / 2)` : '0.75rem';
 const profilePanelStyle = isProfileFullscreen
   ? {
-      top: navbarAnchorTop,
+      // Fullscreen sheets are fixed below the mobile navbar after the
+      // landing-page Stories strip collapses. Do not use the measured anchor
+      // here: it can still point below the expanded strip during the opening
+      // render.
+      top: specs.h,
       right: 0,
       bottom: fullscreenModalBottomInset,
       left: 0,
@@ -1085,12 +1076,6 @@ return (
                                 <Truck size={18} className="opacity-40" />
                                 <span className="text-[12px] font-black uppercase tracking-widest">Shipping &amp; Payment</span>
                               </button>
-                              <button onClick={handleInventoryAudit} className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-colors ${isDarkMode ? 'hover:bg-white/5 text-white' : 'hover:bg-black/5 text-neutral-900'}`}>
-                                <PackageOpen size={18} className="opacity-40" />
-                                <span className="text-[12px] font-black uppercase tracking-widest text-left leading-tight">
-                                  Check Inventory
-                                </span>
-                              </button>
                             </>
                           ) : (
                             <button onClick={() => { if (!user) setIsLoginPromptOpen(true); else setIsSettingsModalOpen(true); setIsProfileOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-colors ${isDarkMode ? 'hover:bg-white/5 text-white' : 'hover:bg-black/5 text-neutral-900'}`}>
@@ -1263,7 +1248,7 @@ return (
       emptyLabel={isAdminNotificationView ? 'No admin updates yet' : 'No order updates yet'}
       isFullscreen={isProfileFullscreen}
       dimBackdrop={isMobile}
-      navbarHeight={navbarAnchorTop}
+      navbarHeight={specs.h}
       bottomInset={fullscreenModalBottomInset}
       anchorTop={notificationAnchorTop}
     />

@@ -2,12 +2,54 @@ import React, { useState, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
+import { getUnavailableDateSet, getUnavailableWeekdaySet, toDateKey } from '../../utils/availabilitySchedule';
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DESIGN_SERVICE_EXTRA_DAYS = 1;
 
-// Derive busy date ranges from active orders that contain project items
-const getOccupiedDates = (orders = []) => {
+// Shared with the admin queue so both views use the same availability-aware schedule calculation.
+// eslint-disable-next-line react-refresh/only-export-components
+export const getProjectScheduleDates = (order, item, availabilitySchedule, scheduleType = 'printing') => {
+  const printDays = Number(item.projectData?.totals?.days || 0);
+  if (printDays <= 0) return [];
+
+  const designServiceDays = item.projectData?.selectedDesignService ? DESIGN_SERVICE_EXTRA_DAYS : 0;
+  const qty = Number(item.quantity || 1);
+  const totalDays = (printDays + designServiceDays) * Math.max(1, qty);
+  const startDate = order.createdAt?.toDate
+    ? order.createdAt.toDate()
+    : order.createdAt?.seconds
+      ? new Date(order.createdAt.seconds * 1000)
+      : typeof order.createdAt === 'string'
+        ? new Date(order.createdAt)
+        : new Date();
+  const candidate = new Date(startDate);
+  candidate.setHours(0, 0, 0, 0);
+  const unavailableDates = getUnavailableDateSet(availabilitySchedule, scheduleType);
+  const unavailableWeekdays = getUnavailableWeekdaySet(availabilitySchedule, scheduleType);
+  const scheduledDates = [];
+
+  for (let day = 0; day < totalDays; day += 1) {
+    let guard = 0;
+    while (
+      (unavailableDates.has(toDateKey(candidate)) || unavailableWeekdays.has(candidate.getDay()))
+      && guard < 3660
+    ) {
+      candidate.setDate(candidate.getDate() + 1);
+      guard += 1;
+    }
+
+    if (guard >= 3660) break;
+    scheduledDates.push(toDateKey(candidate));
+    candidate.setDate(candidate.getDate() + 1);
+  }
+
+  return scheduledDates;
+};
+
+// Derive busy date ranges from active orders that contain project items.
+// Project days skip configured printing closures, so queued work rolls forward.
+const getOccupiedDates = (orders = [], availabilitySchedule) => {
   const occupied = new Map(); // dateKey -> count of projects occupying that day
 
   const activeOrders = orders.filter(o => {
@@ -18,33 +60,10 @@ const getOccupiedDates = (orders = []) => {
   activeOrders.forEach(order => {
     const items = order.items || [];
     items.forEach(item => {
-      if (item.type !== 'project') return;
-      const printDays = Number(item.projectData?.totals?.days || 0);
-      if (printDays <= 0) return;
-      const designServiceDays = item.projectData?.selectedDesignService ? DESIGN_SERVICE_EXTRA_DAYS : 0;
-
-      // Use order creation date as start
-      let startDate;
-      if (order.createdAt?.toDate) {
-        startDate = order.createdAt.toDate();
-      } else if (order.createdAt?.seconds) {
-        startDate = new Date(order.createdAt.seconds * 1000);
-      } else if (typeof order.createdAt === 'string') {
-        startDate = new Date(order.createdAt);
-      } else {
-        startDate = new Date();
-      }
-
-      // Multiply by quantity
-      const qty = Number(item.quantity || 1);
-      const totalDays = (printDays + designServiceDays) * qty;
-
-      for (let d = 0; d < totalDays; d++) {
-        const date = new Date(startDate);
-        date.setDate(date.getDate() + d);
-        const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+      if (item.type !== 'project' && !item.projectData) return;
+      getProjectScheduleDates(order, item, availabilitySchedule, 'printing').forEach((key) => {
         occupied.set(key, (occupied.get(key) || 0) + 1);
-      }
+      });
     });
   });
 
@@ -52,7 +71,7 @@ const getOccupiedDates = (orders = []) => {
 };
 
 // Find the first available start date (can be today if before cutoff, otherwise tomorrow or later)
-const findFirstAvailable = (occupied) => {
+const findFirstAvailable = (occupied, unavailableDates = new Set(), unavailableWeekdays = new Set()) => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   let candidate = new Date(today);
@@ -65,16 +84,30 @@ const findFirstAvailable = (occupied) => {
   }
   
   for (let i = 0; i < 365; i++) {
-    const key = `${candidate.getFullYear()}-${candidate.getMonth()}-${candidate.getDate()}`;
-    if (!occupied.has(key)) return new Date(candidate);
+    const key = toDateKey(candidate);
+    if (
+      !occupied.has(key)
+      && !unavailableDates.has(key)
+      && !unavailableWeekdays.has(candidate.getDay())
+    ) return new Date(candidate);
     candidate.setDate(candidate.getDate() + 1);
   }
   return new Date(today.getTime() + 86400000);
 };
 
-export default function GarageCalendar({ project, className = '' }) {
+export default function GarageCalendar({
+  project,
+  className = '',
+  orders: ordersProp,
+  availabilitySchedule,
+  adminMode = false,
+  scheduleType = 'printing',
+  onToggleUnavailable,
+  onToggleUnavailableWeekday
+}) {
   const { isDarkMode } = useTheme();
-  const orders = useStore((state) => state.orders);
+  const storeOrders = useStore((state) => state.orders);
+  const orders = ordersProp ?? storeOrders;
 
   const today = useMemo(() => {
     const d = new Date();
@@ -84,7 +117,26 @@ export default function GarageCalendar({ project, className = '' }) {
 
   const [viewDate, setViewDate] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
 
-  const occupied = useMemo(() => getOccupiedDates(orders), [orders]);
+  const occupied = useMemo(
+    () => getOccupiedDates(orders, availabilitySchedule),
+    [orders, availabilitySchedule]
+  );
+  const unavailableDates = useMemo(
+    () => getUnavailableDateSet(availabilitySchedule, scheduleType),
+    [availabilitySchedule, scheduleType]
+  );
+  const unavailableWeekdays = useMemo(
+    () => getUnavailableWeekdaySet(availabilitySchedule, scheduleType),
+    [availabilitySchedule, scheduleType]
+  );
+  const printingUnavailableDates = useMemo(
+    () => getUnavailableDateSet(availabilitySchedule, 'printing'),
+    [availabilitySchedule]
+  );
+  const printingUnavailableWeekdays = useMemo(
+    () => getUnavailableWeekdaySet(availabilitySchedule, 'printing'),
+    [availabilitySchedule]
+  );
 
   const hasDesignService = !!project?.selectedDesignService;
   const projectDays = Number(project?.totals?.days || 0) + (hasDesignService ? DESIGN_SERVICE_EXTRA_DAYS : 0);
@@ -92,13 +144,17 @@ export default function GarageCalendar({ project, className = '' }) {
   // Estimate production window for current project
   const projectionRange = useMemo(() => {
     if (projectDays <= 0) return new Set();
-    const start = findFirstAvailable(occupied);
+    const start = findFirstAvailable(occupied, printingUnavailableDates, printingUnavailableWeekdays);
     const range = new Set();
     let added = 0;
     let candidate = new Date(start);
     while (added < projectDays) {
-      const key = `${candidate.getFullYear()}-${candidate.getMonth()}-${candidate.getDate()}`;
-      if (!occupied.has(key)) {
+      const key = toDateKey(candidate);
+      if (
+        !occupied.has(key)
+        && !printingUnavailableDates.has(key)
+        && !printingUnavailableWeekdays.has(candidate.getDay())
+      ) {
         range.add(key);
         added++;
       }
@@ -106,7 +162,7 @@ export default function GarageCalendar({ project, className = '' }) {
       if (added === 0 && candidate.getTime() - start.getTime() > 365 * 86400000) break;
     }
     return range;
-  }, [occupied, projectDays]);
+  }, [occupied, projectDays, printingUnavailableDates, printingUnavailableWeekdays]);
 
   // Calendar math
   const year = viewDate.getFullYear();
@@ -125,13 +181,14 @@ export default function GarageCalendar({ project, className = '' }) {
     cells.push({ day: null, key: `empty-${i}` });
   }
   for (let d = 1; d <= daysInMonth; d++) {
-    const dateKey = `${year}-${month}-${d}`;
+    const dateKey = toDateKey(new Date(year, month, d));
     const cellDate = new Date(year, month, d);
     const isPast = cellDate < today;
     const isToday = cellDate.getTime() === today.getTime();
     const isOccupied = occupied.has(dateKey);
     const isProjected = projectionRange.has(dateKey);
-    cells.push({ day: d, key: dateKey, isPast, isToday, isOccupied, isProjected });
+    const isUnavailable = unavailableDates.has(dateKey) || unavailableWeekdays.has(cellDate.getDay());
+    cells.push({ day: d, key: dateKey, isPast, isToday, isOccupied, isProjected, isUnavailable });
   }
 
   return (
@@ -177,10 +234,18 @@ export default function GarageCalendar({ project, className = '' }) {
 
         {/* Day Headers */}
         <div className="grid grid-cols-7 gap-1">
-          {DAY_LABELS.map(label => (
-            <div key={label} className="text-center text-[14px] font-black uppercase tracking-widest py-1">
+          {DAY_LABELS.map((label, weekday) => (
+            <button
+              type="button"
+              key={label}
+              disabled={!adminMode}
+              aria-pressed={unavailableWeekdays.has(weekday)}
+              aria-label={`${label}: ${unavailableWeekdays.has(weekday) ? 'unavailable every week' : 'available every week'}`}
+              onClick={() => adminMode && onToggleUnavailableWeekday?.(weekday)}
+              className={`text-center text-[14px] font-black uppercase tracking-widest py-1 rounded-lg transition ${adminMode ? 'cursor-pointer hover:bg-red-500/10' : ''} ${unavailableWeekdays.has(weekday) ? 'bg-red-500/15 text-red-600 dark:text-red-400' : ''}`}
+            >
               {label}
-            </div>
+            </button>
           ))}
         </div>
 
@@ -198,6 +263,10 @@ export default function GarageCalendar({ project, className = '' }) {
             if (cell.isPast) {
               bgClass = isDarkMode ? 'bg-white/[0.02]' : 'bg-black/[0.02]';
               textClass = 'opacity-50';
+            } else if (cell.isUnavailable) {
+              bgClass = isDarkMode ? 'bg-red-500/20' : 'bg-red-500/15';
+              textClass = 'text-red-600 dark:text-red-400 font-black';
+              ringClass = 'ring-1 ring-red-500/40';
             } else if (cell.isProjected) {
               bgClass = 'bg-blue-500/20';
               textClass = 'text-blue-600 dark:text-blue-400 font-black';
@@ -211,28 +280,32 @@ export default function GarageCalendar({ project, className = '' }) {
             }
 
             return (
-              <div
+              <button
+                type="button"
                 key={cell.key}
-                className={`aspect-square rounded-lg flex items-center justify-center transition-all relative ${bgClass} ${ringClass}`}
+                onClick={() => adminMode && !cell.isPast && onToggleUnavailable?.(cell.key)}
+                disabled={!adminMode || cell.isPast}
+                aria-label={adminMode ? `${cell.key}: ${cell.isUnavailable ? 'unavailable' : 'available'}` : cell.key}
+                className={`aspect-square rounded-lg flex items-center justify-center transition-all relative ${bgClass} ${ringClass} ${adminMode && !cell.isPast ? 'cursor-pointer hover:scale-105' : ''}`}
               >
                 <span className={`text-[16px] font-bold ${textClass}`}>
                   {cell.day}
                 </span>
-              </div>
+              </button>
             );
           })}
         </div>
 
         {/* Legend */}
-        <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 pt-2">
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 pt-2">
           <div className="flex items-center gap-1.5">
             <div className="w-2.5 h-2.5 rounded-sm bg-emerald-500" />
             <span className="text-[12px] font-black uppercase tracking-widest">Available</span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-2.5 h-2.5 rounded-sm bg-red-500" />
-            <span className="text-[12px] font-black uppercase tracking-widest">Occupied</span>
-          </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-2.5 h-2.5 rounded-sm bg-red-500" />
+              <span className="text-[12px] font-black uppercase tracking-widest">{adminMode || unavailableDates.size > 0 ? 'Unavailable / occupied' : 'Occupied'}</span>
+            </div>
           {projectDays > 0 && (
             <div className="flex items-center gap-1.5">
               <div className="w-2.5 h-2.5 rounded-sm bg-blue-500 ring-1 ring-blue-500/40" />

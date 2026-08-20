@@ -6,7 +6,6 @@ import {
 } from 'firebase/firestore';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
 import {
-  withInventoryConditionDefaults,
   withStockConditionDefaults
 } from '../utils/stockConditions';
 
@@ -236,19 +235,6 @@ const sortPrintMethods = (methods = []) => (
   })
 );
 
-const createKitTargetId = (name, line = '', scale = '', brand = '') => {
-  const parts = [];
-  const b = (brand || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-  if (b) parts.push(b);
-  const g = (line || '').toLowerCase().replace(/\//g, '-').replace(/\s+/g, '-');
-  if (g) parts.push(g);
-  const r = (scale || '').toLowerCase().replace(/\//g, '-').replace(/\s+/g, '-');
-  if (r) parts.push(r);
-  const n = (name || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-  if (n) parts.push(n);
-  return parts.join('_');
-};
-
 export const useStore = create(
   persist(
     (set, get) => ({
@@ -288,7 +274,6 @@ export const useStore = create(
       isAnonymousUser: false,
       isProfileIncomplete: false,
       isAdminView: false,
-      isInventoryAuditOpen: false,
       user: null,
       basket: [],
       guestBasket: [],
@@ -931,11 +916,6 @@ export const useStore = create(
         }, () => set({ usersList: [] }));
       },
 
-      loadOrdersOnce: async () => {
-        const snap = await getDocs(query(collection(db, "orders"), orderBy("createdAt", "desc"), limit(100)));
-        set({ orders: docsToArray(snap) });
-      },
-
       loadMissingKits: async (ids = []) => {
         if (!ids.length) return;
         const { kits } = get();
@@ -1358,44 +1338,40 @@ export const useStore = create(
         await setDoc(doc(db, 'settings', 'checkout'), partialSettings, { merge: true });
       },
 
-      fixMisalignedStocks: async (issues) => {
-        for (const issue of issues) {
-          if (issue.reason === 'Onhand Stock with ETA') {
-            await updateDoc(doc(db, "kits", issue.kitId), {
-              [`stocks.${issue.stockKey}.eta`]: ''
-            });
-          } else {
-            await updateDoc(doc(db, "kits", issue.kitId), {
-              [`stocks.${issue.stockKey}.isReserved`]: false,
-              [`stocks.${issue.stockKey}.reservedAt`]: null,
-              [`stocks.${issue.stockKey}.reservedBy`]: null,
-              [`stocks.${issue.stockKey}.reservationType`]: deleteField(),
-              [`stocks.${issue.stockKey}.order`]: deleteField(),
-              hasAvailableStock: true
-            });
-          }
-        }
-      },
-      setInventoryAuditOpen: (isOpen) => set({ isInventoryAuditOpen: isOpen }),
-
-      fixInventoryConditionDefaults: async (kits = []) => {
+      applyOnhandShipmentConditions: async () => {
+        const normalize = (value) => String(value || '').trim().toLowerCase().replace(/[\s_-]+/g, ' ');
+        const kits = get().kits || [];
         let updatedStockCount = 0;
 
         for (const kit of kits) {
           const updates = {};
+          const brand = normalize(kit?.brand);
+          const targetBoxCondition = brand === 'premium bandai'
+            ? 'PRISTINE'
+            : brand === 'bandai'
+              ? 'BRAND NEW'
+              : '';
+
+          if (!targetBoxCondition) continue;
 
           Object.entries(kit?.stocks || {}).forEach(([stockKey, stock]) => {
-            const nextStock = withInventoryConditionDefaults(stock, kit);
-            if (nextStock.boxCondition !== stock.boxCondition) {
-              updates[`stocks.${stockKey}.boxCondition`] = nextStock.boxCondition;
-            }
-            if (nextStock.kitCondition !== stock.kitCondition) {
-              updates[`stocks.${stockKey}.kitCondition`] = nextStock.kitCondition;
-            }
+            const legacyBoxCondition = Array.isArray(stock?.condition) ? stock.condition[0] : stock?.condition;
+            const boxCondition = stock?.boxCondition || legacyBoxCondition || '';
+            const isOnhand = normalize(stock?.status) === 'onhand';
+            const isBasedOnShipment = normalize(boxCondition) === 'based on shipment';
+            const hasSealedKitCondition = normalize(stock?.kitCondition) === 'sealed';
+            if (!isOnhand || (!isBasedOnShipment && !hasSealedKitCondition)) return;
 
-            if (nextStock.boxCondition !== stock.boxCondition || nextStock.kitCondition !== stock.kitCondition) {
-              updatedStockCount += 1;
+            const shouldUpdateBox = isBasedOnShipment && stock.boxCondition !== targetBoxCondition;
+            const shouldUpdateKit = (isBasedOnShipment || hasSealedKitCondition)
+              && stock.kitCondition !== 'SEALED RUNNERS';
+            if (shouldUpdateBox) {
+              updates[`stocks.${stockKey}.boxCondition`] = targetBoxCondition;
             }
+            if (shouldUpdateKit) {
+              updates[`stocks.${stockKey}.kitCondition`] = 'SEALED RUNNERS';
+            }
+            if (shouldUpdateBox || shouldUpdateKit) updatedStockCount += 1;
           });
 
           if (Object.keys(updates).length > 0) {
@@ -1407,133 +1383,6 @@ export const useStore = create(
         }
 
         return updatedStockCount;
-      },
-
-      applyInventoryConditionFixes: async (fixes = []) => {
-        const updatesByKit = new Map();
-
-        fixes.forEach((fix) => {
-          if (!fix?.kitId || !fix?.stockKey) return;
-          const updates = updatesByKit.get(fix.kitId) || {};
-          if (fix.boxCondition) updates[`stocks.${fix.stockKey}.boxCondition`] = fix.boxCondition;
-          if (fix.kitCondition) updates[`stocks.${fix.stockKey}.kitCondition`] = fix.kitCondition;
-          if (Object.keys(updates).length > 0) updatesByKit.set(fix.kitId, updates);
-        });
-
-        for (const [kitId, updates] of updatesByKit.entries()) {
-          await updateDoc(doc(db, 'kits', kitId), {
-            ...updates,
-            lastUpdated: serverTimestamp()
-          });
-        }
-      },
-
-      findMisalignedStocks: (kits, orders = []) => {
-        const issues = [];
-        const activeOrderIds = new Set(
-          (orders || [])
-            .filter(o => String(o.status || '').toLowerCase() !== 'cancelled')
-            .flatMap(o => [o.id, o.orderId].filter(Boolean))
-        );
-        const cancelledOrderIds = new Set(
-          (orders || [])
-            .filter(o => String(o.status || '').toLowerCase() === 'cancelled')
-            .flatMap(o => [o.id, o.orderId].filter(Boolean))
-        );
-
-        (kits || []).forEach(kit => {
-          Object.entries(kit.stocks || {}).forEach(([key, stock]) => {
-            const stockOrderIds = [stock.order?.orderDocId, stock.order?.orderId].filter(Boolean);
-            const isAdminShelfReservation = stock.isReserved && stock.reservationType === 'admin';
-            
-            // Case 1: Stock is linked to a cancelled order
-            const isLinkedToCancelled = stockOrderIds.some(id => cancelledOrderIds.has(id));
-            
-            // Case 2: Stock is marked reserved but has no order data OR the linked order doesn't exist in active orders
-            // If it has order data, check if that order is active. If no order data but isReserved is true, it might be orphaned.
-            const hasNoActiveOrder = stock.isReserved && !isAdminShelfReservation && (stockOrderIds.length === 0 || !stockOrderIds.some(id => activeOrderIds.has(id)));
-
-            // Case 3: Stock is On-hand but still has an ETA
-            const isOnhand = String(stock.status || '').toLowerCase() === 'onhand';
-            const hasEta = Boolean(stock.eta?.trim());
-            const isOnhandWithEta = isOnhand && hasEta;
-
-            if (isLinkedToCancelled || hasNoActiveOrder || isOnhandWithEta) {
-              issues.push({ 
-                kitId: kit.id, 
-                stockKey: key, 
-                orderId: stock.order?.orderId || stock.order?.orderDocId || 'None', 
-                orderStatus: stock.order?.status || (stock.isReserved ? 'Orphaned Reservation' : 'Unknown'),
-                reason: isOnhandWithEta ? 'Onhand Stock with ETA' : (isLinkedToCancelled ? 'Cancelled Order' : 'Missing/Inactive Order')
-              });
-            }
-          });
-        });
-
-        return issues;
-      },
-
-      findKitIdMismatches: (kits) => {
-        const mismatches = [];
-        (kits || []).forEach((kit) => {
-          const expectedId = createKitTargetId(kit.name, kit.specs?.line, kit.specs?.scale, kit.brand);
-          if (kit.id !== expectedId) {
-            mismatches.push({
-              oldId: kit.id,
-              newId: expectedId,
-              kitName: kit.name
-            });
-          }
-        });
-        return mismatches;
-      },
-
-      fixKitIdMismatches: async (mismatches) => {
-        for (const mismatch of mismatches) {
-          const { oldId, newId } = mismatch;
-          const oldRef = doc(db, 'kits', oldId);
-          const newRef = doc(db, 'kits', newId);
-          
-          const snap = await getDoc(oldRef);
-          if (snap.exists()) {
-            const data = snap.data();
-            // Create new doc with same data but updated ID field
-            await setDoc(newRef, { ...data, id: newId }, { merge: true });
-            await deleteDoc(oldRef);
-          }
-        }
-      },
-
-      findKitScaleMigrations: (kits) => {
-        const migrations = [];
-        (kits || []).forEach((kit) => {
-          const legacyScale = kit?.scale;
-          if (!legacyScale || typeof legacyScale !== 'object') return;
-
-          const line = legacyScale.grade || '';
-          const scale = legacyScale.ratio || '';
-          if (!line && !scale) return;
-
-          migrations.push({
-            kitId: kit.id,
-            kitName: kit.name || kit.id,
-            specs: {
-              ...(kit.specs || {}),
-              line,
-              scale
-            }
-          });
-        });
-        return migrations;
-      },
-
-      migrateKitScaleToSpecs: async (migrations) => {
-        for (const migration of migrations) {
-          await updateDoc(doc(db, "kits", migration.kitId), {
-            specs: migration.specs,
-            scale: deleteField()
-          });
-        }
       },
 
       toggleStockReservation: async (kitId, stockKey, isReserved) => {

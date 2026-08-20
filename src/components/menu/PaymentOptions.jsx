@@ -7,7 +7,8 @@ export default function PaymentOptions({
   handleSave,
   updatePaymentData,
   deleteMethod,
-  showSave = true
+  showSave = true,
+  hasChanges = false
 }) {
   const [newMethod, setNewMethod] = useState('');
 
@@ -57,11 +58,11 @@ export default function PaymentOptions({
   const renderFeeInput = (field, title, description) => (
     <div className="bg-black/5 dark:bg-white/5 rounded-2xl border border-transparent p-4 space-y-2">
       <div className="flex flex-col text-left">
-        <span className="text-xs font-black uppercase italic text-garage-blue">{title}</span>
-        <span className="text-[8px] font-bold opacity-40 uppercase">{description}</span>
+        <span className="text-[14px] font-black uppercase italic text-garage-blue">{title}</span>
+        <span className="text-[13px] font-bold opacity-40 uppercase">{description}</span>
       </div>
       <div className="relative">
-        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xs font-black opacity-40">₱</span>
+        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[13px] font-black opacity-40">₱</span>
         <input
           type="text"
           inputMode="numeric"
@@ -70,7 +71,7 @@ export default function PaymentOptions({
           onFocus={() => handleFeeFocus(field)}
           onChange={(e) => updateFeeField(field, e.target.value)}
           onBlur={() => handleFeeBlur(field)}
-          className="w-full pl-8 pr-4 py-3 bg-white/70 dark:bg-black/20 rounded-xl text-xs font-black outline-none focus:ring-2 focus:ring-garage-blue/30"
+          className="w-full pl-8 pr-4 py-3 bg-white/70 dark:bg-black/20 rounded-xl text-[13px] font-black outline-none focus:ring-2 focus:ring-garage-blue/30"
         />
       </div>
     </div>
@@ -79,8 +80,8 @@ export default function PaymentOptions({
   const renderDaysInput = (field, title, description) => (
     <div className="bg-black/5 dark:bg-white/5 rounded-2xl border border-transparent p-4 space-y-2">
       <div className="flex flex-col text-left">
-        <span className="text-xs font-black uppercase italic text-garage-blue">{title}</span>
-        <span className="text-[8px] font-bold opacity-40 uppercase">{description}</span>
+        <span className="text-[14px] font-black uppercase italic text-garage-blue">{title}</span>
+        <span className="text-[13px] font-bold opacity-40 uppercase">{description}</span>
       </div>
       <div className="relative">
         <input
@@ -98,9 +99,9 @@ export default function PaymentOptions({
           onBlur={() => {
             if (paymentSettings?.[field] === '' || paymentSettings?.[field] === undefined) updatePaymentData(null, field, 10);
           }}
-          className="w-full pl-4 pr-16 py-3 bg-white/70 dark:bg-black/20 rounded-xl text-xs font-black outline-none focus:ring-2 focus:ring-garage-blue/30"
+            className="w-full pl-4 pr-16 py-3 bg-white/70 dark:bg-black/20 rounded-xl text-[13px] font-black outline-none focus:ring-2 focus:ring-garage-blue/30"
         />
-        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-black opacity-40">Days</span>
+        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[13px] font-black opacity-40">Days</span>
       </div>
     </div>
   );
@@ -110,12 +111,12 @@ export default function PaymentOptions({
       <div className="space-y-4">
         <div className="flex items-center gap-2 px-2">
           <BadgeDollarSign size={16} className="text-garage-blue opacity-60" />
-          <h3 className="text-[10px] font-black uppercase tracking-widest opacity-40">Checkout Settings</h3>
+          <h3 className="text-[13px] font-black uppercase tracking-widest opacity-40">Checkout Settings</h3>
         </div>
         <div className="bg-black/5 dark:bg-white/5 rounded-2xl border border-transparent p-4 flex justify-between items-center">
           <div className="flex flex-col text-left">
-            <span className="text-xs font-black uppercase italic text-garage-blue">Maintenance Mode</span>
-            <span className="text-[8px] font-bold opacity-40 uppercase">Put the garage/checkout under maintenance</span>
+            <span className="text-[14px] font-black uppercase italic text-garage-blue">Maintenance Mode</span>
+            <span className="text-[13px] font-bold opacity-40 uppercase">Put the garage/checkout under maintenance</span>
           </div>
           <button
             onClick={() => updatePaymentData(null, 'maintenanceMode', !paymentSettings?.maintenanceMode)}
@@ -136,7 +137,7 @@ export default function PaymentOptions({
                   key={id}
                   type="button"
                   onClick={() => updatePaymentData('maintenanceInvalidTypes', id, !isActive)}
-                  className={`flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-[10px] font-black uppercase tracking-widest transition-all border ${
+                  className={`flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-[13px] font-black uppercase tracking-widest transition-all border ${
                     isActive
                       ? 'bg-red-500/10 text-red-500 border-red-500/20 shadow-lg shadow-red-500/5'
                       : 'bg-black/5 dark:bg-white/5 text-neutral-400 border-transparent'
@@ -154,7 +155,7 @@ export default function PaymentOptions({
       <div className="space-y-4">
         <div className="flex items-center gap-2 px-2">
           <BadgeDollarSign size={16} className="text-garage-blue opacity-60" />
-          <h3 className="text-[10px] font-black uppercase tracking-widest opacity-40">Service Charge</h3>
+          <h3 className="text-[13px] font-black uppercase tracking-widest opacity-40">Service Charge</h3>
         </div>
         {renderFeeInput('handlingFee', 'Handling fee per item', 'Added to public product prices')}
         {renderFeeInput('installmentFee', 'Installment fee per item', 'Added to public product prices and discounted on full payment')}
@@ -165,7 +166,7 @@ export default function PaymentOptions({
       <div className="space-y-4">
         <div className="flex items-center gap-2 px-2">
           <BadgeDollarSign size={16} className="text-garage-blue opacity-60" />
-          <h3 className="text-[10px] font-black uppercase tracking-widest opacity-40">Balance Settlement Deadlines</h3>
+          <h3 className="text-[13px] font-black uppercase tracking-widest opacity-40">Balance Settlement Deadlines</h3>
         </div>
         {renderDaysInput('reservationSettleDays', 'Reservation Balance Settle Days (On-hand)', 'Days allowed for customer to settle on-hand reservations')}
         {renderDaysInput('preOrderSettleDays', 'Pre-order Balance Settle Days', 'Days allowed for customer to settle pre-orders after arrival')}
@@ -175,12 +176,12 @@ export default function PaymentOptions({
       <div className="space-y-4">
         <div className="flex items-center gap-2 px-2">
           <BadgeDollarSign size={16} className="text-garage-blue opacity-60" />
-          <h3 className="text-[10px] font-black uppercase tracking-widest opacity-40">Bundle Settings</h3>
+          <h3 className="text-[13px] font-black uppercase tracking-widest opacity-40">Bundle Settings</h3>
         </div>
         <div className="bg-black/5 dark:bg-white/5 rounded-2xl border border-transparent p-4 space-y-2">
           <div className="flex flex-col text-left">
-            <span className="text-xs font-black uppercase italic text-garage-blue">Exclusive Discount %</span>
-            <span className="text-[8px] font-bold opacity-40 uppercase">Percentage of bundle discount applied to exclusive kits</span>
+            <span className="text-[14px] font-black uppercase italic text-garage-blue">Exclusive Discount %</span>
+            <span className="text-[13px] font-bold opacity-40 uppercase">Percentage of bundle discount applied to exclusive kits</span>
           </div>
           <div className="relative">
             <input
@@ -195,9 +196,9 @@ export default function PaymentOptions({
                 updatePaymentData(null, 'exclusiveDiscountPercent', num);
               }}
               onBlur={() => handleFeeBlur('exclusiveDiscountPercent')}
-              className="w-full pl-4 pr-10 py-3 bg-white/70 dark:bg-black/20 rounded-xl text-xs font-black outline-none focus:ring-2 focus:ring-garage-blue/30"
+              className="w-full pl-4 pr-10 py-3 bg-white/70 dark:bg-black/20 rounded-xl text-[13px] font-black outline-none focus:ring-2 focus:ring-garage-blue/30"
             />
-            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-black opacity-40">%</span>
+            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[13px] font-black opacity-40">%</span>
           </div>
         </div>
       </div>
@@ -206,7 +207,7 @@ export default function PaymentOptions({
         <div key={cat.id} className="space-y-4">
           <div className="flex items-center gap-2 px-2">
             <cat.icon size={16} className="text-garage-blue opacity-60" />
-            <h3 className="text-[10px] font-black uppercase tracking-widest opacity-40">{cat.label}</h3>
+            <h3 className="text-[13px] font-black uppercase tracking-widest opacity-40">{cat.label}</h3>
           </div>
           <div className="grid grid-cols-1 gap-2">
             {cat.options.map(opt => {
@@ -218,8 +219,8 @@ export default function PaymentOptions({
                 <div key={opt} className="bg-black/5 dark:bg-white/5 rounded-2xl border border-transparent overflow-hidden">
                   <div className="flex justify-between items-center p-4">
                     <div className="flex flex-col text-left">
-                      <span className="text-xs font-black uppercase italic text-garage-blue">{opt}</span>
-                      <span className="text-[8px] font-bold opacity-40 uppercase">
+                      <span className="text-[14px] font-black uppercase italic text-garage-blue">{opt}</span>
+                      <span className="text-[13px] font-bold opacity-40 uppercase">
                         {isActive ? (hasTransferDiscount ? 'Discount Enabled' : 'Enabled') : 'Disabled'}
                       </span>
                     </div>
@@ -229,7 +230,7 @@ export default function PaymentOptions({
                        {cat.id === 'methods' && isActive && (
                          <button
                            onClick={() => handleToggleSetting('methods', `${opt}TransferDiscount`)}
-                           className={`px-3 py-1.5 rounded-xl text-[8px] font-black uppercase tracking-tighter transition-all border ${
+                          className={`px-3 py-1.5 rounded-xl text-[13px] font-black uppercase tracking-tighter transition-all border ${
                              hasTransferDiscount 
                                ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20 shadow-lg shadow-emerald-500/5' 
                                : 'bg-black/5 dark:bg-white/5 text-neutral-500 border-transparent opacity-40 hover:opacity-100'
@@ -263,11 +264,11 @@ export default function PaymentOptions({
                   {cat.id === 'methods' && isActive && opt !== 'cash' && (
                     <div className="px-4 pb-4 animate-in slide-in-from-top-2 duration-300 space-y-3">
                       <div className="rounded-xl bg-white/60 dark:bg-black/20 p-3">
-                        <label className="mb-2 block text-[8px] font-black uppercase tracking-widest opacity-40">
+                        <label className="mb-2 block text-[13px] font-black uppercase tracking-widest opacity-40">
                           Payment Discount Amount
                         </label>
                         <div className="relative">
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black opacity-40">₱</span>
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[13px] font-black opacity-40">₱</span>
                           <input
                             type="text"
                             inputMode="numeric"
@@ -283,7 +284,7 @@ export default function PaymentOptions({
                             onBlur={() => {
                               if (paymentSettings?.methods?.[`${opt}DiscountAmount`] === '') updatePaymentData('methods', `${opt}DiscountAmount`, 0);
                             }}
-                            className="w-full rounded-xl bg-white/80 py-3 pl-7 pr-4 text-xs font-black outline-none focus:ring-2 focus:ring-garage-blue/30 dark:bg-black/30"
+                            className="w-full rounded-xl bg-white/80 py-3 pl-7 pr-4 text-[13px] font-black outline-none focus:ring-2 focus:ring-garage-blue/30 dark:bg-black/30"
                           />
                         </div>
                       </div>
@@ -300,7 +301,7 @@ export default function PaymentOptions({
                       ) : (
                         <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-white/10 rounded-xl cursor-pointer hover:border-garage-blue/50 transition-colors bg-white/5">
                           <Upload size={20} className="opacity-40" />
-                          <span className="text-[9px] font-bold mt-2 opacity-50 uppercase">Upload {opt} QR</span>
+                          <span className="text-[13px] font-bold mt-2 opacity-50 uppercase">Upload {opt} QR</span>
                           <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, opt)} />
                         </label>
                       )}
@@ -316,11 +317,11 @@ export default function PaymentOptions({
       <div className="space-y-4">
         <div className="flex items-center gap-2 px-2">
           <Plus size={16} className="text-garage-blue opacity-60" />
-          <h3 className="text-[10px] font-black uppercase tracking-widest opacity-40">Add Payment Method</h3>
+          <h3 className="text-[13px] font-black uppercase tracking-widest opacity-40">Add Payment Method</h3>
         </div>
         <div className="flex gap-2">
           <input
-            className="flex-1 px-4 py-3 bg-black/5 dark:bg-white/5 rounded-xl text-xs font-bold"
+            className="flex-1 px-4 py-3 bg-black/5 dark:bg-white/5 rounded-xl text-[13px] font-bold"
             placeholder="e.g. GCash, Maya, UnionBank"
             value={newMethod}
             onChange={(e) => setNewMethod(e.target.value)}
@@ -343,7 +344,8 @@ export default function PaymentOptions({
       {showSave && (
         <button
           onClick={handleSave}
-          className="w-full h-14 py-5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-[1.5rem] font-black uppercase text-xs tracking-widest transition-all shadow-xl shadow-emerald-500/10 active:scale-95"
+          disabled={!hasChanges}
+          className="w-full h-14 py-5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-[1.5rem] font-black uppercase text-[13px] tracking-widest transition-all shadow-xl shadow-emerald-500/10 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-emerald-600"
         >
           Save Payment Settings
         </button>

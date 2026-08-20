@@ -1,7 +1,7 @@
 import React, { forwardRef, useImperativeHandle, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-leaflet';
 import { 
-  X, Home, Users, Truck, Settings, Building2, Map, Sparkles, MapPin, Hash, Plus
+  X, Home, Users, Truck, Settings, Building2, Map, Sparkles, MapPin, Hash, Plus, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { useStore } from '../../store/useStore';
@@ -42,10 +42,17 @@ function ChangeView({ center }) {
   return null;
 }
 
+const ensureStreetSuffix = (street) => {
+  if (!street) return '';
+  const hasSuffix = /\b(St\.?|Street|Ave\.?|Avenue|Rd\.?|Road|Blvd\.?|Boulevard|Lane|Ln\.?|Dr\.?|Drive|Ct\.?|Court)\b/i.test(street);
+  return hasSuffix ? street : `${street} St.`;
+};
+
 const buildPlaceAddress = (place = {}, { includeHouseNo = true } = {}) => {
+  const street = ensureStreetSuffix(place.houseDetails || place.street);
   const streetLine = [
     includeHouseNo ? place.houseNo : '',
-    place.houseDetails || place.street
+    street
   ].filter(Boolean).join(' ').trim();
 
   return [
@@ -58,7 +65,14 @@ const buildPlaceAddress = (place = {}, { includeHouseNo = true } = {}) => {
   ].filter(Boolean).join(', ');
 };
 
-const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose, embedded = false, visible = true }, ref) {
+const getPlaceCardAddress = (place = {}) => {
+  const address = buildPlaceAddress(place) || place.address || '';
+  const label = String(place.landmark || '').trim();
+  if (!address || !label || !address.toLowerCase().startsWith(label.toLowerCase())) return address;
+  return address.slice(label.length).replace(/^[,\s]+/, '');
+};
+
+const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose, embedded = false, visible = true, onChangesChange = null }, ref) {
   const { isDarkMode } = useTheme();
   const { user, updateShippingSettings, shippingSettings } = useStore();
   const [selectedCategory, setSelectedPickupCategory] = useState('methods');
@@ -66,6 +80,7 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
   const scrollRef = useRef(null);
   const [isOverMap, setIsOverMap] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
+  const [areShippingMethodsExpanded, setAreShippingMethodsExpanded] = useState(false);
   const canDrag = !isOverMap && !isScrolled;
 
   const initialFormData = useMemo(() => {
@@ -118,7 +133,7 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
     const place = {
       landmark: source.landmark,
       houseNo: source.houseNo,
-      houseDetails: source.houseDetails,
+      houseDetails: ensureStreetSuffix(source.houseDetails),
       subdivision: source.subdivision,
       barangay: source.barangay,
       city: source.city,
@@ -128,6 +143,9 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
       lng: source.lng,
       isActive: source.isActive !== false
     };
+    if (source.pickupAddressMode === 'actual-pin' || source.pickupAddressMode === 'rate-checking') {
+      place.pickupAddressMode = source.pickupAddressMode;
+    }
     place.address = buildPlaceAddress(place, { includeHouseNo: true });
     place.publicAddress = buildPlaceAddress(place, { includeHouseNo: false });
     return place;
@@ -230,6 +248,37 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
     } catch (err) { console.error(err); alert("Failed to toggle availability."); }
   };
 
+  const handleTogglePickupAddressMode = async (index) => {
+    const updatedPlaces = [...(formData?.pickupPlaces || [])];
+    const currentPlace = updatedPlaces[index];
+    if (!currentPlace) return;
+
+    updatedPlaces[index] = {
+      ...currentPlace,
+      pickupAddressMode: currentPlace.pickupAddressMode === 'actual-pin' ? 'rate-checking' : 'actual-pin'
+    };
+
+    if (embedded) {
+      setFormData(prev => ({ ...prev, pickupPlaces: updatedPlaces }));
+      return;
+    }
+
+    try {
+      await updateShippingSettings(user.uid, {
+        pickupDetails: {
+          ...shippingSettings?.pickupDetails,
+          'pickup-point': {
+            ...shippingSettings?.pickupDetails?.['pickup-point'],
+            places: updatedPlaces
+          }
+        }
+      });
+    } catch (err) {
+      console.error(err);
+      alert("Failed to update pickup address mode.");
+    }
+  };
+
   const getShippingSavingsState = (methods = {}) => JSON.stringify(
     Object.fromEntries(
       Object.keys(methods).sort().map(method => {
@@ -253,6 +302,35 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
     getShippingSavingsState(formData?.shippingMethods) !== getShippingSavingsState(shippingSettings?.shippingMethods)
   );
 
+  const getShippingComparisonState = (payload = {}) => {
+    const pickupDetails = payload.pickupDetails || {};
+    const pickupPoint = pickupDetails['pickup-point'] || {};
+    const meetup = pickupDetails.meetup || {};
+
+    return JSON.stringify({
+      shippingMethods: payload.shippingMethods || {},
+      pickupDetails: {
+        ...pickupDetails,
+        'pickup-point': { ...pickupPoint, places: pickupPoint.places || [] },
+        meetup: { ...meetup, places: meetup.places || [] }
+      }
+    });
+  };
+
+  const hasShippingChange = () => (
+    getShippingComparisonState(buildShippingPayload()) !== getShippingComparisonState({
+      shippingMethods: shippingSettings?.shippingMethods || {},
+      pickupDetails: shippingSettings?.pickupDetails || {}
+    })
+  );
+
+  useEffect(() => {
+    if (!onChangesChange) return;
+    onChangesChange(hasShippingChange());
+    // buildShippingPayload intentionally captures the active place draft.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData, selectedCategory, shippingSettings, onChangesChange]);
+
   const handleSave = async ({ skipSavingsConfirmation = false } = {}) => {
     if (!skipSavingsConfirmation && hasShippingSavingsChange() && !window.confirm('This will change shipping savings available to customers. Do you want to continue?')) {
       return false;
@@ -265,7 +343,11 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
     } catch (err) { console.error(err); alert("Failed to update."); }
   };
 
-  useImperativeHandle(ref, () => ({ save: handleSave, hasSavingsChange: hasShippingSavingsChange }));
+  useImperativeHandle(ref, () => ({
+    save: handleSave,
+    hasChanges: hasShippingChange,
+    hasSavingsChange: hasShippingSavingsChange
+  }));
 
   const handleToggleMethod = (m, subKey = null) => {
     setFormData(p => {
@@ -332,7 +414,8 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
   }, [selectedCategory]);
 
   const handleBlur = (field, value) => {
-    handleAddressChange({ [field]: capitalizeWords(value) });
+    const formattedValue = capitalizeWords(value);
+    handleAddressChange({ [field]: field === 'houseDetails' ? ensureStreetSuffix(formattedValue) : formattedValue });
   };
 
   const [lastGeocoded, setLastGeocoded] = useState({});
@@ -410,9 +493,10 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
   }, [zipCode, barangay, city, province, lat, lng, isOpen, performGeocoding, performReverseGeocoding, selectedCategory, lastGeocoded, handleAddressChange]);
 
   const mapCenter = formData ? [formData.lat, formData.lng] : [14.5995, 120.9842];
-  const inputClass = `w-full pl-12 pr-4 py-3 rounded-2xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-garage-blue/50 ${isDarkMode ? 'bg-white/5 text-white' : 'bg-black/5 text-neutral-900'}`;
+  const inputClass = `w-full pl-12 pr-4 py-3 rounded-2xl text-[13px] font-bold focus:outline-none focus:ring-2 focus:ring-garage-blue/50 ${isDarkMode ? 'bg-white/5 text-white' : 'bg-black/5 text-neutral-900'}`;
 
   const handleAddNewPlace = (type) => {
+    if (type === 'pickup-point' && (formData?.pickupPlaces || []).length >= 2) return;
     setSelectedPickupCategory(type);
     setFormData(prev => ({
       ...prev,
@@ -454,16 +538,16 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
       <div className="space-y-4 rounded-3xl border border-garage-blue/15 bg-garage-blue/[0.03] p-4 md:p-6">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h4 className="text-sm font-black uppercase italic text-garage-blue">
+            <h4 className="text-[14px] font-black uppercase italic text-garage-blue">
               {activeIndex === null ? `New ${title}` : `Edit ${title}`}
             </h4>
-            <p className="mt-1 text-[9px] font-bold uppercase opacity-50">Configure the address and map location</p>
+            <p className="mt-1 text-[13px] font-bold uppercase opacity-50">Configure the address and map location</p>
           </div>
           {activeIndex !== null && (
             <button
               type="button"
               onClick={() => handleAddNewPlace(type)}
-              className="rounded-xl bg-garage-blue/10 px-3 py-2 text-[9px] font-black uppercase text-garage-blue"
+              className="rounded-xl bg-garage-blue/10 px-3 py-2 text-[13px] font-black uppercase text-garage-blue"
             >
               <Plus size={12} className="mr-1 inline" /> New
             </button>
@@ -513,9 +597,15 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
 
         {!embedded && (
           <div className="flex gap-2">
-            <button onClick={handleSave} className="flex-1 rounded-2xl bg-garage-blue py-4 text-xs font-black uppercase text-white">Save {title}</button>
+            <button
+              onClick={handleSave}
+              disabled={!hasShippingChange()}
+              className="flex-1 rounded-2xl bg-garage-blue py-4 text-[13px] font-black uppercase text-white disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Save {title}
+            </button>
             {activeIndex !== null && (
-              <button onClick={() => handleDeletePlace(type, activeIndex)} className="rounded-2xl bg-red-500/10 px-6 py-4 text-xs font-black uppercase text-red-500 transition-all hover:bg-red-500 hover:text-white">Delete</button>
+              <button onClick={() => handleDeletePlace(type, activeIndex)} className="rounded-2xl bg-red-500/10 px-6 py-4 text-[13px] font-black uppercase text-red-500 transition-all hover:bg-red-500 hover:text-white">Delete</button>
             )}
           </div>
         )}
@@ -527,6 +617,7 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
     const listKey = type === 'meetup' ? 'meetupPlaces' : 'pickupPlaces';
     const activeIndex = type === 'meetup' ? formData.activeMeetupIndex : formData.activePickupIndex;
     const places = formData[listKey] || [];
+    const isPickupPointLimitReached = type === 'pickup-point' && places.length >= 2;
 
     return (
       <section className="space-y-4 rounded-3xl border border-black/5 bg-black/[0.02] p-4 dark:border-white/5 dark:bg-white/[0.02] md:p-6">
@@ -534,14 +625,16 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
           <div className="flex items-center gap-2">
             {React.createElement(sectionIcon, { size: 18, className: 'text-garage-blue' })}
             <div>
-              <h3 className="text-sm font-black uppercase italic text-garage-blue">{title}</h3>
-              <p className="text-[9px] font-bold uppercase opacity-50">{places.length} configured</p>
+              <h3 className="text-[14px] font-black uppercase italic text-garage-blue">{title}</h3>
+              <p className="text-[13px] font-bold uppercase opacity-50">{places.length} configured</p>
             </div>
           </div>
           <button
             type="button"
             onClick={() => handleAddNewPlace(type)}
-            className="flex items-center gap-1 rounded-xl bg-garage-blue px-3 py-2 text-[9px] font-black uppercase text-white shadow-lg shadow-blue-500/20"
+            disabled={isPickupPointLimitReached}
+            title={isPickupPointLimitReached ? 'Maximum of 2 pickup points reached' : undefined}
+            className="flex items-center gap-1 rounded-xl bg-garage-blue px-3 py-2 text-[13px] font-black uppercase text-white shadow-lg shadow-blue-500/20 transition-all disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
           >
             <Plus size={13} /> Add New
           </button>
@@ -552,29 +645,45 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
             {places.map((place, index) => {
               const isSelected = activeIndex === index && selectedCategory === type;
               const placeLabel = place.landmark || `${title} ${index + 1}`;
+              const pickupAddressMode = place.pickupAddressMode === 'actual-pin' ? 'actual-pin' : 'rate-checking';
               return (
                 <div key={`${type}-${index}`} className={`rounded-2xl border p-3 transition-all ${isSelected ? 'border-garage-blue bg-garage-blue/5 shadow-md' : 'border-black/5 bg-white dark:border-white/5 dark:bg-neutral-900'}`}>
                   <div className="flex items-start justify-between gap-2">
                     <button type="button" onClick={() => handleSelectPlace(type, place, index)} className="min-w-0 flex-1 text-left">
-                      <span className="block truncate text-[11px] font-black uppercase">{placeLabel}</span>
-                      <span className="mt-1 block line-clamp-2 text-[10px] font-bold opacity-55">{place.address || buildPlaceAddress(place)}</span>
+                      <span className="block truncate text-[13px] font-black uppercase">{placeLabel}</span>
+                      <span className="mt-1 block line-clamp-2 text-[13px] font-bold opacity-55">{getPlaceCardAddress(place)}</span>
                     </button>
                     <div className="flex shrink-0 items-center gap-1">
                       <button type="button" onClick={() => handleTogglePlaceAvailability(type, index)} className={`relative h-5 w-9 rounded-full p-0.5 transition-all ${place.isActive !== false ? 'bg-emerald-500' : 'bg-neutral-300'}`} aria-label={`Toggle ${placeLabel}`}>
                         <span className={`block h-4 w-4 rounded-full bg-white shadow transition-transform ${place.isActive !== false ? 'translate-x-4' : 'translate-x-0'}`} />
                       </button>
-                      <button type="button" onClick={() => handleDeletePlace(type, index)} className="rounded-lg p-1.5 text-red-500 transition-colors hover:bg-red-500/10" aria-label={`Delete ${placeLabel}`}>
-                        <X size={14} />
-                      </button>
                     </div>
                   </div>
-                  <div className="mt-2 text-[8px] font-black uppercase opacity-45">{place.isActive === false ? 'Disabled' : 'Available'}</div>
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    {type === 'pickup-point' ? (
+                      <button
+                        type="button"
+                        onClick={() => handleTogglePickupAddressMode(index)}
+                        className={`rounded-xl border px-3 py-2 text-[11px] font-black uppercase tracking-wide transition-all ${pickupAddressMode === 'actual-pin' ? 'border-garage-blue/30 bg-garage-blue/10 text-garage-blue' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600'}`}
+                      >
+                        {pickupAddressMode === 'actual-pin' ? 'Actual Pin' : 'Rate Checking'}
+                      </button>
+                    ) : <span />}
+                    <button
+                      type="button"
+                      onClick={() => handleDeletePlace(type, index)}
+                      className="ml-auto flex h-8 w-8 items-center justify-center rounded-full bg-red-500 text-white shadow-md shadow-red-500/20 transition-all hover:bg-red-600 active:scale-95"
+                      aria-label={`Delete ${placeLabel}`}
+                    >
+                      <X size={15} strokeWidth={3} />
+                    </button>
+                  </div>
                 </div>
               );
             })}
           </div>
         ) : (
-          <div className="rounded-2xl border border-dashed border-garage-blue/20 px-4 py-6 text-center text-[10px] font-bold uppercase opacity-50">No {title.toLowerCase()} configured yet.</div>
+          <div className="rounded-2xl border border-dashed border-garage-blue/20 px-4 py-6 text-center text-[13px] font-bold uppercase opacity-50">No {title.toLowerCase()} configured yet.</div>
         )}
 
         {selectedCategory === type && renderPlaceEditor(type)}
@@ -616,7 +725,7 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
             </div>
 
             <div className={`${embedded ? 'hidden' : 'flex'} relative z-10 shrink-0 items-center justify-between border-b p-4 shadow-sm md:p-8 ${isDarkMode ? 'border-white/5 bg-neutral-900 shadow-black/20' : 'border-black/5 bg-white shadow-black/5'}`}>
-               <h2 className="text-lg md:text-xl font-black italic uppercase text-garage-blue ml-2 md:ml-4">Shipping Options</h2>
+               <h2 className="text-[15px] font-black italic uppercase text-garage-blue ml-2 md:ml-4">Shipping Options</h2>
                <button onClick={onClose} className="p-3 rounded-full bg-black/5 hover:bg-red-500/10 transition-all mr-2 md:mr-4"><X size={20} /></button>
             </div>
             <div
@@ -628,18 +737,29 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
                 <section className="space-y-4">
                   <div className="flex items-center gap-2 border-b border-black/5 pb-3 dark:border-white/5">
                     <Settings size={18} className="text-garage-blue" />
-                    <div>
-                      <h3 className="text-sm font-black uppercase italic text-garage-blue">Shipping Methods</h3>
-                      <p className="text-[9px] font-bold uppercase opacity-50">Configure couriers, suboptions, discounts, and required fields</p>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setAreShippingMethodsExpanded(prev => !prev)}
+                      aria-expanded={areShippingMethodsExpanded}
+                      className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left"
+                    >
+                      <div>
+                        <h3 className="text-[14px] font-black uppercase italic text-garage-blue">Shipping Methods</h3>
+                        <p className="text-[13px] font-bold uppercase opacity-50">Configure couriers, suboptions, discounts, and required fields</p>
+                      </div>
+                      {areShippingMethodsExpanded ? <ChevronUp size={18} className="shrink-0 text-garage-blue" /> : <ChevronDown size={18} className="shrink-0 text-garage-blue" />}
+                    </button>
                   </div>
-                  <ShippingOptions
-                    shippingMethods={formData.shippingMethods}
-                    handleToggleMethod={handleToggleMethod}
-                    handleSave={handleSave}
-                    showSave={!embedded}
-                    setShippingMethods={(newMethods) => setFormData(p => ({ ...p, shippingMethods: newMethods }))}
-                  />
+                  {areShippingMethodsExpanded && (
+                    <ShippingOptions
+                      shippingMethods={formData.shippingMethods}
+                      handleToggleMethod={handleToggleMethod}
+                      handleSave={handleSave}
+                      showSave={!embedded}
+                      hasChanges={hasShippingChange()}
+                      setShippingMethods={(newMethods) => setFormData(p => ({ ...p, shippingMethods: newMethods }))}
+                    />
+                  )}
                 </section>
 
                 {renderPlaceSection('pickup-point', 'Pickup Points', Truck)}
