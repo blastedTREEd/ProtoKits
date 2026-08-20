@@ -1,49 +1,63 @@
-# 🌌 SNORLAX GARAGE - OBSIDIAN HUB
+# SnorlaxGarage KOS
 
-Welcome to your central documentation vault for **Snorlax Garage**! ⚙️🛠️
+SnorlaxGarage is a Firebase-backed React storefront and garage operations system for model kits, 3D-printing projects, custom orders, and fulfillment.
 
-Snorlax Garage is a premium React-based hub for 3D printing enthusiasts. This Obsidian vault acts as the source-of-truth documentation for all current features, calculation engines, user flows, and state architecture.
+This vault documents the current application behavior. It helps developers, operators, and future maintainers understand what users can do, what administrators control, and where implementation limitations still exist.
 
----
+## Product areas
 
-## 🗺️ Documentation Directory
+### Customer storefront
 
-Select a section below to explore the inner workings of the platform:
+- Landing page with stories, highlights, and promotional content.
+- Kits catalog with stock-aware availability, variants, deals, and collection offers.
+- Prints/Blueprints calculator for STL estimates and 3MF plate-ready projects.
+- Basket and checkout for kits, projects, or mixed orders.
+- Orders page with payment, receipt, status, and fulfillment progress.
+- Notifications, profile settings, project vault, and Notify Me/watch lists.
 
-### 🔒 Core Systems
-* **[[Authentication & Authorization]]**
-  * Facebook OAuth Flow via Firebase.
-  * Dynamic Firestore whitelist matching for Admin verification.
-  * State management of roles (`isAdmin` / `isAdminView`).
-  * Firebase client/Admin credential boundaries, rotation procedure, and pre-push secret checks.
+### Admin workspace
 
-### 🧮 Calculations & Core Engines
-* **[[Cost Estimation Engine]]**
-  * Slicing comparison: **STL** (dimensions & weights) vs. **3MF** (sliced plate data).
-  * Rate Configurations: Labor, Materials, Electricity, Maintenance, and Markup rates.
-  * Calculation formulas for Grand Totals, Downpayments, and Plate Checklists.
-  * Under-the-hood execution mapping for all users.
+- Kit and stock maintenance, including the Master List and stock-condition tools.
+- Deals and bundles through the Deal Architect.
+- Shelf management for reserved or admin-held inventory.
+- Supplier Balances for purchase tracking and arrival updates.
+- Sales dashboard, users dashboard, offers, stories, and maintenance settings.
+- Operations modal for shipping methods, payment options, and Garage Calendar availability.
 
-### 📦 Kits, Inventory & Orders
-* **[[Kits & Inventory Management]]**
-  * Kits list cataloging & stock state tracking (`available`, `reserved`, `sold`).
-  * Stable sorting algorithm for kit availability priority.
-  * Deals sync logic and Filament/Extras manager modals.
-* **[[Order Management]]**
-  * Orders checkout flows and dynamic payment fees (`handlingFee`, `installmentFee`, `transferFee`).
-  * Stock reservation release (`releaseOrderStocks`) for cancelled orders.
-  * Real-time order notifications, unread highlighting, and seen-update counters.
+## Core flows
 
-### 🗄️ Architecture & Databases
-* **[[Data & Store Architecture]]**
-  * Zustand (`useStore.js`) state store layout and logic slices.
-  * Firestore database collection structures.
+- **Kit purchase:** browse a kit → select a stock variant/deal → add to basket → enter fulfillment details → reserve an exact stock unit during checkout → submit payment/receipt → admin validates and fulfills the order.
+- **3D project:** choose STL or 3MF → configure printer, filament, extras, and services → name the project and provide the required file link → review estimate → save to Project Vault or add to basket → schedule production during checkout.
+- **Mixed order:** kits and projects may share one checkout. Kit stock is reserved while project production status and scheduling data are stored on the same order.
+- **Fulfillment:** select courier, self-pickup, seller meetup, or configured branch/drop-off options → use the configured required fields and pin/location mode → receive shipping or printing delay messaging when the Garage Calendar is unavailable.
+- **Administration:** authenticate → pass the dynamic admin whitelist check → use admin-only surfaces to maintain catalog data, orders, rates, fulfillment rules, availability, and content.
 
----
+## Documentation map
 
-## 🎨 Branding Mandates
+### Core access and architecture
 
-Remember that all interface elements, components, and brand assets must strictly align with the **SnorlaxGarage** identity:
-- **Palette:** Sleek Blue/Black theme with premium dark-mode styling.
-- **Typography:** Bold uppercase italic typography for headers and brand callouts.
-- **Language Mode:** Maintain the **Tagalog** comments and annotations within the code logic to assist the developer.
+- [[Authentication & Authorization]] — Firebase providers, admin whitelist, route guards, and credential boundaries.
+- [[Data & Store Architecture]] — Zustand, Firestore listeners, cache behavior, collections, and security boundaries.
+
+### Customer and commerce flows
+
+- [[Customer Feature Flows]] — end-to-end storefront, project, basket, checkout, order, notification, and fulfillment narratives.
+- [[Order Management]] — fees, reservation, payment, receipt, statuses, cancellation, notifications, and checkout behavior.
+- [[Kits & Inventory Management]] — kit records, physical stock variants, conditions, deals, Master List, shelf, and supplier arrival behavior.
+- [[Projects & 3D Printing]] — project validation, Project Vault, calculator steps, production scheduling, and project order progress.
+- [[Cost Estimation Engine]] — STL/3MF calculation inputs, costs, rates, safeguards, and admin calculation views.
+
+### Admin operations
+
+- [[Admin Operations & Fulfillment]] — Operations modal, shipping configurations, payment settings, Garage Calendar, and operational dependencies.
+
+## Important implementation notes
+
+- The client uses Firebase browser credentials. These identify the Firebase project but are not Admin SDK credentials.
+- Stock reservation and several business writes currently execute through the client-side Zustand/Firebase path. The rules and code contain indications that stronger server-side transaction handling is still a future migration item.
+- Firestore rules are part of the production security boundary. Current rules require review for kit-write authorization and public shelf reads before the system is considered fully hardened.
+- The temporary admin stock-condition action on the Kits page is an operational migration tool, not a permanent customer feature.
+
+## Brand language
+
+SnorlaxGarage uses a bold blue, black, white, and accent-color visual system with uppercase labels and compact operational wording. Documentation should describe behavior plainly and must not imply that a planned or partially migrated backend capability is already live.

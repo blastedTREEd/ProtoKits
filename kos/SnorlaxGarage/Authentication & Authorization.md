@@ -54,6 +54,10 @@ Protected routes:
 - `/shelf` (Admin-only basket/shelf inspection)
 - `/users-dashboard` (Admin-only list of registered users and admins)
 
+Admin-only controls also appear conditionally in shared surfaces such as the navbar, Orders, Kits, Operations, Deal Architect, Supplier Balances, Master List, and Sales Dashboard. The route may be public, but the control must still be gated by the live `isAdmin` state.
+
+The public/customer view and administrator view can coexist in the same authenticated session. `isAdminView` changes which operational data and controls are displayed; it does not grant administrator status by itself.
+
 ---
 
 ## 👁️ 4. Conditional Feature Rendering
@@ -61,6 +65,19 @@ Multiple components render options conditionally based on the user's role:
 - **Project Rates & Breakdown:** The `Rates` editing tab in `ProjectCost` and the detailed line-item costing in `CostBreakdown` are rendered only if `isAdmin` is true.
 - **Admin Indicators:** A floating viewport screen-size indicator (e.g. `XL`, `LG`, `MD`, `MOBILE`) is rendered at the bottom left of the window when `isAdmin` is true to assist in debugging layouts.
 - **Calculation Mandate:** To ensure the correct computation of checkout values, `ProjectCost.jsx` always runs the `CostBreakdown` engine under the hood for all users, but wraps it in a `<div className="hidden">` element if the user is a non-admin. This calculates totals without exposing proprietary rates.
+
+The same principle applies to business data elsewhere: conditional rendering improves the interface, but Firestore rules must still enforce the actual authorization boundary.
+
+---
+
+## 5. Current authorization review items
+
+The repository audit found two rules that need explicit security review before the system is described as fully locked down:
+
+- The `kits` collection currently permits writes for signed-in non-anonymous users. The intended policy is expected to be admin-controlled for catalog and stock maintenance, so the rule should be tightened or the migration path clearly isolated.
+- The `shelf` collection is publicly readable. Review whether shelf stock, accepted offers, or operational assignments contain information that should be limited to administrators or the owning user.
+
+These are implementation findings, not claims that the UI is intentionally public. The KOS should retain them as open hardening items until the deployed rules are verified.
 
 ---
 

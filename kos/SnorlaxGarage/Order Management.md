@@ -118,3 +118,54 @@ After guest authentication, the action is recalculated from the live account rol
 - Through the `md` viewport range, checkout keeps a single-column mobile layout. Shipping controls, recipient information, maps, item rows, and totals only switch to the desktop arrangement at `lg`.
 - Both the top navbar and mobile mini navbar are hidden on the checkout page through `md` to prevent overlap with checkout controls.
 - The checkout close action floats independently at the upper-right without a navbar-like background. The first checkout heading begins in the same opening area with a small top inset instead of sitting below a dedicated header row. Its sticky layer remains above isolated Leaflet maps and controls during scrolling. The normal navbar and desktop close action return at `lg`.
+
+---
+
+## 5. End-to-end order lifecycle
+
+An order begins in `CheckoutModal` and is finalized only after the customer passes the current checkout validations:
+
+1. Maintenance mode, required fulfillment fields, map/pin requirements, payment-plan bounds, and project requirements are checked.
+2. The current kit and stock data are read before reservation. A stock unit must still be buyable, or be an explicitly accepted/admin-held offer eligible for release.
+3. Each kit stock unit is reserved, then an order document is created with the selected items, pricing, fees, payment plan, fulfillment details, project progress, and timestamps.
+4. The customer is sent to the payment/receipt step, or an administrator is returned to Orders for administrative handling.
+5. Receipt uploads update the order for validation. Admin status changes drive customer notifications and order progress.
+
+The current implementation performs these operations through the browser's Zustand/Firebase path. This is functional but should not be documented as an atomic server transaction until the planned backend migration is complete.
+
+## 6. Order contents and fulfillment methods
+
+An order may contain:
+
+- Physical kit items with an exact `kitId` and stock key.
+- A 3D-printing project with project name, source-link metadata, services, cost summary, and production progress.
+- A mixture of kits and projects.
+
+Supported fulfillment behavior is configured per shipping method:
+
+- **Self-pickup:** pickup order/pickup pin data.
+- **Seller meetup:** receiver name, mobile number, and meetup location.
+- **Couriers:** address fields and courier branch/drop-off data configured by the admin.
+
+Pickup points support two address presentation modes:
+
+- **Rate checking:** the location shown while rates and checkout details are being checked.
+- **Actual pin:** the complete pickup location shown when the receipt is validated and the order is ready for pickup.
+
+The Operations shipping configuration determines which fields are required. Checkout consumes the saved configuration rather than assuming every method needs every field.
+
+## 7. Status and cleanup behavior
+
+The order status controls both the admin workflow and customer-facing notifications. Typical transitions include waiting/reserved, validating, confirmed/paid, processing, ready for pickup or shipping, completed, declined, and cancelled.
+
+When an order is cancelled, declined, or times out, `releaseOrderStocks` removes reservation metadata from every exact stock target and restores the stock to the buyable pool when appropriate. This release can also trigger restock or offer-related notifications.
+
+For project orders, the same order record carries project progress and production scheduling information. A mixed order therefore remains one commercial order while kit fulfillment and print production can advance through their own operational steps.
+
+## 8. Availability delay messaging
+
+The Garage Calendar stores printing and shipping availability in `settings/checkout`. If the relevant service is unavailable for the current day, checkout displays:
+
+> PLEASE EXPECT SHIPPING DELAY
+
+It also shows the next available date. Orders are not automatically re-priced by this notice; it is an expectation-setting message based on the current calendar configuration.

@@ -66,3 +66,60 @@ Assembly hardware (e.g. Magnets, Heatset threaded inserts, dowels) are stored in
   $$\text{Price Per Piece} = \text{Pack Price} / \text{Pack Quantity}$$
 - **qty:** The overall bulk quantity remaining in physical stock.
 - **Status:** Similar to filaments, extras can be loaded `upfront` (charging the customer for full pack packages) or consumed directly from `stock`.
+
+---
+
+## 5. Physical stock conditions
+
+Each stock variant can carry separate box and kit condition values. The conditions describe the physical unit and are used by admin inventory tools, Master List display, offers, and operational cleanup actions.
+
+Common box values include `PRISTINE`, `BRAND NEW`, `SEALED`, `SEALED BOX`, `NO BOX`, `THIRD PARTY`, `WORN BOX`, and other configured condition labels. Kit values include `SEALED`, `UNBUILT`, `BRAND NEW`, and other configured labels.
+
+The application also contains normalization and migration helpers for older stock records that stored conditions as a two-item `condition` array. Newer records prefer explicit `boxCondition` and `kitCondition` fields. Missing condition data is surfaced by inventory tooling so an administrator can correct the stock record.
+
+Operational defaults currently include:
+
+- Premium Bandai stock: pristine box and sealed kit when the relevant arrival/default action applies.
+- Bandai, Tamiya, and Takara Tomy stock: brand-new box and sealed kit when the relevant arrival/default action applies.
+- Third-party or bootleg stock: third-party box and unbuilt kit where the stock classification requires it.
+
+These defaults are convenience actions, not a substitute for checking the physical item. The temporary Kits-page migration action changes kit condition to `SEALED` for stock whose box condition is `PRISTINE`; Supplier Balances arrival handling also writes `SEALED` kit condition for arriving stock.
+
+## 6. Master List and stock-level reporting
+
+The admin Master List is an overall stock view rather than a grouped product summary. Each physical stock variant is represented by its own row and is sorted by kit name.
+
+The row contains:
+
+- Photo and kit name, with long names allowed to occupy multiple lines.
+- Brand, series, line, and scale in one detail column.
+- Cost and sell price in one price column.
+- Variant and stock status information.
+- Box and kit condition.
+- Edit action for the exact stock record.
+
+Sell price is shown in blue when the stock is on the admin shelf. Search supports ordinary text as well as condition queries:
+
+- `BOX:PRISTINE`
+- `KIT:SEALED`
+
+The Master List download exports one spreadsheet row per stock variant with the catalog, pricing, condition, status, reservation, shipping, and timestamp details needed for offline review.
+
+## 7. Deals, offers, and stock ownership
+
+The Deal Architect creates bundle and clearance deals that reference specific kit records and discount rules. A deal may reserve or expose particular stock units, while the storefront calculates the customer-facing savings and deal price from the configured discount and current item set.
+
+Admin shelf stock is operational stock held outside the normal public availability pool. It may be used for accepted collection offers or other admin-controlled fulfillment paths. Public catalog availability and admin shelf availability must therefore be distinguished when checking whether a stock unit can be purchased.
+
+## 8. Inventory lifecycle
+
+The normal lifecycle is:
+
+1. Create or edit the kit catalog record.
+2. Add one or more physical stock variants with pricing, status, ETA, and conditions.
+3. Track supplier balances until the shipment arrives.
+4. Apply or verify arrival conditions and move stock into the appropriate on-hand/public/shelf state.
+5. Reserve an exact stock variant during checkout.
+6. Mark the order outcome; release the variant if the order is cancelled or declined, or retain its order linkage when sold.
+
+Because stock is represented as a nested map inside a kit document, edits must preserve the exact stock key and avoid overwriting unrelated variants.

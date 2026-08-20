@@ -711,6 +711,13 @@ const getCheckoutPlaceAddress = (place = {}, { includeHouseNo = false } = {}) =>
   return cleanAddressLandmark(addr, place.landmark);
 };
 
+// The admin pickup-point tag supplies the public rate-checking location.
+// This keeps checkout dynamic instead of hardcoding a specific pickup point.
+const getRateCheckingPickupIndex = (places = []) => {
+  const rateCheckingIndex = places.findIndex(place => place.pickupAddressMode === 'rate-checking');
+  return rateCheckingIndex >= 0 ? rateCheckingIndex : (places.length > 0 ? 0 : null);
+};
+
 const hasCheckoutSettings = (admin) => {
   return Boolean(admin?.shippingMethods || admin?.pickupDetails || admin?.paymentSettings);
 };
@@ -1133,6 +1140,11 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       }));
   }, [storeAdmin]);
 
+  const rateCheckingPickupIndex = useMemo(
+    () => getRateCheckingPickupIndex(pickupPoints),
+    [pickupPoints]
+  );
+
   const usesPickupPoint = useMemo(() => {
     const method = checkoutData.shippingMethod;
     if (!method) return false;
@@ -1149,11 +1161,37 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     return checkUsesMeetupLocation(method, methodConfig, subKey);
   }, [checkoutData, storeAdmin]);
 
+  // Pickup-point checkout always resolves to the active point tagged
+  // Rate Checking. This supplies both the public address and map pin
+  // dynamically, so a different tagged point can be configured later.
+  useEffect(() => {
+    if (!isOpen || !usesPickupPoint || rateCheckingPickupIndex === null) return;
+    const rateCheckingPlace = pickupPoints[rateCheckingPickupIndex];
+    if (!rateCheckingPlace) return;
+
+    const rateCheckingLabel = getCheckoutPlaceLabel(
+      rateCheckingPlace,
+      `Pickup Point ${rateCheckingPickupIndex + 1}`
+    );
+    const isAlreadySelected = checkoutData.pickupLocationIndex === rateCheckingPickupIndex
+      && checkoutData.pickupLocation === rateCheckingLabel;
+    if (isAlreadySelected) return;
+
+    updateCheckoutData(prev => ({
+      ...prev,
+      pickupLocation: rateCheckingLabel,
+      pickupLocationIndex: rateCheckingPickupIndex
+    }));
+  }, [checkoutData.pickupLocation, checkoutData.pickupLocationIndex, isOpen, pickupPoints, rateCheckingPickupIndex, updateCheckoutData, usesPickupPoint]);
+
   const selectedPickupDetails = useMemo(() => {
     if (!usesPickupPoint) return null;
     const byIndex = Number.isInteger(checkoutData.pickupLocationIndex)
       ? pickupPoints[checkoutData.pickupLocationIndex]
       : null;
+    if (byIndex?.pickupAddressMode === 'rate-checking' && byIndex.isActive !== false) return byIndex;
+    const rateCheckingPlace = rateCheckingPickupIndex !== null ? pickupPoints[rateCheckingPickupIndex] : null;
+    if (rateCheckingPlace && rateCheckingPlace.isActive !== false) return rateCheckingPlace;
     if (byIndex && byIndex.isActive !== false) return byIndex;
     return pickupPoints.find((p, idx) => {
       const fallbackLabel = `Pickup Point ${idx + 1}`;
@@ -1164,8 +1202,8 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
         formatPlaceAddressWithoutHouseNo(p),
         formatPlaceAddress(p)
       ].filter(Boolean).some(value => value === checkoutData.pickupLocation);
-    }) || pickupPoints[0] || null;
-  }, [pickupPoints, checkoutData.pickupLocation, checkoutData.pickupLocationIndex, usesPickupPoint]);
+    }) || (rateCheckingPickupIndex !== null ? pickupPoints[rateCheckingPickupIndex] : null) || null;
+  }, [pickupPoints, rateCheckingPickupIndex, checkoutData.pickupLocation, checkoutData.pickupLocationIndex, usesPickupPoint]);
 
   const shopDefaultLocation = useMemo(() => {
     if (selectedPickupDetails?.lat && selectedPickupDetails?.lng) return [selectedPickupDetails.lat, selectedPickupDetails.lng];
@@ -1923,7 +1961,7 @@ const baseTotal = useMemo(() => {
     let pickupLocation = '';
     let pickupLocationIndex = null;
     if (hasPickup && pickupPoints.length > 0) {
-      const targetIdx = 0;
+      const targetIdx = rateCheckingPickupIndex;
       pickupLocation = getCheckoutPlaceLabel(pickupPoints[targetIdx], `Pickup Point ${targetIdx + 1}`);
       pickupLocationIndex = targetIdx;
     }
@@ -1946,7 +1984,7 @@ const baseTotal = useMemo(() => {
       meetupLocation,
       meetupLocationIndex
     };
-  }, [enabledShippingMethods, getBestSuboptionKey, storeAdmin, checkoutItems, isMethodFreeShipping, pickupPoints]);
+  }, [enabledShippingMethods, getBestSuboptionKey, storeAdmin, checkoutItems, isMethodFreeShipping, pickupPoints, rateCheckingPickupIndex]);
 
   const handleShippingChange = useCallback((m) => {
     let newCheckoutData;
@@ -2952,7 +2990,7 @@ const handleFinalizeOrder = async () => {
       const subConfig = activeMethodConfig?.suboptions?.[subKey] || {};
       const hasPickup = checkUsesPickupPoint(checkoutData.shippingMethod, activeMethodConfig, subKey);
       const hasMeetup = checkUsesMeetupLocation(checkoutData.shippingMethod, activeMethodConfig, subKey);
-      const targetIdx = 0;
+      const targetIdx = rateCheckingPickupIndex;
       const pickupLoc = hasPickup && pickupPoints.length > 0 ? getCheckoutPlaceLabel(pickupPoints[targetIdx], `Pickup Point ${targetIdx + 1}`) : '';
       const meetupPlaces = (storeAdmin?.pickupDetails?.meetup?.places || []).filter(p => p.isActive !== false);
       const meetupLoc = hasMeetup && meetupPlaces.length > 0 ? getCheckoutPlaceLabel(meetupPlaces[0], 'Meetup Place 1') : '';
@@ -3153,7 +3191,9 @@ const handleFinalizeOrder = async () => {
                   )}
                   {(isLocalPlaceMethod || showLocationSelect) && (
                     <div className="rounded-2xl bg-black/[0.03] p-4 dark:bg-white/[0.04] lg:col-span-2">
-                      <p className="text-[12px] font-black uppercase tracking-widest opacity-40">{usesMeetupLocation ? 'Meetup Location' : 'Pickup Location'}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-[12px] font-black uppercase tracking-widest opacity-40">{usesMeetupLocation ? 'Meetup Location' : 'Pickup Pin'}</p>
+                      </div>
                       <p className="mt-1 text-[13px] font-black uppercase text-blue-600">
                         {getCheckoutPlaceLabel(selectedLocalPlaceDetails, usesMeetupLocation ? 'Meetup Place' : 'Pickup Point')}
                       </p>
@@ -3608,8 +3648,8 @@ const handleFinalizeOrder = async () => {
                                         let pickupLoc = '';
                                         let pickupLocIndex = null;
                                         if (hasPickup && pickupPoints.length > 0) {
-                                          pickupLoc = getCheckoutPlaceLabel(pickupPoints[0], 'Pickup Point 1');
-                                          pickupLocIndex = 0;
+                                          pickupLocIndex = rateCheckingPickupIndex;
+                                          pickupLoc = getCheckoutPlaceLabel(pickupPoints[pickupLocIndex], `Pickup Point ${pickupLocIndex + 1}`);
                                         }
 
                                         let meetupLoc = '';
@@ -3651,7 +3691,9 @@ const handleFinalizeOrder = async () => {
                         {/* Pickup Location — second-level suboption for couriers */}
                         {subNeedsPickup && pickupPoints.length > 0 && (
                           <div className="mt-3 space-y-2 animate-in slide-in-from-top duration-300">
-                            <h5 className="text-[11px] font-black uppercase opacity-40">Pickup Location</h5>
+                            <div className="flex items-center gap-2">
+                              <h5 className="text-[11px] font-black uppercase opacity-40">Pickup Pin</h5>
+                            </div>
                             <div className="grid grid-cols-1 gap-1">
                               {pickupPoints.map((place, idx) => {
                                 const fallbackLabel = `Pickup Point ${idx + 1}`;
@@ -3722,9 +3764,11 @@ const handleFinalizeOrder = async () => {
                     (checkoutData.shippingMethod === 'Self-Pickup' && usesPickupPoint) ||
                     (checkoutData.shippingMethod === 'Lalamove' && checkoutData.lalamoveType === 'Self-Booking' && usesPickupPoint)) && (
                     <div className="mt-3 space-y-2 animate-in slide-in-from-top duration-300">
-                      <h5 className="text-[11px] font-black uppercase opacity-40">
-                        {checkoutData.shippingMethod === 'Seller Meetup' ? 'Meetup Location' : 'Pickup Location'}
-                      </h5>
+                      <div className="flex items-center gap-2">
+                        <h5 className="text-[11px] font-black uppercase opacity-40">
+                          {checkoutData.shippingMethod === 'Seller Meetup' ? 'Meetup Location' : 'Pickup Pin'}
+                        </h5>
+                      </div>
                       <div className="grid grid-cols-1 gap-1">
                         {(checkoutData.shippingMethod === 'Seller Meetup'
                             ? (storeAdmin?.pickupDetails?.meetup?.places || [])
@@ -3782,10 +3826,12 @@ const handleFinalizeOrder = async () => {
                             {checkoutData.shippingMethod === 'Lalamove' && checkoutData.lalamoveType === 'Self-Booking' && usesPickupPoint && (
                               <>
                                 <div className="space-y-1">
-                                  <p className="text-[8px] font-black uppercase opacity-30 tracking-[0.2em]">Pickup Point</p>
+                                    <div className="flex items-center gap-2">
+                                      <p className="text-[8px] font-black uppercase opacity-30 tracking-[0.2em]">Pickup Pin</p>
+                                    </div>
                                   <div className="flex items-center gap-2">
                                     <MapPinCheckInside size={16} className="text-blue-600" />
-                                    <p className="text-sm font-black uppercase italic text-blue-600">{selectedPickupDetails?.landmark || pickupPoints[0]?.landmark || 'Pickup Point'}</p>
+                                    <p className="text-sm font-black uppercase italic text-blue-600">{selectedPickupDetails?.landmark || 'Pickup Point'}</p>
                                   </div>
                                 </div>
                                 <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 space-y-2">
@@ -3797,7 +3843,9 @@ const handleFinalizeOrder = async () => {
                             {checkoutData.shippingMethod === 'Self-Pickup' && usesPickupPoint && (
                               <>
                                 <div className="space-y-1">
-                                  <p className="text-[8px] font-black uppercase opacity-30 tracking-[0.2em]">Pickup Point</p>
+                                  <div className="flex items-center gap-2">
+                                    <p className="text-[8px] font-black uppercase opacity-30 tracking-[0.2em]">Pickup Pin</p>
+                                  </div>
                                   <div className="flex items-center gap-2">
                                     <MapPinCheckInside size={16} className="text-blue-600" />
                                     <p className="text-sm font-black uppercase italic text-blue-600">
@@ -3827,7 +3875,9 @@ const handleFinalizeOrder = async () => {
                             {!LOCAL_METHODS.includes(checkoutData.shippingMethod) && !(checkoutData.shippingMethod === 'Lalamove' && checkoutData.lalamoveType === 'Self-Booking') && usesPickupPoint && selectedPickupDetails && (
                               <>
                                 <div className="space-y-1">
-                                  <p className="text-[8px] font-black uppercase opacity-30 tracking-[0.2em]">Pickup Point</p>
+                                  <div className="flex items-center gap-2">
+                                    <p className="text-[8px] font-black uppercase opacity-30 tracking-[0.2em]">Pickup Pin</p>
+                                  </div>
                                   <div className="flex items-center gap-2">
                                     <MapPinCheckInside size={16} className="text-blue-600" />
                                     <p className="text-sm font-black uppercase italic text-blue-600">
@@ -3926,9 +3976,11 @@ const handleFinalizeOrder = async () => {
 
                                 {isLocalPlaceMethod && (
                                   <div className="space-y-1">
-                                    <p className="text-[8px] font-black uppercase opacity-30 tracking-[0.2em]">
-                                      {checkoutData.shippingMethod === 'Seller Meetup' ? 'Meetup Location' : 'Pickup Location'}
-                                    </p>
+                                    <div className="flex items-center gap-2">
+                                      <p className="text-[8px] font-black uppercase opacity-30 tracking-[0.2em]">
+                                        {checkoutData.shippingMethod === 'Seller Meetup' ? 'Meetup Location' : 'Pickup Pin'}
+                                      </p>
+                                    </div>
                                     <div className="space-y-1">
                                       <div className="flex items-center gap-2">
                                         <MapPinCheckInside size={16} className="text-blue-600" />

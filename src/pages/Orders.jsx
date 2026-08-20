@@ -236,6 +236,25 @@ const getShippingFlags = (order) => {
   };
 };
 
+const getConfiguredPickupPoint = (shippingSettings, mode) => (
+  (shippingSettings?.pickupDetails?.['pickup-point']?.places || [])
+    .find(place => place?.isActive !== false && place?.pickupAddressMode === mode) || null
+);
+
+const getConfiguredPickupAddress = (place) => {
+  if (!place) return '';
+  if (place.address) return place.address;
+  return [
+    place.houseNo,
+    place.houseDetails || place.street,
+    place.subdivision,
+    place.barangay,
+    place.city,
+    place.province,
+    place.zipCode
+  ].filter(Boolean).join(', ');
+};
+
 const normalizeShippingValue = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
 
 const isOrderSelfBooking = (order, settings) => {
@@ -1174,8 +1193,16 @@ export default function Orders() {
     const flags = getShippingFlags(order);
     if (!flags.usesPickupPoint) return true;
 
-    return order?.pickupDetails?.pickupAddressMode === 'actual-pin'
-      && order.status === 'Ready for Pickup';
+    const actualPickupPoint = getConfiguredPickupPoint(shippingSettings, 'actual-pin');
+    const hasActualPin = Boolean(
+      actualPickupPoint && (actualPickupPoint.address || actualPickupPoint.lat || actualPickupPoint.lng)
+      ||
+      order?.pickupDetails?.exactAddress ||
+      order?.pickupDetails?.exactLat ||
+      order?.pickupDetails?.exactLng
+    );
+
+    return hasActualPin && order.status === 'Ready for Pickup';
   };
 
   const getDisplayStatus = (order) => {
@@ -1246,12 +1273,16 @@ export default function Orders() {
     // Admin always sees the exact pickup point. Customers only see it after all validated payments clear the balance.
     const paymentVerified = hasValidatedFirstReceipt(order) && calculateBalance(order) <= 0;
     const showExactAddress = canShowExactPickupDetails(order, paymentVerified);
+    const actualPickupPoint = showExactAddress
+      ? getConfiguredPickupPoint(shippingSettings, 'actual-pin')
+      : null;
+    const configuredExactAddress = getConfiguredPickupAddress(actualPickupPoint);
     const rawPickupAddress = showExactAddress
-      ? (order?.pickupDetails?.exactAddress || order?.pickupDetails?.publicAddress || order?.pickupLocation)
+      ? (configuredExactAddress || order?.pickupDetails?.exactAddress || order?.pickupDetails?.publicAddress || order?.pickupLocation)
       : (order?.pickupDetails?.publicAddress || order?.pickupLocation);
       
     // Alisin ang landmark sa beginning ng address string para hindi ma-double ang landmark display.
-    const landmarkLabel = order?.pickupDetails?.label;
+    const landmarkLabel = actualPickupPoint?.landmark || order?.pickupDetails?.label;
     let pickupAddress = rawPickupAddress;
     if (landmarkLabel && pickupAddress && pickupAddress.startsWith(landmarkLabel)) {
       pickupAddress = pickupAddress.substring(landmarkLabel.length).replace(/^[\s,]+/, '');
@@ -1271,8 +1302,8 @@ export default function Orders() {
       email: rd.email || order?.buyerEmail || '',
       display: location || 'No details',
       landmark: rd.landmark || '',
-      lat: (showExactAddress ? order?.pickupDetails?.exactLat : null) || rd.lat || order?.pickupDetails?.lat || null,
-      lng: (showExactAddress ? order?.pickupDetails?.exactLng : null) || rd.lng || order?.pickupDetails?.lng || null,
+      lat: (showExactAddress ? (actualPickupPoint?.lat || order?.pickupDetails?.exactLat) : null) || rd.lat || order?.pickupDetails?.lat || null,
+      lng: (showExactAddress ? (actualPickupPoint?.lng || order?.pickupDetails?.exactLng) : null) || rd.lng || order?.pickupDetails?.lng || null,
       lbcBranch: rd.lbcBranch
     };
   };
@@ -1417,10 +1448,10 @@ export default function Orders() {
     const detailShowExact = canShowExactPickupDetails(selectedOrder, detailPaymentVerified);
     const isPickupMap = selectedShippingFlags.isMeetup || selectedShippingFlags.isSelfPickup || selectedShippingFlags.usesPickupPoint;
     const pickupMapLat = detailShowExact
-      ? (selectedOrder.pickupDetails?.exactLat || selectedOrder.pickupDetails?.lat)
+      ? selectedLogistics.lat
       : selectedOrder.pickupDetails?.lat;
     const pickupMapLng = detailShowExact
-      ? (selectedOrder.pickupDetails?.exactLng || selectedOrder.pickupDetails?.lng)
+      ? selectedLogistics.lng
       : selectedOrder.pickupDetails?.lng;
     const mapLat = (isPickupMap ? pickupMapLat : null) || selectedLogistics.lat;
     const mapLng = (isPickupMap ? pickupMapLng : null) || selectedLogistics.lng;
@@ -1557,9 +1588,21 @@ export default function Orders() {
               </div>
             </div>
 
-            {/* Complete Address */}
+            {/* Pickup pin / complete address */}
             <div className="flex flex-col">
-              <span className="text-[13px] font-black uppercase mb-0.5 tracking-wider">Complete Address</span>
+              <div className="flex items-center gap-2 mb-0.5">
+                <span className="text-[13px] font-black uppercase tracking-wider">
+                  {selectedShippingFlags.usesPickupPoint ? 'Pickup Pin' : 'Complete Address'}
+                </span>
+                {selectedShippingFlags.usesPickupPoint && (
+                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${detailShowExact
+                    ? 'bg-blue-600/15 text-blue-600 dark:text-blue-400'
+                    : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                  }`}>
+                    {detailShowExact ? 'Actual Pin' : 'Rate Checking'}
+                  </span>
+                )}
+              </div>
               <span className="text-[14px] font-bold leading-relaxed text-blue-600">
                 {selectedLogistics.display}
                 {selectedOrder.receiverDetails?.city && (
@@ -1568,7 +1611,7 @@ export default function Orders() {
                   </span>
                 )}
               </span>
-              {!isAdminMode && (selectedShippingFlags.usesPickupPoint || selectedShippingFlags.usesMeetupLocation) && !canShowExactPickupDetails(selectedOrder, selectedPaymentFullyValidated) && (
+              {!isAdminMode && selectedShippingFlags.usesPickupPoint && !detailShowExact && (
                 <span className="text-[13px] font-black uppercase text-amber-600 dark:text-amber-500 mt-1 leading-tight">
                    * Actual pin and complete address will be available once payment is validated and the order is ready for pickup.
                 </span>
