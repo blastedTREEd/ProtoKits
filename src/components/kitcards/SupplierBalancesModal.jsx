@@ -251,6 +251,7 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
       await updateDoc(doc(db, 'kits', item.kitId), {
         [`stocks.${item.key}.status`]: 'onhand',
         [`stocks.${item.key}.eta`]: '',
+        [`stocks.${item.key}.kitCondition`]: 'SEALED',
         [`stocks.${item.key}.isFreeShippingEligible`]: false,
         [`stocks.${item.key}.freeShippingUntil`]: '',
         [`stocks.${item.key}.freeShippingMethod`]: 'All',
@@ -453,6 +454,7 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
                                       await updateDoc(doc(db, 'kits', item.kitId), {
                                         [`stocks.${item.key}.status`]: 'onhand',
                                         [`stocks.${item.key}.eta`]: '',
+                                        [`stocks.${item.key}.kitCondition`]: 'SEALED',
                                         [`stocks.${item.key}.isFreeShippingEligible`]: false,
                                         [`stocks.${item.key}.freeShippingUntil`]: '',
                                         [`stocks.${item.key}.freeShippingMethod`]: 'All',

@@ -9,6 +9,7 @@ import {
   Clock3,
   Coins,
   Copy,
+  Download,
   HandCoins,
   History,
   Image as ImageIcon,
@@ -441,6 +442,49 @@ function stockMatchesConditionFilters(stock, filters) {
   return Object.entries(filters).every(([type, values]) => (
     values.every((value) => conditions[type].includes(value))
   ));
+}
+
+function escapeExcelXml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function createExcelXml(columns, rows) {
+  const cell = (value, isHeader = false) => {
+    const isNumber = !isHeader && value !== '' && Number.isFinite(Number(value));
+    const type = isNumber ? 'Number' : 'String';
+    const style = isHeader ? ' ss:StyleID="Header"' : '';
+    return `<Cell${style}><Data ss:Type="${type}">${escapeExcelXml(value)}</Data></Cell>`;
+  };
+
+  const headerRow = `<Row>${columns.map(([label]) => cell(label, true)).join('')}</Row>`;
+  const dataRows = rows.map((row) => (
+    `<Row>${columns.map(([, getValue]) => cell(getValue(row))).join('')}</Row>`
+  )).join('');
+
+  return `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+  xmlns:o="urn:schemas-microsoft-com:office:office"
+  xmlns:x="urn:schemas-microsoft-com:office:excel"
+  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+  <Styles>
+    <Style ss:ID="Header">
+      <Font ss:Bold="1" />
+      <Interior ss:Color="#D9E8FF" ss:Pattern="Solid" />
+    </Style>
+  </Styles>
+  <Worksheet ss:Name="Master List">
+    <Table>
+      ${headerRow}
+      ${dataRows}
+    </Table>
+  </Worksheet>
+</Workbook>`;
 }
 
 function parseLocalDateTime(value) {
@@ -1898,6 +1942,61 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
     Array.from(new Set(masterListFiltered.map((kit) => kit.id)))
   ), [masterListFiltered]);
 
+  const handleDownloadMasterList = () => {
+    if (masterListRows.length === 0) {
+      alert('There are no stock entries to export.');
+      return;
+    }
+
+    const columns = [
+      ['KIT ID', ({ kit }) => kit.id],
+      ['STOCK KEY', ({ stockKey }) => stockKey],
+      ['VARIANT', ({ variantIndex }) => `V${variantIndex + 1}`],
+      ['KIT NAME', ({ kit }) => kit.name],
+      ['BRAND', ({ kit }) => kit.brand],
+      ['SERIES', ({ kit }) => kit.series],
+      ['LINE', ({ kit }) => kit.specs?.line],
+      ['SCALE', ({ kit }) => kit.specs?.scale],
+      ['DESCRIPTION', ({ kit }) => kit.description],
+      ['MASTER IMAGE', ({ kit }) => kit.image],
+      ['MASTER IMAGE URLS', ({ kit }) => (kit.images || []).map((image) => image.url).filter(Boolean).join(' | ')],
+      ['BOX DIMENSIONS', ({ kit }) => [kit.dimensions?.l, kit.dimensions?.w, kit.dimensions?.h].filter((value) => value !== undefined && value !== '').join(' / ')],
+      ['MASTER JAPAN PRICE', ({ kit }) => kit.jpPrice],
+      ['MASTER PHP PRICE', ({ kit }) => kit.phPrice],
+      ['STATUS', ({ stock }) => stock.status],
+      ['ETA / BATCH LABEL', ({ stock }) => stock.eta],
+      ['PUBLIC RELEASE DATE', ({ stock }) => stock.publicReleaseDate],
+      ['COST PRICE', ({ stock }) => stock.costPrice],
+      ['PAID TO SUPPLIER', ({ stock }) => stock.paidToSupplier],
+      ['SELL PRICE', ({ stock }) => stock.sellPrice],
+      ['MINIMUM DOWNPAYMENT', ({ stock }) => stock.minDownpayment],
+      ['BOX CONDITION', ({ stock }) => stock.boxCondition || extractLegacyConditions(stock).boxCondition],
+      ['KIT CONDITION', ({ stock }) => stock.kitCondition || extractLegacyConditions(stock).kitCondition],
+      ['ISSUE DESCRIPTION', ({ stock }) => stock.issueDescription],
+      ['BOX IMAGE', ({ stock }) => stock.boxImage],
+      ['KIT IMAGE', ({ stock }) => stock.kitImage],
+      ['STOCK IMAGE URLS', ({ stock }) => (stock.stockImages || []).map((image) => image.url).filter(Boolean).join(' | ')],
+      ['FREE SHIPPING ELIGIBLE', ({ stock }) => stock.isFreeShippingEligible ? 'YES' : 'NO'],
+      ['FREE SHIPPING UNTIL', ({ stock }) => stock.freeShippingUntil],
+      ['FREE SHIPPING METHOD', ({ stock }) => stock.freeShippingMethod],
+      ['FREE SHIPPING SUBOPTION', ({ stock }) => stock.freeShippingSuboption],
+      ['IS RESERVED', ({ stock }) => stock.isReserved ? 'YES' : 'NO'],
+      ['RESERVATION TYPE', ({ stock }) => stock.reservationType],
+      ['RESERVED BY', ({ stock }) => stock.reservedBy],
+      ['TIMESTAMP', ({ stock }) => stock.timestamp]
+    ];
+    const workbook = createExcelXml(columns, masterListRows);
+    const blob = new Blob([`\uFEFF${workbook}`], { type: 'application/vnd.ms-excel;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `snorlaxgarage-master-list-${new Date().toISOString().slice(0, 10)}.xls`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
   const estimatedSize = useMemo(() => {
     // Estimating the FINAL document size for Firestore (1MB limit)
     const masterData = {
@@ -2055,22 +2154,36 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                 <History size={14} />
                 Master List
             </button>
-            <button
-                type="button"
-                onClick={() => batchUploadRef.current?.click()}
-                disabled={isBatchUploading}
-                className="flex items-center justify-center gap-2 rounded-xl border border-white/10 px-4 py-2 text-[11px] font-black uppercase tracking-widest transition-all hover:border-emerald-500 hover:text-emerald-500 disabled:opacity-40"
-            >
-                {isBatchUploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-                Batch
-            </button>
-            <input
-                ref={batchUploadRef}
-                type="file"
-                accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                className="hidden"
-                onChange={handleBatchUpload}
-            />
+            {isMasterListView ? (
+              <button
+                  type="button"
+                  onClick={handleDownloadMasterList}
+                  disabled={masterListRows.length === 0}
+                  className="flex items-center justify-center gap-2 rounded-xl border border-emerald-500/30 px-4 py-2 text-[11px] font-black uppercase tracking-widest text-emerald-600 transition-all hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                  <Download size={14} />
+                  Download Excel
+              </button>
+            ) : (
+              <>
+                <button
+                    type="button"
+                    onClick={() => batchUploadRef.current?.click()}
+                    disabled={isBatchUploading}
+                    className="flex items-center justify-center gap-2 rounded-xl border border-white/10 px-4 py-2 text-[11px] font-black uppercase tracking-widest transition-all hover:border-emerald-500 hover:text-emerald-500 disabled:opacity-40"
+                >
+                    {isBatchUploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                    Batch
+                </button>
+                <input
+                    ref={batchUploadRef}
+                    type="file"
+                    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    className="hidden"
+                    onChange={handleBatchUpload}
+                />
+              </>
+            )}
             <button
                 type="button"
                 onClick={handleSave}

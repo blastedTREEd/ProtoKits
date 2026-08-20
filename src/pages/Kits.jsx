@@ -115,7 +115,7 @@ function getRouteKitStatus(kit, isAdmin, isAdminView) {
 export default function Kits({ isActive = true }) {
   const { 
     isAdmin, isAdminView, kits: storeKits, deals, 
-    isLoading, addKit, applyOnhandShipmentConditions,
+    isLoading, addKit, applyPristineBoxKitConditions,
     user, isAnonymousUser, userOffers, notifyList, subscribeNotifyList, setLoginModalOpen, addToBasket,
     shippingSettings
   } = useStore();
@@ -138,7 +138,7 @@ export default function Kits({ isActive = true }) {
   const [kitToEdit, setKitToEdit] = useState(null);
   const [isSupplierBalancesModalOpen, setIsSupplierBalancesModalOpen] = useState(false);
   const [isSalesDashboardModalOpen, setIsSalesDashboardModalOpen] = useState(false);
-  const [isApplyingShipmentConditions, setIsApplyingShipmentConditions] = useState(false);
+  const [isApplyingPristineConditions, setIsApplyingPristineConditions] = useState(false);
   const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
   const [itemsForCheckout, setItemsForCheckout] = useState([]); 
   const [isAdminToolsOpen, setIsAdminToolsOpen] = useState(false);
@@ -992,24 +992,24 @@ export default function Kits({ isActive = true }) {
     { id: 'balances', label: 'Balances', icon: Wallet, tone: 'border-amber-500/20 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20', onClick: () => setIsSupplierBalancesModalOpen(true) },
     { id: 'sales', label: 'Sales', icon: TrendingUp, tone: 'border-indigo-500/20 bg-indigo-500/10 text-indigo-600 hover:bg-indigo-500/20', onClick: () => setIsSalesDashboardModalOpen(true) },
     {
-      id: 'shipment-conditions',
-      label: 'Fix Shipment Conditions',
+      id: 'pristine-box-sealed-kit',
+      label: 'Set Pristine Kits Sealed',
       icon: Sparkles,
       tone: 'border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-600 hover:bg-fuchsia-500/20',
       onClick: async () => {
-        if (isApplyingShipmentConditions) return;
-        const confirmed = window.confirm('Update matching on-hand Bandai and Premium Bandai stock conditions?');
+        if (isApplyingPristineConditions) return;
+        const confirmed = window.confirm('Set kit condition to SEALED for all stock with a PRISTINE box condition?');
         if (!confirmed) return;
 
-        setIsApplyingShipmentConditions(true);
+        setIsApplyingPristineConditions(true);
         try {
-          const updatedCount = await applyOnhandShipmentConditions();
+          const updatedCount = await applyPristineBoxKitConditions();
           alert(`Updated ${updatedCount} stock record${updatedCount === 1 ? '' : 's'}.`);
         } catch (error) {
-          console.error('Shipment condition update failed:', error);
-          alert('Unable to update shipment conditions. Check the console for details.');
+          console.error('Pristine box condition update failed:', error);
+          alert('Unable to update kit conditions. Check the console for details.');
         } finally {
-          setIsApplyingShipmentConditions(false);
+          setIsApplyingPristineConditions(false);
         }
       }
     }

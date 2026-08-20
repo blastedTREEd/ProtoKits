@@ -1338,40 +1338,23 @@ export const useStore = create(
         await setDoc(doc(db, 'settings', 'checkout'), partialSettings, { merge: true });
       },
 
-      applyOnhandShipmentConditions: async () => {
+      applyPristineBoxKitConditions: async () => {
         const normalize = (value) => String(value || '').trim().toLowerCase().replace(/[\s_-]+/g, ' ');
         const kits = get().kits || [];
         let updatedStockCount = 0;
 
         for (const kit of kits) {
           const updates = {};
-          const brand = normalize(kit?.brand);
-          const targetBoxCondition = brand === 'premium bandai'
-            ? 'PRISTINE'
-            : brand === 'bandai'
-              ? 'BRAND NEW'
-              : '';
-
-          if (!targetBoxCondition) continue;
 
           Object.entries(kit?.stocks || {}).forEach(([stockKey, stock]) => {
             const legacyBoxCondition = Array.isArray(stock?.condition) ? stock.condition[0] : stock?.condition;
             const boxCondition = stock?.boxCondition || legacyBoxCondition || '';
-            const isOnhand = normalize(stock?.status) === 'onhand';
-            const isBasedOnShipment = normalize(boxCondition) === 'based on shipment';
-            const hasSealedKitCondition = normalize(stock?.kitCondition) === 'sealed';
-            if (!isOnhand || (!isBasedOnShipment && !hasSealedKitCondition)) return;
+            const legacyKitCondition = Array.isArray(stock?.condition) ? stock.condition[1] : '';
+            const kitCondition = stock?.kitCondition || legacyKitCondition || '';
+            if (!normalize(boxCondition).startsWith('pristine') || normalize(kitCondition) === 'sealed') return;
 
-            const shouldUpdateBox = isBasedOnShipment && stock.boxCondition !== targetBoxCondition;
-            const shouldUpdateKit = (isBasedOnShipment || hasSealedKitCondition)
-              && stock.kitCondition !== 'SEALED RUNNERS';
-            if (shouldUpdateBox) {
-              updates[`stocks.${stockKey}.boxCondition`] = targetBoxCondition;
-            }
-            if (shouldUpdateKit) {
-              updates[`stocks.${stockKey}.kitCondition`] = 'SEALED RUNNERS';
-            }
-            if (shouldUpdateBox || shouldUpdateKit) updatedStockCount += 1;
+            updates[`stocks.${stockKey}.kitCondition`] = 'SEALED';
+            updatedStockCount += 1;
           });
 
           if (Object.keys(updates).length > 0) {
