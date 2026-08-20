@@ -675,7 +675,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
         bundlePrice,
         isClearance: deal.type === 'clearance',
         displayName: deal.type === 'clearance'
-          ? 'CLEARANCE DEAL'
+          ? 'CLEARANCE'
           : deal.name
       };
     }).filter(detail => Number.isFinite(Number(detail.currentItemPrice)) && Number(detail.currentItemPrice) > 0);
@@ -685,7 +685,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     if (bundleDealDetails.length === 0) return [];
     return bundleDealDetails.map(detail => ({
       key: `bundle-deal-${detail.deal.id}`,
-      label: detail.isClearance ? 'CLEARANCE DEAL' : 'BUNDLE DEAL',
+      label: detail.isClearance ? 'CLEARANCE' : 'BUNDLE DEAL',
       items: [detail.currentKitStock || { ...detail.deal, status: 'bundle_deal', sellPrice: detail.currentItemPrice }],
       isOnHand: true,
       tag: 'bundleDeal',
@@ -1402,7 +1402,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   }
   if (isClearanceDeal) {
     gridStatusBadges.push({
-      label: 'Clearance Deal',
+      label: 'CLEARANCE',
       isActiveDeal: true,
       className: 'bg-red-500 text-white border-red-400 shadow-lg'
     });

@@ -3034,7 +3034,7 @@ const handleFinalizeOrder = async () => {
         dealTag: isBundleDealItem
           ? 'BUNDLE DEAL'
           : isClearanceDealItem
-            ? 'CLEARANCE DEAL'
+            ? 'CLEARANCE'
             : '',
         isClearanceDealItem,
         isDiscounted

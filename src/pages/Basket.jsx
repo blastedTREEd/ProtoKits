@@ -1013,7 +1013,7 @@ export default function Basket() {
                       </span>
                     ) : isClearanceKit ? (
                       <span className="absolute left-0 bottom-5 z-10 bg-red-500 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm">
-                        CLEARANCE DEAL
+                        CLEARANCE
                       </span>
                     ) : item.type !== 'project' && isPreOrder && etaLabel ? (
                       <span className="absolute left-0 bottom-5 z-10 bg-blue-600 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm">

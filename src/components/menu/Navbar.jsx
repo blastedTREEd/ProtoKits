@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { motion as Motion, useDragControls } from 'framer-motion';
+import { AnimatePresence, motion as Motion, useDragControls } from 'framer-motion';
 import { 
   Sun, Moon, ShoppingBasket, Home, X, ShelvingUnit,
   CircleUserRound, Settings, LogOut, ContactRound,
@@ -148,9 +148,9 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   };
 
   const handleProfileSurfacePointerDown = (event) => {
-    // Keep menu buttons interactive. Blank panel space can be used as a
+    // Keep menu controls interactive. Empty panel space can be used as a
     // larger dismissal surface on mobile and landscape tablet layouts.
-    if (event.target !== event.currentTarget) return;
+    if (event.target.closest('button, a, input, textarea, select, [role="button"], [data-panel-interactive="true"]')) return;
     startProfileDrag(event);
   };
 
@@ -958,6 +958,7 @@ return (
                 </div>
               </button>
 
+              <AnimatePresence>
               {isProfileOpen && (
                 <ProfileModalLayer enabled={isProfileFullscreen}>
                   <div
@@ -967,8 +968,9 @@ return (
                   <Motion.div
                     ref={profileModalRef}
                     style={isProfileFullscreen ? undefined : profilePanelStyle}
-                    initial={isProfileFullscreen ? { y: '-100%', opacity: 0 } : false}
-                    animate={isProfileFullscreen ? { y: 0, opacity: 1 } : undefined}
+                    initial={isProfileFullscreen ? { y: '-100%', opacity: 0 } : { y: -18, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    exit={isProfileFullscreen ? { y: '-100%', opacity: 0 } : { y: -18, opacity: 0 }}
                     transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
                     drag={isProfileFullscreen ? 'y' : false}
                     dragListener={false}
@@ -980,13 +982,18 @@ return (
                         setIsProfileOpen(false);
                       }
                     }}
-                    className={`${isProfileFullscreen ? '' : 'animate-in fade-in slide-in-from-top-2 duration-200'} ${isProfileFullscreen ? 'absolute inset-0 w-full max-w-none sm:ml-auto sm:max-w-sm' : 'fixed w-72'}`}
+                    className={`${isProfileFullscreen ? 'absolute inset-0 w-full max-w-none sm:ml-auto sm:max-w-sm' : 'fixed w-72'}`}
                   >
-                  <div className={`${isProfileFullscreen ? 'flex h-full max-h-full flex-col rounded-b-[2.5rem]' : 'max-h-[calc(100dvh-5rem)] rounded-[2rem]'} overflow-hidden border shadow-[0_24px_70px_rgba(0,0,0,0.22)] ${isDarkMode ? 'border-white/10 bg-[#0a0a0a]' : 'border-black/10 bg-white'}`}>
-                    <div className={isProfileFullscreen ? 'min-h-0 flex-1 overflow-y-auto overscroll-contain' : 'max-h-[calc(100dvh-5rem)] overflow-y-auto overscroll-contain'}>
+                  <div className={`${isProfileFullscreen ? 'flex h-full max-h-full flex-col rounded-b-[2.5rem]' : 'max-h-[calc(100dvh-5rem)] rounded-[2rem]'} overflow-hidden border ${isDarkMode ? 'border-white/10 bg-[#0a0a0a]' : 'border-black/10 bg-white'}`}>
+                    <div
+                      onPointerDown={isProfileFullscreen ? handleProfileSurfacePointerDown : undefined}
+                      className={isProfileFullscreen ? 'min-h-0 flex-1 overflow-y-auto overscroll-contain' : 'max-h-[calc(100dvh-5rem)] overflow-y-auto overscroll-contain'}
+                    >
+                    <div className={isProfileFullscreen ? 'flex min-h-full flex-col' : undefined}>
                     <div className="p-6 flex flex-col items-center text-center space-y-3 border-b border-black/5 dark:border-white/5">
                       <div 
                         className="relative group cursor-pointer py-2"
+                        data-panel-interactive="true"
                         onMouseEnter={() => isAdmin && setIsPhotoHovered(true)}
                         onMouseLeave={() => isAdmin && setIsPhotoHovered(false)}
                         onClick={() => { if (isAdmin) { setAdminView(!isAdminView); setIsProfileOpen(false); } }}
@@ -1060,10 +1067,7 @@ return (
                       </div>
                     </div>
 
-                    <div
-                      onPointerDown={isProfileFullscreen ? handleProfileSurfacePointerDown : undefined}
-                      className="p-2 space-y-1"
-                    >
+                    <div className="p-2 space-y-1">
                       <button onClick={() => { toggleTheme(); setIsProfileOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-colors ${isDarkMode ? 'hover:bg-white/5 text-white' : 'hover:bg-black/5 text-neutral-900'}`}>
                         {isDarkMode ? <Sun size={18} className="text-amber-400" /> : <Moon size={18} className="text-garage-blue" />}
                         <span className="text-[12px] font-black uppercase tracking-widest">{isDarkMode ? 'Light Mode' : 'Dark Mode'}</span>
@@ -1158,6 +1162,14 @@ return (
                         <span className="text-[12px] font-black uppercase tracking-widest">Policies</span>
                       </button>
                     </div>
+                    {isProfileFullscreen && (
+                      <div
+                        aria-label="Drag up to close profile"
+                        onPointerDown={startProfileDrag}
+                        className="min-h-0 flex-1 touch-none cursor-grab select-none active:cursor-grabbing"
+                      />
+                    )}
+                    </div>
                     </div>
 
                     {isProfileFullscreen && (
@@ -1188,6 +1200,7 @@ return (
                   </div>
                 </ProfileModalLayer>
               )}
+              </AnimatePresence>
             </div>
         </div>
       </div>

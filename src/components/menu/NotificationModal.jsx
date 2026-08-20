@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef } from 'react';
-import { motion as Motion, useDragControls } from 'framer-motion';
+import { AnimatePresence, motion as Motion, useDragControls } from 'framer-motion';
 import {
   AlertTriangle,
   BadgeDollarSign,
@@ -269,8 +269,6 @@ export default function NotificationModal({
     };
   }, [isOpen, isFullscreen]);
 
-  if (!isOpen) return null;
-
   const hasMeasuredAnchor = Number.isFinite(anchorTop);
   const panelStyle = isFullscreen
     ? {
@@ -293,14 +291,16 @@ export default function NotificationModal({
   };
 
   const handleNotificationListPointerDown = (event) => {
-    // Notification cards remain scrollable/clickable. Only the list
-    // background itself starts the panel dismissal gesture.
-    if (event.target !== event.currentTarget) return;
+    // Notification cards remain scrollable/clickable. Empty panel space starts
+    // the panel dismissal gesture, while rows and their controls stay interactive.
+    if (event.target.closest('button, a, input, textarea, select, [role="button"]')) return;
     startPanelDrag(event);
   };
 
   return (
-    <>
+    <AnimatePresence>
+      {isOpen && (
+      <>
       {isFullscreen && dimBackdrop && <div className="fixed inset-0 z-[100] bg-black/30" onClick={onClose} />}
 
       <div
@@ -310,8 +310,9 @@ export default function NotificationModal({
         <Motion.div
           ref={panelRef}
           style={isFullscreen ? undefined : panelStyle}
-          initial={isFullscreen ? { y: '-100%', opacity: 0 } : false}
-          animate={isFullscreen ? { y: 0, opacity: 1 } : undefined}
+          initial={isFullscreen ? { y: '-100%', opacity: 0 } : { y: -18, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={isFullscreen ? { y: '-100%', opacity: 0 } : { y: -18, opacity: 0 }}
           transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
           drag={isFullscreen ? 'y' : false}
           dragListener={false}
@@ -321,20 +322,21 @@ export default function NotificationModal({
           onDragEnd={(event, info) => {
             if (isFullscreen && (info.offset.y < -90 || info.velocity.y < -500)) onClose?.();
           }}
-          className={`${isFullscreen ? '' : 'animate-in fade-in slide-in-from-top-2 duration-200'} ${isFullscreen ? 'absolute inset-0 w-full max-w-none sm:ml-auto sm:max-w-sm' : 'fixed z-[150] w-[390px] max-w-[calc(100vw-5rem)]'}`}
+          className={`${isFullscreen ? 'absolute inset-0 w-full max-w-none sm:ml-auto sm:max-w-sm' : 'fixed z-[150] w-[390px] max-w-[calc(100vw-5rem)]'}`}
         >
-        <div className={`${isFullscreen ? 'flex h-full max-h-full flex-col rounded-b-[2.5rem]' : 'rounded-[1.5rem]'} overflow-hidden border shadow-[0_24px_70px_rgba(0,0,0,0.22)] ${isDarkMode ? 'border-white/10 bg-[#0a0a0a]' : 'border-black/10 bg-white'}`}>
+        <div className={`${isFullscreen ? 'flex h-full max-h-full flex-col rounded-b-[2.5rem]' : 'rounded-[1.5rem]'} overflow-hidden border ${isDarkMode ? 'border-white/10 bg-[#0a0a0a]' : 'border-black/10 bg-white'}`}>
           <div
             style={listStyle}
             onPointerDown={isFullscreen ? handleNotificationListPointerDown : undefined}
-            className={`${isFullscreen ? 'min-h-0 flex-1' : 'max-h-[min(68vh,560px)]'} overscroll-contain overflow-y-auto space-y-2 p-2 ${isFullscreen && notifications.length === 0 ? 'touch-none cursor-grab' : ''}`}
+            className={`${isFullscreen ? 'min-h-0 flex-1' : 'max-h-[min(68vh,560px)]'} overscroll-contain overflow-y-auto space-y-2 p-2 ${isFullscreen ? 'flex flex-col' : ''}`}
           >
-            {notifications.length === 0 ? (
-              <div className="py-12 text-center text-neutral-400">
-                <Bell size={40} className="mx-auto mb-4" strokeWidth={1} />
-                <p className="text-[12px] font-black uppercase tracking-widest">{emptyLabel}</p>
-              </div>
-            ) : notifications.map((order) => {
+            <div className="space-y-2">
+              {notifications.length === 0 ? (
+                <div className="py-12 text-center text-neutral-400">
+                  <Bell size={40} className="mx-auto mb-4" strokeWidth={1} />
+                  <p className="text-[12px] font-black uppercase tracking-widest">{emptyLabel}</p>
+                </div>
+              ) : notifications.map((order) => {
               const details = getStatusDetails(order);
               const StatusIcon = details.icon;
               const activityTime = order.lastUpdated || order.createdAt;
@@ -417,7 +419,15 @@ export default function NotificationModal({
                   </span>
                 </Motion.div>
               );
-            })}
+              })}
+            </div>
+            {isFullscreen && (
+              <div
+                aria-label="Drag up to close notifications"
+                onPointerDown={startPanelDrag}
+                className="min-h-0 flex-1 touch-none cursor-grab select-none active:cursor-grabbing"
+              />
+            )}
           </div>
           {isFullscreen && (
             <div
@@ -445,6 +455,8 @@ export default function NotificationModal({
         </div>
         </Motion.div>
       </div>
-    </>
+      </>
+      )}
+    </AnimatePresence>
   );
 }
