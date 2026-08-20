@@ -318,12 +318,12 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   const [timeLeft, setTimeLeft] = useState("");
   const [now, setNow] = useState(0);
   const kit = isModalOpen ? (modalKit || cardKit) : cardKit;
-  const handleDealCheckout = (deal) => {
+  const handleDealCheckout = (deal, targetKitId) => {
     if (typeof onDealCheckout === 'function') {
       setIsProfileOpen(false);
       setSelectedStock(null);
       setSelectedGroupLabel(null);
-      onDealCheckout(deal);
+      onDealCheckout(deal, targetKitId || kitId);
       return;
     }
 
@@ -644,13 +644,17 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       if (deal.type !== 'clearance') {
         const validUntil = parseDealDate(deal.validUntil);
         if (validUntil && validUntil.getTime() <= now) return false;
+        return (deal.kitIds || []).every(dealKitId => {
+          const dealKit = dealKitId === kitId ? kit : (allKits || []).find(k => k.id === dealKitId);
+          const stockSource = deal.stockSource || 'onhand';
+          const stocks = Object.values(dealKit?.stocks || {});
+          return stocks.some(stock => isBundlePurchasableStock(stock, stockSource));
+        });
       }
-      return (deal.kitIds || []).every(dealKitId => {
-        const dealKit = dealKitId === kitId ? kit : (allKits || []).find(k => k.id === dealKitId);
-        const stockSource = deal.stockSource || 'onhand';
-        const stocks = Object.values(dealKit?.stocks || {});
-        return stocks.some(stock => isBundlePurchasableStock(stock, stockSource));
-      });
+      // For clearance deals, since it's a masterlist, we only check if the current kit has purchasable stock.
+      const stockSource = deal.stockSource || 'onhand';
+      const stocks = Object.values(kit?.stocks || {});
+      return stocks.some(stock => isBundlePurchasableStock(stock, stockSource));
     });
   }, [allKits, deals, kitId, kit, now]);
 
@@ -658,11 +662,13 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
 
   const bundleDealDetails = useMemo(() => {
     return bundleOnlyDeals.map(deal => {
-      const orderedKitIds = [
-        kitId,
-        ...(deal.previewKitIds || []),
-        ...(deal.kitIds || []).filter(id => !(deal.previewKitIds || []).includes(id))
-      ].filter((id, index, ids) => id && ids.indexOf(id) === index);
+      const orderedKitIds = deal.type === 'clearance'
+        ? [kitId]
+        : [
+            kitId,
+            ...(deal.previewKitIds || []),
+            ...(deal.kitIds || []).filter(id => !(deal.previewKitIds || []).includes(id))
+          ].filter((id, index, ids) => id && ids.indexOf(id) === index);
       const includedKits = orderedKitIds.map(id => id === kitId ? kit : (allKits || []).find(k => k.id === id)).filter(Boolean);
       const currentKitStock = stockList.find(stock => isBundlePurchasableStock(stock, deal.stockSource || 'onhand')) || null;
       const currentItemPrice = getBundleKitPrice(deal, kit, allKits, exclusiveDiscountPercent);
@@ -1184,7 +1190,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     const buyLabel = getBuyLabel(); // This was the problematic re-declaration
     if (buyLabel === "GRAB DEAL") {
       const deal = selectedBundleDealDetails?.deal;
-      if (deal) handleDealCheckout(deal);
+      if (deal) handleDealCheckout(deal, kitId);
       return;
     }
     if (buyLabel === "NOTIFY ME") {
@@ -1198,7 +1204,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
        huntKit(kit, finalTargetPrice);
        closeProductModal();
        return;
-    }
+     }
     if (!selectedStock) return;
     handleAddToCart();
   };
@@ -1208,7 +1214,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     const buyLabelFromFunction = getBuyLabel();
     if (buyLabelFromFunction === "GRAB DEAL") {
       const deal = selectedBundleDealDetails?.deal;
-      if (deal) handleDealCheckout(deal);
+      if (deal) handleDealCheckout(deal, kitId);
       return;
     }
     
@@ -2150,7 +2156,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                               </div>
                               <div className="min-w-0 flex-1 flex items-stretch justify-center">
                                 <button 
-                                  onClick={() => handleDealCheckout(activeBundleDeal)} 
+                                  onClick={() => handleDealCheckout(activeBundleDeal, kitId)} 
                                   className="w-full flex items-center justify-center gap-2 px-2 py-4 rounded-full text-white font-black italic uppercase text-[12px] tracking-widest shadow-lg transition-all active:scale-95 whitespace-nowrap bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-emerald-500/20"
                                 >
                                   <Zap size={14} fill="currentColor" /> {activeBundleDeal?.type === 'clearance' ? 'ADD TO BASKET' : 'GRAB DEAL'}

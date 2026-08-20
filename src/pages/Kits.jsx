@@ -861,12 +861,12 @@ export default function Kits({ isActive = true }) {
     });
   };
 
-  const handleDealCheckout = (deal) => {
+  const handleDealCheckout = (deal, targetKitId) => {
     // Clearance pricing is unlocked only by selecting the clearance kit with
     // other on-hand items in the basket. Do not create a discounted direct
     // checkout line for a clearance deal.
     if (deal?.type === 'clearance') {
-      handleDealAddToBasket(deal);
+      handleDealAddToBasket(deal, targetKitId);
       return;
     }
 
@@ -878,9 +878,9 @@ export default function Kits({ isActive = true }) {
     openCheckoutPage(items, false);
   };
 
-  const handleDealAddToBasket = async (deal) => {
+  const handleDealAddToBasket = async (deal, targetKitId) => {
     if (deal?.type === 'clearance') {
-      const clearanceKitId = deal.clearanceKitIds?.[0] || deal.kitIds?.[0];
+      const clearanceKitId = targetKitId || deal.clearanceKitIds?.[0] || deal.kitIds?.[0];
       const clearanceKit = (storeKits || []).find(kit => kit.id === clearanceKitId);
       if (!clearanceKit) return;
 
