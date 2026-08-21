@@ -9,7 +9,7 @@ import ListItemSkeleton from '../components/common/ListItemSkeleton';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
 import { isOfferCheckoutActive, valueToMillis } from '../utils/offerUtils';
 import { getIntegerFeeShare, getStockStandaloneSellPrice, isBundleOrClearanceItem } from '../utils/standalonePricing';
-import { distributeRoundedBundlePrices, getClearanceBundlePricing } from '../utils/bundlePricing';
+import { getBundleDealPricing, getClearanceBundlePricing } from '../utils/bundlePricing';
 // Resolves an image ID to its URL from the images array.
 // Backward compatible: if the value is already a URL (base64 or http), returns it directly.
 function resolveImage(idOrUrl, imagesArray) {
@@ -45,6 +45,26 @@ function getOfferHoursLeft(item, now) {
   const expiry = valueToMillis(item?.offerExpiresAt);
   if (!expiry || !now || expiry <= now) return 0;
   return Math.max(1, Math.ceil((expiry - now) / (60 * 60 * 1000)));
+}
+
+function parseBasketDealDate(value, endOfDay = false) {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value?.toDate === 'function') return value.toDate();
+  if (Number.isFinite(Number(value?.seconds))) return new Date(Number(value.seconds) * 1000);
+  const raw = String(value);
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(raw)
+    ? `${raw}T${endOfDay ? '23:59:59' : '00:00:00'}`
+    : raw;
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isBundleDealActive(deal, now = Date.now()) {
+  if (!deal || !['bundle_only', 'bundle_discount'].includes(deal.type) || deal.isActive === false) return false;
+  const validFrom = parseBasketDealDate(deal.validFrom);
+  const validUntil = parseBasketDealDate(deal.validUntil, true);
+  return !(validFrom && validFrom.getTime() > now) && !(validUntil && validUntil.getTime() <= now);
 }
 
 export default function Basket() {
@@ -144,13 +164,19 @@ export default function Basket() {
 
     const selectedKitIds = [...new Set(selectedItems.map((item) => item.id).filter(Boolean))];
     return (deals || []).find((deal) => {
-      if (deal?.isActive === false || !['bundle_only', 'bundle_discount'].includes(deal?.type)) return false;
+      if (!isBundleDealActive(deal, offerNow)) return false;
       const bundleKitIds = [...new Set((deal.kitIds || []).filter(Boolean))];
       if (bundleKitIds.length === 0 || bundleKitIds.length !== selectedItems.length) return false;
       return bundleKitIds.length === selectedKitIds.length
         && bundleKitIds.every((kitId) => selectedKitIds.includes(kitId));
     }) || null;
-  }, [activeBasket, activeSelection, deals]);
+  }, [activeBasket, activeSelection, deals, offerNow]);
+
+  const activeBundleDealIds = useMemo(() => (
+    new Set((deals || [])
+      .filter((deal) => isBundleDealActive(deal, offerNow))
+      .map((deal) => String(deal.id)))
+  ), [deals, offerNow]);
 
   const selectedBundleDealKitIds = useMemo(() => (
     new Set((selectedBundleDeal?.kitIds || []).filter(Boolean))
@@ -232,7 +258,7 @@ export default function Basket() {
   const isOfferStateLoading = Boolean(user && !isAnonymousUser && !isAdminView && !userOffersLoaded);
   const isBasketRowsLoading = isLoading || missingKitIds.length > 0 || isOfferStateLoading || isProjectStatusLoading;
 
-  const { handlingFee, installmentFee, transferFee, exclusiveDiscountPercent } = useMemo(() => {
+  const { handlingFee, installmentFee, transferFee } = useMemo(() => {
     return getCheckoutPaymentFees({ shippingSettings });
   }, [shippingSettings]);
 
@@ -345,7 +371,7 @@ export default function Basket() {
           const storedPriceDiscount = row && storedClearancePrice > 0
             ? Math.max(0, row.refPrice - storedClearancePrice)
             : 0;
-          const persistedDiscount = storedPriceDiscount || storedKitDiscount || Number(deal.clearanceDiscountTotal || 0);
+          const persistedDiscount = storedPriceDiscount || storedKitDiscount;
           if (persistedDiscount > 0) clearanceDiscountOverrides[kitId] = persistedDiscount;
         });
 
@@ -387,37 +413,19 @@ export default function Basket() {
         item,
         kitId: item.id,
         refPrice: referencePrice,
-        isExclusive: (selectedBundleDeal.exclusiveKitIds || []).includes(item.id)
+        sellPrice: referencePrice,
+        costPrice: Number(kit?.stocks?.[item.stockKey]?.costPrice || item.costPrice || 0)
       };
     });
 
-    const targetTotal = Math.max(0, Number(selectedBundleDeal.bundlePrice || 0));
-    const normalTotal = rows.reduce((sum, row) => sum + row.refPrice, 0);
-    if (rows.length === 0 || targetTotal <= 0 || targetTotal >= normalTotal) return new Map();
+    const normalTotal = rows.reduce((sum, row) => sum + row.sellPrice, 0);
+    if (rows.length === 0 || normalTotal <= 0) return new Map();
 
-    const exclusiveRefTotal = rows
-      .filter((row) => row.isExclusive)
-      .reduce((sum, row) => sum + row.refPrice, 0);
-    const standardRefTotal = rows
-      .filter((row) => !row.isExclusive)
-      .reduce((sum, row) => sum + row.refPrice, 0);
-    const totalDiscount = normalTotal - targetTotal;
-    const exclusivePool = rows.some((row) => row.isExclusive)
-      ? totalDiscount * ((Number(exclusiveDiscountPercent) || 0) / 100)
-      : 0;
-    const standardPool = totalDiscount - exclusivePool;
-
-    const pricedRows = distributeRoundedBundlePrices(rows.map((row) => {
-      const kitDiscount = row.isExclusive && exclusiveRefTotal > 0
-        ? exclusivePool * (row.refPrice / exclusiveRefTotal)
-        : !row.isExclusive && standardRefTotal > 0
-          ? standardPool * (row.refPrice / standardRefTotal)
-          : 0;
-      return { ...row, rawPrice: Math.max(0, row.refPrice - kitDiscount) };
-    }), targetTotal);
+    const discountAmount = Number(selectedBundleDeal.discountAmount ?? Math.max(0, normalTotal - Number(selectedBundleDeal.bundlePrice || 0))) || 0;
+    const pricedRows = getBundleDealPricing(rows, discountAmount).rows;
 
     return new Map(pricedRows.map((row) => [row.item.basketId, row.finalPrice]));
-  }, [activeBasket, activeSelection, exclusiveDiscountPercent, kits, selectedBundleDeal]);
+  }, [activeBasket, activeSelection, kits, selectedBundleDeal]);
 
   const isBasketBundleFullySelected = useCallback((item) => {
     if (!isBundleOrClearanceItem(item) || !item.bundleId) return false;
@@ -459,7 +467,7 @@ export default function Basket() {
       : selectedClearancePricing.prices.get(item.basketId);
     if (Number.isFinite(selectedClearancePrice)) return selectedClearancePrice;
 
-    if (isBasketBundleFullySelected(item)) {
+    if (isBasketBundleFullySelected(item) && activeBundleDealIds.has(String(item.bundleId))) {
       const dealPrice = Number(item.appliedBundlePrice || item.price || item.sellPrice || 0);
       if (dealPrice > 0) return dealPrice;
     }
@@ -471,7 +479,7 @@ export default function Basket() {
     if (offerPrice > 0 && isSelected) return offerPrice;
 
     return standaloneBasePrice;
-  }, [activeSelection, getBasketStandaloneFeeShare, getBasketStandalonePrice, installmentFee, isBasketBundleFullySelected, selectedBundlePriceByBasketId, selectedClearancePricing]);
+  }, [activeBundleDealIds, activeSelection, getBasketStandaloneFeeShare, getBasketStandalonePrice, installmentFee, isBasketBundleFullySelected, selectedBundlePriceByBasketId, selectedClearancePricing]);
 
   const getBasketPriceComparison = useCallback((item) => {
     const standalonePrice = getBasketStandalonePrice(item);
@@ -1332,7 +1340,7 @@ export default function Basket() {
                               onClick={() => {
                                 const incompleteBundle = Object.values(
                                   activeBasket.reduce((groups, item) => {
-                                    if (!isBundleOrClearanceItem(item) || !item.bundleId) return groups;
+                                    if (!isBundleOrClearanceItem(item) || !item.bundleId || !activeBundleDealIds.has(String(item.bundleId))) return groups;
                                     if (!groups[item.bundleId]) groups[item.bundleId] = { name: item.bundleName || 'this bundle', all: [], selected: [] };
                                     groups[item.bundleId].all.push(item.basketId);
                                     if (activeSelection.includes(item.basketId)) groups[item.bundleId].selected.push(item.basketId);

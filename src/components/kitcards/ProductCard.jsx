@@ -9,7 +9,7 @@ import { FaQuestion } from 'react-icons/fa';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
 import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
-import { distributeRoundedBundlePrices, getDistributedFeeShare, getClearanceBundlePricing, getHighestCostStock } from '../../utils/bundlePricing';
+import { getDistributedFeeShare, getBundleDealPricing, getClearanceBundlePricing, getHighestCostStock } from '../../utils/bundlePricing';
 import { formatOfferCountdown, isOfferCheckoutActive } from '../../utils/offerUtils';
 import { getStockStandaloneSellPrice } from '../../utils/standalonePricing';
 import { getDealDiscountAmount, getDealGrabLabel, getDealSaveUpToLabel } from '../../utils/dealSavings';
@@ -190,7 +190,7 @@ function getPreferredDealStock(stocks = [], source = 'onhand') {
   return getHighestCostStock(purchasableStocks) || getHighestCostStock(matchingStocks) || null;
 }
 
-function getBundleKitPrice(deal, dealKit, allKits = [], fallbackExclusivePercent = 100) {
+function getBundleKitPrice(deal, dealKit, allKits = []) {
   if (!deal || !dealKit) return null;
   const includedKits = (deal.kitIds || []).map(id => id === dealKit.id ? dealKit : allKits.find(k => k.id === id)).filter(Boolean);
   if (deal.type === 'clearance') {
@@ -207,32 +207,19 @@ function getBundleKitPrice(deal, dealKit, allKits = [], fallbackExclusivePercent
     const clearance = getClearanceBundlePricing(rows, deal.clearanceKitIds || [], deal.clearanceDiscounts || {});
     return clearance.rows.find(row => row.kitId === dealKit.id)?.finalPrice ?? null;
   }
-  const exclusiveKitIds = deal.exclusiveKitIds || [];
-  const exclusivePercent = Number(deal.exclusiveDiscountPercent ?? fallbackExclusivePercent ?? 100) / 100;
-
   const rows = includedKits.map(k => {
     const stocks = Object.values(k?.stocks || {});
     const sourceStock = getPreferredDealStock(stocks, deal.stockSource || 'onhand');
-    const refPrice = Number(sourceStock?.sellPrice || stocks[0]?.sellPrice || k?.sellPrice || 0);
-    return { kit: k, refPrice, isExclusive: exclusiveKitIds.includes(k.id) };
+    return {
+      kit: k,
+      kitId: k.id,
+      sellPrice: Number(sourceStock?.sellPrice || stocks[0]?.sellPrice || k?.sellPrice || 0),
+      costPrice: Number(sourceStock?.costPrice || stocks[0]?.costPrice || 0)
+    };
   });
-
-  const normalTotal = rows.reduce((sum, row) => sum + row.refPrice, 0);
-  const totalDiscount = Number(deal.discountAmount ?? Math.max(0, normalTotal - Number(deal.bundlePrice || 0))) || 0;
-  const exclusiveTotal = rows.filter(row => row.isExclusive).reduce((sum, row) => sum + row.refPrice, 0);
-  const standardTotal = rows.filter(row => !row.isExclusive).reduce((sum, row) => sum + row.refPrice, 0);
-  const exclusivePool = exclusiveTotal > 0 ? totalDiscount * exclusivePercent : 0;
-  const standardPool = totalDiscount - exclusivePool;
-  const targetTotal = Number(deal.bundlePrice ?? Math.max(0, normalTotal - totalDiscount));
-  const pricedRows = distributeRoundedBundlePrices(rows.map(row => {
-    let kitDiscount = 0;
-    if (row.isExclusive && exclusiveTotal > 0) {
-      kitDiscount = exclusivePool * (row.refPrice / exclusiveTotal);
-    } else if (!row.isExclusive && standardTotal > 0) {
-      kitDiscount = standardPool * (row.refPrice / standardTotal);
-    }
-    return { ...row, rawPrice: Math.max(0, row.refPrice - kitDiscount) };
-  }), targetTotal);
+  const normalTotal = rows.reduce((sum, row) => sum + row.sellPrice, 0);
+  const discountAmount = Number(deal.discountAmount ?? Math.max(0, normalTotal - Number(deal.bundlePrice || 0))) || 0;
+  const pricedRows = getBundleDealPricing(rows, discountAmount).rows;
   const target = pricedRows.find(row => row.kit.id === dealKit.id);
 
   return target ? target.finalPrice : null;
@@ -326,44 +313,23 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       return sum + (sourceStock?.sellPrice || stocks[0]?.sellPrice || k.sellPrice || 0);
     }, 0);
 
-    const { exclusiveDiscountPercent: exPct } = getCheckoutPaymentFees({ shippingSettings });
-    const exclusiveKitIds = deal.exclusiveKitIds || [];
-    const pct = Number(deal.exclusiveDiscountPercent ?? exPct) / 100;
-
-    let exclusiveRefTotal = 0;
-    let standardRefTotal = 0;
-
     const kitPrices = bundleKits.map((kit) => {
       const stocks = Object.values(kit?.stocks || {});
       const sourceStock = getPreferredDealStock(stocks, deal.stockSource || 'onhand');
       const availableStock = sourceStock;
       const refPrice = Number(sourceStock?.sellPrice || stocks[0]?.sellPrice || kit?.sellPrice || 0);
-
-      const isExclusive = exclusiveKitIds.includes(kit.id);
-      if (isExclusive) {
-        exclusiveRefTotal += refPrice;
-      } else {
-        standardRefTotal += refPrice;
-      }
-
-      return { kit, refPrice, isExclusive, availableStock };
+      return {
+        kit,
+        kitId: kit.id,
+        sellPrice: refPrice,
+        refPrice,
+        costPrice: Number(sourceStock?.costPrice || stocks[0]?.costPrice || 0),
+        availableStock
+      };
     });
 
-    const bPrice = deal.bundlePrice || 0;
-    const totalDiscount = normalTotal > bPrice ? normalTotal - bPrice : 0;
-
-    const exclusivePool = exclusiveKitIds.length > 0 ? totalDiscount * pct : 0;
-    const standardPool = totalDiscount - exclusivePool;
-
-    const pricedRows = distributeRoundedBundlePrices(kitPrices.map(row => {
-      let kitDiscount = 0;
-      if (row.isExclusive && exclusiveRefTotal > 0) {
-        kitDiscount = exclusivePool * (row.refPrice / exclusiveRefTotal);
-      } else if (!row.isExclusive && standardRefTotal > 0) {
-        kitDiscount = standardPool * (row.refPrice / standardRefTotal);
-      }
-      return { ...row, rawPrice: Math.max(0, row.refPrice - kitDiscount) };
-    }), bPrice);
+    const discountAmount = Number(deal.discountAmount ?? Math.max(0, normalTotal - Number(deal.bundlePrice || 0))) || 0;
+    const pricedRows = getBundleDealPricing(kitPrices, discountAmount).rows;
 
     const bundleSize = pricedRows.length;
     const bundleFeeTotal = handlingFee + transferFee;
@@ -408,7 +374,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   } = useStore();
 
   const paymentSettings = shippingSettings?.paymentSettings;
-  const { handlingFee, installmentFee, transferFee, exclusiveDiscountPercent } = useMemo(() => {
+  const { handlingFee, installmentFee, transferFee } = useMemo(() => {
     return getCheckoutPaymentFees({ paymentSettings });
   }, [paymentSettings]);
 
@@ -660,8 +626,6 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     });
   }, [allKits, deals, isAdminView, kitId, kit, now]);
 
-  const hasBundleExclusiveDeal = bundleOnlyDeals.some(deal => (deal.exclusiveKitIds || []).includes(kitId));
-
   const bundleDealDetails = useMemo(() => {
     return bundleOnlyDeals.map(deal => {
       const orderedKitIds = deal.type === 'clearance'
@@ -673,7 +637,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
           ].filter((id, index, ids) => id && ids.indexOf(id) === index);
       const includedKits = orderedKitIds.map(id => id === kitId ? kit : (allKits || []).find(k => k.id === id)).filter(Boolean);
       const currentKitStock = stockList.find(stock => isBundlePurchasableStock(stock, deal.stockSource || 'onhand')) || null;
-      const currentItemPrice = getBundleKitPrice(deal, kit, allKits, exclusiveDiscountPercent);
+      const currentItemPrice = getBundleKitPrice(deal, kit, allKits);
       const bundlePrice = Number(deal.bundlePrice ?? Math.max(0, Number(deal.totalSell || 0) - Number(deal.discountAmount || 0)));
       return {
         deal,
@@ -687,7 +651,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
           : deal.name
       };
     }).filter(detail => Number.isFinite(Number(detail.currentItemPrice)) && Number(detail.currentItemPrice) > 0);
-  }, [bundleOnlyDeals, allKits, kitId, kit, stockList, exclusiveDiscountPercent]);
+  }, [bundleOnlyDeals, allKits, kitId, kit, stockList]);
 
   const bundleDealGroups = useMemo(() => {
     if (bundleDealDetails.length === 0) return [];
@@ -752,54 +716,8 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     return (shelf || []).find(item => item.id === kitId && item.stockKey === selectedStock.key) || null;
   }, [isSelectedCollectionGroup, selectedAvailabilityGroup?.tag, selectedStock, shelf, kitId]);
 
-  const isExclusiveToBundle = useMemo(() => {
-    if (!kitId || !Array.isArray(deals)) return false;
-    return deals.some(deal => {
-      const isBundleDeal = deal?.type === 'bundle_only' || deal?.type === 'bundle_discount';
-      if (!isBundleDeal || deal.isActive === false || !(deal.kitIds || []).includes(kitId)) return false;
-      const validUntil = parseDealDate(deal.validUntil);
-      if (validUntil && validUntil.getTime() <= now) return false;
-      return (deal.exclusiveKitIds || []).includes(kitId);
-    });
-  }, [deals, kitId, now]);
   const isClearanceDeal = bundleDealDetails.some(detail => detail.isClearance);
-  const isIncludedInBundleDeal = bundleOnlyDeals.some(deal => deal.type !== 'clearance') && !isExclusiveToBundle;
-
-  // Compute the exclusive bundle deal and proportional discounted price for this kit
-  const exclusiveBundlePrice = useMemo(() => {
-    if (!isExclusiveToBundle || !kitId) return 0;
-    // Find the best deal (largest discount) that marks this kit as exclusive
-    let bestPrice = Infinity;
-    for (const deal of (deals || [])) {
-      const isBundleDeal = deal?.type === 'bundle_only' || deal?.type === 'bundle_discount';
-      if (!isBundleDeal || deal.isActive === false || !(deal.kitIds || []).includes(kitId)) continue;
-      if (!(deal.exclusiveKitIds || []).includes(kitId)) continue;
-      const validUntil = parseDealDate(deal.validUntil);
-      if (validUntil && validUntil.getTime() <= now) continue;
-      // Compute proportional price for this kit in this deal
-      const exclusiveKitIds = deal.exclusiveKitIds || [];
-      const pct = Number(deal.exclusiveDiscountPercent ?? exclusiveDiscountPercent) / 100;
-      let normalTotal = 0, exclusiveRefTotal = 0;
-      const refPrices = [];
-      for (const dkId of (deal.kitIds || [])) {
-        const dk = dkId === kitId ? kit : (allKits || []).find(k => k.id === dkId);
-        const stocks = Object.values(dk?.stocks || {});
-        const src = getPreferredDealStock(stocks, deal.stockSource || 'onhand');
-        const rp = Number(src?.sellPrice || stocks[0]?.sellPrice || dk?.sellPrice || 0);
-        normalTotal += rp;
-        if (exclusiveKitIds.includes(dkId)) exclusiveRefTotal += rp;
-        refPrices.push({ dkId, rp, isExcl: exclusiveKitIds.includes(dkId) });
-      }
-      const totalDiscount = normalTotal > (deal.bundlePrice || 0) ? normalTotal - (deal.bundlePrice || 0) : 0;
-      const exclusivePool = exclusiveKitIds.length > 0 ? totalDiscount * pct : 0;
-      const thisKit = refPrices.find(r => r.dkId === kitId);
-      if (!thisKit) continue;
-      const kitDiscount = exclusiveRefTotal > 0 ? exclusivePool * (thisKit.rp / exclusiveRefTotal) : 0;
-      const price = Math.round(thisKit.rp - kitDiscount);
-      if (price < bestPrice) bestPrice = price;
-    }
-    return bestPrice === Infinity ? 0 : bestPrice;
-  }, [isExclusiveToBundle, deals, kitId, kit, allKits, exclusiveDiscountPercent, now]);
+  const isIncludedInBundleDeal = bundleOnlyDeals.some(deal => deal.type !== 'clearance');
 
   const isEarlyAccess = useMemo(() => {
     return stockList.some(s => s.publicReleaseDate && new Date(s.publicReleaseDate).getTime() > now);
@@ -1414,11 +1332,6 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       isActiveDeal: true,
       className: 'bg-red-500 text-white border-red-400 shadow-lg'
     });
-  } else if (isExclusiveToBundle) {
-    gridStatusBadges.push({
-      label: 'Bundle Exclusive',
-      className: 'bg-emerald-500 text-white border-emerald-400 shadow-lg'
-    });
   } else if (isIncludedInBundleDeal) {
     gridStatusBadges.push({
       label: 'Bundle Deal',
@@ -1597,7 +1510,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                 ₱{(getStockStandaloneSellPrice({}, kit, acceptedOfferStock) + handlingFee + installmentFee + transferFee).toLocaleString()}
                               </span>
                             </>
-                          ) : (availableCount > 0 && !isExclusiveToBundle) ? (
+                          ) : availableCount > 0 ? (
                             <>
                               <span className="text-[13px] lg:text-[13px] font-black italic tracking-tighter leading-none text-amber-500 dark:text-amber-500 shrink-0">
                                 ₱{lowestPrice.toLocaleString()}
@@ -1606,18 +1519,9 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                 ₱{refPrice.toLocaleString()}
                               </span>
                             </>
-                          ) : isExclusiveToBundle && exclusiveBundlePrice > 0 ? (
-                            <>
-                              <span className="text-[13px] lg:text-[13px] font-black italic tracking-tighter leading-none text-emerald-500 shrink-0">
-                                ₱{exclusiveBundlePrice.toLocaleString()}
-                              </span>
-                              <span className="text-[12px] lg:text-[12px] font-black italic tracking-tighter line-through opacity-40 shrink-0">
-                                ₱{lowestPrice.toLocaleString()}
-                              </span>
-                            </>
                           ) : (
-                            <span className={`text-[13px]  font-black tracking-tighter leading-none ${hasBundleExclusiveDeal ? 'text-emerald-500' : gridUnavailableClass}`}>
-                                {hasBundleExclusiveDeal ? "BUNDLE EXCLUSIVE" : gridUnavailableLabel}
+                            <span className={`text-[13px]  font-black tracking-tighter leading-none ${isIncludedInBundleDeal ? 'text-emerald-500' : gridUnavailableClass}`}>
+                                {isIncludedInBundleDeal ? "BUNDLE DEAL" : gridUnavailableLabel}
                             </span>
                           )}
                         </>
@@ -1670,7 +1574,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                     >
                       {(availableCount > 0 || canAddLimitedTimeOfferToBasket)
                         ? <Plus size={16} strokeWidth={3} />
-                        : (hasBundleExclusiveDeal ? <Gift size={14} className="text-white" /> : <Bell size={14} className="text-white fill-white" />)}
+                        : (isIncludedInBundleDeal ? <Gift size={14} className="text-white" /> : <Bell size={14} className="text-white fill-white" />)}
                     </button>
                   )}
                 </div>
@@ -1911,7 +1815,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                 {isSelectedBundlePanel ? (
                                   <div>
                                     {includedKits.map((includedKit, includedIndex) => {
-                                      const bundleKitPrice = Number(getBundleKitPrice(deal, includedKit, allKits, exclusiveDiscountPercent) || 0);
+                                      const bundleKitPrice = Number(getBundleKitPrice(deal, includedKit, allKits) || 0);
                                       const displayedDealPrice = deal.type === 'clearance'
                                         ? (clearanceDiscountTotal > 0 ? clearanceDiscountShares[includedIndex] : bundleKitPrice)
                                         : bundleKitPrice;

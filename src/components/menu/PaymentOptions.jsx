@@ -173,36 +173,6 @@ export default function PaymentOptions({
         {renderDaysInput('projectSettleDays', 'Project Balance Settle Days', 'Days allowed for customer to settle completed custom projects')}
       </div>
 
-      <div className="space-y-4">
-        <div className="flex items-center gap-2 px-2">
-          <BadgeDollarSign size={16} className="text-garage-blue opacity-60" />
-          <h3 className="text-[13px] font-black uppercase tracking-widest opacity-40">Bundle Settings</h3>
-        </div>
-        <div className="bg-black/5 dark:bg-white/5 rounded-2xl border border-transparent p-4 space-y-2">
-          <div className="flex flex-col text-left">
-            <span className="text-[14px] font-black uppercase italic text-garage-blue">Exclusive Discount %</span>
-            <span className="text-[13px] font-bold opacity-40 uppercase">Percentage of bundle discount applied to exclusive kits</span>
-          </div>
-          <div className="relative">
-            <input
-              type="text"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              value={paymentSettings?.exclusiveDiscountPercent ?? 100}
-              onFocus={() => handleFeeFocus('exclusiveDiscountPercent')}
-              onChange={(e) => {
-                const val = e.target.value.replace(/\D/g, '');
-                const num = val === '' ? '' : Math.min(100, Number(val));
-                updatePaymentData(null, 'exclusiveDiscountPercent', num);
-              }}
-              onBlur={() => handleFeeBlur('exclusiveDiscountPercent')}
-              className="w-full pl-4 pr-10 py-3 bg-white/70 dark:bg-black/20 rounded-xl text-[13px] font-black outline-none focus:ring-2 focus:ring-garage-blue/30"
-            />
-            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[13px] font-black opacity-40">%</span>
-          </div>
-        </div>
-      </div>
-
       {categories.map(cat => (
         <div key={cat.id} className="space-y-4">
           <div className="flex items-center gap-2 px-2">

@@ -2,7 +2,7 @@ import React, { useMemo, useEffect, useRef } from 'react';
 import { X, Gift, Zap, ArrowRight, Settings, Package } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
-import { distributeRoundedBundlePrices, getClearanceBundlePricing, getDistributedFeeShare } from '../../utils/bundlePricing';
+import { getBundleDealPricing, getClearanceBundlePricing, getDistributedFeeShare } from '../../utils/bundlePricing';
 
 function resolveImage(idOrUrl, imagesArray) {
   if (!idOrUrl) return '';
@@ -24,7 +24,7 @@ function stockMatchesDealSource(stock, source = 'onhand') {
 
 export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onAddToBasket, onOpenKit, isEditMode = false, onEditDeal }) {
   const { kits, shippingSettings } = useStore();
-  const { exclusiveDiscountPercent, handlingFee, installmentFee, transferFee } = getCheckoutPaymentFees({ shippingSettings });
+  const { handlingFee, installmentFee, transferFee } = getCheckoutPaymentFees({ shippingSettings });
   const onCloseRef = useRef(onClose);
   const isEditable = isEditMode && typeof onEditDeal === 'function';
   // Handling and transfer are charged once per order, so the standalone
@@ -44,7 +44,7 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onAd
     return getOrderedKits(kits, orderedKitIds);
   }, [deal, kits]);
 
-  // Compute proportional pricing with exclusive discount logic
+  // Compute clearance-style pricing for pre-bundled deals.
   const { normalTotal, bundlePrice, savings, kitPricing } = useMemo(() => {
     const itemCount = Math.max(1, includedKits.length);
     const getDisplayedStandalonePrice = (refPrice, index) => {
@@ -82,71 +82,21 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onAd
         kitPricing: adjustedPricing
       };
     }
-    const exclusiveKitIds = deal?.exclusiveKitIds || [];
-    const pct = exclusiveDiscountPercent / 100;
-
-    const {
-  refPrices,
-  nTotal,
-  exclusiveRefTotal,
-  standardRefTotal,
-} = includedKits.reduce(
-  (acc, kit) => {
-    const stocks = Object.values(kit.stocks || {});
-    const sourceStock = stocks.find(stock =>
-      stockMatchesDealSource(stock, deal?.stockSource || 'onhand')
-    );
-
-    const refPrice = Number(
-      sourceStock?.sellPrice ||
-      stocks[0]?.sellPrice ||
-      kit.sellPrice ||
-      0
-    );
-
-    const isExclusive = exclusiveKitIds.includes(kit.id);
-
-    acc.nTotal += refPrice;
-
-    if (isExclusive) {
-      acc.exclusiveRefTotal += refPrice;
-    } else {
-      acc.standardRefTotal += refPrice;
-    }
-
-    acc.refPrices.push({
-      kitId: kit.id,
-      refPrice,
-      isExclusive,
+    const pricingRows = includedKits.map(kit => {
+      const stocks = Object.values(kit.stocks || {});
+      const sourceStock = stocks.find(stock => stockMatchesDealSource(stock, deal?.stockSource || 'onhand')) || stocks[0];
+      const refPrice = Number(sourceStock?.sellPrice || kit.sellPrice || 0);
+      return {
+        kit,
+        kitId: kit.id,
+        refPrice,
+        sellPrice: refPrice,
+        costPrice: Number(sourceStock?.costPrice || 0)
+      };
     });
-
-    return acc;
-  },
-  {
-    refPrices: [],
-    nTotal: 0,
-    exclusiveRefTotal: 0,
-    standardRefTotal: 0,
-  }
-);
-
-    const bPrice = deal?.bundlePrice || 0;
-    const totalDiscount = nTotal > bPrice ? nTotal - bPrice : 0;
-
-    // Split discount pool between exclusive and standard kits
-    const exclusivePool = exclusiveKitIds.length > 0 ? totalDiscount * pct : 0;
-    const standardPool = totalDiscount - exclusivePool;
-
-    const pricingRows = refPrices.map(({ kitId, refPrice, isExclusive }) => {
-      let kitDiscount = 0;
-      if (isExclusive && exclusiveRefTotal > 0) {
-        kitDiscount = exclusivePool * (refPrice / exclusiveRefTotal);
-      } else if (!isExclusive && standardRefTotal > 0) {
-        kitDiscount = standardPool * (refPrice / standardRefTotal);
-      }
-      return { kitId, refPrice, rawPrice: Math.max(0, refPrice - kitDiscount), isExclusive };
-    });
-    const pricing = distributeRoundedBundlePrices(pricingRows, bPrice).map(row => ({
+    const normalTotal = pricingRows.reduce((sum, row) => sum + row.refPrice, 0);
+    const discountAmount = Number(deal?.discountAmount ?? Math.max(0, normalTotal - Number(deal?.bundlePrice || 0))) || 0;
+    const pricing = getBundleDealPricing(pricingRows, discountAmount).rows.map(row => ({
       ...row,
       distributedPrice: row.finalPrice
     }));
@@ -155,17 +105,17 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onAd
       ...row,
       refPrice: getDisplayedStandalonePrice(row.refPrice, index)
     }));
-    const adjustedNormalTotal = nTotal + (isEditable ? 0 : (
+    const adjustedNormalTotal = normalTotal + (isEditable ? 0 : (
       Number(installmentFee || 0) * itemCount + Number(handlingFee || 0) + Number(transferFee || 0)
     ));
 
     return {
       normalTotal: adjustedNormalTotal,
-      bundlePrice: bPrice,
-      savings: adjustedNormalTotal > bPrice ? adjustedNormalTotal - bPrice : 0,
+      bundlePrice: pricing.reduce((sum, row) => sum + row.finalPrice, 0),
+      savings: pricing.reduce((sum, row) => sum + row.discount, 0),
       kitPricing: adjustedPricing
     };
-  }, [includedKits, deal, exclusiveDiscountPercent, handlingFee, installmentFee, transferFee, isEditable]);
+  }, [includedKits, deal, handlingFee, installmentFee, transferFee, isEditable]);
 
 
   useEffect(() => {

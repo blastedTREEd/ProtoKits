@@ -27,7 +27,7 @@ import {
   isActiveHunt
 } from './commerceNotificationUtils';
 import { getNotificationActivityTime, getNotificationVersion } from './notificationUtils';
-import StoriesManagerModal from './StoriesManagerModal';
+import StoryEditorModal from './StoryEditorModal';
 
 const notificationStateStorageKey = (stateType, userId) => `snorlaxgarage:notification-${stateType}:${userId}`;
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -1281,7 +1281,7 @@ return (
       onClose={() => setLoginModalOpen(false)} 
     />
 
-    <StoriesManagerModal
+    <StoryEditorModal
       isOpen={isStoriesManagerOpen}
       onClose={() => setIsStoriesManagerOpen(false)}
     />

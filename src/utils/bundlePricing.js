@@ -84,7 +84,8 @@ export function getClearancePrice(costPrice = 0, sellPrice = 0, discountOverride
   const hasOverride = discountOverride !== '' && discountOverride !== null && discountOverride !== undefined;
 
   if (hasOverride) {
-    return Math.max(0, Math.round(sell - Math.max(0, Number(discountOverride) || 0)));
+    const costFloor = Math.min(sell, getClearanceCostCeiling(cost));
+    return Math.max(costFloor, Math.round(sell - Math.max(0, Number(discountOverride) || 0)));
   }
 
   return Math.min(sell, getClearanceCostCeiling(cost));
@@ -141,6 +142,56 @@ function distributeDiscountByCapacity(rows = [], discountTotal = 0) {
   }
 
   return allocations;
+}
+
+// Prices a pre-bundled deal using clearance-style cost protection. The admin
+// supplies one bundle discount amount; that discount is distributed across
+// the included kits without allowing any row to fall below its clearance
+// cost ceiling.
+export function getBundleDealPricing(rows = [], discountAmount = 0) {
+  const normalizedRows = (rows || []).map((row, index) => {
+    const kitId = row.kitId ?? row.id;
+    const sellPrice = Math.max(0, Number(row.sellPrice ?? row.sell ?? row.refPrice ?? 0) || 0);
+    const costPrice = Math.max(0, Number(row.costPrice ?? row.cost ?? 0) || 0);
+    const costCeiling = Math.min(sellPrice, getClearanceCostCeiling(costPrice));
+
+    return {
+      ...row,
+      kitId,
+      sellPrice,
+      costPrice,
+      costCeiling,
+      discountCapacity: Math.max(0, sellPrice - costCeiling),
+      _clearanceIndex: index
+    };
+  });
+
+  const totalSell = normalizedRows.reduce((sum, row) => sum + row.sellPrice, 0);
+  const totalCost = normalizedRows.reduce((sum, row) => sum + row.costPrice, 0);
+  const requestedDiscount = Math.min(Math.max(Number(discountAmount) || 0, 0), totalSell);
+  const allocations = distributeDiscountByCapacity(normalizedRows, requestedDiscount);
+  const pricedRows = normalizedRows.map(row => ({
+    ...row,
+    discount: Number(allocations.get(row.kitId) || 0),
+    rawPrice: Math.max(row.costCeiling, row.sellPrice - Number(allocations.get(row.kitId) || 0))
+  }));
+  const targetTotal = pricedRows.reduce((sum, row) => sum + row.rawPrice, 0);
+  const distributedRows = distributeRoundedBundlePrices(pricedRows, targetTotal);
+  const bundlePrice = distributedRows.reduce((sum, row) => sum + row.finalPrice, 0);
+  const appliedDiscount = Math.max(0, totalSell - bundlePrice);
+
+  return {
+    rows: distributedRows.map(row => ({
+      ...row,
+      discount: Math.max(0, row.sellPrice - row.finalPrice)
+    })),
+    totalSell,
+    totalCost,
+    bundlePrice,
+    discountAmount: appliedDiscount,
+    requestedDiscount,
+    projectedProfit: bundlePrice - totalCost
+  };
 }
 
 // Prices a clearance basket. The selected clearance kit's discount is the
@@ -206,55 +257,27 @@ export function getClearanceBundlePricing(rows = [], clearanceKitIds = [], disco
   });
 
   const clearanceDiscountTotal = normalizedRows.reduce((sum, row) => sum + row.clearanceDiscount, 0);
-
-  // Checkout can have multiple clearance kits selected at once. In that
-  // case, the winning kit supplies one clearance-discount pool, but the pool
-  // must be shared across every eligible selected row instead of fixing the
-  // winning kit at its own clearance price.
-  if (options.distributeAcrossAllRows && normalizedRows.length > 0) {
-    const totalSell = normalizedRows.reduce((sum, row) => sum + row.sellPrice, 0);
-    const targetTotal = Math.max(0, totalSell - clearanceDiscountTotal);
-    const proportionalRows = normalizedRows.map(row => ({
-      ...row,
-      standardDiscount: totalSell > 0
-        ? clearanceDiscountTotal * (row.sellPrice / totalSell)
-        : 0,
-      rawPrice: totalSell > 0
-        ? Math.max(0, row.sellPrice - (clearanceDiscountTotal * (row.sellPrice / totalSell)))
-        : row.sellPrice
-    }));
-    const distributedRows = distributeRoundedBundlePrices(proportionalRows, targetTotal);
-    const bundlePrice = distributedRows.reduce((sum, row) => sum + row.finalPrice, 0);
-
+  // The winning clearance kit supplies one discount pool. Allocate that pool
+  // once across every selected row; do not apply the full pool to the
+  // clearance row and then distribute it again to the other rows.
+  const allocationRows = normalizedRows.map(row => {
+    const costFloor = row.isClearance
+      ? Math.min(row.sellPrice, getClearanceCostCeiling(row.costPrice))
+      : Math.min(row.sellPrice, row.standardCostCeiling);
     return {
-      rows: distributedRows.map(row => ({
-        ...row,
-        discount: Math.max(0, row.sellPrice - row.finalPrice)
-      })),
-      totalSell,
-      totalCost: normalizedRows.reduce((sum, row) => sum + row.costPrice, 0),
-      bundlePrice,
-      clearanceDiscountTotal,
-      standardDiscountTotal: clearanceDiscountTotal,
-      unusedClearanceDiscount: 0,
-      discountAmount: clearanceDiscountTotal,
-      projectedProfit: bundlePrice - normalizedRows.reduce((sum, row) => sum + row.costPrice, 0)
+      ...row,
+      costFloor,
+      discountCapacity: Math.max(0, row.sellPrice - costFloor)
     };
-  }
-
-  const standardRows = normalizedRows.filter(row => !row.isClearance);
-  const standardDiscounts = distributeDiscountByCapacity(standardRows, clearanceDiscountTotal);
-
-  const pricedRows = normalizedRows.map(row => {
-    if (row.isClearance) {
-      return { ...row, standardDiscount: 0, rawPrice: row.clearancePrice };
-    }
-
-    const standardDiscount = Number(standardDiscounts.get(row.kitId) || 0);
+  });
+  const discountAllocations = distributeDiscountByCapacity(allocationRows, clearanceDiscountTotal);
+  const pricedRows = allocationRows.map(row => {
+    const appliedDiscount = Number(discountAllocations.get(row.kitId) || 0);
     return {
       ...row,
-      standardDiscount,
-      rawPrice: Math.max(row.standardCostCeiling, row.sellPrice - standardDiscount)
+      appliedDiscount,
+      standardDiscount: row.isClearance ? 0 : appliedDiscount,
+      rawPrice: Math.max(row.costFloor, row.sellPrice - appliedDiscount)
     };
   });
 
@@ -264,19 +287,20 @@ export function getClearanceBundlePricing(rows = [], clearanceKitIds = [], disco
   const totalSell = normalizedRows.reduce((sum, row) => sum + row.sellPrice, 0);
   const totalCost = normalizedRows.reduce((sum, row) => sum + row.costPrice, 0);
   const standardDiscountTotal = pricedRows.reduce((sum, row) => sum + (row.standardDiscount || 0), 0);
+  const appliedDiscountTotal = Math.max(0, totalSell - bundlePrice);
 
   return {
     rows: distributedRows.map(row => ({
       ...row,
-      discount: row.clearanceDiscount + (row.standardDiscount || 0)
+      discount: Math.max(0, row.sellPrice - row.finalPrice)
     })),
     totalSell,
     totalCost,
     bundlePrice,
     clearanceDiscountTotal,
     standardDiscountTotal,
-    unusedClearanceDiscount: Math.max(0, clearanceDiscountTotal - standardDiscountTotal),
-    discountAmount: clearanceDiscountTotal + standardDiscountTotal,
+    unusedClearanceDiscount: Math.max(0, clearanceDiscountTotal - appliedDiscountTotal),
+    discountAmount: appliedDiscountTotal,
     projectedProfit: bundlePrice - totalCost
   };
 }

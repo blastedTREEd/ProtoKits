@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Maximize2, X, Plus, Trash2, Edit, Upload, Image as ImageIcon, Loader2, Save, RotateCw, ZoomIn, BookImage, VenetianMask, Type as TypeOutline, Palette, ALargeSmall, BookOpen, Book, Notebook, NotebookPen, Hand, ChevronLeft, Calendar } from 'lucide-react';
+import { Maximize2, X, Plus, Upload, Image as ImageIcon, Loader2, Save, RotateCw, ZoomIn, BookImage, VenetianMask, Type as TypeOutline, Palette, ALargeSmall, BookOpen, Book, Hand, ChevronLeft, Calendar } from 'lucide-react';
 import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
@@ -25,16 +25,6 @@ function getCurrentLocalDateTime() {
 
 function getStoryBackgroundImage(story) {
   return story?.backgroundImage || story?.image || '';
-}
-
-function getStoryTimestamp(story) {
-  const value = story?.storyDate || story?.createdAt || story?.publishedAt || story?.lastUpdated || story?.updatedAt;
-  if (!value) return 0;
-  if (typeof value.toMillis === 'function') return value.toMillis();
-  if (typeof value.toDate === 'function') return value.toDate().getTime();
-  if (typeof value.seconds === 'number') return value.seconds * 1000;
-  const timestamp = new Date(value).getTime();
-  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 async function compressImage(dataUrl, maxWidth = STORY_BACKGROUND_MAX_SIZE, quality = STORY_IMAGE_QUALITY) {
@@ -78,11 +68,11 @@ function readFileAsDataUrl(file) {
   });
 }
 
-export default function StoriesManagerModal({ isOpen, onClose }) {
+export default function StoryEditorModal({ isOpen, onClose }) {
   const { isDarkMode } = useTheme();
-  const { stories, addStory, updateStory, deleteStory } = useStore();
+  const { addStory, updateStory } = useStore();
 
-  const [mode, setMode] = useState('list'); // 'list', 'add', 'edit'
+  const [mode, setMode] = useState('add'); // 'add' or 'edit'
   const [editingStory, setEditingStory] = useState(null);
   
   // Form states
@@ -109,8 +99,6 @@ export default function StoriesManagerModal({ isOpen, onClose }) {
   const [isSplitLayout, setIsSplitLayout] = useState(true);
   // const [isFramedModal, setIsFramedModal] = useState(true);
   const [editorView, setEditorView] = useState('canvas');
-  const [storyListView, setStoryListView] = useState('published');
-
   // Unified Tool Selection State (Stickers and Text layers)
   const [activeDesktopTool, setActiveDesktopTool] = useState(null); // 'rotate', 'zoom', 'resize', 'pan', null
 
@@ -893,7 +881,7 @@ const handleBgPointerDown = (e) => {
     setSelectedStickerIndex(null);
     setTexts([]);
     setSelectedTextIndex(null);
-    setMode('list');
+    setMode('add');
     // setActiveHandle(null);
     setActiveDesktopTool(null);
     setShowColorPaletteIdx(null);
@@ -943,8 +931,6 @@ const handleBgPointerDown = (e) => {
         setMode('add');
       } else if (request.mode === 'edit' && request.story) {
         handleEditClick(request.story);
-      } else if (request.mode === 'list') {
-        resetForm();
       }
     };
 
@@ -1092,6 +1078,7 @@ const handleSave = async (e, isPublish) => { // Gawin nating explicit boolean an
       await updateStory(editingStory.id, storyData);
     }
     resetForm();
+    onClose();
   } catch (err) {
     console.error("SG LOG: Failed to save story", err);
     alert("Failed to save story. Please try again.");
@@ -1102,21 +1089,6 @@ const handleSave = async (e, isPublish) => { // Gawin nating explicit boolean an
   }
 };
 
-  const handleDelete = async (storyId) => {
-    if (!window.confirm("Are you sure you want to delete this story?")) return;
-    try {
-      await deleteStory(storyId);
-    } catch (err) {
-      console.error("SG LOG: Failed to delete story", err);
-      alert("Failed to delete story.");
-    }
-  };
-
-  const orderedStories = useMemo(() => (
-    [...(stories || [])].sort((a, b) => getStoryTimestamp(b) - getStoryTimestamp(a))
-  ), [stories]);
-  const publishedStories = orderedStories.filter(story => !story.isDraft);
-  const draftStories = orderedStories.filter(story => story.isDraft);
   const StorySizeMeter = () => {
     const percent = Math.min(Math.round(storySizePercent), 999);
     const ringColor = isStorySizeOverLimit ? '#dc2626' : isStorySizeWarning ? '#f59e0b' : '#2563eb';
@@ -1138,30 +1110,6 @@ const handleSave = async (e, isPublish) => { // Gawin nating explicit boolean an
     );
   };
   
-
-  const renderStoryCard = (story) => (
-    <div 
-      key={story.id}
-      className="flex items-center gap-3 p-3 bg-neutral-50 dark:bg-white/5 rounded-2xl border border-neutral-100 dark:border-white/5 group hover:border-garage-blue/20 transition-all"
-    >
-      <div className="w-16 h-16 aspect-square rounded-xl overflow-hidden border border-black/10 dark:border-white/10 flex-shrink-0 bg-neutral-200 dark:bg-neutral-800 flex items-center justify-center">
-        {getStoryBackgroundImage(story) ? (
-          <img src={getStoryBackgroundImage(story)} alt={story.label} className="w-full h-full object-cover" />
-        ) : (
-          <ImageIcon size={18} className="text-neutral-400" />
-        )}
-      </div>
-
-      <div className="flex-1 text-left min-w-0">
-        <h4 className="font-black uppercase tracking-tight text-neutral-900 dark:text-white text-xs truncate">{story.label}</h4>
-      </div>
-
-      <div className="flex items-center gap-1.5 flex-shrink-0">
-        <button onClick={() => handleEditClick(story)} className="p-2 rounded-xl bg-neutral-100 dark:bg-white/5 hover:bg-neutral-200 dark:hover:bg-white/10 text-neutral-600 dark:text-neutral-300 transition-colors"><Edit size={14} /></button>
-        <button onClick={() => handleDelete(story.id)} className="p-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-500 transition-colors"><Trash2 size={14} /></button>
-      </div>
-    </div>
-  );
 
   const bgRenderedScale = getBgTotalScale(canvasRef.current?.getBoundingClientRect());
 
@@ -1213,20 +1161,18 @@ const renderEditorFormButtons = () => (
   return (
     <AnimatePresence>
       {isOpen && (
-<div className="pointer-events-none fixed inset-0 z-[300] flex items-start justify-center" role="dialog" aria-modal="true" aria-label="Manage stories">
-  {/* Desktop keeps the navbar visible; smaller viewports use the whole screen. */}
+<div className="pointer-events-none fixed inset-0 z-[500] flex items-start justify-center bg-black/20 backdrop-blur-[1px] dark:bg-black/50" role="dialog" aria-modal="true" aria-label="Story editor">
   <Motion.div 
     initial={{ x: 40, opacity: 0 }} 
     animate={{ x: 0, opacity: 1 }} 
     exit={{ x: 40, opacity: 0 }}
     transition={{ type: "spring", damping: 30, stiffness: 420 }}
-    className="pointer-events-auto relative mt-0 flex h-dvh w-full max-w-7xl min-h-0 flex-col overflow-hidden border-x border-t bg-white text-neutral-900 shadow-2xl dark:border-white/5 dark:bg-neutral-900 dark:text-white lg:mt-[60px] lg:h-[calc(100dvh-60px)]"
+    className="pointer-events-auto relative flex h-dvh w-full max-w-7xl min-h-0 flex-col overflow-hidden border-x border-t bg-white text-neutral-900 shadow-2xl dark:border-white/5 dark:bg-neutral-900 dark:text-white"
   >
 
             {/* MOBILE STICKY/ABSOLUTE HEADER */}
             <div className={`${isSplitLayout ? 'hidden' : 'sticky'} top-0 z-[220] w-full h-0 overflow-visible`}>
-              {mode !== 'list' && (
-                <div className="absolute top-4 left-4 flex justify-start items-center">
+              <div className="absolute top-4 left-4 flex justify-start items-center">
                   <button 
                     type="button" 
                     onClick={(e) => { e.stopPropagation(); setEditorView((view) => (view === 'canvas' ? 'details' : 'canvas')); }} 
@@ -1234,14 +1180,13 @@ const renderEditorFormButtons = () => (
                   >
                     {editorView === 'canvas' ? <BookOpen size={20} /> : <Book size={20} />}
                   </button>
-                </div>
-              )}
+              </div>
               <div className="absolute top-4 right-4 flex justify-end items-center">
                 <button 
                   type="button"
                   onClick={(e) => { e.stopPropagation(); resetForm(); onClose(); }} 
                   className="p-2 rounded-full backdrop-blur-md border transition-all shadow-lg bg-black/25 text-white border-white/10 hover:bg-black/40 z-[250]"
-                  aria-label="Close Manage Stories"
+                  aria-label="Close story editor"
                 >
                   <X size={20} />
                 </button>
@@ -1254,19 +1199,18 @@ const renderEditorFormButtons = () => (
                 type="button"
                 onClick={(e) => { e.stopPropagation(); resetForm(); onClose(); }} 
                 className="rounded-full border border-black/10 bg-white/90 p-2 text-neutral-600 shadow-lg backdrop-blur-md transition-all hover:bg-white hover:text-neutral-950 dark:border-white/10 dark:bg-black/40 dark:text-white/80 dark:hover:bg-black/60 dark:hover:text-white"
-                aria-label="Close Manage Stories"
+                aria-label="Close story editor"
               >
                 <X size={20} />
               </button>
             </div>
 
-            <div className={`p-6 pb-4 border-b border-neutral-100 dark:border-white/5 items-center justify-between z-10 shrink-0 ${mode === 'list' || isSplitLayout ? 'flex' : 'hidden'}`}>
+            <div className="flex p-6 pb-4 border-b border-neutral-100 dark:border-white/5 items-center justify-between z-10 shrink-0">
               <div className="flex flex-col text-left">
                 <h2 className="text-2xl font-black italic uppercase tracking-tighter text-neutral-900 dark:text-white leading-none">
-                  {mode === 'list' && 'MANAGE STORIES'} {mode === 'add' && 'BUILD STORY'} {mode === 'edit' && 'EDIT STORY'}
+                  {mode === 'add' ? 'BUILD STORY' : 'EDIT STORY'}
                 </h2>
                 <span className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest mt-1">
-                  {mode === 'list' && 'Latest stories appear first'}
                   {mode === 'add' && 'Upload a background, then add custom layers'}
                   {mode === 'edit' && 'Modify background, stickers and texts'}
                 </span>
@@ -1274,42 +1218,7 @@ const renderEditorFormButtons = () => (
             </div>
 
             {/* MAIN CONTENT AREA */}
-            <div className={`${mode === 'list' ? 'p-6 overflow-hidden overscroll-none' : `${isSplitLayout ? 'p-6 overflow-y-auto overscroll-contain [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden' : 'p-0 overflow-hidden'}`} flex-1 min-h-0`}>
-              {mode === 'list' ? (
-                <div className="h-full min-h-0 flex flex-col gap-4 overflow-hidden overscroll-none">
-                  {stories && stories.length > 0 ? (
-                    <>
-                      <div className="md:hidden grid grid-cols-2 gap-2 p-1 rounded-2xl bg-neutral-100 dark:bg-white/5 border border-neutral-200 dark:border-white/10">
-                        <button type="button" onClick={() => setStoryListView('published')} className={`py-3 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center gap-2 transition-all ${storyListView === 'published' ? 'bg-white dark:bg-neutral-900 text-garage-blue shadow-sm' : 'text-neutral-400'}`}><Notebook size={14} /> Published</button>
-                        <button type="button" onClick={() => setStoryListView('drafts')} className={`py-3 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center gap-2 transition-all ${storyListView === 'drafts' ? 'bg-white dark:bg-neutral-900 text-amber-500 shadow-sm' : 'text-neutral-400'}`}><NotebookPen size={14} /> Drafts</button>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-0 md:mt-4 flex-1 min-h-0 overflow-hidden">
-                        <div className={`${storyListView === 'published' ? 'flex' : 'hidden'} md:flex flex-col min-h-0 overflow-hidden space-y-2`}>
-                          <div className="flex items-center gap-2 pb-1 border-b border-neutral-100 dark:border-white/5">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500" /><h3 className="text-xs font-black uppercase tracking-wider text-neutral-500">Published ({publishedStories.length})</h3>
-                          </div>
-                          <div className="space-y-2 flex-1 overflow-y-auto overscroll-contain min-h-0 pb-4 pr-1 text-left [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-                            {publishedStories.length > 0 ? publishedStories.map((story) => renderStoryCard(story)) : <p className="text-[10px] font-bold text-neutral-400 py-6 text-center italic">No published stories</p>}
-                          </div>
-                        </div>
-
-                        <div className={`${storyListView === 'drafts' ? 'flex' : 'hidden'} md:flex flex-col min-h-0 overflow-hidden space-y-2`}>
-                          <div className="flex items-center gap-2 pb-1 border-b border-neutral-100 dark:border-white/5">
-                            <span className="w-2 h-2 rounded-full bg-amber-500" /><h3 className="text-xs font-black uppercase tracking-wider text-neutral-500">Drafts ({draftStories.length})</h3>
-                          </div>
-                          <div className="space-y-2 flex-1 min-h-0 overflow-y-auto overscroll-contain pb-4 pr-1 text-left [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-                            {draftStories.length > 0 ? draftStories.map((story) => renderStoryCard(story)) : <p className="text-[10px] font-bold text-neutral-400 py-6 text-center italic">No draft stories</p>}
-                          </div>
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="py-12 flex flex-col items-center justify-center opacity-30 text-neutral-950 dark:text-white">
-                      <ImageIcon size={36} strokeWidth={1} /><p className="mt-2 text-[10px] font-black uppercase tracking-widest">No Stories Found</p>
-                    </div>
-                  )}
-                </div>
-              ) : (
+            <div className={`${isSplitLayout ? 'p-6 overflow-y-auto overscroll-contain [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden' : 'p-0 overflow-hidden'} flex-1 min-h-0`}>
                 <div className={`w-full flex ${isSplitLayout ? 'flex-row gap-6' : 'flex-col gap-0'} text-left items-stretch h-full`}>
                   <div className={`${editorView === 'canvas' || isSplitLayout ? 'flex' : 'hidden'} w-full ${isSplitLayout ? 'h-auto w-[45%] justify-start bg-transparent' : 'h-full justify-center bg-black'} flex-col items-center relative`}>
                     <div 
@@ -1559,23 +1468,12 @@ const renderEditorFormButtons = () => (
                     <input type="file" ref={stickerFileInputRef} className="hidden" accept="image/*" onChange={handleStickerSelect} />
                   </div>
                 </div>
-              )}
             </div>
 
-{/* MOBILE/DESKTOP FIXED FOOTER (Visible on list view or details editor view only) */}
-{(mode === 'list' || (mode !== 'list' && editorView === 'details')) && (
+{/* MOBILE/DESKTOP FIXED FOOTER (Visible while editing story details) */}
+{editorView === 'details' && (
   <div className="w-full bg-white dark:bg-neutral-900 border-t border-neutral-100 dark:border-white/5 p-4 sticky bottom-0 z-[210] shrink-0">
-    {mode === 'list' ? (
-      <button 
-        type="button"
-        onClick={() => { resetForm(); setMode('add'); }} 
-        className="w-full max-w-sm py-4 bg-garage-blue text-white rounded-full font-black uppercase text-[10px] tracking-widest shadow-lg flex items-center justify-center gap-2 transition-all hover:opacity-90 mx-auto"
-      >
-        <Plus size={14} /> Add New Story
-      </button>
-    ) : (
-      renderEditorFormButtons()
-    )}
+    {renderEditorFormButtons()}
   </div>
 )}
 

@@ -19,7 +19,7 @@ import L from 'leaflet';
 import DynamicShippingForm from './DynamicShippingForm';
 import PolicyModal from '../menu/PolicyModal';
 import { getIntegerFeeShare, getStockStandaloneSellPrice, isBundleOrClearanceItem } from '../../utils/standalonePricing';
-import { distributeRoundedBundlePrices, getClearanceBundlePricing, getDistributedFeeShare } from '../../utils/bundlePricing';
+import { getBundleDealPricing, getClearanceBundlePricing, getDistributedFeeShare } from '../../utils/bundlePricing';
 import {
   formatAvailabilityDate,
   getNextAvailableDate,
@@ -116,6 +116,8 @@ const getCheckoutItemBasePrice = (item, kit, fees = {}) => {
 const parseDealDate = (value, endOfDay = false) => {
   if (!value) return null;
   if (value instanceof Date) return value;
+  if (typeof value?.toDate === 'function') return value.toDate();
+  if (Number.isFinite(Number(value?.seconds))) return new Date(Number(value.seconds) * 1000);
   const raw = String(value);
   const normalized = /^\d{4}-\d{2}-\d{2}$/.test(raw)
     ? `${raw}T${endOfDay ? '23:59:59' : '00:00:00'}`
@@ -180,6 +182,7 @@ const getClearanceDealKitIds = (deal) => {
 const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees = {}) => {
   const selectedDealItems = normalizedItems.filter(item => !isProjectCheckoutItem(item));
   const selectedBasketItems = selectedDealItems.filter(item => item?.basketId || item?.basketIds?.length);
+  const activeDeals = deals.filter(deal => isDealActiveForCheckout(deal));
   const selectedNormalBundleIds = new Set(
     selectedBasketItems
       .filter(item => item.bundleId && item.isClearanceBundle !== true)
@@ -200,7 +203,13 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
         rows.length,
         ...rows.map(row => Number(row.bundleSize) || 0)
       );
-      return rows.length === selectedBasketItems.length && rows.length >= expectedSize;
+      const activeDeal = activeDeals.find(deal => String(deal.id) === String(bundleId));
+      const activeDealKitIds = new Set(normalizeDealKitIds(activeDeal?.kitIds));
+      const selectedKitIds = new Set(selectedBasketItems.map(getCheckoutKitId));
+      const matchesActiveDeal = activeDealKitIds.size > 1
+        && activeDealKitIds.size === selectedKitIds.size
+        && Array.from(activeDealKitIds).every(kitId => selectedKitIds.has(kitId));
+      return matchesActiveDeal && rows.length === selectedBasketItems.length && rows.length >= expectedSize;
     })
     : null;
 
@@ -256,7 +265,6 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
       && Array.from(normalizedBundleKitIds).every(kitId => selectedOrderKitIds.has(kitId));
   };
 
-  const activeDeals = deals.filter(deal => isDealActiveForCheckout(deal));
   const candidates = [];
   const normalBundleCandidates = [];
 
@@ -277,50 +285,34 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
         }
 
         const sellPrice = Number(stock.sellPrice || item.sellPrice || kit.sellPrice || 0);
-        return { item, kit, kitId, stock, refPrice: sellPrice, sellPrice };
+        return {
+          item,
+          kit,
+          kitId,
+          stock,
+          refPrice: sellPrice,
+          sellPrice,
+          costPrice: Number(stock.costPrice || item.costPrice || 0)
+        };
       });
       if (rows.some(row => !row) || rows.some(row => row.refPrice <= 0)) return;
 
       const normalTotal = rows.reduce((sum, row) => sum + row.refPrice, 0);
-      const configuredBundlePrice = Number(deal.bundlePrice || 0);
-      const totalDiscount = Math.max(
+      const discountAmount = Math.max(
         0,
-        Number(deal.discountAmount ?? (normalTotal - configuredBundlePrice)) || 0
+        Number(deal.discountAmount ?? (normalTotal - Number(deal.bundlePrice || 0))) || 0
       );
-      const targetTotal = configuredBundlePrice > 0
-        ? configuredBundlePrice
-        : Math.max(0, normalTotal - totalDiscount);
-      if (targetTotal >= normalTotal || totalDiscount <= 0) return;
-
-      const exclusiveKitIds = new Set(normalizeDealKitIds(deal.exclusiveKitIds));
-      const exclusiveRefTotal = rows
-        .filter(row => exclusiveKitIds.has(row.kitId))
-        .reduce((sum, row) => sum + row.refPrice, 0);
-      const standardRefTotal = rows
-        .filter(row => !exclusiveKitIds.has(row.kitId))
-        .reduce((sum, row) => sum + row.refPrice, 0);
-      const exclusivePool = exclusiveRefTotal > 0
-        ? totalDiscount * (Number(deal.exclusiveDiscountPercent ?? 100) / 100)
-        : 0;
-      const standardPool = Math.max(0, totalDiscount - exclusivePool);
-      const pricedRows = distributeRoundedBundlePrices(rows.map(row => {
-        const isExclusive = exclusiveKitIds.has(row.kitId);
-        const discount = isExclusive && exclusiveRefTotal > 0
-          ? exclusivePool * (row.refPrice / exclusiveRefTotal)
-          : !isExclusive && standardRefTotal > 0
-            ? standardPool * (row.refPrice / standardRefTotal)
-            : 0;
-        return {
-          ...row,
-          isClearance: false,
-          rawPrice: Math.max(0, row.refPrice - discount)
-        };
-      }), targetTotal);
+      const bundlePricing = getBundleDealPricing(rows, discountAmount);
+      if (bundlePricing.bundlePrice >= normalTotal || bundlePricing.discountAmount <= 0) return;
+      const pricedRows = bundlePricing.rows.map(row => ({
+        ...row,
+        isClearance: false
+      }));
 
       normalBundleCandidates.push({
         deal,
         rows: pricedRows,
-        savings: Math.max(0, normalTotal - targetTotal),
+        savings: bundlePricing.discountAmount,
         clearanceDiscount: 0
       });
       return;
@@ -386,7 +378,7 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
       const storedPriceDiscount = row && storedClearancePrice > 0
         ? Math.max(0, row.refPrice - storedClearancePrice)
         : 0;
-      const persistedDiscount = storedPriceDiscount || storedKitDiscount || Number(deal.clearanceDiscountTotal || 0);
+      const persistedDiscount = storedPriceDiscount || storedKitDiscount;
       if (persistedDiscount > 0) clearanceDiscountOverrides[kitId] = persistedDiscount;
     });
 

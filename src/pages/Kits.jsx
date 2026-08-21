@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Package, Gift, Plus, Trash2, Box, Sparkles, ClockFading, Pencil, Search, Loader2, X, Wallet, AlertCircle, TrendingUp, Filter, Zap, ArrowBigDownDash, ArrowBigUpDash, ChevronDown, MoreHorizontal, Image as ImageIcon, Settings } from 'lucide-react';
 import { useStore } from '../store/useStore';
@@ -15,7 +15,7 @@ import SalesDashboardModal from '../components/kitcards/SalesDashboardModal';
 import LoginPromptModal from '../components/menu/LoginPromptModal';
 import LoadingState from '../components/common/LoadingState';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
-import { distributeRoundedBundlePrices, getDistributedFeeShare, getClearanceBundlePricing, getHighestCostStock } from '../utils/bundlePricing';
+import { getDistributedFeeShare, getBundleDealPricing, getClearanceBundlePricing, getHighestCostStock } from '../utils/bundlePricing';
 import { isOfferCheckoutActive } from '../utils/offerUtils';
 import { getDealGrabLabel } from '../utils/dealSavings';
 
@@ -787,16 +787,14 @@ export default function Kits({ isActive = true }) {
     setIsAddKitModalOpen(true);
   };
 
-  const handleCloseDealModal = () => {
+  const handleCloseDealModal = useCallback(() => {
     setIsAddDealModalOpen(false);
     setDealToEdit(null);
-  };
+  }, []);
 
   const buildDealItems = (deal) => {
     if (!deal || !deal.kitIds || deal.type === 'mutually_exclusive') return [];
     const bundleKits = (storeKits || []).filter(k => deal.kitIds.includes(k.id));
-    const { exclusiveDiscountPercent } = getCheckoutPaymentFees({ shippingSettings });
-    const exclusiveKitIds = deal.exclusiveKitIds || [];
     const kitPrices = bundleKits.map((kit) => {
       const stocks = Object.values(kit?.stocks || {});
       const source = deal.stockSource || 'onhand';
@@ -810,7 +808,6 @@ export default function Kits({ isActive = true }) {
         refPrice: Number(sourceStock?.sellPrice || stocks[0]?.sellPrice || kit?.sellPrice || 0),
         sellPrice: Number(sourceStock?.sellPrice || stocks[0]?.sellPrice || kit?.sellPrice || 0),
         costPrice: Number(sourceStock?.costPrice || stocks[0]?.costPrice || 0),
-        isExclusive: exclusiveKitIds.includes(kit.id),
         availableStock
       };
     });
@@ -820,20 +817,11 @@ export default function Kits({ isActive = true }) {
       pricedRows = getClearanceBundlePricing(kitPrices, deal.clearanceKitIds || [], deal.clearanceDiscounts || {}).rows;
     } else {
       const normalTotal = kitPrices.reduce((sum, row) => sum + row.refPrice, 0);
-      const exclusiveRefTotal = kitPrices.filter(row => row.isExclusive).reduce((sum, row) => sum + row.refPrice, 0);
-      const standardRefTotal = kitPrices.filter(row => !row.isExclusive).reduce((sum, row) => sum + row.refPrice, 0);
-      const bPrice = Number(deal.bundlePrice || 0);
-      const totalDiscount = normalTotal > bPrice ? normalTotal - bPrice : 0;
-      const exclusivePool = exclusiveKitIds.length > 0 ? totalDiscount * (exclusiveDiscountPercent / 100) : 0;
-      const standardPool = totalDiscount - exclusivePool;
-      pricedRows = distributeRoundedBundlePrices(kitPrices.map(row => {
-        const kitDiscount = row.isExclusive && exclusiveRefTotal > 0
-          ? exclusivePool * (row.refPrice / exclusiveRefTotal)
-          : !row.isExclusive && standardRefTotal > 0
-            ? standardPool * (row.refPrice / standardRefTotal)
-            : 0;
-        return { ...row, rawPrice: Math.max(0, row.refPrice - kitDiscount) };
-      }), bPrice);
+      const discountAmount = Number(deal.discountAmount ?? Math.max(0, normalTotal - Number(deal.bundlePrice || 0))) || 0;
+      pricedRows = getBundleDealPricing(kitPrices.map(row => ({
+        ...row,
+        sellPrice: row.refPrice
+      })), discountAmount).rows;
     }
 
     const bundleSize = pricedRows.length;
