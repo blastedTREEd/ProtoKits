@@ -7,7 +7,7 @@ import {
   ClipboardList, Plus, MapPin, Package, PackageOpen, ShieldCheck, X, CheckCircle2, 
   ChevronRight, ChevronDown, Clock, Store, Truck, Tag, Trash2, AlertCircle,
   Camera, Upload, QrCode, ArrowRight, Eye, Download, ListTodo, Flag,
-  XCircle, Wallet, MapPinSearch, ClockFading, PrinterCheck
+  XCircle, Wallet, MapPinSearch, ClockFading, PrinterCheck, Undo2
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -121,7 +121,22 @@ function ReservationTimer({ createdAt, expiresAt, onExpire, compact = false, dur
   return <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-500/10 text-amber-500 rounded-full"><Clock size={12} /><span className="text-[10px] font-black tracking-widest">{timeLeft}</span></div>;
 }
 
-const CANCELLED_ORDER_DELETE_WINDOW_MS = 10 * 60 * 1000;
+const INVALID_ORDER_DELETE_WINDOW_MS = 10 * 60 * 1000;
+const CANCELLED_ORDER_DELETE_WINDOW_MS = 24 * 60 * 60 * 1000;
+const COMPLETED_ORDER_REVERSAL_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+const getTimestampMs = (value) => {
+  if (!value) return 0;
+  if (typeof value.toMillis === 'function') return value.toMillis();
+  if (value.seconds) return value.seconds * 1000;
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+};
+
+const getCompletedOrderReversalDeadline = (order) => {
+  const completedAt = getTimestampMs(order?.completedAt || order?.lastUpdated || order?.createdAt);
+  return completedAt ? completedAt + COMPLETED_ORDER_REVERSAL_WINDOW_MS : 0;
+};
 
 function DeletionTimer({ completedAt, onExpire, onDelete, children }) {
   const [timeLeft, setTimeLeft] = useState('');
@@ -134,7 +149,7 @@ function DeletionTimer({ completedAt, onExpire, onDelete, children }) {
           ? completedAt.seconds * 1000
           : new Date(completedAt).getTime();
       const hasValidTimestamp = !Number.isNaN(timestampStart);
-      const timestampEnd = timestampStart + CANCELLED_ORDER_DELETE_WINDOW_MS;
+      const timestampEnd = timestampStart + INVALID_ORDER_DELETE_WINDOW_MS;
       if (!hasValidTimestamp) {
         setTimeLeft('—');
         return;
@@ -176,6 +191,91 @@ function DeletionTimer({ completedAt, onExpire, onDelete, children }) {
       {timeLeft}
     </button>
   );
+}
+
+function CompletedReversalTimer({ order, onExpire, children }) {
+  const [timeLeft, setTimeLeft] = useState('');
+  const hasExpiredRef = useRef(false);
+
+  useEffect(() => {
+    const calculateTime = () => {
+      const deadline = getCompletedOrderReversalDeadline(order);
+      if (!deadline) {
+        setTimeLeft('PERMANENT');
+        if (!hasExpiredRef.current) {
+          hasExpiredRef.current = true;
+          onExpire?.();
+        }
+        return;
+      }
+
+      const diff = deadline - Date.now();
+      if (diff <= 0) {
+        setTimeLeft('PERMANENT');
+        if (!hasExpiredRef.current) {
+          hasExpiredRef.current = true;
+          onExpire?.();
+        }
+        return;
+      }
+
+      const totalSecs = Math.ceil(diff / 1000);
+      const days = Math.floor(totalSecs / (24 * 60 * 60));
+      const hours = Math.floor((totalSecs % (24 * 60 * 60)) / (60 * 60));
+      const mins = Math.floor((totalSecs % (60 * 60)) / 60);
+      const secs = totalSecs % 60;
+      setTimeLeft(days > 0
+        ? `${days}d ${hours}h`
+        : `${hours}h ${mins}m ${secs.toString().padStart(2, '0')}s`);
+    };
+
+    calculateTime();
+    const interval = setInterval(calculateTime, 1000);
+    return () => clearInterval(interval);
+  }, [onExpire, order]);
+
+  return children(timeLeft);
+}
+
+function CancelledOrderTimer({ order, onExpire, children }) {
+  const [timeLeft, setTimeLeft] = useState('');
+  const hasExpiredRef = useRef(false);
+
+  useEffect(() => {
+    const calculateTime = () => {
+      const cancelledAt = getTimestampMs(order?.cancelledAt || order?.lastUpdated || order?.createdAt);
+      const deadline = cancelledAt ? cancelledAt + CANCELLED_ORDER_DELETE_WINDOW_MS : 0;
+      if (!deadline) {
+        setTimeLeft('—');
+        return;
+      }
+
+      const diff = deadline - Date.now();
+      if (diff <= 0) {
+        setTimeLeft('00:00');
+        if (!hasExpiredRef.current) {
+          hasExpiredRef.current = true;
+          onExpire?.();
+        }
+        return;
+      }
+
+      const totalSecs = Math.ceil(diff / 1000);
+      const days = Math.floor(totalSecs / (24 * 60 * 60));
+      const hours = Math.floor((totalSecs % (24 * 60 * 60)) / (60 * 60));
+      const mins = Math.floor((totalSecs % (60 * 60)) / 60);
+      const secs = totalSecs % 60;
+      setTimeLeft(days > 0
+        ? `${days}d ${hours}h`
+        : `${hours}h ${mins}m ${secs.toString().padStart(2, '0')}s`);
+    };
+
+    calculateTime();
+    const interval = setInterval(calculateTime, 1000);
+    return () => clearInterval(interval);
+  }, [onExpire, order]);
+
+  return children(timeLeft);
 }
 
 const compressImage = (base64Str, maxWidth = 1024, maxHeight = 1024, quality = 0.7) => {
@@ -303,7 +403,7 @@ export default function Orders() {
   const location = useLocation();
   const navigate = useNavigate();
   const { orderId: routeOrderId } = useParams();
-  const { user, isAdmin, isAdminView, kits, shelf, assignStockToOrder, cancelOrder, confirmOrderPayment, uploadReceipt, updateOrderDetails, updateOrderStatus, rates, orders, usersList, createOrder, deleteOrder, isLoading, subscribeOrders, subscribeUsersList, loadPrintResources, shippingSettings, garageInfo, cleanUpCancelledOrders, setToastMessage } = useStore();
+  const { user, isAdmin, isAdminView, kits, shelf, assignStockToOrder, cancelOrder, confirmOrderPayment, uploadReceipt, updateOrderDetails, updateOrderStatus, rates, orders, usersList, createOrder, deleteOrder, reverseCompletedOrder, isLoading, subscribeOrders, subscribeUsersList, loadPrintResources, shippingSettings, garageInfo, cleanUpCancelledOrders, setToastMessage } = useStore();
   const isAdminMode = isAdmin && isAdminView;
   
   // Dynamically get the QR for whatever payment method the selected order uses
@@ -323,6 +423,7 @@ export default function Orders() {
   const [selectedOrders, setSelectedOrders] = useState([]);
   const [isMultiSelectEnabled, setIsMultiSelectEnabled] = useState(false);
   const [expandedOrderItems, setExpandedOrderItems] = useState({});
+  const [completedReversalExpiredIds, setCompletedReversalExpiredIds] = useState(() => new Set());
 
   const closeSelectedOrder = useCallback(() => {
     setSelectedOrder(null);
@@ -335,7 +436,7 @@ export default function Orders() {
     setIsMultiSelectEnabled(false);
   }, [activeTab]);
 
-  // Periodically releases stock for cancelled orders while retaining cancelled records.
+  // Periodically releases cancelled stock and lets the admin retention window expire.
   useEffect(() => {
     if (!user) return undefined;
     
@@ -854,7 +955,7 @@ export default function Orders() {
           } catch (err) {
             console.error("SG LOG: Delayed delete failed:", err);
           }
-        }, CANCELLED_ORDER_DELETE_WINDOW_MS);
+        }, INVALID_ORDER_DELETE_WINDOW_MS);
       } catch (e) {
         console.error(e);
         setToastMessage("Failed to complete invalid order.");
@@ -869,8 +970,9 @@ export default function Orders() {
       try {
         await updateOrderStatus(selectedOrder.id, 'Completed');
         alert(isAdminMode ? "Order marked as Completed!" : "Order receipt confirmed!");
-        moveOrderToTargetTab(selectedOrder, { status: 'Completed' });
-        setSelectedOrder(prev => ({ ...prev, status: 'Completed' }));
+        const completedPatch = { status: 'Completed', completedAt: new Date().toISOString() };
+        moveOrderToTargetTab(selectedOrder, completedPatch);
+        setSelectedOrder(prev => ({ ...prev, ...completedPatch }));
       } catch (e) {
         console.error(e);
         alert("Failed to update status.");
@@ -1185,6 +1287,28 @@ export default function Orders() {
     }
   };
 
+  const markCompletedReversalExpired = useCallback((orderId) => {
+    setCompletedReversalExpiredIds((previous) => {
+      if (previous.has(orderId)) return previous;
+      const next = new Set(previous);
+      next.add(orderId);
+      return next;
+    });
+  }, []);
+
+  const handleReverseCompletedOrder = useCallback(async (orderId) => {
+    if (!window.confirm('Reverse this completed order? The order will be cancelled and deleted, and its stock will be released back to public inventory.')) return;
+
+    try {
+      await reverseCompletedOrder(orderId);
+      setToastMessage('Completed order reversed, deleted, and stock released.');
+      if (selectedOrder?.id === orderId) closeSelectedOrder();
+    } catch (error) {
+      console.error('SG LOG: Failed to reverse completed order:', error);
+      setToastMessage(error?.message || 'Could not reverse the completed order.');
+    }
+  }, [closeSelectedOrder, reverseCompletedOrder, selectedOrder?.id, setToastMessage]);
+
   const isReadyForPickupStatus = (status) => ['Ready for Pickup', 'Ready for Meetup'].includes(status);
   const canShowExactPickupDetails = (order, paymentVerified) => {
     if (isAdminMode) return true;
@@ -1418,8 +1542,8 @@ export default function Orders() {
     item.projectData?.method?.name?.toUpperCase() === 'STL' && 
     item.projectData?.selectedDesignService
   );
-  const canCustomerCancel = Boolean(selectedOrder && !isAdminMode && !selectedOrder.receipt && selectedOrder.status !== 'Cancelled');
-  const canAdminCancel = Boolean(selectedOrder && isAdminMode && selectedOrder.status !== 'Cancelled');
+  const canCustomerCancel = Boolean(selectedOrder && !isAdminMode && !selectedOrder.receipt && !['Cancelled', 'Completed'].includes(selectedOrder.status));
+  const canAdminCancel = Boolean(selectedOrder && isAdminMode && !['Cancelled', 'Completed'].includes(selectedOrder.status));
   const isSelectedResOrPartial = selectedOrder && (['reservation', 'partial'].includes(String(selectedOrder.paymentPlan || '').toLowerCase()) || selectedOrder.isReservation || selectedOrder.isPartial);
   const showPaymentQr = Boolean(selectedOrder && selectedTotals.balance > 0 && (isSelectedResOrPartial ? true : (!isAdminMode && !selectedOrder.receipt)));
   // isMaintenanceOrder is stored on the order itself — stays true even after maintenance is lifted
@@ -1480,6 +1604,10 @@ export default function Orders() {
       (selectedOrder.status === 'Reserved' && selPaymentPlan === 'reservation') ||
       (selectedOrder.status === 'Arrived' && selPaymentPlan === 'partial' && selectedOrder.balanceRequestedAt)
     ) && calculateBalance(selectedOrder) > 0 && !selectedOrder.balanceReceipt;
+    const completedReversalDeadline = getCompletedOrderReversalDeadline(selectedOrder);
+    const isCompletedReversalAvailable = selectedOrder.status === 'Completed'
+      && !completedReversalExpiredIds.has(selectedOrder.id)
+      && completedReversalDeadline > Date.now();
 
     return (
       <div className="w-full min-h-screen text-neutral-900 dark:text-white bg-white dark:bg-[#0a0a0a]">
@@ -1525,7 +1653,7 @@ export default function Orders() {
                   )}
                 </ReservationTimer>
               );
-              if (selectedOrder.isMaintenanceOrder && ['Completed', 'Cancelled'].includes(selectedOrder.status)) return (
+              if (selectedOrder.isMaintenanceOrder && selectedOrder.status === 'Completed') return (
                 <DeletionTimer
                   completedAt={selectedOrder.completedAt || selectedOrder.cancelledAt || selectedOrder.lastUpdated || selectedOrder.createdAt}
                   onExpire={() => handleDeleteOrderNow(selectedOrder.id)}
@@ -1538,6 +1666,60 @@ export default function Orders() {
                     </div>
                   )}
                 </DeletionTimer>
+              );
+              if (selectedOrder.status === 'Completed') return (
+                <CompletedReversalTimer
+                  order={selectedOrder}
+                  onExpire={() => markCompletedReversalExpired(selectedOrder.id)}
+                >
+                  {(timeLeft) => {
+                    const badge = (
+                      <div className={`px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest leading-none border flex items-center gap-1.5 whitespace-nowrap ${detailUI.className}`}>
+                        {isAdminMode && timeLeft !== 'PERMANENT' && <Undo2 size={13} />}
+                        {detailUI.icon}
+                        <span>{detailDisplayStatus}</span>
+                        <span className="opacity-90">({timeLeft === 'PERMANENT' ? 'PERMANENT' : `${timeLeft} TO REVERSE`})</span>
+                      </div>
+                    );
+                    return isAdminMode && timeLeft !== 'PERMANENT' ? (
+                      <button
+                        type="button"
+                        title="Reverse and release stock"
+                        onClick={(event) => { event.stopPropagation(); handleReverseCompletedOrder(selectedOrder.id); }}
+                        className="rounded-full focus:outline-none focus:ring-2 focus:ring-red-500/60"
+                      >
+                        {badge}
+                      </button>
+                    ) : badge;
+                  }}
+                </CompletedReversalTimer>
+              );
+              if (selectedOrder.status === 'Cancelled') return (
+                <CancelledOrderTimer
+                  order={selectedOrder}
+                  onExpire={isAdminMode ? () => handleDeleteOrderNow(selectedOrder.id) : undefined}
+                >
+                  {(timeLeft) => {
+                    const badge = (
+                      <div className={`px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest leading-none border flex items-center gap-1.5 whitespace-nowrap ${detailUI.className}`}>
+                        {isAdminMode && <Trash2 size={13} />}
+                        {detailUI.icon}
+                        <span>{detailDisplayStatus}</span>
+                        <span className="opacity-90">({timeLeft})</span>
+                      </div>
+                    );
+                    return isAdminMode ? (
+                      <button
+                        type="button"
+                        title="Delete cancelled order"
+                        onClick={(event) => { event.stopPropagation(); handleDeleteOrderNow(selectedOrder.id); }}
+                        className="rounded-full focus:outline-none focus:ring-2 focus:ring-red-500/60"
+                      >
+                        {badge}
+                      </button>
+                    ) : badge;
+                  }}
+                </CancelledOrderTimer>
               );
               return (
                 <div className={`px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest leading-none border flex items-center gap-1.5 ${detailUI.className}`}>
@@ -2292,6 +2474,15 @@ export default function Orders() {
           )}
 
 
+          {isAdminMode && selectedOrder.status === 'Completed' && isCompletedReversalAvailable && (
+            <button
+              onClick={() => handleReverseCompletedOrder(selectedOrder.id)}
+              className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 shadow-lg shadow-red-600/20 flex items-center gap-1.5"
+            >
+              <Undo2 size={14} /> Reverse & Release Stock
+            </button>
+          )}
+
           {isAdminMode && selectedOrder.status === 'Cancelled' && (
             <button 
               onClick={() => { deleteOrder(selectedOrder.id); closeSelectedOrder(); }}
@@ -2371,7 +2562,7 @@ export default function Orders() {
                   .replace(/\s*\([^)]*\)/g, '')
                   .split(':')[0]
                   .trim() || 'N/A';
-                const orderStatusIndicator = o.isMaintenanceOrder && ['Completed', 'Cancelled'].includes(o.status) ? (
+                const orderStatusIndicator = o.isMaintenanceOrder && o.status === 'Completed' ? (
                   <DeletionTimer
                     completedAt={o.completedAt || o.cancelledAt || o.lastUpdated || o.createdAt}
                     onExpire={() => handleDeleteOrderNow(o.id)}
@@ -2382,8 +2573,60 @@ export default function Orders() {
                         <span>{cardDisplayStatus}</span>
                         {timeLeft && <span className="opacity-90">({timeLeft})</span>}
                       </span>
-                    )}
-                  </DeletionTimer>
+                      )}
+                    </DeletionTimer>
+                ) : o.status === 'Completed' ? (
+                  <CompletedReversalTimer
+                    order={o}
+                    onExpire={() => markCompletedReversalExpired(o.id)}
+                  >
+                    {(timeLeft) => {
+                      const badge = (
+                        <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-black uppercase leading-none tracking-widest shadow-md whitespace-nowrap ${cardUI.className}`}>
+                          {isAdminMode && timeLeft !== 'PERMANENT' && <Undo2 size={12} />}
+                          {cardUI.icon}
+                          <span>{cardDisplayStatus}</span>
+                          <span className="opacity-90">({timeLeft === 'PERMANENT' ? 'PERMANENT' : `${timeLeft} TO REVERSE`})</span>
+                        </span>
+                      );
+                      return isAdminMode && timeLeft !== 'PERMANENT' ? (
+                        <button
+                          type="button"
+                          title="Reverse and release stock"
+                          onClick={(event) => { event.stopPropagation(); handleReverseCompletedOrder(o.id); }}
+                          className="rounded-full focus:outline-none focus:ring-2 focus:ring-red-500/60"
+                        >
+                          {badge}
+                        </button>
+                      ) : badge;
+                    }}
+                  </CompletedReversalTimer>
+                ) : o.status === 'Cancelled' ? (
+                  <CancelledOrderTimer
+                    order={o}
+                    onExpire={isAdminMode ? () => handleDeleteOrderNow(o.id) : undefined}
+                  >
+                    {(timeLeft) => {
+                      const badge = (
+                        <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-black uppercase leading-none tracking-widest shadow-md whitespace-nowrap ${cardUI.className}`}>
+                          {isAdminMode && <Trash2 size={12} />}
+                          {cardUI.icon}
+                          <span>{cardDisplayStatus}</span>
+                          <span className="opacity-90">({timeLeft})</span>
+                        </span>
+                      );
+                      return isAdminMode ? (
+                        <button
+                          type="button"
+                          title="Delete cancelled order"
+                          onClick={(event) => { event.stopPropagation(); handleDeleteOrderNow(o.id); }}
+                          className="rounded-full focus:outline-none focus:ring-2 focus:ring-red-500/60"
+                        >
+                          {badge}
+                        </button>
+                      ) : badge;
+                    }}
+                  </CancelledOrderTimer>
                 ) : isCardReservedTimerActive ? (
                   <ReservationTimer
                     createdAt={o.cancellationTimerStartedAt || o.createdAt}

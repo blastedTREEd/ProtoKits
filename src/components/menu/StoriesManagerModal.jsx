@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Maximize2, X, Plus, Trash2, Edit, ChevronUp, ChevronDown, Upload, Image as ImageIcon, Loader2, Save, RotateCw, ZoomIn, BookImage, VenetianMask, Type as TypeOutline, Palette, ALargeSmall, BookOpen, Book, Notebook, NotebookPen, Hand, ChevronLeft, Calendar } from 'lucide-react';
+import { Maximize2, X, Plus, Trash2, Edit, Upload, Image as ImageIcon, Loader2, Save, RotateCw, ZoomIn, BookImage, VenetianMask, Type as TypeOutline, Palette, ALargeSmall, BookOpen, Book, Notebook, NotebookPen, Hand, ChevronLeft, Calendar } from 'lucide-react';
 import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
@@ -25,6 +25,16 @@ function getCurrentLocalDateTime() {
 
 function getStoryBackgroundImage(story) {
   return story?.backgroundImage || story?.image || '';
+}
+
+function getStoryTimestamp(story) {
+  const value = story?.storyDate || story?.createdAt || story?.publishedAt || story?.lastUpdated || story?.updatedAt;
+  if (!value) return 0;
+  if (typeof value.toMillis === 'function') return value.toMillis();
+  if (typeof value.toDate === 'function') return value.toDate().getTime();
+  if (typeof value.seconds === 'number') return value.seconds * 1000;
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 async function compressImage(dataUrl, maxWidth = STORY_BACKGROUND_MAX_SIZE, quality = STORY_IMAGE_QUALITY) {
@@ -70,7 +80,7 @@ function readFileAsDataUrl(file) {
 
 export default function StoriesManagerModal({ isOpen, onClose }) {
   const { isDarkMode } = useTheme();
-  const { stories, addStory, updateStory, deleteStory, updateStoriesOrder } = useStore();
+  const { stories, addStory, updateStory, deleteStory } = useStore();
 
   const [mode, setMode] = useState('list'); // 'list', 'add', 'edit'
   const [editingStory, setEditingStory] = useState(null);
@@ -1102,26 +1112,11 @@ const handleSave = async (e, isPublish) => { // Gawin nating explicit boolean an
     }
   };
 
-  const handleMoveUp = async (index) => {
-    if (index === 0) return;
-    const newStories = [...stories];
-    const temp = newStories[index];
-    newStories[index] = newStories[index - 1];
-    newStories[index - 1] = temp;
-    try { await updateStoriesOrder(newStories); } catch (err) { console.error(err); }
-  };
-
-  const handleMoveDown = async (index) => {
-    if (index === stories.length - 1) return;
-    const newStories = [...stories];
-    const temp = newStories[index];
-    newStories[index] = newStories[index + 1];
-    newStories[index + 1] = temp;
-    try { await updateStoriesOrder(newStories); } catch (err) { console.error(err); }
-  };
-
-  const publishedStories = stories?.filter(story => !story.isDraft) || [];
-  const draftStories = stories?.filter(story => story.isDraft) || [];
+  const orderedStories = useMemo(() => (
+    [...(stories || [])].sort((a, b) => getStoryTimestamp(b) - getStoryTimestamp(a))
+  ), [stories]);
+  const publishedStories = orderedStories.filter(story => !story.isDraft);
+  const draftStories = orderedStories.filter(story => story.isDraft);
   const StorySizeMeter = () => {
     const percent = Math.min(Math.round(storySizePercent), 999);
     const ringColor = isStorySizeOverLimit ? '#dc2626' : isStorySizeWarning ? '#f59e0b' : '#2563eb';
@@ -1144,30 +1139,24 @@ const handleSave = async (e, isPublish) => { // Gawin nating explicit boolean an
   };
   
 
-  const renderStoryCard = (story, globalIndex) => (
+  const renderStoryCard = (story) => (
     <div 
       key={story.id}
       className="flex items-center gap-3 p-3 bg-neutral-50 dark:bg-white/5 rounded-2xl border border-neutral-100 dark:border-white/5 group hover:border-garage-blue/20 transition-all"
     >
-      <div className="w-12 h-16 rounded-xl overflow-hidden relative border border-black/10 dark:border-white/10 flex-shrink-0 bg-neutral-200 dark:bg-neutral-800 flex items-center justify-center">
+      <div className="w-16 h-16 aspect-square rounded-xl overflow-hidden border border-black/10 dark:border-white/10 flex-shrink-0 bg-neutral-200 dark:bg-neutral-800 flex items-center justify-center">
         {getStoryBackgroundImage(story) ? (
           <img src={getStoryBackgroundImage(story)} alt={story.label} className="w-full h-full object-cover" />
         ) : (
           <ImageIcon size={18} className="text-neutral-400" />
         )}
-        <div className="absolute inset-0 opacity-40 blur-md pointer-events-none" style={{ backgroundColor: story.value || '#0066ff' }} />
       </div>
 
       <div className="flex-1 text-left min-w-0">
         <h4 className="font-black uppercase tracking-tight text-neutral-900 dark:text-white text-xs truncate">{story.label}</h4>
-        <p className="text-[10px] text-neutral-400 line-clamp-2 leading-tight mt-0.5">{story.description || 'No description provided.'}</p>
       </div>
 
       <div className="flex items-center gap-1.5 flex-shrink-0">
-        <div className="flex flex-col">
-          <button onClick={() => handleMoveUp(globalIndex)} disabled={globalIndex === 0} className="p-1 rounded hover:bg-neutral-200 dark:hover:bg-white/10 disabled:opacity-20 text-neutral-500"><ChevronUp size={14} /></button>
-          <button onClick={() => handleMoveDown(globalIndex)} disabled={globalIndex === stories.length - 1} className="p-1 rounded hover:bg-neutral-200 dark:hover:bg-white/10 disabled:opacity-20 text-neutral-500"><ChevronDown size={14} /></button>
-        </div>
         <button onClick={() => handleEditClick(story)} className="p-2 rounded-xl bg-neutral-100 dark:bg-white/5 hover:bg-neutral-200 dark:hover:bg-white/10 text-neutral-600 dark:text-neutral-300 transition-colors"><Edit size={14} /></button>
         <button onClick={() => handleDelete(story.id)} className="p-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-500 transition-colors"><Trash2 size={14} /></button>
       </div>
@@ -1277,7 +1266,7 @@ const renderEditorFormButtons = () => (
                   {mode === 'list' && 'MANAGE STORIES'} {mode === 'add' && 'BUILD STORY'} {mode === 'edit' && 'EDIT STORY'}
                 </h2>
                 <span className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest mt-1">
-                  {mode === 'list' && 'Click arrows to reorder active stories'}
+                  {mode === 'list' && 'Latest stories appear first'}
                   {mode === 'add' && 'Upload a background, then add custom layers'}
                   {mode === 'edit' && 'Modify background, stickers and texts'}
                 </span>
@@ -1300,7 +1289,7 @@ const renderEditorFormButtons = () => (
                             <span className="w-2 h-2 rounded-full bg-emerald-500" /><h3 className="text-xs font-black uppercase tracking-wider text-neutral-500">Published ({publishedStories.length})</h3>
                           </div>
                           <div className="space-y-2 flex-1 overflow-y-auto overscroll-contain min-h-0 pb-4 pr-1 text-left [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-                            {publishedStories.length > 0 ? publishedStories.map((story) => renderStoryCard(story, stories.findIndex(s => s.id === story.id))) : <p className="text-[10px] font-bold text-neutral-400 py-6 text-center italic">No published stories</p>}
+                            {publishedStories.length > 0 ? publishedStories.map((story) => renderStoryCard(story)) : <p className="text-[10px] font-bold text-neutral-400 py-6 text-center italic">No published stories</p>}
                           </div>
                         </div>
 
@@ -1309,7 +1298,7 @@ const renderEditorFormButtons = () => (
                             <span className="w-2 h-2 rounded-full bg-amber-500" /><h3 className="text-xs font-black uppercase tracking-wider text-neutral-500">Drafts ({draftStories.length})</h3>
                           </div>
                           <div className="space-y-2 flex-1 min-h-0 overflow-y-auto overscroll-contain pb-4 pr-1 text-left [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-                            {draftStories.length > 0 ? draftStories.map((story) => renderStoryCard(story, stories.findIndex(s => s.id === story.id))) : <p className="text-[10px] font-bold text-neutral-400 py-6 text-center italic">No draft stories</p>}
+                            {draftStories.length > 0 ? draftStories.map((story) => renderStoryCard(story)) : <p className="text-[10px] font-bold text-neutral-400 py-6 text-center italic">No draft stories</p>}
                           </div>
                         </div>
                       </div>

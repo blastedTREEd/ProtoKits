@@ -147,7 +147,7 @@ const Layout = ({ children }) => {
     <div className="min-h-screen flex flex-col">
       {isKnownRoute(location.pathname) && (
         <>
-          <Stories isCompact={location.pathname !== "/" || isFullscreenNavOpen} hideImmediately={isFullscreenNavOpen} />
+          <Stories isCompact={isCompact} hideImmediately={isFullscreenNavOpen} />
           <Navbar isCompact={isCompact} />
         </>
       )}

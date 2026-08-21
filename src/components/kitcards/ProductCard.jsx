@@ -631,23 +631,34 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     if (!kitId || !Array.isArray(deals)) return [];
     return deals.filter(deal => {
       const isBundleDeal = deal?.type === 'bundle_only' || deal?.type === 'bundle_discount' || deal?.type === 'clearance';
-      if (!isBundleDeal || deal.isActive === false || !(deal.kitIds || []).includes(kitId)) return false;
+      const dealKitIds = deal.type === 'clearance' && deal.clearanceKitIds?.length
+        ? deal.clearanceKitIds
+        : (deal.kitIds || []);
+      if (!isBundleDeal || deal.isActive === false || !dealKitIds.includes(kitId)) return false;
       if (deal.type !== 'clearance') {
         const validUntil = parseDealDate(deal.validUntil);
         if (validUntil && validUntil.getTime() <= now) return false;
-        return (deal.kitIds || []).every(dealKitId => {
+        return dealKitIds.every(dealKitId => {
           const dealKit = dealKitId === kitId ? kit : (allKits || []).find(k => k.id === dealKitId);
           const stockSource = deal.stockSource || 'onhand';
           const stocks = Object.values(dealKit?.stocks || {});
           return stocks.some(stock => isBundlePurchasableStock(stock, stockSource));
         });
       }
-      // For clearance deals, since it's a masterlist, we only check if the current kit has purchasable stock.
+      // Clearance is a master list: the discount is only valid while every
+      // eligible kit can still be fulfilled, not merely the card being viewed.
+      const canUseClearanceStock = (stock, source) => (
+        isBundlePurchasableStock(stock, source)
+        && (isAdminView || !stock.isReserved)
+      );
       const stockSource = deal.stockSource || 'onhand';
-      const stocks = Object.values(kit?.stocks || {});
-      return stocks.some(stock => isBundlePurchasableStock(stock, stockSource));
+      return dealKitIds.every(dealKitId => {
+        const dealKit = dealKitId === kitId ? kit : (allKits || []).find(k => k.id === dealKitId);
+        const stocks = Object.values(dealKit?.stocks || {});
+        return stocks.some(stock => canUseClearanceStock(stock, stockSource));
+      });
     });
-  }, [allKits, deals, kitId, kit, now]);
+  }, [allKits, deals, isAdminView, kitId, kit, now]);
 
   const hasBundleExclusiveDeal = bundleOnlyDeals.some(deal => (deal.exclusiveKitIds || []).includes(kitId));
 

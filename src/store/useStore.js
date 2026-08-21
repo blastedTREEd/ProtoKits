@@ -119,6 +119,17 @@ const buildOrderStockTargets = (order = {}) => {
   return targets;
 };
 
+const getOrderTimestampMs = (value) => {
+  if (!value) return 0;
+  if (typeof value.toMillis === 'function') return value.toMillis();
+  if (value.seconds) return value.seconds * 1000;
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+};
+
+const COMPLETED_ORDER_REVERSAL_WINDOW_MS = 24 * 60 * 60 * 1000;
+const CANCELLED_ORDER_DELETE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 const releaseStockTarget = async (kitId, stockKey, orderDocId, order = {}) => {
   const kitRef = doc(db, 'kits', kitId);
   const kitSnap = await getDoc(kitRef);
@@ -1472,14 +1483,6 @@ export const useStore = create(
         await deleteDoc(doc(db, "stories", storyId));
       },
 
-      updateStoriesOrder: async (newStories) => {
-        const batch = writeBatch(db);
-        newStories.forEach((story, idx) => {
-          batch.update(doc(db, "stories", story.id), { order: idx + 1 });
-        });
-        await batch.commit();
-      },
-
       deleteFromNotifyList: async (notifyId) => {
         await deleteDoc(doc(db, "hunts", notifyId));
         // Keep the derived Deals section in sync without waiting for the
@@ -1864,6 +1867,40 @@ export const useStore = create(
         await releaseOrderStocks(orderDocId, order, kits);
       },
 
+      reverseCompletedOrder: async (orderDocId) => {
+        const { kits, isAdmin, orders } = get();
+        if (!isAdmin) {
+          throw new Error('Only administrators can reverse completed orders.');
+        }
+
+        let order = (orders || []).find((candidate) => candidate.id === orderDocId);
+        if (!order) {
+          const snap = await getDoc(doc(db, 'orders', orderDocId));
+          if (snap.exists()) order = { id: snap.id, ...snap.data() };
+        }
+
+        if (!order || order.status !== 'Completed') {
+          throw new Error('Only completed orders can be reversed.');
+        }
+
+        const completedAt = getOrderTimestampMs(order.completedAt || order.lastUpdated || order.createdAt);
+        if (completedAt && Date.now() >= completedAt + COMPLETED_ORDER_REVERSAL_WINDOW_MS) {
+          throw new Error('This completed order is now a permanent record.');
+        }
+
+        const orderRef = doc(db, 'orders', orderDocId);
+        await updateDoc(orderRef, {
+          status: 'Cancelled',
+          cancelledAt: serverTimestamp(),
+          lastUpdated: serverTimestamp()
+        });
+
+        // Release before deleting so a failed inventory write leaves a recoverable
+        // cancelled order for the existing cleanup path to retry.
+        await releaseOrderStocks(orderDocId, order, kits);
+        await deleteDoc(orderRef);
+      },
+
 
 
       updateFilament: async (id, patch, newId) => { 
@@ -2244,11 +2281,6 @@ export const useStore = create(
 
           for (const orderDoc of docs) {
             const o = { id: orderDoc.id, ...orderDoc.data() };
-            if (o.isMaintenanceOrder && o.status === 'Cancelled') {
-              await releaseOrderStocks(o.id, o, kits);
-              continue;
-            }
-
             if (o.isMaintenanceOrder && o.status === 'Completed') {
               const completedTime = o.completedAt 
                 ? (o.completedAt.seconds ? o.completedAt.seconds * 1000 : new Date(o.completedAt).getTime())
@@ -2268,8 +2300,17 @@ export const useStore = create(
               continue;
             }
 
-            if (o.status !== 'Cancelled') continue;
-            await releaseOrderStocks(o.id, o, kits);
+            if (o.status === 'Cancelled') {
+              // Release first so a failed inventory write leaves the cancelled
+              // record available for the next cleanup attempt.
+              await releaseOrderStocks(o.id, o, kits);
+
+              const cancelledTime = getOrderTimestampMs(o.cancelledAt || o.lastUpdated || o.createdAt);
+              if (isAdmin && cancelledTime && (now - cancelledTime >= CANCELLED_ORDER_DELETE_WINDOW_MS)) {
+                console.log(`SG LOG: Auto-deleting expired cancelled order ${o.orderId || o.id}`);
+                await deleteDoc(doc(db, 'orders', o.id));
+              }
+            }
           }
         } catch (err) {
           console.error("SG LOG: Error cleaning up cancelled orders:", err);
@@ -2769,13 +2810,20 @@ export const useStore = create(
           return !stock.isReserved || stock.reservationType === 'admin';
         };
 
-        const bundleDeals = deals.filter(d => d.type === 'bundle_only' || d.type === 'bundle_discount');
+        const bundleDeals = deals.filter(d => (
+          d.type === 'bundle_only'
+          || d.type === 'bundle_discount'
+          || d.type === 'clearance'
+        ));
         if (bundleDeals.length === 0) return;
 
         for (const deal of bundleDeals) {
-          if (!deal.kitIds || deal.kitIds.length === 0) continue;
+          const dealKitIds = deal.type === 'clearance' && deal.clearanceKitIds?.length
+            ? deal.clearanceKitIds
+            : (deal.kitIds || []);
+          if (dealKitIds.length === 0) continue;
 
-          const isFulfillable = deal.kitIds.every(dealKitId => {
+          const isFulfillable = dealKitIds.every(dealKitId => {
             const dealKit = kits.find(k => k.id === dealKitId);
             if (!dealKit) return false;
             const stocks = Object.values(dealKit.stocks || {});
