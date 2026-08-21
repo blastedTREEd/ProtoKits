@@ -95,6 +95,12 @@ function isBundlePurchasableStock(stock, source = 'onhand') {
   return !stock.isReserved || stock.reservationType === 'admin';
 }
 
+function getHighestAvailableOnhandStock(kit) {
+  const purchasableStocks = Object.values(kit?.stocks || {})
+    .filter(stock => isBundlePurchasableStock(stock, 'onhand'));
+  return getHighestCostStock(purchasableStocks) || {};
+}
+
 // Deal Architect totals use the catalog/base sell price. Checkout fees,
 // including the per-item installment fee, are applied after the deal price.
 function getBundleStandardSellPrice(stock, kit) {
@@ -460,7 +466,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       return getClearanceBundlePricing(rows, clearanceKitIds, { ...clearanceOriginalOverrides, ...clearanceDiscounts });
     }
     const rows = selectedKitsData.map(kit => {
-      const stock = getHighestOnhandStock(kit);
+      const stock = getHighestAvailableOnhandStock(kit);
       return {
         kit,
         kitId: kit.id,
@@ -483,9 +489,13 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     const lowerSearch = searchTerm.toLowerCase();
     return (kits || []).filter(k => {
       const target = [k.name, k.brand, k.specs?.line].filter(Boolean).join(' ').toLowerCase();
-      return target.includes(lowerSearch) && !selectedKitIds.includes(k.id);
+      const hasPurchasableOnhandStock = Object.values(k.stocks || {})
+        .some(stock => isBundlePurchasableStock(stock, 'onhand'));
+      return target.includes(lowerSearch)
+        && !selectedKitIds.includes(k.id)
+        && (dealType !== 'bundle_only' || hasPurchasableOnhandStock);
     }).slice(0, 5);
-  }, [kits, searchTerm, selectedKitIds]);
+  }, [dealType, kits, searchTerm, selectedKitIds]);
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -795,7 +805,11 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
         }
       ]));
       dealData.validFrom = validFrom || formatLocalDateTimeValue(publishDate);
-      dealData.validUntil = validUntil || formatLocalDateTimeValue(defaultValidUntil);
+      // Editing a bundle deal reopens its one-week validity window from now.
+      // New deals still respect an explicitly selected expiry date.
+      dealData.validUntil = activeEditId
+        ? formatLocalDateTimeValue(defaultValidUntil)
+        : (validUntil || formatLocalDateTimeValue(defaultValidUntil));
       dealData.stockSource = 'onhand';
     }
 
@@ -1245,7 +1259,9 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                             <span className="text-[12px] font-black uppercase tracking-widest opacity-30">{dealType === 'clearance' ? 'Eligible kits / X to remove' : dealType === 'mutually_exclusive' ? 'Exactly 2 kits / X to remove' : 'Drag to reorder / X to remove'}</span>
                           </div>
                           {getOrderedKits(kits, previewKitIds).map((kit, index) => {
-                            const stock = getHighestOnhandStock(kit);
+                            const stock = dealType === 'bundle_only'
+                              ? getHighestAvailableOnhandStock(kit)
+                              : getHighestOnhandStock(kit);
                             const discountRow = financialSummary.rows.find(row => row.kit.id === kit.id);
                             const currentClearanceDiscount = getClearanceDiscountPlaceholder(
                               kit.id,
@@ -1544,36 +1560,14 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                         {/* Kit Thumbnails */}
                         <div className="w-full space-y-3 py-1">
                           {(() => {
-                            const storedBandaiIds = deal.mutuallyExclusiveGroups?.bandai || deal.bandaiKitIds || [];
-                            const storedBootlegIds = deal.mutuallyExclusiveGroups?.bootleg || deal.bootlegKitIds || [];
-                            const hasStoredGroups = storedBandaiIds.length > 0 && storedBootlegIds.length > 0;
-                            const sections = isMutualDeal
-                              ? [
-                                  {
-                                    label: 'BANDAI',
-                                    kits: includedKits.filter(k => hasStoredGroups
-                                      ? storedBandaiIds.includes(k.id)
-                                      : String(k.brand || '').toLowerCase().includes('bandai'))
-                                  },
-                                  {
-                                    label: 'BOOTLEG',
-                                    kits: includedKits.filter(k => hasStoredGroups
-                                      ? storedBootlegIds.includes(k.id)
-                                      : !String(k.brand || '').toLowerCase().includes('bandai'))
-                                  }
-                                ]
-                              : [{ label: null, kits: includedKits }];
-
-                            return sections.map(section => section.kits.length > 0 && (
-                              <div key={section.label || 'included-kits'} className="space-y-2">
-                                {section.label && (
-                                  <div className="flex items-center gap-2 px-2 pt-1 text-[11px] font-black uppercase tracking-[0.2em] text-red-500">
-                                    <span className="h-px flex-1 bg-current/20" />
-                                    <span>{section.label}</span>
-                                    <span className="h-px flex-1 bg-current/20" />
+                            const renderKitRow = (k) => {
+                              if (!k) {
+                                return (
+                                  <div className="flex min-h-11 items-center justify-center rounded-xl border border-dashed border-red-500/20 bg-red-500/5 px-3 py-2 text-center text-[10px] font-black uppercase tracking-widest text-red-500/60">
+                                    Kit unavailable
                                   </div>
-                                )}
-                                {section.kits.map(k => {
+                                );
+                              }
                             const configuredDiscount = deal.clearanceDiscounts?.[k.id];
                             const clearanceDiscount = deal.type === 'clearance'
                               ? Number(
@@ -1582,8 +1576,8 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                   : deal.kitDiscounts?.[k.id]?.discount || 0
                               )
                               : 0;
-                            return (
-                            <div key={k.id} className="flex w-full min-w-0 items-center gap-2 px-3 py-2 rounded-xl bg-black/5 dark:bg-white/5 border border-white/5">
+                              return (
+                              <div key={k.id} className="flex w-full min-w-0 items-center gap-2 rounded-xl border border-white/5 bg-black/5 px-3 py-2 dark:bg-white/5">
                               <img src={resolveImage(k.image, k.images)} className="w-7 h-7 rounded-lg object-cover bg-white" alt="" />
                               <div className="min-w-0 flex-1">
                                 <span className="block truncate text-[12px] font-black uppercase">{k.name}</span>
@@ -1604,11 +1598,40 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                   <X size={13} />
                                 </button>
                               )}
-                            </div>
-                            );
-                                })}
                               </div>
-                            ));
+                              );
+                            };
+
+                            if (isMutualDeal) {
+                              const pairRows = getMutuallyExclusivePairRows(deal, kits);
+                              return (
+                                <div className="space-y-3">
+                                  {pairRows.map((pair, index) => {
+                                    const bandaiKit = includedKits.find(kit => kit.id === pair.bandaiId);
+                                    const bootlegKit = includedKits.find(kit => kit.id === pair.bootlegId);
+                                    return (
+                                      <div key={`mutual-pair-${index}`} className="space-y-2">
+                                        <div className="px-2 text-[10px] font-black uppercase tracking-[0.2em] opacity-40">
+                                          Pair {index + 1}
+                                        </div>
+                                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                          <div className="min-w-0 space-y-1">
+                                            <div className="px-2 text-[10px] font-black uppercase tracking-[0.2em] text-red-500">Bandai</div>
+                                            {renderKitRow(bandaiKit)}
+                                          </div>
+                                          <div className="min-w-0 space-y-1">
+                                            <div className="px-2 text-[10px] font-black uppercase tracking-[0.2em] text-red-500">Bootleg</div>
+                                            {renderKitRow(bootlegKit)}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            }
+
+                            return <div className="space-y-2">{includedKits.map(renderKitRow)}</div>;
                           })()}
                         </div>
 

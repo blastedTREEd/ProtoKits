@@ -154,6 +154,7 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   };
 
   const isMobile = windowWidth < 640;
+  const isSmallViewport = windowWidth >= 640 && windowWidth < 768;
   const isDesktop = windowWidth >= 1024;
   const isLandscape = typeof window !== 'undefined' ? window.innerWidth > window.innerHeight : false;
   const isProfileFullscreen = isMobile || (windowWidth >= 640 && windowWidth < 1024 && isLandscape);
@@ -406,7 +407,7 @@ useEffect(() => {
     }));
   }, [showBottomNav]);
 
-  const isCompactMode = location.pathname !== "/" || scrolledCompact || isPastScrollThreshold || isStoriesManagerOpen || isNotificationModalOpen || isProfileOpen || isMobile;
+  const isCompactMode = location.pathname !== "/" || scrolledCompact || isPastScrollThreshold || isStoriesManagerOpen || isNotificationModalOpen || isProfileOpen || isMobile || isSmallViewport;
 
   useEffect(() => {
     if (!user?.uid) {

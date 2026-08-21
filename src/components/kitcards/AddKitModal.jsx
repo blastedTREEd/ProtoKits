@@ -2803,7 +2803,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                                 image.id,
                                                                 image.type === 'BOX ART' ? 'PROMO IMAGE' : 'BOX ART'
                                                             )}
-                                                            className={`mt-2 w-full rounded-xl border px-2 py-2 text-[9px] font-black uppercase outline-none transition-colors ${
+                                                            className={`mt-2 flex h-9 w-full items-center justify-center rounded-xl border px-2 text-[8px] font-black uppercase tracking-widest leading-none outline-none transition-colors ${
                                                                 image.type === 'BOX ART'
                                                                     ? 'border-blue-600 bg-blue-600 text-white'
                                                                     : `${inputClass} hover:border-blue-500 hover:text-blue-600`

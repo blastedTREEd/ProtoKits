@@ -10,6 +10,10 @@ const STORY_CARD_GAP = 12;
 // Stories strip above the navbar.
 const SHOW_STORIES_STRIP = true;
 
+function getStoryCardCount(viewportWidth) {
+  return Math.max(1, Math.floor((viewportWidth + STORY_CARD_GAP) / (STORY_CARD_WIDTH + STORY_CARD_GAP)));
+}
+
 function getRandomSyncColor() {
   return SYNC_GLOW_COLORS[Math.floor(Math.random() * SYNC_GLOW_COLORS.length)];
 }
@@ -41,9 +45,8 @@ export default function Stories({ isCompact, hideImmediately = false }) {
   // Preview modal state
   const [activeStoryIndex, setActiveStoryIndex] = useState(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-  const [isDesktopViewport, setIsDesktopViewport] = useState(window.innerWidth >= 1024);
   const [syncingStoryCount, setSyncingStoryCount] = useState(() => (
-    Math.ceil(window.innerWidth / (STORY_CARD_WIDTH + STORY_CARD_GAP)) + 1
+    getStoryCardCount(window.innerWidth)
   ));
 
   useEffect(() => {
@@ -71,8 +74,7 @@ export default function Stories({ isCompact, hideImmediately = false }) {
   useEffect(() => {
     const handleResize = () => {
       setIsMobile(window.innerWidth < 768);
-      setIsDesktopViewport(window.innerWidth >= 1024);
-      setSyncingStoryCount(Math.ceil(window.innerWidth / (STORY_CARD_WIDTH + STORY_CARD_GAP)) + 1);
+      setSyncingStoryCount(getStoryCardCount(window.innerWidth));
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
@@ -346,11 +348,22 @@ export default function Stories({ isCompact, hideImmediately = false }) {
   ), [syncingStoryCount]);
 
   const isShowingPlaceholders = isLoading && highlightItems.length === 0;
-  const shouldAnimateStories = isDesktopViewport && !isLoading && !isShowingPlaceholders && highlightItems.length > 0;
+  const shouldAnimateStories = !isLoading && !isShowingPlaceholders && highlightItems.length > 0;
+  const filledHighlightItems = React.useMemo(() => {
+    if (highlightItems.length === 0) return [];
+
+    // Match the loading placeholder count so the strip stays full when the
+    // real highlight data replaces the placeholders on small and medium
+    // viewports.
+    const itemCount = Math.max(syncingStoryCount, highlightItems.length);
+    return Array.from({ length: itemCount }, (_, index) => highlightItems[index % highlightItems.length]);
+  }, [highlightItems, syncingStoryCount]);
   const displayStories = isShowingPlaceholders
     ? syncingStories
       : highlightItems.length > 0
-      ? (shouldAnimateStories ? [...highlightItems, ...highlightItems, ...highlightItems] : highlightItems)
+      ? (shouldAnimateStories
+        ? [...filledHighlightItems, ...filledHighlightItems, ...filledHighlightItems]
+        : filledHighlightItems)
       : syncingStories;
 
   const handleHighlightClick = (item) => {
@@ -389,7 +402,7 @@ export default function Stories({ isCompact, hideImmediately = false }) {
           <div className="hidden lg:block absolute right-0 top-0 bottom-0 w-24 bg-gradient-to-l from-white dark:from-neutral-900 via-white/80 dark:via-neutral-900/80 to-transparent z-50 pointer-events-none" />
 
           <div 
-            className={`flex gap-3 w-max ${shouldAnimateStories ? 'animate-infinite-scroll' : ''}`}
+            className={`flex w-max gap-3 ${shouldAnimateStories ? 'animate-infinite-scroll' : ''}`}
             style={{ '--scroll-speed': '50s' }}
           >
             {displayStories.map((highlight, index) => (
