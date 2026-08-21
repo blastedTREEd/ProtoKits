@@ -82,6 +82,7 @@ export default function Navbar({ isCompact: scrolledCompact }) {
     kits,
     deals,
     orders,
+    userOffers,
     shippingSettings,
     user, 
     isProfileIncomplete,
@@ -102,7 +103,7 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   const notificationOwnerKey = user?.uid
     ? `${user.uid}${isAdminNotificationView ? ':admin' : ''}`
     : 'guest';
-  const usesOrdersPageSubscription = location.pathname === '/orders' && !isAdminNotificationView;
+  const usesOrdersPageSubscription = location.pathname === '/orders' || location.pathname.startsWith('/orders/');
 
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
@@ -226,7 +227,7 @@ export default function Navbar({ isCompact: scrolledCompact }) {
     }
 
     return true;
-  }), [allNotifications, getNotificationActivityTime, notificationDismissedVersions, notificationNow]);
+  }), [allNotifications, notificationDismissedVersions, notificationNow]);
   const unseenNotificationCount = visibleNotifications.reduce((count, notification) => (
     notificationSeenVersions[notification.id] === getNotificationVersion(notification) ? count : count + 1
   ), 0);
@@ -433,7 +434,18 @@ useEffect(() => {
   }, [isAdminNotificationView, user?.uid, usesOrdersPageSubscription]);
 
   useEffect(() => {
-    if (!user?.uid) return undefined;
+    if (!user?.uid) {
+      setNotificationHunts([]);
+      return undefined;
+    }
+
+    // The store already keeps the signed-in user's hunts live for offer
+    // management. Reuse that subscription instead of opening a second one
+    // just for the notification bell.
+    if (!isAdminNotificationView) {
+      setNotificationHunts(userOffers || []);
+      return undefined;
+    }
 
     const huntQuery = isAdminNotificationView
       ? query(collection(db, 'hunts'), where('status', 'in', ['pending', 'hunting']))
@@ -443,7 +455,7 @@ useEffect(() => {
     }, (error) => {
       console.error('SG LOG: Hunt notification subscription error:', error);
     });
-  }, [isAdminNotificationView, user?.uid]);
+  }, [isAdminNotificationView, user?.uid, userOffers]);
 
   const handleNavClick = (path) => {
     policyScrollCleanupRef.current?.();
@@ -1077,7 +1089,7 @@ return (
                           {user && (
                             <button onClick={() => { navigate('/notify-list'); setIsProfileOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-colors ${isDarkMode ? 'hover:bg-white/5 text-white' : 'hover:bg-black/5 text-neutral-900'}`}>
                               <Bell size={18} className="opacity-40" />
-                              <span className="text-[12px] font-black uppercase tracking-widest">OFFERS</span>
+                              <span className="text-[12px] font-black uppercase tracking-widest">{isAdminView ? 'OFFERS LIST' : 'SENT OFFERS'}</span>
                             </button>
                           )}
                           <button

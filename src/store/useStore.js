@@ -302,6 +302,7 @@ export const useStore = create(
       storiesHeight: 0,
       unsubPrintResources: null,
       unsubOffers: null,
+      _syncAllDealsPromise: null,
       setStoriesHeight: (height) => set({ storiesHeight: height }),
 
       cleanupFilamentsStockNo: async () => {
@@ -815,20 +816,46 @@ export const useStore = create(
 
         if (ids.length === 0) return {};
 
-        const entries = await Promise.all(ids.map(async (blueprintId) => {
+        // Reuse the live blueprint cache whenever it is already available.
+        // Basket validation otherwise falls back to batched name queries
+        // instead of opening one document read per project.
+        const cachedBlueprints = new Map(
+          (get().blueprints || []).map((blueprint) => [String(blueprint.id), blueprint])
+        );
+        const cachedEntries = ids
+          .filter((blueprintId) => cachedBlueprints.has(blueprintId))
+          .map((blueprintId) => [
+            blueprintId,
+            cachedBlueprints.get(blueprintId)?.canAddToBasket !== false
+          ]);
+        const missingIds = ids.filter((blueprintId) => !cachedBlueprints.has(blueprintId));
+        const fetchedEntries = [];
+
+        for (let index = 0; index < missingIds.length; index += 10) {
+          const batchIds = missingIds.slice(index, index + 10);
           try {
-            const snapshot = await getDoc(doc(db, 'blueprints', blueprintId));
-            return [
-              blueprintId,
-              snapshot.exists() ? snapshot.data().canAddToBasket !== false : null
-            ];
+            const snapshot = await getDocs(query(
+              collection(db, 'blueprints'),
+              where('__name__', 'in', batchIds)
+            ));
+            const fetchedById = new Map(snapshot.docs.map((blueprintDoc) => [
+              blueprintDoc.id,
+              blueprintDoc.data()
+            ]));
+            batchIds.forEach((blueprintId) => {
+              const blueprint = fetchedById.get(blueprintId);
+              fetchedEntries.push([
+                blueprintId,
+                blueprint ? blueprint.canAddToBasket !== false : null
+              ]);
+            });
           } catch (error) {
             console.error('SG LOG: Blueprint production status lookup failed:', error);
-            return [blueprintId, null];
+            batchIds.forEach((blueprintId) => fetchedEntries.push([blueprintId, null]));
           }
-        }));
+        }
 
-        return Object.fromEntries(entries);
+        return Object.fromEntries([...cachedEntries, ...fetchedEntries]);
       },
 
       loadPrintResources: () => {
@@ -2824,8 +2851,22 @@ export const useStore = create(
 
       syncAllDeals: async () => {
         if (!get().isAdmin) return;
-        get().syncMutuallyExclusiveDeals();
-        get().syncBundleDealsFulfillment();
+        const activeSync = get()._syncAllDealsPromise;
+        if (activeSync) return activeSync;
+
+        const syncPromise = Promise.allSettled([
+          get().syncMutuallyExclusiveDeals(),
+          get().syncBundleDealsFulfillment()
+        ]);
+        set({ _syncAllDealsPromise: syncPromise });
+
+        try {
+          await syncPromise;
+        } finally {
+          if (get()._syncAllDealsPromise === syncPromise) {
+            set({ _syncAllDealsPromise: null });
+          }
+        }
       },
 
       addProjectToBasket: async (pData) => {
