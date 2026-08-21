@@ -337,29 +337,12 @@ export default function Navbar({ isCompact: scrolledCompact }) {
       return undefined;
     }
 
-    const scrollY = window.scrollY;
-    const previousBodyStyle = {
-      position: document.body.style.position,
-      top: document.body.style.top,
-      width: document.body.style.width,
-      overflow: document.body.style.overflow,
-      overscrollBehavior: document.body.style.overscrollBehavior
-    };
-
     window.dispatchEvent(new Event('profileFullscreenOpen'));
-    document.body.style.position = 'fixed';
-    document.body.style.top = `-${scrollY}px`;
-    document.body.style.width = '100%';
-    document.body.style.overflow = 'hidden';
-    document.body.style.overscrollBehavior = 'none';
+    const handlePageScroll = () => setIsProfileOpen(false);
+    window.addEventListener('scroll', handlePageScroll, { passive: true });
 
     return () => {
-      document.body.style.position = previousBodyStyle.position;
-      document.body.style.top = previousBodyStyle.top;
-      document.body.style.width = previousBodyStyle.width;
-      document.body.style.overflow = previousBodyStyle.overflow;
-      document.body.style.overscrollBehavior = previousBodyStyle.overscrollBehavior;
-      window.scrollTo(0, scrollY);
+      window.removeEventListener('scroll', handlePageScroll);
       window.dispatchEvent(new Event('profileFullscreenClose'));
     };
   }, [isProfileOpen, isProfileFullscreen]);
@@ -531,14 +514,21 @@ useEffect(() => {
     });
   };
 
-  const openAfterLandingNavbarCompacts = (openPanel) => {
+  const openAfterLandingNavbarCompacts = (openPanel, fullscreenEventName = null) => {
+    const prepareFullscreenPanel = () => {
+      if (fullscreenEventName) {
+        window.dispatchEvent(new Event(fullscreenEventName));
+      }
+    };
     const needsCompactScroll = location.pathname === '/' && !isDesktop && window.scrollY <= 40;
     if (!needsCompactScroll) {
+      prepareFullscreenPanel();
       openPanel();
       return;
     }
 
     window.scrollTo({ top: 48, left: 0, behavior: 'auto' });
+    prepareFullscreenPanel();
     window.requestAnimationFrame(openPanel);
   };
 
@@ -561,7 +551,7 @@ useEffect(() => {
     openAfterLandingNavbarCompacts(() => {
       setNotificationAnchorTop(navbarRef.current?.getBoundingClientRect().bottom ?? null);
       setIsNotificationModalOpen(true);
-    });
+    }, isProfileFullscreen ? 'notificationFullscreenOpen' : null);
   };
 
   const handleToggleProfile = () => {
@@ -574,7 +564,7 @@ useEffect(() => {
     openAfterLandingNavbarCompacts(() => {
       setNotificationAnchorTop(navbarRef.current?.getBoundingClientRect().bottom ?? null);
       setIsProfileOpen(true);
-    });
+    }, isProfileFullscreen ? 'profileFullscreenOpen' : null);
   };
 
   useEffect(() => {
@@ -961,7 +951,7 @@ return (
                     style={isProfileFullscreen ? undefined : profilePanelStyle}
                     initial={isProfileFullscreen ? { y: '-100%', opacity: 0 } : { y: -18, opacity: 0 }}
                     animate={{ y: 0, opacity: 1 }}
-                    exit={isProfileFullscreen ? { y: '-100%', opacity: 0 } : { y: -18, opacity: 0 }}
+                    exit={isProfileFullscreen || !isDesktop ? { y: '-100%', opacity: 0 } : { y: -18, opacity: 0 }}
                     transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
                     drag={isProfileFullscreen ? 'y' : false}
                     dragListener={false}
@@ -1089,6 +1079,13 @@ return (
                               <span className="text-[12px] font-black uppercase tracking-widest">OFFERS</span>
                             </button>
                           )}
+                          <button
+                            onClick={handleOpenPolicies}
+                            className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-colors ${isDarkMode ? 'hover:bg-white/5 text-white' : 'hover:bg-black/5 text-neutral-900'}`}
+                          >
+                            <FileText size={18} className="opacity-40" />
+                            <span className="text-[12px] font-black uppercase tracking-widest">Policies</span>
+                          </button>
                           <button onClick={handleLogout} className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-colors ${originalAdminUser ? 'text-orange-500 hover:bg-orange-500/10' : 'text-red-500 hover:bg-red-500/10'}`}>
                             <LogOut size={18} />
                             <span className="text-[12px] font-black uppercase tracking-widest">
@@ -1097,7 +1094,15 @@ return (
                           </button>
                         </>
                       ) : (
-                        <div className="flex flex-col gap-2 w-full mt-2">
+                        <>
+                          <button
+                            onClick={handleOpenPolicies}
+                            className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-colors ${isDarkMode ? 'hover:bg-white/5 text-white' : 'hover:bg-black/5 text-neutral-900'}`}
+                          >
+                            <FileText size={18} className="opacity-40" />
+                            <span className="text-[12px] font-black uppercase tracking-widest">Policies</span>
+                          </button>
+                          <div className="flex flex-col gap-2 w-full mt-2">
                           {showFacebook ? (
                             <button 
                                onClick={handleLogin} 
@@ -1136,16 +1141,10 @@ return (
                               {authError}
                             </p>
                           )}
-                        </div>
+                          </div>
+                        </>
                       )}
 
-                      <button
-                        onClick={handleOpenPolicies}
-                        className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-colors ${isDarkMode ? 'hover:bg-white/5 text-white' : 'hover:bg-black/5 text-neutral-900'}`}
-                      >
-                        <FileText size={18} className="opacity-40" />
-                        <span className="text-[12px] font-black uppercase tracking-widest">Policies</span>
-                      </button>
                     </div>
                     {isProfileFullscreen && (
                       <div

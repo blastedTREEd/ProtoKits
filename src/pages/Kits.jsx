@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Package, Gift, Plus, Trash2, Box, Sparkles, ClockFading, Pencil, Search, Loader2, X, Wallet, AlertCircle, TrendingUp, Filter, Zap, ArrowBigDownDash, ArrowBigUpDash, ChevronDown, MoreHorizontal, Image as ImageIcon, Settings } from 'lucide-react';
+import { Package, Gift, Plus, Trash2, Box, ClockFading, Pencil, Search, Loader2, X, Wallet, AlertCircle, TrendingUp, Filter, Zap, ArrowBigDownDash, ArrowBigUpDash, ChevronDown, MoreHorizontal, Image as ImageIcon, Settings } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
@@ -115,7 +115,7 @@ function getRouteKitStatus(kit, isAdmin, isAdminView) {
 export default function Kits({ isActive = true }) {
   const { 
     isAdmin, isAdminView, kits: storeKits, deals, 
-    isLoading, addKit, applyPristineBoxKitConditions,
+    isLoading, addKit,
     user, isAnonymousUser, userOffers, notifyList, subscribeNotifyList, setLoginModalOpen, addToBasket,
     shippingSettings
   } = useStore();
@@ -138,7 +138,6 @@ export default function Kits({ isActive = true }) {
   const [kitToEdit, setKitToEdit] = useState(null);
   const [isSupplierBalancesModalOpen, setIsSupplierBalancesModalOpen] = useState(false);
   const [isSalesDashboardModalOpen, setIsSalesDashboardModalOpen] = useState(false);
-  const [isApplyingPristineConditions, setIsApplyingPristineConditions] = useState(false);
   const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
   const [itemsForCheckout, setItemsForCheckout] = useState([]); 
   const [isAdminToolsOpen, setIsAdminToolsOpen] = useState(false);
@@ -979,28 +978,6 @@ export default function Kits({ isActive = true }) {
     { id: 'new-deal', label: 'New Deal', icon: Gift, tone: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20', onClick: () => setIsAddDealModalOpen(true) },
     { id: 'balances', label: 'Balances', icon: Wallet, tone: 'border-amber-500/20 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20', onClick: () => setIsSupplierBalancesModalOpen(true) },
     { id: 'sales', label: 'Sales', icon: TrendingUp, tone: 'border-indigo-500/20 bg-indigo-500/10 text-indigo-600 hover:bg-indigo-500/20', onClick: () => setIsSalesDashboardModalOpen(true) },
-    {
-      id: 'pristine-box-sealed-kit',
-      label: 'Set Pristine Kits Sealed',
-      icon: Sparkles,
-      tone: 'border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-600 hover:bg-fuchsia-500/20',
-      onClick: async () => {
-        if (isApplyingPristineConditions) return;
-        const confirmed = window.confirm('Set kit condition to SEALED for all stock with a PRISTINE box condition?');
-        if (!confirmed) return;
-
-        setIsApplyingPristineConditions(true);
-        try {
-          const updatedCount = await applyPristineBoxKitConditions();
-          alert(`Updated ${updatedCount} stock record${updatedCount === 1 ? '' : 's'}.`);
-        } catch (error) {
-          console.error('Pristine box condition update failed:', error);
-          alert('Unable to update kit conditions. Check the console for details.');
-        } finally {
-          setIsApplyingPristineConditions(false);
-        }
-      }
-    }
   ];
 
   const renderAdminToolButtons = () => adminToolActions.map(({ id, label, icon, tone, onClick }) => (

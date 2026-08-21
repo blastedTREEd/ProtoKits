@@ -77,7 +77,9 @@ const isRouteDataReady = (pathname, datasets, isAdmin) => {
   if (!datasets.userProfile) return false;
 
   const needsStories = pathname === '/' || pathname === '';
-  const needsKits = pathname.startsWith('/kits');
+  // Stories uses kit availability to fill missing/unavailable project slots
+  // in the landing-page highlights.
+  const needsKits = pathname === '/' || pathname === '' || pathname.startsWith('/kits');
   const needsDeals = pathname.startsWith('/kits');
   const needsOrders = pathname === '/orders' || pathname.startsWith('/orders/');
   const needsBasket = pathname === '/basket' || pathname === '/shelf';

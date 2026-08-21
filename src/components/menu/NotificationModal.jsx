@@ -211,6 +211,8 @@ export default function NotificationModal({
   const panelRef = useRef(null);
   const dragControls = useDragControls();
   const swipingNotificationRef = useRef(null);
+  const swipeDismissOffset = allowSwipeDismiss ? 40 : 90;
+  const shouldSlideUpOnExit = isFullscreen || allowSwipeDismiss;
   const notifications = useMemo(() => {
     const uniqueOrders = new Map();
     orders.forEach((order) => {
@@ -242,32 +244,15 @@ export default function NotificationModal({
   useEffect(() => {
     if (!isOpen || !isFullscreen) return undefined;
 
-    const scrollY = window.scrollY;
-    const previousBodyStyle = {
-      position: document.body.style.position,
-      top: document.body.style.top,
-      width: document.body.style.width,
-      overflow: document.body.style.overflow,
-      overscrollBehavior: document.body.style.overscrollBehavior
-    };
-
     window.dispatchEvent(new Event('notificationFullscreenOpen'));
-    document.body.style.position = 'fixed';
-    document.body.style.top = `-${scrollY}px`;
-    document.body.style.width = '100%';
-    document.body.style.overflow = 'hidden';
-    document.body.style.overscrollBehavior = 'none';
+    const handlePageScroll = () => onClose?.();
+    window.addEventListener('scroll', handlePageScroll, { passive: true });
 
     return () => {
-      document.body.style.position = previousBodyStyle.position;
-      document.body.style.top = previousBodyStyle.top;
-      document.body.style.width = previousBodyStyle.width;
-      document.body.style.overflow = previousBodyStyle.overflow;
-      document.body.style.overscrollBehavior = previousBodyStyle.overscrollBehavior;
-      window.scrollTo(0, scrollY);
+      window.removeEventListener('scroll', handlePageScroll);
       window.dispatchEvent(new Event('notificationFullscreenClose'));
     };
-  }, [isOpen, isFullscreen]);
+  }, [isOpen, isFullscreen, onClose]);
 
   const hasMeasuredAnchor = Number.isFinite(anchorTop);
   const panelStyle = isFullscreen
@@ -312,7 +297,7 @@ export default function NotificationModal({
           style={isFullscreen ? undefined : panelStyle}
           initial={isFullscreen ? { y: '-100%', opacity: 0 } : { y: -18, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          exit={isFullscreen ? { y: '-100%', opacity: 0 } : { y: -18, opacity: 0 }}
+          exit={shouldSlideUpOnExit ? { y: '-100%', opacity: 0 } : { y: -18, opacity: 0 }}
           transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
           drag={isFullscreen ? 'y' : false}
           dragListener={false}
@@ -336,7 +321,9 @@ export default function NotificationModal({
                   <Bell size={40} className="mx-auto mb-4" strokeWidth={1} />
                   <p className="text-[12px] font-black uppercase tracking-widest">{emptyLabel}</p>
                 </div>
-              ) : notifications.map((order) => {
+              ) : (
+                <AnimatePresence initial={false}>
+                  {notifications.map((order) => {
               const details = getStatusDetails(order);
               const StatusIcon = details.icon;
               const activityTime = order.lastUpdated || order.createdAt;
@@ -350,9 +337,14 @@ export default function NotificationModal({
               return (
                 <Motion.div
                   key={order.id}
+                  layout
+                  animate={{ x: 0, opacity: 1 }}
+                  exit={{ x: '110%', opacity: 0 }}
+                  transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
                   role="button"
                   tabIndex={0}
                   drag={allowSwipeDismiss ? 'x' : false}
+                  dragSnapToOrigin={allowSwipeDismiss}
                   dragDirectionLock
                   dragConstraints={allowSwipeDismiss ? { left: 0, right: 240 } : undefined}
                   dragElastic={allowSwipeDismiss ? { left: 0, right: 0.2 } : undefined}
@@ -361,7 +353,7 @@ export default function NotificationModal({
                     swipingNotificationRef.current = order.id;
                   }}
                   onDragEnd={(event, info) => {
-                    if (allowSwipeDismiss && (info.offset.x > 90 || info.velocity.x > 500)) {
+                    if (allowSwipeDismiss && (info.offset.x > swipeDismissOffset || info.velocity.x > 400)) {
                       onDismissNotification?.(order);
                     }
                   }}
@@ -419,7 +411,9 @@ export default function NotificationModal({
                   </span>
                 </Motion.div>
               );
-              })}
+                  })}
+                </AnimatePresence>
+              )}
             </div>
             {isFullscreen && (
               <div

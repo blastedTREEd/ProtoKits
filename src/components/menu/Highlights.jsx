@@ -22,6 +22,7 @@ export default function Highlights() {
   const sectionRef = useRef(null);
   const headerRef = useRef(null);
   const storiesScrollLockTopRef = useRef(null);
+  const expandedStoriesLastScrollYRef = useRef(0);
   const [isHeaderStuck, setIsHeaderStuck] = useState(false);
   const [isHighlightsExpanded, setIsHighlightsExpanded] = useState(false);
   const [isDraftView, setIsDraftView] = useState(false);
@@ -90,18 +91,27 @@ export default function Highlights() {
   useEffect(() => {
     if (!isHighlightsExpanded) return undefined;
 
+    expandedStoriesLastScrollYRef.current = window.scrollY;
+
     const handleExpandedStoriesScroll = () => {
       if (!sectionRef.current) return;
 
+      const currentScrollY = window.scrollY;
+      const previousScrollY = expandedStoriesLastScrollYRef.current;
+      expandedStoriesLastScrollYRef.current = currentScrollY;
+
+      // Only collapse after the user scrolls upward above Stories. Scrolling
+      // down toward the section must not undo a newly expanded view.
+      if (currentScrollY >= previousScrollY) return;
+
       const navbarHeight = window.innerWidth >= 640 ? 60 : 56;
-      const sectionDocumentTop = window.scrollY + sectionRef.current.getBoundingClientRect().top;
-      if (window.scrollY < sectionDocumentTop - navbarHeight) {
+      const sectionDocumentTop = currentScrollY + sectionRef.current.getBoundingClientRect().top;
+      if (currentScrollY < sectionDocumentTop - navbarHeight) {
         setIsHighlightsExpanded(false);
       }
     };
 
     window.addEventListener('scroll', handleExpandedStoriesScroll, { passive: true });
-    handleExpandedStoriesScroll();
     return () => window.removeEventListener('scroll', handleExpandedStoriesScroll);
   }, [isHighlightsExpanded]);
 

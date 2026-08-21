@@ -41,6 +41,7 @@ export default function Stories({ isCompact, hideImmediately = false }) {
   // Preview modal state
   const [activeStoryIndex, setActiveStoryIndex] = useState(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [isDesktopViewport, setIsDesktopViewport] = useState(window.innerWidth >= 1024);
   const [syncingStoryCount, setSyncingStoryCount] = useState(() => (
     Math.ceil(window.innerWidth / (STORY_CARD_WIDTH + STORY_CARD_GAP)) + 1
   ));
@@ -70,6 +71,7 @@ export default function Stories({ isCompact, hideImmediately = false }) {
   useEffect(() => {
     const handleResize = () => {
       setIsMobile(window.innerWidth < 768);
+      setIsDesktopViewport(window.innerWidth >= 1024);
       setSyncingStoryCount(Math.ceil(window.innerWidth / (STORY_CARD_WIDTH + STORY_CARD_GAP)) + 1);
     };
     window.addEventListener('resize', handleResize);
@@ -234,15 +236,16 @@ export default function Stories({ isCompact, hideImmediately = false }) {
         label: project.projectName || 'Garage Project'
       }));
 
-    // Keep the strip full when a public project is stopped for production.
-    // Those project slots are temporarily filled with other public kits.
-    const unavailableProjectSlots = projectCandidates.length - recentProjects.length;
+    // Keep the strip full when there are fewer than five public projects or a
+    // project is stopped for production. Those project slots are temporarily
+    // filled with other public kits.
+    const replacementProjectSlots = Math.max(0, 5 - recentProjects.length);
     const replacementKits = selectUniqueKits([...kitItems]
       .filter((entry) => (
         entry.availablePreOrders.length > 0 || entry.availableOnhand.length > 0
       ))
       .sort((a, b) => b.latestTimestamp - a.latestTimestamp)
-    , unavailableProjectSlots).map((kit) => ({
+    , replacementProjectSlots).map((kit) => ({
         id: `project-replacement:${kit.id}`,
         type: 'kit',
         targetId: kit.id,
@@ -343,10 +346,11 @@ export default function Stories({ isCompact, hideImmediately = false }) {
   ), [syncingStoryCount]);
 
   const isShowingPlaceholders = isLoading && highlightItems.length === 0;
+  const shouldAnimateStories = isDesktopViewport && !isLoading && !isShowingPlaceholders && highlightItems.length > 0;
   const displayStories = isShowingPlaceholders
     ? syncingStories
-    : highlightItems.length > 0
-      ? [...highlightItems, ...highlightItems, ...highlightItems]
+      : highlightItems.length > 0
+      ? (shouldAnimateStories ? [...highlightItems, ...highlightItems, ...highlightItems] : highlightItems)
       : syncingStories;
 
   const handleHighlightClick = (item) => {
@@ -385,7 +389,7 @@ export default function Stories({ isCompact, hideImmediately = false }) {
           <div className="hidden lg:block absolute right-0 top-0 bottom-0 w-24 bg-gradient-to-l from-white dark:from-neutral-900 via-white/80 dark:via-neutral-900/80 to-transparent z-50 pointer-events-none" />
 
           <div 
-            className={`flex gap-3 w-max ${!isShowingPlaceholders && 'animate-infinite-scroll'}`}
+            className={`flex gap-3 w-max ${shouldAnimateStories ? 'animate-infinite-scroll' : ''}`}
             style={{ '--scroll-speed': '50s' }}
           >
             {displayStories.map((highlight, index) => (

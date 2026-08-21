@@ -389,7 +389,10 @@ export const useStore = create(
         const { isAdmin } = get();
         return {
           stories: pathname === '/' || pathname === '',
-          kits: pathname.startsWith('/kits'),
+          // The landing-page highlights can use available kits to replace
+          // missing or unavailable project slots, so kits must be ready before
+          // the home route is released from its loading state.
+          kits: pathname === '/' || pathname === '' || pathname.startsWith('/kits'),
           deals: pathname.startsWith('/kits'),
           orders: pathname === '/orders' || pathname.startsWith('/orders/'),
           basket: pathname === '/basket' || pathname === '/shelf',
@@ -1347,36 +1350,6 @@ export const useStore = create(
         // Gamitin ang merge: true para sa partial update
         // Ipadala lang ang mga field na binago
         await setDoc(doc(db, 'settings', 'checkout'), partialSettings, { merge: true });
-      },
-
-      applyPristineBoxKitConditions: async () => {
-        const normalize = (value) => String(value || '').trim().toLowerCase().replace(/[\s_-]+/g, ' ');
-        const kits = get().kits || [];
-        let updatedStockCount = 0;
-
-        for (const kit of kits) {
-          const updates = {};
-
-          Object.entries(kit?.stocks || {}).forEach(([stockKey, stock]) => {
-            const legacyBoxCondition = Array.isArray(stock?.condition) ? stock.condition[0] : stock?.condition;
-            const boxCondition = stock?.boxCondition || legacyBoxCondition || '';
-            const legacyKitCondition = Array.isArray(stock?.condition) ? stock.condition[1] : '';
-            const kitCondition = stock?.kitCondition || legacyKitCondition || '';
-            if (!normalize(boxCondition).startsWith('pristine') || normalize(kitCondition) === 'sealed') return;
-
-            updates[`stocks.${stockKey}.kitCondition`] = 'SEALED';
-            updatedStockCount += 1;
-          });
-
-          if (Object.keys(updates).length > 0) {
-            await updateDoc(doc(db, 'kits', kit.id), {
-              ...updates,
-              lastUpdated: serverTimestamp()
-            });
-          }
-        }
-
-        return updatedStockCount;
       },
 
       toggleStockReservation: async (kitId, stockKey, isReserved) => {
