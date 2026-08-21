@@ -194,6 +194,18 @@ export function getBundleDealPricing(rows = [], discountAmount = 0) {
   };
 }
 
+// A new bundle starts with the largest single-kit clearance capacity as its
+// suggested discount. This keeps the default discount within the same cost
+// protection rule used by clearance pricing while still letting an admin
+// type a larger override in the Deal Architect.
+export function getBundleDiscountCapacity(rows = []) {
+  const pricedRows = getBundleDealPricing(rows, 0).rows;
+  return Math.max(0, Math.round(pricedRows.reduce(
+    (largestCapacity, row) => Math.max(largestCapacity, Number(row.discountCapacity || 0)),
+    0
+  )));
+}
+
 // Prices a clearance basket. The selected clearance kit's discount is the
 // difference between its sell price and clearance price. That discount pool
 // is distributed across the other selected on-hand kits according to each

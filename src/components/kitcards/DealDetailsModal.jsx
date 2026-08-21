@@ -2,7 +2,7 @@ import React, { useMemo, useEffect, useRef } from 'react';
 import { X, Gift, Zap, ArrowRight, Settings, Package } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
-import { getBundleDealPricing, getClearanceBundlePricing, getDistributedFeeShare } from '../../utils/bundlePricing';
+import { getBundleDealPricing, getClearanceBundlePricing, getDistributedFeeShare, getHighestCostStock } from '../../utils/bundlePricing';
 
 function resolveImage(idOrUrl, imagesArray) {
   if (!idOrUrl) return '';
@@ -20,6 +20,25 @@ function stockMatchesDealSource(stock, source = 'onhand') {
   const status = String(stock?.status || '').toLowerCase();
   const isPreOrder = status.includes('pre') || status.includes('batch');
   return source === 'preorder' ? isPreOrder : !isPreOrder;
+}
+
+function isBundlePurchasableStock(stock, source = 'onhand') {
+  if (!stock || stock.order?.orderId || !stockMatchesDealSource(stock, source)) return false;
+  return !stock.isReserved || stock.reservationType === 'admin';
+}
+
+function getDealSourceStock(kit, source = 'onhand') {
+  const stocks = Object.values(kit?.stocks || {});
+  const purchasableStocks = stocks.filter(stock => isBundlePurchasableStock(stock, source));
+  const matchingStocks = stocks.filter(stock => stockMatchesDealSource(stock, source));
+
+  // Match Deal Architect/Kits: use the highest-cost available stock, with
+  // sell price as the deterministic tie-breaker. Fall back to a matching
+  // stock for historical or sold-out deals so the modal can still render.
+  return getHighestCostStock(purchasableStocks)
+    || getHighestCostStock(matchingStocks)
+    || stocks[0]
+    || null;
 }
 
 export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onAddToBasket, onOpenKit, isEditMode = false, onEditDeal }) {
@@ -56,8 +75,7 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onAd
 
     if (deal?.type === 'clearance') {
       const pricingRows = includedKits.map(kit => {
-        const stocks = Object.values(kit.stocks || {});
-        const sourceStock = stocks.find(stock => stockMatchesDealSource(stock, deal?.stockSource || 'onhand')) || stocks[0];
+        const sourceStock = getDealSourceStock(kit, deal?.stockSource || 'onhand');
         return {
           kit,
           kitId: kit.id,
@@ -83,8 +101,7 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onAd
       };
     }
     const pricingRows = includedKits.map(kit => {
-      const stocks = Object.values(kit.stocks || {});
-      const sourceStock = stocks.find(stock => stockMatchesDealSource(stock, deal?.stockSource || 'onhand')) || stocks[0];
+      const sourceStock = getDealSourceStock(kit, deal?.stockSource || 'onhand');
       const refPrice = Number(sourceStock?.sellPrice || kit.sellPrice || 0);
       return {
         kit,

@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { X, Plus, Trash2, Gift, Lock, Ban, Search, ChevronRight, ChevronLeft, Loader2, Edit3, Calendar, Clock3, RefreshCw, CheckSquare, Square, Image as ImageIcon } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
-import { getClearanceBundlePricing, getBundleDealPricing, getHighestCostStock } from '../../utils/bundlePricing';
+import { getClearanceBundlePricing, getBundleDealPricing, getBundleDiscountCapacity, getDistributedFeeShare, getHighestCostStock } from '../../utils/bundlePricing';
 
 /* ─── Image resolver ─── */
 function resolveImage(idOrUrl, imagesArray) {
@@ -474,7 +474,14 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
         costPrice: Number(stock.costPrice || 0)
       };
     });
-    return getBundleDealPricing(rows, parseFloat(discountAmount) || 0);
+    const suggestedDiscount = getBundleDiscountCapacity(rows);
+    const requestedDiscount = discountAmount === ''
+      ? suggestedDiscount
+      : Math.max(0, parseFloat(discountAmount) || 0);
+    return {
+      ...getBundleDealPricing(rows, requestedDiscount),
+      suggestedDiscount
+    };
   }, [dealType, selectedKitsData, clearanceKitIds, clearanceOriginalOverrides, clearanceDiscounts, discountAmount]);
 
   const getClearanceDiscountPlaceholder = (kitId, fallbackDiscount = 0) => {
@@ -791,7 +798,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       const publishDate = new Date();
       const defaultValidUntil = new Date(publishDate);
       defaultValidUntil.setDate(defaultValidUntil.getDate() + 7);
-      dealData.discountAmount = parseFloat(discountAmount) || 0;
+      dealData.discountAmount = financialSummary.requestedDiscount;
       dealData.bundlePrice = financialSummary.bundlePrice;
       dealData.totalCost = financialSummary.totalCost;
       dealData.totalSell = financialSummary.totalSell;
@@ -1238,7 +1245,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                             {dealType === 'bundle_only' ? (
                               <>
                                 <label className="text-[12px] font-black uppercase tracking-widest opacity-40 ml-2">Discount Amount (₱)</label>
-                                <input type="number" min="0" value={discountAmount} onChange={e => setDiscountAmount(e.target.value === '' ? '' : String(Math.max(0, Number(e.target.value) || 0)))} placeholder="0.00" className="w-full appearance-none bg-blue-600/10 border border-blue-600/30 rounded-2xl px-4 py-4 text-sm font-black text-blue-500 outline-none focus:border-blue-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" />
+                                <input type="number" min="0" value={discountAmount} onChange={e => setDiscountAmount(e.target.value === '' ? '' : String(Math.max(0, Number(e.target.value) || 0)))} placeholder={`₱${Number(financialSummary.suggestedDiscount || 0).toLocaleString()}`} className="w-full appearance-none bg-blue-600/10 border border-blue-600/30 rounded-2xl px-4 py-4 text-sm font-black text-blue-500 outline-none focus:border-blue-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" />
                               </>
                             ) : dealType === 'mutually_exclusive' ? (
                               <p className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-4 text-[12px] font-bold leading-relaxed text-red-600 dark:text-red-300">
@@ -1263,6 +1270,13 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                               ? getHighestAvailableOnhandStock(kit)
                               : getHighestOnhandStock(kit);
                             const discountRow = financialSummary.rows.find(row => row.kit.id === kit.id);
+                            const individualBundleDiscount = dealType === 'bundle_only'
+                              ? getDistributedFeeShare(
+                                financialSummary.requestedDiscount || 0,
+                                index,
+                                selectedKitsData.length
+                              )
+                              : 0;
                             const currentClearanceDiscount = getClearanceDiscountPlaceholder(
                               kit.id,
                               discountRow?.discount ?? discountRow?.clearanceDiscount ?? 0
@@ -1288,6 +1302,9 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                 <span className="block text-[12px] font-black uppercase text-emerald-500">SELL ₱{Number(stock.sellPrice || kit.sellPrice || 0).toLocaleString()}</span>
                                 <span className="block text-[12px] font-black uppercase opacity-35">COST ₱{Number(stock.costPrice || 0).toLocaleString()}</span>
                                 <span className={`block text-[12px] font-black uppercase ${dealType === 'clearance' ? 'text-amber-500' : 'text-blue-500'}`}>DEAL ₱{Number(discountRow?.finalPrice || stock.sellPrice || kit.sellPrice || 0).toLocaleString()}</span>
+                                {dealType === 'bundle_only' && (
+                                  <span className="block text-[12px] font-black uppercase text-blue-500/70">DISC ₱{individualBundleDiscount.toLocaleString()}</span>
+                                )}
                               </div>
                               {dealType === 'clearance' && (
                                 <input
@@ -1387,7 +1404,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                        </div>
                        <div className="flex justify-between items-center text-blue-500">
                           <span className="text-[12px] font-black uppercase tracking-wider">{dealType === 'clearance' ? 'Total Discount' : dealType === 'mutually_exclusive' ? 'Discount' : 'Requested Discount'}</span>
-                          <span className="text-[12px] font-black italic">-₱{Number(dealType === 'clearance' ? financialSummary.discountAmount : (parseFloat(discountAmount) || 0)).toLocaleString()}</span>
+                          <span className="text-[12px] font-black italic">-₱{Number(dealType === 'clearance' ? financialSummary.discountAmount : dealType === 'bundle_only' ? financialSummary.requestedDiscount : (parseFloat(discountAmount) || 0)).toLocaleString()}</span>
                        </div>
                        <div className="h-px bg-white/5 my-1" />
                        <div className="flex justify-between items-center">
