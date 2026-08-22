@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { DEFAULT_PRINT_METHODS, useStore } from '../../store/useStore';
 
-export default function CaseSelection({ onSelect, selectedCase = null }) {
+export default function CaseSelection({ onSelect, selectedCase = null, maintenanceMode = false }) {
   const [expandedId, setExpandedId] = useState(() => selectedCase?.id || null);
 
   const storeMethods = useStore((state) => state.methods);
@@ -104,15 +104,17 @@ export default function CaseSelection({ onSelect, selectedCase = null }) {
         <div className="flex items-center gap-3 bg-[var(--color-bg)]/90 backdrop-blur-xl p-2 rounded-[2.5rem] border border-black/5 dark:border-white/5 shadow-2xl">
           <button 
             onClick={() => selectedMethod && onSelect(selectedMethod)}
-            disabled={!selectedMethod}
-            className={`flex-1 h-14 rounded-[2.2rem] font-black italic uppercase tracking-[0.2em] text-xs bg-[var(--color-primary)] text-white shadow-xl flex items-center justify-center gap-4 group active:scale-95 transition-all ${selectedMethod ? '' : 'opacity-50 cursor-not-allowed active:scale-100'}`}
+            disabled={!selectedMethod || maintenanceMode}
+            className={`flex-1 h-14 rounded-[2.2rem] font-black italic uppercase tracking-[0.2em] text-xs bg-[var(--color-primary)] text-white shadow-xl flex items-center justify-center gap-4 group active:scale-95 transition-all ${selectedMethod && !maintenanceMode ? '' : 'opacity-50 cursor-not-allowed active:scale-100'}`}
           >
-            NEXT
-            <div className="p-1 rounded-full bg-white/20 group-hover:translate-x-1 transition-transform">
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="4" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
-              </svg>
-            </div>
+            {maintenanceMode ? 'MAINTENANCE MODE' : 'NEXT'}
+            {!maintenanceMode && (
+              <div className="p-1 rounded-full bg-white/20 group-hover:translate-x-1 transition-transform">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="4" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                </svg>
+              </div>
+            )}
           </button>
         </div>
       </div>

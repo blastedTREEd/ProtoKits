@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { 
-  Plus, Layers, Spool, ClockCheck, 
+  Plus, Layers, Disc3, ClockCheck,
   Copy, Trash2, X, Check, AlertTriangle, Search,
   Printer, WeightTilde
 } from 'lucide-react';
@@ -626,7 +626,7 @@ export default function ProjectPreview({
               </div>
               <div className="w-[57%] flex items-center justify-center">
                 <label className="text-[15px] font-bold uppercase flex items-center justify-center gap-2 text-[var(--color-primary)]">
-                  <Spool size={16} strokeWidth={2.5} />Materials
+                  <Disc3 size={16} strokeWidth={2.5} />Materials
                 </label>
               </div>
             </div>

@@ -10,6 +10,8 @@ import { getCheckoutPaymentFees } from '../utils/paymentSettings';
 import { isOfferCheckoutActive, valueToMillis } from '../utils/offerUtils';
 import { getIntegerFeeShare, getStockStandaloneSellPrice, isBundleOrClearanceItem } from '../utils/standalonePricing';
 import { getBundleDealPricing, getClearanceBundlePricing } from '../utils/bundlePricing';
+import { getUnavailableDateSet, getUnavailableWeekdaySet, toDateKey } from '../utils/availabilitySchedule';
+import { findFirstAvailable, getOccupiedDates } from '../components/calculator/GarageCalendar';
 // Resolves an image ID to its URL from the images array.
 // Backward compatible: if the value is already a URL (base64 or http), returns it directly.
 function resolveImage(idOrUrl, imagesArray) {
@@ -73,7 +75,8 @@ export default function Basket() {
   const location = useLocation();
   const { 
     user, isAnonymousUser, basket, shelf, isAdmin, isAdminView, removeFromBasket, kits, userOffers, userOffersLoaded, addToBasket, addProjectToBasket, decrementProjectQuantity,
-    guestBasket, isLoading, setLoginModalOpen, shippingSettings, loadMissingKits, keepOneOfEachToShelf, deals, loadBlueprintProductionStatuses
+    guestBasket, isLoading, setLoginModalOpen, shippingSettings, loadMissingKits, keepOneOfEachToShelf, deals, loadBlueprintProductionStatuses,
+    orders, printers, rates, projectVault, blueprints
   } = useStore();
   const [isKeepingOnes, setIsKeepingOnes] = useState(false);
   const [offerNow, setOfferNow] = useState(0);
@@ -136,12 +139,113 @@ export default function Basket() {
       .filter((item) => item.type === 'project')
       .filter((item) => {
         if (item.projectData?.canAddToBasket === false) return true;
+        const projectStatusIndicators = item.projectData?.projectStatusIndicators;
+        if (projectStatusIndicators && Object.values(projectStatusIndicators).some((status) => status !== true)) {
+          return true;
+        }
         const blueprintId = item.projectData?.id ? String(item.projectData.id) : '';
         return Boolean(blueprintId && projectProductionStatuses[blueprintId] === false);
       })
       .map((item) => item.basketId)
       .filter(Boolean)
   ), [activeBasket, projectProductionStatuses]);
+
+  const liveInvalidProjectBasketIds = useMemo(() => {
+    const schedule = shippingSettings?.availabilitySchedule;
+    const occupiedDates = getOccupiedDates(orders, schedule);
+    const unavailableDates = getUnavailableDateSet(schedule, 'printing');
+    const unavailableWeekdays = getUnavailableWeekdaySet(schedule, 'printing');
+    const firstAvailableDate = findFirstAvailable(occupiedDates, unavailableDates, unavailableWeekdays);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const canStartToday = Boolean(firstAvailableDate && toDateKey(firstAvailableDate) === toDateKey(today));
+    const activeDesignServices = rates?.['design-services'] || {};
+
+    const isValidGdriveLink = (value) => {
+      if (!value || !String(value).trim()) return false;
+      try {
+        const hostname = new URL(String(value).trim()).hostname;
+        return hostname === 'drive.google.com' || hostname === 'docs.google.com';
+      } catch {
+        return false;
+      }
+    };
+
+    const isPrinterAvailable = (project) => {
+      const details = Array.isArray(project?.projectDetails) ? project.projectDetails : [];
+      const printerIds = new Set([
+        project?.printerId,
+        ...details.map((detail) => detail?.printerId),
+        ...details.flatMap((detail) => (detail?.productionJobs || []).map((job) => job?.printerId))
+      ].filter(Boolean).map(String));
+      const projectPrinters = [...printerIds]
+        .map((id) => (printers || []).find((printer) => String(printer.id) === id))
+        .filter(Boolean);
+      if (projectPrinters.length === 0) return false;
+      return projectPrinters.every((printer) => {
+        const status = String(printer.status || printer.availability || '').trim().toLowerCase();
+        if (['offline', 'maintenance', 'unavailable', 'disabled'].includes(status)) return false;
+        return printer.available === true
+          || printer.isAvailable === true
+          || ['online', 'available', 'ready'].includes(status);
+      });
+    };
+
+    const areMaterialsAvailable = (project) => {
+      const details = Array.isArray(project?.projectDetails) ? project.projectDetails : [];
+      const entries = details.flatMap((detail) => (
+        Array.isArray(detail?.materials) && detail.materials.length > 0
+          ? detail.materials
+          : detail?.material ? [detail.material] : []
+      ));
+      if (entries.length === 0) return false;
+      return entries.every((entry) => {
+        const material = entry?.material || entry?.normalizedMaterial || entry;
+        if (!material) return false;
+        const status = String(material.status || '').trim().toLowerCase();
+        const requiredWeight = Number(entry?.shareWeight ?? entry?.weight ?? 0);
+        const remainingWeight = Number(material.remaining ?? material.weight ?? 0);
+        return entry?.isUpfront !== true
+          && material.isUpfront !== true
+          && status !== 'upfront'
+          && remainingWeight > 0
+          && (requiredWeight <= 0 || remainingWeight >= requiredWeight);
+      });
+    };
+
+    return activeBasket
+      .filter((item) => item.type === 'project')
+      .filter((item) => {
+        const storedProject = item.projectData || {};
+        const liveProject = storedProject.vaultId
+          ? (projectVault || []).find((project) => project.vaultId === storedProject.vaultId)
+          : (blueprints || []).find((project) => String(project.id) === String(storedProject.id));
+        const project = liveProject || storedProject;
+        const storedIndicators = storedProject.projectStatusIndicators;
+
+        if (!liveProject && storedIndicators) {
+          return Object.values(storedIndicators).some((status) => status !== true);
+        }
+
+        const is3MF = project?.method?.name?.toUpperCase() === '3MF';
+        const selectedService = project?.selectedDesignService;
+        const hasActiveService = Boolean(
+          selectedService
+          && !is3MF
+          && activeDesignServices[selectedService]
+          && activeDesignServices[selectedService].status === true
+        );
+        const linkReady = isValidGdriveLink(project?.gdriveLink);
+        const designReady = hasActiveService || linkReady;
+        return project?.canAddToBasket === false
+          || !isPrinterAvailable(project)
+          || !areMaterialsAvailable(project)
+          || !canStartToday
+          || !designReady;
+      })
+      .map((item) => item.basketId)
+      .filter(Boolean);
+  }, [activeBasket, blueprints, orders, printers, projectVault, rates, shippingSettings?.availabilitySchedule]);
 
   const clearanceKitIds = useMemo(() => {
     const ids = new Set();
@@ -651,8 +755,8 @@ export default function Basket() {
         toRemoveIds.push(...sorted.slice(0, excessCount).map(item => item.basketId));
       }
     });
-    return [...new Set([...stoppedProjectBasketIds, ...toRemoveIds])];
-  }, [activeBasket, kits, stoppedProjectBasketIds, validation.itemRules]);
+    return [...new Set([...stoppedProjectBasketIds, ...liveInvalidProjectBasketIds, ...toRemoveIds])];
+  }, [activeBasket, kits, liveInvalidProjectBasketIds, stoppedProjectBasketIds, validation.itemRules]);
 
   const autoUpdatedValidationRef = useRef('');
   useEffect(() => {

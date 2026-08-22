@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, Clock3, AlertCircle, Droplet, Magnet, Spool } from 'lucide-react';
+import { Calendar, Clock3, AlertCircle, Droplet, Magnet, Disc3 } from 'lucide-react';
 
 const formatMinutes = (mins) => {
   const total = Math.round(Number(mins) || 0);
@@ -91,7 +91,7 @@ export default function ProductionPlan({ schedule = [], projectCase = 'STL' }) {
                       {plate.heatsets > 0 && (
                         <div className="rounded-2xl bg-white dark:bg-zinc-900/50 border border-black/5 px-3 py-2.5">
                           <div className="flex items-center gap-2 text-orange-500 mb-1">
-                            <Spool size={12} />
+                            <Disc3 size={12} />
                             <span className="text-[13px] font-black uppercase tracking-widest">Heatsets</span>
                           </div>
                           <div className="text-[13px] font-black">{plate.heatsets}</div>

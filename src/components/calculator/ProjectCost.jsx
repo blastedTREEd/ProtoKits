@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import {
-  Receipt, Wallet, ArrowLeft, RotateCcw, Magnet, Spool,
+  Receipt, Wallet, ArrowLeft, RotateCcw, Magnet, Disc3,
   Droplet, ListChecks, Clock, Coins, SlidersHorizontal,
   Save, ShoppingBag, TrendingUp, TrendingDown, Undo2, X, Tag, RefreshCw, Check, Layers
 } from 'lucide-react';
@@ -229,7 +229,11 @@ export default function ProjectCost({
           basePrice: totals.basePrice || totals.total || '0',
           dp: totals.dp || '0',
           days: totals.timeline?.days || 0,
-          totalProfit: totals.totalProfit || '0'
+          totalProfit: totals.totalProfit || '0',
+          electricity: totals.electricity || '0',
+          electricityKwh: totals.electricityKwh || 0,
+          electricityRate: totals.electricityRate || 0,
+          electricityMarkupMultiplier: totals.electricityMarkupMultiplier || 1
         },
         rates: draftRates
       };
@@ -409,7 +413,7 @@ export default function ProjectCost({
               )}
               {checklist.heatsets > 0 && (
                 <div className="flex-1 flex items-center gap-2 bg-[var(--color-surface)] px-4 py-3 rounded-2xl border border-[var(--color-border)] shadow-sm">
-                  <Spool size={14} className="text-orange-500" />
+                  <Disc3 size={14} className="text-orange-500" />
                   <span className="text-[13px] font-black uppercase opacity-80">{checklist.heatsets} Heatsets</span>
                 </div>
               )}

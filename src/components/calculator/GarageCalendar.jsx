@@ -51,7 +51,7 @@ export const getProjectScheduleDates = (order, item, availabilitySchedule, sched
 // Pending orders are intentionally active here so a customer's own pending
 // project is shown as occupied in the project-card calendar.
 // Project days skip configured printing closures, so queued work rolls forward.
-const getOccupiedDates = (orders = [], availabilitySchedule) => {
+export const getOccupiedDates = (orders = [], availabilitySchedule) => {
   const occupied = new Map(); // dateKey -> count of projects occupying that day
 
   const activeOrders = orders.filter(o => {
@@ -73,7 +73,7 @@ const getOccupiedDates = (orders = [], availabilitySchedule) => {
 };
 
 // Find the first available start date (can be today if before cutoff, otherwise tomorrow or later)
-const findFirstAvailable = (occupied, unavailableDates = new Set(), unavailableWeekdays = new Set()) => {
+export const findFirstAvailable = (occupied, unavailableDates = new Set(), unavailableWeekdays = new Set()) => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   let candidate = new Date(today);

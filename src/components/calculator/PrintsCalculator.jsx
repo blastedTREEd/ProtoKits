@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useStore } from '../../store/useStore'; 
 import CaseSelection from './CaseSelection'; 
 import PrinterSelection from './PrinterSelection';
@@ -8,7 +8,44 @@ import ProjectPreview from './ProjectPreview';
 import ProjectPrepare from './ProjectPrepare';
 import ExtrasSelection from './ExtrasSelection';
 import ProjectCost from './ProjectCost';
-import { Astroid, Type, X } from 'lucide-react';
+import { Astroid, X } from 'lucide-react';
+
+const DEFAULT_ELECTRICITY_UPDATE_DAY = 22;
+
+const toRateDate = (value) => {
+  if (!value) return null;
+  if (typeof value?.toDate === 'function') return value.toDate();
+  if (typeof value === 'object' && Number.isFinite(value.seconds)) {
+    return new Date(value.seconds * 1000);
+  }
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split('-').map(Number);
+    return new Date(year, month - 1, day);
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const isElectricityRateOverdue = (rates = {}) => {
+  const electricityRates = rates?.['electricity-cost'];
+  if (!electricityRates) return false;
+
+  const configuredDay = Number(electricityRates.rateUpdateDay);
+  const updateDay = Number.isFinite(configuredDay)
+    ? Math.min(31, Math.max(1, Math.floor(configuredDay)))
+    : DEFAULT_ELECTRICITY_UPDATE_DAY;
+  const now = new Date();
+  const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const effectiveDueDay = Math.min(updateDay, lastDayOfMonth);
+
+  // The rate remains valid through the configured day and becomes overdue
+  // after that day if it was not updated during the current month.
+  if (now.getDate() <= effectiveDueDay) return false;
+  const updatedAt = toRateDate(electricityRates.rateAsOf);
+  return !updatedAt
+    || updatedAt.getFullYear() !== now.getFullYear()
+    || updatedAt.getMonth() !== now.getMonth();
+};
 
 const getMaterialIdFromDetail = (detail) => (
   detail?.material?.materialId
@@ -111,10 +148,7 @@ export default function PrintsCalculator({
 }) {
   // If initialData is provided, we start at the Details step (Step 1)
   const [activeStep, setActiveStep] = useState(initialData ? 1 : 0);
-  const [isMdPortraitTextBoosted, setIsMdPortraitTextBoosted] = useState(false);
-  const calculatorRef = useRef(null);
-  const boostedTextStylesRef = useRef(new Map());
-  const { filamentInventory, extras, settings, updateSettings, orders, projectVault, isAdmin, isAdminView } = useStore();
+  const { filamentInventory, extras, rates: storeRates, updateSettings, orders, projectVault, isAdmin, isAdminView } = useStore();
   
   const estimationLimitReached = useMemo(() => {
     if (isAdmin && isAdminView) return false;
@@ -200,8 +234,23 @@ export default function PrintsCalculator({
   }, [isEditMode]);
 
   const is3MF = calculatorData.method?.name === '3MF';
+  const electricityRateMaintenanceMode = useMemo(
+    () => isElectricityRateOverdue(storeRates),
+    [storeRates]
+  );
+  const calculatorMaintenanceMode = electricityRateMaintenanceMode && !isAdmin;
+
+  useEffect(() => {
+    if (calculatorMaintenanceMode && activeStep !== 0) {
+      setActiveStep(0);
+    }
+  }, [activeStep, calculatorMaintenanceMode]);
 
   const updateData = (newData, targetStep = null) => {
+    if (calculatorMaintenanceMode) {
+      setActiveStep(0);
+      return;
+    }
     const updated = { ...calculatorData, ...newData };
     setCalculatorData(updated);
     
@@ -253,12 +302,8 @@ export default function PrintsCalculator({
 
   const dbSettingsObject = useMemo(() => {
     const defaultVal = { electricityRate: 14, expectedIncrease: 0 };
-    if (!settings) return defaultVal;
-    if (!Array.isArray(settings)) {
-      return settings['electricity-cost'] || defaultVal;
-    }
-    return settings.find(s => s.id === "electricity-cost") || settings[0] || defaultVal;
-  }, [settings]);
+    return storeRates?.['electricity-cost'] || defaultVal;
+  }, [storeRates]);
 
   const STEP_CONFIG = {
     0: { title: "Select", accent: "Case" },
@@ -296,58 +341,8 @@ export default function PrintsCalculator({
   }
   };
 
-  useEffect(() => {
-    const root = calculatorRef.current;
-    if (!root || typeof window === 'undefined') return undefined;
-
-    const mdPortraitQuery = window.matchMedia('(min-width: 768px) and (max-width: 1023px) and (orientation: portrait)');
-    const textElements = () => Array.from(root.querySelectorAll('*')).filter((element) => {
-      const hasDirectText = Array.from(element.childNodes).some(
-        (node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim()
-      );
-      const isFormControl = ['INPUT', 'TEXTAREA', 'SELECT'].includes(element.tagName);
-      return hasDirectText || isFormControl;
-    });
-
-    const restoreTextSizes = () => {
-      boostedTextStylesRef.current.forEach((previousFontSize, element) => {
-        if (element?.style) element.style.fontSize = previousFontSize;
-      });
-      boostedTextStylesRef.current.clear();
-    };
-
-    const applyTextBoost = () => {
-      restoreTextSizes();
-      if (!isMdPortraitTextBoosted || !mdPortraitQuery.matches) return;
-
-      const sizes = textElements().map((element) => ({
-        element,
-        previousFontSize: element.style.fontSize,
-        computedFontSize: parseFloat(window.getComputedStyle(element).fontSize)
-      }));
-
-      sizes.forEach(({ element, previousFontSize, computedFontSize }) => {
-        if (Number.isFinite(computedFontSize)) {
-          boostedTextStylesRef.current.set(element, previousFontSize);
-          element.style.fontSize = `${computedFontSize + 2}px`;
-        }
-      });
-    };
-
-    const observer = new MutationObserver(applyTextBoost);
-    observer.observe(root, { childList: true, subtree: true, characterData: true });
-    mdPortraitQuery.addEventListener?.('change', applyTextBoost);
-    applyTextBoost();
-
-    return () => {
-      observer.disconnect();
-      mdPortraitQuery.removeEventListener?.('change', applyTextBoost);
-      restoreTextSizes();
-    };
-  }, [activeStep, isMdPortraitTextBoosted]);
-
   return (
-    <div ref={calculatorRef} className="w-full min-h-full prints-calculator-container animate-in fade-in zoom-in-95 duration-500 px-3 sm:px-5 pb-0 text-[var(--color-text-main)]">
+    <div className="w-full min-h-full prints-calculator-container animate-in fade-in zoom-in-95 duration-500 px-3 sm:px-5 pb-0 text-[var(--color-text-main)]">
       <style>{`
         .prints-calculator-container :where(input, .print-dimension-type) {
           font-weight: 900;
@@ -388,7 +383,13 @@ export default function PrintsCalculator({
 
       <div className="prints-calculator-body">
         <div className="min-h-[400px]">
-          {activeStep === 0 && <CaseSelection onSelect={(method) => updateData({ method })} selectedCase={calculatorData.method} />}
+          {activeStep === 0 && (
+            <CaseSelection
+              onSelect={(method) => updateData({ method })}
+              selectedCase={calculatorData.method}
+              maintenanceMode={electricityRateMaintenanceMode && !isAdmin}
+            />
+          )}
         {activeStep === 1 && (
           is3MF ? (
             <ProjectPreview 
@@ -465,21 +466,6 @@ export default function PrintsCalculator({
         )}
         </div>
       </div>
-
-      <button
-        type="button"
-        onClick={() => setIsMdPortraitTextBoosted((current) => !current)}
-        aria-pressed={isMdPortraitTextBoosted}
-        aria-label={isMdPortraitTextBoosted ? 'Use standard calculator text size' : 'Increase calculator text size by 2 pixels'}
-        className={`fixed bottom-24 right-4 z-[270] hidden md:portrait:flex lg:hidden items-center gap-1.5 rounded-full border px-3 py-2 shadow-xl transition-colors ${
-          isMdPortraitTextBoosted
-            ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white'
-            : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-primary)]'
-        }`}
-      >
-        <Type size={16} strokeWidth={2.5} />
-        <span className="text-[11px] font-black uppercase tracking-tight">+2px</span>
-      </button>
 
       {/* {!isEditMode && (
         <div className="bg-black text-green-400 text-[10px] p-3 rounded-xl mt-4 overflow-auto">

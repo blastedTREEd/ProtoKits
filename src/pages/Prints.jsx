@@ -11,7 +11,6 @@ import FilamentManagerModal from '../components/calculator/FilamentManagerModal'
 import PrinterManagerModal from '../components/calculator/PrinterManagerModal';
 import RatesManagerModal from '../components/calculator/RatesManagerModal';
 import ProductCardSkeleton from '../components/common/ProductCardSkeleton';
-import AddPrintModal from '../components/calculator/AddPrintModal';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
 
 const isPrintListing = (project) => (
@@ -218,8 +217,6 @@ export default function Prints() {
   const [showFilamentModal, setShowFilamentModal] = useState(false);
   const [showPrinterModal, setShowPrinterModal] = useState(false);
   const [showRatesModal, setShowRatesModal] = useState(false);
-  const [showPrintModal, setShowPrintModal] = useState(false);
-  const [editingPrintProject, setEditingPrintProject] = useState(null);
   const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
   const [itemsForCheckout, setItemsForCheckout] = useState([]);
 
@@ -331,8 +328,9 @@ export default function Prints() {
 
   const handleModify = (project) => {
     if (isPrintListing(project) && isAdmin && isAdminView) {
-      setEditingPrintProject(project);
-      setShowPrintModal(true);
+      // Garage Project editing now lives in ProjectCard so the admin can
+      // manage the gallery and switch to the Garage Calendar in one place.
+      navigate(`/prints/${encodeURIComponent(project.id)}`);
       return;
     }
     setModifyingProject(project);
@@ -366,16 +364,6 @@ export default function Prints() {
         window.dispatchEvent(new Event('showNavbar'));
       })
       .catch((error) => alert(error?.message || 'Unable to update estimate.'));
-  };
-
-  const openNewPrintModal = () => {
-    setEditingPrintProject(null);
-    setShowPrintModal(true);
-  };
-
-  const closePrintModal = () => {
-    setShowPrintModal(false);
-    setEditingPrintProject(null);
   };
 
   const handleBasketAction = async (e, project) => {
@@ -440,7 +428,6 @@ export default function Prints() {
 
   const headerActions = isAdmin && isAdminView
     ? [
-        { id: 'new-project', label: 'New Project', icon: Box, tone: 'border-blue-500/20 bg-blue-500/10 text-blue-600 hover:bg-blue-500/20', onClick: openNewPrintModal },
         { id: 'printers', label: 'Printers', icon: Printer, tone: 'border-blue-500/20 bg-blue-500/10 text-blue-600 hover:bg-blue-500/20', onClick: () => setShowPrinterModal(true) },
         { id: 'inventory', label: 'Inventory', icon: Droplet, tone: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20', onClick: () => setShowFilamentModal(true) },
         { id: 'printing-rates', label: 'Printing Rates', icon: HandCoins, tone: 'border-rose-500/20 bg-rose-500/10 text-rose-600 hover:bg-rose-500/20', onClick: () => setShowRatesModal(true) }
@@ -679,7 +666,6 @@ export default function Prints() {
       {showFilamentModal && <FilamentManagerModal onClose={() => setShowFilamentModal(false)} />}
       {showPrinterModal && <PrinterManagerModal onClose={() => setShowPrinterModal(false)} />}
       {showRatesModal && <RatesManagerModal onClose={() => setShowRatesModal(false)} />}
-      {showPrintModal && <AddPrintModal onClose={closePrintModal} initialProject={editingPrintProject} />}
       <LoginPromptModal isOpen={isLoginPromptOpen} onClose={() => setIsLoginPromptOpen(false)} onLogin={() => { setLoginModalOpen(true); setIsLoginPromptOpen(false); }} onContinue={() => { setIsLoginPromptOpen(false); openCheckoutPage(itemsForCheckout, true); }} continueLabel="Check Price & Shipping" />
     </PageTemplate>
   );

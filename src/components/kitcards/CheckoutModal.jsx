@@ -1288,6 +1288,14 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     return checkoutItems.some(isProjectCheckoutItem);
   }, [checkoutItems]);
 
+  const hasUnavailableProjectItems = useMemo(() => (
+    checkoutItems.some((item) => {
+      if (!isProjectCheckoutItem(item)) return false;
+      const indicators = item.projectData?.projectStatusIndicators;
+      return Boolean(indicators && Object.values(indicators).some((status) => status !== true));
+    })
+  ), [checkoutItems]);
+
   const availabilityNotice = useMemo(() => {
     if (checkoutItems.length === 0) return '';
 
@@ -2300,6 +2308,11 @@ const baseTotal = useMemo(() => {
 const handleFinalizeOrder = async () => {
     if (isOrderInvalidForMaintenance) return;
 
+    if (hasUnavailableProjectItems) {
+      alert('This project is no longer available for checkout. Please return to the basket and review it.');
+      return;
+    }
+
     if (isGuestLoginRequired) {
       await handleGuestGoogleLogin();
       return;
@@ -3076,7 +3089,7 @@ const handleFinalizeOrder = async () => {
     });
 
     const isPaymentUnavailable = isOrderInvalidForMaintenance;
-    const isDisabled = isPaymentUnavailable || isFinalizing || (!isGuestLoginRequired && (
+    const isDisabled = hasUnavailableProjectItems || isPaymentUnavailable || isFinalizing || (!isGuestLoginRequired && (
       !checkoutData.shippingMethod ||
       (!isNoDetailsMode && !isFormValid) ||
       !checkoutData.paymentPlan ||
@@ -4394,7 +4407,7 @@ const handleFinalizeOrder = async () => {
                   </div>
                     {(() => {
                       const isPaymentUnavailable = isOrderInvalidForMaintenance;
-                      const isDisabled = isPaymentUnavailable || isFinalizing || (!isGuestLoginRequired && (
+                      const isDisabled = hasUnavailableProjectItems || isPaymentUnavailable || isFinalizing || (!isGuestLoginRequired && (
                         !checkoutData.shippingMethod ||
                         (!isNoDetailsMode && !isFormValid) ||
                         !checkoutData.paymentPlan ||

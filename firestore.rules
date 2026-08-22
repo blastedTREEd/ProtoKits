@@ -129,7 +129,8 @@ service cloud.firestore {
     // --- PROJECT VAULTS ---
     match /projectVaults/{uid} {
       allow read: if isOwner(uid) || isAdmin();
-      allow write: if isOwner(uid);
+      // Admin rate changes reprice saved estimates across all vaults.
+      allow write: if isOwner(uid) || isAdmin();
     }
 
     // --- ORDERS ---

@@ -46,7 +46,9 @@ const RATE_SECTIONS = [
     fields: [
       { key: 'electricityRate', label: 'Electricity Rate', unit: '₱/kWh', type: 'number' },
       { key: 'expectedIncrease', label: 'Expected Increase', unit: '%', type: 'number' },
-      { key: 'solderingIronPower', label: 'Iron Power', unit: 'W', type: 'number' }
+      { key: 'solderingIronPower', label: 'Iron Power', unit: 'W', type: 'number' },
+      { key: 'rateUpdateDay', label: 'Update Due Day', unit: 'day of month', type: 'number' },
+      { key: 'rateAsOf', label: 'Last Updated', unit: '', type: 'text', readOnly: true }
     ]
   },
   {
@@ -121,12 +123,23 @@ export default function RatesManagerModal({ onClose }) {
   const handleSave = async (sectionId) => {
     const parentId = RATE_SECTIONS.find(s => s.id === sectionId)?.parentSection || sectionId;
     const patch = { ...(rates[parentId] || {}), ...(draftRates[parentId] || {}) };
+    const savePatch = { ...patch };
+
+    // handleRateChange keeps a complete section draft for reliable nested
+    // updates. Do not let an unchanged electricity rate count as a renewal
+    // merely because another electricity setting was edited.
+    if (
+      parentId === 'electricity-cost'
+      && draftRates[parentId]?.electricityRate === rates[parentId]?.electricityRate
+    ) {
+      delete savePatch.electricityRate;
+    }
     
     if (Object.keys(draftRates[parentId] || {}).length > 0) {
       setSavingSection(sectionId);
       try {
-        console.log(`DEBUG: Saving rates to ${parentId}. Patch structure:`, JSON.stringify(patch, null, 2));
-        await updateSettings(parentId, patch);
+        console.log(`DEBUG: Saving rates to ${parentId}. Patch structure:`, JSON.stringify(savePatch, null, 2));
+        await updateSettings(parentId, savePatch);
         const newDrafts = { ...draftRates };
         delete newDrafts[parentId];
         setDraftRates(newDrafts);
@@ -174,8 +187,8 @@ export default function RatesManagerModal({ onClose }) {
               <SlidersHorizontal size={20} className="text-white" />
             </div>
             <div>
-              <h2 className="text-lg font-black uppercase italic leading-none">Rate Management</h2>
-              <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500 opacity-80 mt-1 block">Calculator Multipliers</span>
+              <h2 className="text-[15px] font-black uppercase italic leading-none">Rate Management</h2>
+              <span className="text-[14px] font-bold uppercase tracking-widest text-emerald-500 mt-1 block">Calculator Multipliers</span>
             </div>
           </div>
           <button onClick={onClose} className="hidden md:block p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors opacity-40 hover:opacity-100">
@@ -195,21 +208,21 @@ export default function RatesManagerModal({ onClose }) {
               return (
                 <div key={section.id} className="space-y-4">
                   <div className="flex items-center justify-between px-2">
-                    <span className="text-[10px] font-black uppercase tracking-[0.4em] opacity-30 text-current">{section.title}</span>
+                    <span className="text-[15px] font-black uppercase tracking-[0.25em] text-current">{section.title}</span>
                     <div className="flex gap-2">
-                      <button onClick={() => addTier(section.id)} className="px-3 py-1 bg-blue-600 text-white rounded-full text-[9px] font-black uppercase tracking-widest hover:bg-blue-500">Add Tier</button>
+                      <button onClick={() => addTier(section.id)} className="px-3 py-1 bg-blue-600 text-white rounded-full text-[14px] font-bold uppercase tracking-widest hover:bg-blue-500">Add Tier</button>
                       {hasChanges && (
-                        <button onClick={() => handleSave(section.id)} disabled={savingSection === section.id} className="px-4 py-1 rounded-full bg-emerald-600 text-white text-[9px] font-black uppercase tracking-widest shadow-lg shadow-emerald-600/20">Save</button>
+                        <button onClick={() => handleSave(section.id)} disabled={savingSection === section.id} className="px-4 py-1 rounded-full bg-emerald-600 text-white text-[14px] font-bold uppercase tracking-widest shadow-lg shadow-emerald-600/20">Save</button>
                       )}
                     </div>
                   </div>
                   <div className="space-y-3">
                     {Object.entries(tiers).map(([tierId, tierData]) => (
                       <div key={tierId} className="flex gap-3 bg-black/5 dark:bg-white/5 border border-[var(--color-border)] p-4 rounded-3xl items-center">
-                        <input type="number" value={tierData.firstCoveredHours || 0} onChange={(e) => handleRateChange(section.id, 'firstCoveredHours', parseFloat(e.target.value), tierId)} className="bg-transparent w-20 text-center font-black text-emerald-500" />
-                        <span className="text-[10px] font-black opacity-30 uppercase">Hours @</span>
-                        <input type="number" value={tierData.laborRate || 0} onChange={(e) => handleRateChange(section.id, 'laborRate', parseFloat(e.target.value), tierId)} className="bg-transparent w-20 text-center font-black text-emerald-500" />
-                        <span className="text-[10px] font-black opacity-30 uppercase">₱/hr</span>
+                        <input type="text" inputMode="decimal" value={tierData.firstCoveredHours || 0} onChange={(e) => handleRateChange(section.id, 'firstCoveredHours', e.target.value === '' ? '' : parseFloat(e.target.value), tierId)} className="bg-transparent w-20 text-center text-[15px] font-black text-emerald-500" />
+                        <span className="text-[14px] font-bold uppercase">Hours @</span>
+                        <input type="text" inputMode="decimal" value={tierData.laborRate || 0} onChange={(e) => handleRateChange(section.id, 'laborRate', e.target.value === '' ? '' : parseFloat(e.target.value), tierId)} className="bg-transparent w-20 text-center text-[15px] font-black text-emerald-500" />
+                        <span className="text-[14px] font-bold uppercase">₱/hr</span>
                         <button onClick={() => removeTier(section.id, tierId)} className="ml-auto text-red-500"><X size={16} /></button>
                       </div>
                     ))}
@@ -221,12 +234,12 @@ export default function RatesManagerModal({ onClose }) {
             return (
               <div key={section.id} className="space-y-4">
                 <div className="flex items-center justify-between px-2">
-                   <span className="text-[10px] font-black uppercase tracking-[0.4em] opacity-30 text-current">{section.title}</span>
+                   <span className="text-[15px] font-black uppercase tracking-[0.25em] text-current">{section.title}</span>
                    {hasChanges && (
                      <button 
                         onClick={() => handleSave(section.id)}
                         disabled={savingSection === section.id}
-                        className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-600 text-white text-[9px] font-black uppercase tracking-widest animate-in zoom-in duration-300 shadow-lg shadow-emerald-600/20 disabled:opacity-50"
+                        className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-600 text-white text-[14px] font-bold uppercase tracking-widest animate-in zoom-in duration-300 shadow-lg shadow-emerald-600/20 disabled:opacity-50"
                      >
                        <Save size={12} strokeWidth={3} />
                        {savingSection === section.id ? 'Saving...' : 'Save Changes'}
@@ -243,11 +256,17 @@ export default function RatesManagerModal({ onClose }) {
                       }
                       return sectionDraft[field.key] ?? currentSectionRates[field.key] ?? '';
                     };
-                    const value = resolveValue();
+                    const value = field.key === 'rateUpdateDay'
+                      ? (sectionDraft[field.key] ?? currentSectionRates[field.key] ?? 22)
+                      : resolveValue();
+                    const isReadOnly = field.readOnly === true;
+                    const displayValue = field.key === 'rateAsOf' && typeof value === 'string'
+                      ? value.slice(0, 10)
+                      : value;
                     const fieldUniqueKey = field.parentKey ? `${field.parentKey}-${field.key}` : field.key;
                     return (
                       <div key={fieldUniqueKey} className="bg-black/5 dark:bg-white/5 border border-[var(--color-border)] p-4 rounded-3xl space-y-1">
-                        <label className="text-[9px] font-black uppercase tracking-widest opacity-40 text-current block">{field.label}</label>
+                        <label className="text-[14px] font-bold uppercase tracking-widest text-current block">{field.label}</label>
                         <div className="flex items-baseline gap-1">
                           {field.type === 'boolean' ? (
                             <button
@@ -259,13 +278,15 @@ export default function RatesManagerModal({ onClose }) {
                             </button>
                           ) : (
                             <input 
-                              type={field.type}
-                              value={value}
-                              onChange={(e) => handleRateChange(section.id, field.key, field.type === 'number' ? parseFloat(e.target.value) : e.target.value, null, field.parentKey || null)}
-                              className="bg-transparent text-lg font-black text-emerald-500 outline-none w-full"
+                              type={field.type === 'number' ? 'text' : field.type}
+                              inputMode={field.type === 'number' ? 'decimal' : undefined}
+                              value={displayValue}
+                              readOnly={isReadOnly}
+                              onChange={(e) => handleRateChange(section.id, field.key, field.type === 'number' ? (e.target.value === '' ? '' : parseFloat(e.target.value)) : e.target.value, null, field.parentKey || null)}
+                              className={`bg-transparent text-[15px] font-black text-emerald-500 outline-none w-full ${isReadOnly ? 'cursor-default' : ''}`}
                             />
                           )}
-                          {field.type !== 'boolean' && <span className="text-[9px] font-bold opacity-30 text-current">{field.unit}</span>}
+                          {field.type !== 'boolean' && <span className="text-[14px] font-bold text-current">{field.unit}</span>}
                         </div>
                       </div>
                     );

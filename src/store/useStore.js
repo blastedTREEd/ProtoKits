@@ -45,6 +45,186 @@ const getBuiltOnhandSellPrice = (costPrice) => {
   return lowerHundred + (remainder >= 50 ? 100 : 50);
 };
 
+const parseProjectAmount = (value) => {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  const parsed = Number(String(value ?? '').replace(/[₱,\s]/g, ''));
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const getEffectiveElectricityRate = (section = {}) => {
+  const baseRate = Number(section.electricityRate);
+  const expectedIncrease = Number(section.expectedIncrease);
+  const safeBaseRate = Number.isFinite(baseRate) && baseRate > 0 ? baseRate : 14.16;
+  const safeIncrease = Number.isFinite(expectedIncrease) ? expectedIncrease : 0;
+  return safeBaseRate * (1 + (safeIncrease / 100));
+};
+
+const getProjectElectricityUsage = (project) => {
+  const source = project?.projectData || project;
+  const details = Array.isArray(source?.projectDetails) ? source.projectDetails : [];
+  if (details.length === 0) return 0;
+
+  const printerRows = new Map();
+  details.forEach((detail) => {
+    const jobs = Array.isArray(detail?.productionJobs) && detail.productionJobs.length > 0
+      ? detail.productionJobs
+      : [detail];
+    jobs.forEach((job) => {
+      const printer = job?.printer || detail?.printer || {};
+      const printerKey = String(job?.printerId || detail?.printerId || printer?.id || printer?.model || 'default');
+      const printMinutes = Number(job?.time ?? job?.sliced?.time ?? detail?.time ?? detail?.sliced?.time ?? 0) || 0;
+      const swapMinutes = Number(job?.swapMins ?? job?.sliced?.swapMins ?? detail?.swapMins ?? detail?.sliced?.swapMins ?? 0) || 0;
+      const current = printerRows.get(printerKey) || { printer, runtimeMinutes: 0 };
+      current.runtimeMinutes += printMinutes + swapMinutes;
+      printerRows.set(printerKey, current);
+    });
+  });
+
+  let usageKwh = 0;
+  printerRows.forEach(({ printer, runtimeMinutes }) => {
+    const wattage = Number(printer?.wattage) || 0;
+    const startupMinutes = (Number(printer?.bootupMins) || 0)
+      + (Number(printer?.homingMins) || 0)
+      + (Number(printer?.bedLevelMins ?? printer?.bootLevelMins) || 0);
+    usageKwh += (wattage / 1000) * ((runtimeMinutes + startupMinutes) / 60);
+  });
+
+  const extras = Array.isArray(source?.extras) ? source.extras : [];
+  const heatsetMinutes = extras.reduce((total, extra) => {
+    if (!String(extra?.name || '').toLowerCase().includes('heatset')) return total;
+    const assignedQuantity = Object.values(extra?.assignments || {})
+      .reduce((sum, quantity) => sum + (Number(quantity) || 0), 0);
+    return total + assignedQuantity;
+  }, 0);
+  const electricityRates = getProjectElectricityRateSnapshot(project);
+  const ironPower = Number(electricityRates?.solderingIronPower) || 60;
+  usageKwh += (ironPower / 1000) * (heatsetMinutes / 60);
+
+  return Number.isFinite(usageKwh) ? usageKwh : 0;
+};
+
+// Project repricing is kept independent from React so the admin rate update
+// can migrate persisted estimates without opening every calculator modal.
+const getProjectElectricityRateSnapshot = (project) => (
+  project?.rates?.['electricity-cost']
+  || project?.electricityRates
+  || {}
+);
+
+const repriceSavedProject = (project, previousElectricityRates, nextElectricityRates, markupPercent = 20) => {
+  if (!project || typeof project !== 'object') return null;
+  const nested = project?.projectData && typeof project.projectData === 'object';
+  const source = nested ? project.projectData : project;
+  const totals = source?.totals;
+  if (!totals || typeof totals !== 'object') return null;
+
+  const oldEffectiveRate = getEffectiveElectricityRate(previousElectricityRates);
+  const newEffectiveRate = getEffectiveElectricityRate(nextElectricityRates);
+  if (!oldEffectiveRate || !newEffectiveRate || oldEffectiveRate === newEffectiveRate) return null;
+
+  const markupMultiplier = 1 + ((Number(markupPercent) || 20) / 100);
+  const storedKwh = Number(totals.electricityKwh);
+  const usageKwh = Number.isFinite(storedKwh) && storedKwh > 0
+    ? storedKwh
+    : getProjectElectricityUsage(project);
+  const oldElectricity = parseProjectAmount(totals.electricity)
+    || (usageKwh * oldEffectiveRate * markupMultiplier);
+  if (!Number.isFinite(oldElectricity) || oldElectricity <= 0) return null;
+
+  const newElectricity = usageKwh > 0
+    ? usageKwh * newEffectiveRate * markupMultiplier
+    : oldElectricity * (newEffectiveRate / oldEffectiveRate);
+  const delta = newElectricity - oldElectricity;
+  if (!Number.isFinite(delta) || Math.abs(delta) < 0.005) return null;
+
+  const oldTotal = parseProjectAmount(totals.total || source.displayPrice || project.price);
+  const oldBase = parseProjectAmount(totals.basePrice || oldTotal);
+  if (!oldTotal && !oldBase) return null;
+  const oldDownpayment = parseProjectAmount(totals.dp || source.minDownpayment || project.minDownpayment);
+  const nextTotals = {
+    ...totals,
+    electricity: newElectricity.toFixed(2),
+    electricityKwh: Number((usageKwh || 0).toFixed(6)),
+    electricityRate: Number(newEffectiveRate.toFixed(6)),
+    electricityMarkupMultiplier: Number(markupMultiplier.toFixed(6)),
+    total: Math.ceil(oldTotal + delta).toLocaleString(),
+    basePrice: Math.ceil(oldBase + delta).toLocaleString(),
+    ...(oldDownpayment > 0 ? { dp: (Math.ceil((oldDownpayment + delta) / 10) * 10).toLocaleString() } : {}),
+    ...(totals.totalProfit !== undefined
+      ? { totalProfit: (parseProjectAmount(totals.totalProfit) + (delta / markupMultiplier) * (markupMultiplier - 1)).toFixed(2) }
+      : {})
+  };
+
+  const nextSource = {
+    ...source,
+    totals: nextTotals,
+    sellPrice: Math.ceil(oldBase + delta),
+    displayPrice: Math.ceil(oldTotal + delta),
+    minDownpayment: oldDownpayment > 0 ? Math.ceil((oldDownpayment + delta) / 10) * 10 : source.minDownpayment
+  };
+
+  if (nested) {
+    return {
+      ...project,
+      projectData: nextSource,
+      price: Math.ceil(oldTotal + delta),
+      minDownpayment: nextSource.minDownpayment
+    };
+  }
+  return nextSource;
+};
+
+const commitInChunks = async (updates) => {
+  for (let index = 0; index < updates.length; index += 450) {
+    const batch = writeBatch(db);
+    updates.slice(index, index + 450).forEach(({ ref, data }) => batch.set(ref, data, { merge: true }));
+    await batch.commit();
+  }
+};
+
+const repricePersistedProjects = async (previousRates, nextRates) => {
+  const previousElectricityRates = previousRates?.['electricity-cost'] || {};
+  const nextElectricityRates = nextRates?.['electricity-cost'] || {};
+  const markupPercent = nextRates?.['print-cost']?.markupRate ?? previousRates?.['print-cost']?.markupRate ?? 20;
+  const blueprintSnap = await getDocs(collection(db, 'blueprints'));
+  const vaultSnap = await getDocs(collection(db, 'projectVaults'));
+  const blueprintUpdates = [];
+  const vaultUpdates = [];
+  const nextBlueprints = [];
+  const currentUid = getCurrentUserUidForPricing();
+  let currentVault = null;
+
+  blueprintSnap.docs.forEach((projectDoc) => {
+    const project = { id: projectDoc.id, ...projectDoc.data() };
+    const repriced = repriceSavedProject(project, previousElectricityRates, nextElectricityRates, markupPercent);
+    if (!repriced) return;
+    const { id, ...data } = repriced;
+    blueprintUpdates.push({ ref: doc(db, 'blueprints', projectDoc.id), data: { ...data, pricingUpdatedAt: new Date().toISOString() } });
+    nextBlueprints.push(repriced);
+  });
+
+  vaultSnap.docs.forEach((vaultDoc) => {
+    const data = vaultDoc.data() || {};
+    const items = Array.isArray(data.items) ? data.items : [];
+    const nextItems = items.map((project) => repriceSavedProject(project, previousElectricityRates, nextElectricityRates, markupPercent) || project);
+    if (JSON.stringify(nextItems) === JSON.stringify(items)) return;
+    vaultUpdates.push({
+      ref: doc(db, 'projectVaults', vaultDoc.id),
+      data: { items: nextItems, pricingUpdatedAt: new Date().toISOString() }
+    });
+    if (vaultDoc.id === currentUid) currentVault = nextItems;
+  });
+
+  await commitInChunks([...blueprintUpdates, ...vaultUpdates]);
+  useStore.setState((state) => ({
+    ...(nextBlueprints.length > 0 ? { blueprints: (state.blueprints || []).map((project) => nextBlueprints.find((next) => next.id === project.id) || project) } : {}),
+    ...(currentVault ? { projectVault: currentVault } : {})
+  }));
+  return blueprintUpdates.length + vaultUpdates.length;
+};
+
+const getCurrentUserUidForPricing = () => auth?.currentUser?.uid || null;
+
 const getKitSortGroup = (kit) => {
   const stocks = Object.values(kit?.stocks || {});
   if (stocks.length === 0) return 1; // Group 3: No stocks at all
@@ -2139,18 +2319,49 @@ export const useStore = create(
 
       updateSettings: async (rateId, patch) => {
         if (!rateId || !patch) return;
+        const normalizedPatch = (
+          rateId === 'electricity-cost'
+          && Object.prototype.hasOwnProperty.call(patch, 'electricityRate')
+        )
+          ? (() => {
+              const now = new Date();
+              const localDate = [
+                now.getFullYear(),
+                String(now.getMonth() + 1).padStart(2, '0'),
+                String(now.getDate()).padStart(2, '0')
+              ].join('-');
+              return { ...patch, rateAsOf: localDate };
+            })()
+          : patch;
         const previousRates = get().rates || {};
-        set((state) => ({
-          rates: {
-            ...(state.rates || {}),
-            [rateId]: {
-              ...((state.rates || {})[rateId] || {}),
-              ...patch
-            }
+        const nextRates = {
+          ...previousRates,
+          [rateId]: {
+            ...(previousRates[rateId] || {}),
+            ...normalizedPatch
           }
+        };
+        set((state) => ({
+          rates: nextRates
         }));
         try {
-          await setDoc(doc(db, 'rates', rateId), patch, { merge: true });
+          await setDoc(doc(db, 'rates', rateId), normalizedPatch, { merge: true });
+
+          if (
+            rateId === 'electricity-cost'
+            && Object.prototype.hasOwnProperty.call(normalizedPatch, 'electricityRate')
+            && getEffectiveElectricityRate(previousRates['electricity-cost'] || {})
+              !== getEffectiveElectricityRate(nextRates['electricity-cost'] || {})
+          ) {
+            try {
+              const updatedProjectCount = await repricePersistedProjects(previousRates, nextRates);
+              console.info(`SG LOG: Repriced ${updatedProjectCount} persisted project collection(s) after electricity rate update.`);
+            } catch (pricingError) {
+              // Keep the rate update successful, but surface the sync failure
+              // so it can be retried without reverting the administrator's rate.
+              console.error('SG LOG: Persisted project repricing failed:', pricingError);
+            }
+          }
         } catch (error) {
           set({ rates: previousRates });
           throw error;
