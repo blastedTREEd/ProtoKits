@@ -6,6 +6,8 @@ import {
 } from 'firebase/firestore';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
 import {
+  ONHAND_BOX_CONDITION,
+  ONHAND_KIT_CONDITION,
   withStockConditionDefaults
 } from '../utils/stockConditions';
 
@@ -31,6 +33,15 @@ const getAvailableStockCount = (kit) => {
 const getStockCostPrice = (stock) => {
   const value = Number(stock?.costPrice);
   return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
+};
+
+const getBuiltOnhandSellPrice = (costPrice) => {
+  const cost = Number(costPrice);
+  if (!Number.isFinite(cost) || cost <= 0) return 0;
+
+  const lowerHundred = Math.floor(cost / 100) * 100;
+  const remainder = cost - lowerHundred;
+  return lowerHundred + (remainder >= 50 ? 100 : 50);
 };
 
 const getKitSortGroup = (kit) => {
@@ -99,6 +110,10 @@ const mergeKitsStable = (currentKits = [], incomingKits = []) => {
 };
 
 const docsToArray = (snap) => snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+// Share identical order listeners between pages and modals so the same
+// user/admin query is only billed once while multiple views are open.
+const sharedOrderSubscriptions = new Map();
 
 const buildOrderStockTargets = (order = {}) => {
   const targets = [];
@@ -488,7 +503,7 @@ export const useStore = create(
         }
 
         // 2. Kits (if not already prioritized) — fetch ALL kits directly
-        if (!ds.kits && !listenerKeys.kits) {
+        if (req.kits && !ds.kits && !listenerKeys.kits) {
           const allKitsQuery = query(collection(db, "kits"), orderBy("lastUpdated", "desc"));
           const unsub = onSnapshot(allKitsQuery, (snap) => {
             const allKits = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -543,7 +558,7 @@ export const useStore = create(
 
 
         // 6. Deals (if not already prioritized)
-        if (!ds.deals && !listenerKeys.deals) {
+        if (req.deals && !ds.deals && !listenerKeys.deals) {
           const unsubDeals = onSnapshot(collection(db, "deals"), (snap) => {
             set({ deals: docsToArray(snap) });
             get().markLoaded('deals');
@@ -939,7 +954,24 @@ export const useStore = create(
           return () => {};
         }
 
-        return onSnapshot(ordersQuery, (snap) => {
+        const subscriptionKey = isAdminMode ? 'admin' : `user:${uid}`;
+        const existingSubscription = sharedOrderSubscriptions.get(subscriptionKey);
+        if (existingSubscription) {
+          existingSubscription.refCount += 1;
+          return () => {
+            const currentSubscription = sharedOrderSubscriptions.get(subscriptionKey);
+            if (currentSubscription !== existingSubscription) return;
+            currentSubscription.refCount -= 1;
+            if (currentSubscription.refCount <= 0) {
+              currentSubscription.unsubscribe?.();
+              sharedOrderSubscriptions.delete(subscriptionKey);
+            }
+          };
+        }
+
+        const subscription = { refCount: 1, unsubscribe: null };
+        sharedOrderSubscriptions.set(subscriptionKey, subscription);
+        subscription.unsubscribe = onSnapshot(ordersQuery, (snap) => {
           const docs = docsToArray(snap);
           console.log("SG LOG: Orders fetched:", docs.length, "for UID:", uid, "Admin:", isAdminMode);
           set({ orders: docs });
@@ -949,6 +981,16 @@ export const useStore = create(
           get().markLoaded('orders');
           // Wag din i-clear sa error para iwas flicker
         });
+
+        return () => {
+          const currentSubscription = sharedOrderSubscriptions.get(subscriptionKey);
+          if (currentSubscription !== subscription) return;
+          currentSubscription.refCount -= 1;
+          if (currentSubscription.refCount <= 0) {
+            currentSubscription.unsubscribe?.();
+            sharedOrderSubscriptions.delete(subscriptionKey);
+          }
+        };
       },
 
       subscribeUsersList: () => {
@@ -1291,6 +1333,52 @@ export const useStore = create(
 
       updateStockPrice: async (kitId, stockKey, newPrice) => {
         await updateDoc(doc(db, 'kits', kitId), { [`stocks.${stockKey}.sellPrice`]: Number(newPrice) });
+      },
+
+      priceBuiltOnhandKits: async () => {
+        const snapshot = await getDocs(collection(db, 'kits'));
+        const kitUpdates = [];
+
+        snapshot.docs.forEach((kitDoc) => {
+          const kit = kitDoc.data();
+          const stockPriceUpdates = {};
+          let updatedStockCount = 0;
+
+          Object.entries(kit?.stocks || {}).forEach(([stockKey, stock]) => {
+            const isOnhand = String(stock?.status || '').trim().toLowerCase() === 'onhand';
+            const hasNoBox = String(stock?.boxCondition || '').trim().toLowerCase() === ONHAND_BOX_CONDITION.toLowerCase();
+            const isBuilt = String(stock?.kitCondition || '').trim().toLowerCase() === ONHAND_KIT_CONDITION.toLowerCase();
+            const nextSellPrice = getBuiltOnhandSellPrice(stock?.costPrice);
+
+            if (!isOnhand || !hasNoBox || !isBuilt || nextSellPrice <= 0) return;
+            if (Number(stock?.sellPrice) === nextSellPrice) return;
+
+            stockPriceUpdates[`stocks.${stockKey}.sellPrice`] = nextSellPrice;
+            updatedStockCount += 1;
+          });
+
+          if (updatedStockCount > 0) {
+            kitUpdates.push({
+              kitId: kitDoc.id,
+              stockPriceUpdates,
+              updatedStockCount
+            });
+          }
+        });
+
+        for (let index = 0; index < kitUpdates.length; index += 450) {
+          const batch = writeBatch(db);
+          kitUpdates.slice(index, index + 450).forEach(({ kitId, stockPriceUpdates }) => {
+            batch.update(doc(db, 'kits', kitId), {
+              ...stockPriceUpdates,
+              lastUpdated: serverTimestamp()
+            });
+          });
+          await batch.commit();
+        }
+
+        const updatedStocks = kitUpdates.reduce((total, update) => total + update.updatedStockCount, 0);
+        return { updatedKits: kitUpdates.length, updatedStocks };
       },
 
       updateAdminProfile: async (uid, data) => {
@@ -1815,6 +1903,59 @@ export const useStore = create(
       },
 
       updateUserProfile: async (uid, data) => { await updateDoc(doc(db, 'users', uid), data); },
+      addPrinter: async (printerData) => {
+        const { id, ...data } = printerData || {};
+        const existingIds = new Set((get().printers || []).map((printer) => String(printer.id)));
+        const ref = id && !existingIds.has(String(id))
+          ? doc(db, 'printers', id)
+          : doc(collection(db, 'printers'));
+        const previousPrinters = get().printers || [];
+        const nextPrinter = { ...data, id: ref.id };
+
+        set((state) => ({
+          printers: [nextPrinter, ...(state.printers || []).filter((printer) => String(printer.id) !== String(ref.id))]
+        }));
+
+        try {
+          await setDoc(ref, nextPrinter);
+        } catch (error) {
+          set({ printers: previousPrinters });
+          throw error;
+        }
+      },
+
+      updatePrinter: async (id, patch) => {
+        if (!id || !patch) return;
+        const previousPrinters = get().printers || [];
+        set((state) => ({
+          printers: (state.printers || []).map((printer) => (
+            String(printer.id) === String(id) ? { ...printer, ...patch, id: printer.id } : printer
+          ))
+        }));
+
+        try {
+          await updateDoc(doc(db, 'printers', id), patch);
+        } catch (error) {
+          set({ printers: previousPrinters });
+          throw error;
+        }
+      },
+
+      deletePrinter: async (id) => {
+        if (!id) return;
+        const previousPrinters = get().printers || [];
+        set((state) => ({
+          printers: (state.printers || []).filter((printer) => String(printer.id) !== String(id))
+        }));
+
+        try {
+          await deleteDoc(doc(db, 'printers', id));
+        } catch (error) {
+          set({ printers: previousPrinters });
+          throw error;
+        }
+      },
+
       addFilament: async (fData) => { 
         console.log('Store: addFilament called with', fData);
         const { id, ...d } = fData; 

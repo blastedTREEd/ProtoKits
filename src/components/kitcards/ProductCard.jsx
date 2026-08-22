@@ -1469,7 +1469,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                   {sortedGridStatusBadges.map((badge, index) => (
                     <div
                       key={`${badge.label}-${index}`}
-                      className={`px-1.5 py-0.5 font-bold uppercase tracking-tigther text-[10px] md:text-[11px] ${badge.className} ${index < sortedGridStatusBadges.length - 1 ? 'mb-1' : ''}`}
+                      className={`px-1.5 py-0.5 font-bold uppercase tracking-tigther text-[13px] ${badge.className} ${index < sortedGridStatusBadges.length - 1 ? 'mb-1' : ''}`}
                     >
                       {badge.label}
                     </div>
@@ -1481,7 +1481,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                  <img src={resolveImage(kit.image, kit?.images) || null} alt={kit.name} loading="lazy" className="w-full h-full object-cover transition-transform duration-700 lg:group-hover:scale-110 transform-gpu" />
                  <div className="absolute top-2 right-2 z-20">
                     {isAdmin && isAdminView && (
-                      <button onClick={(e) => { e.stopPropagation(); onEdit(kit); }} className="px-2 py-1 rounded-full transition-all border bg-gradient-to-br from-amber-500 to-amber-600 border-white/20 shadow-lg text-white font-black uppercase text-[9px] tracking-widest hover:scale-110">
+                      <button onClick={(e) => { e.stopPropagation(); onEdit(kit); }} className="px-2 py-1 rounded-full transition-all border bg-gradient-to-br from-amber-500 to-amber-600 border-white/20 shadow-lg text-white font-bold uppercase text-[12px] tracking-widest hover:scale-110">
                         EDIT
                       </button>
                     )}
@@ -1491,36 +1491,36 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
 
             <div className="px-1 text-center flex-1 flex flex-col min-w-0">
                 <div className="h-[2em] flex items-center justify-center min-w-0">
-                  <h3 className="text-[13px] font-bold uppercase tracking-tighter leading-tight line-clamp-2 w-full group-hover:text-blue-600 transition-colors">{kit.name}</h3>
+                  <h3 className="text-[15px] font-bold uppercase tracking-tighter leading-tight line-clamp-2 w-full group-hover:text-blue-600 transition-colors">{kit.name}</h3>
                 </div>
             <div className="mt-auto min-w-0 min-h-[50px] flex flex-col justify-end">
                 <div className="flex items-center justify-between gap-2 min-w-0 w-full">
                   <div className="flex items-center justify-between gap-2 min-w-0 w-full">
                   <div className="flex flex-col items-start pb-1 min-w-0 flex-1 text-left">
-                    <span className="text-[13px] md:text-[15px] md:text-[15px] lg:text-[13px] font-black uppercase tracking-tighter truncate w-full block max-w-[120px] md:max-w-none">{kit.brand || 'NO BRAND'}</span>
+                    <span className="text-[14px] font-bold uppercase tracking-tighter truncate w-full block max-w-[120px] md:max-w-none">{kit.brand || 'NO BRAND'}</span>
                     <div className="flex items-baseline gap-1 w-full min-w-0">
                       {!isAdminView && (
                         <>
                           {(isActiveAcceptedOffer && acceptedOfferPrice > 0) ? (
                             <>
-                              <span className="text-[13px] lg:text-[13px] font-black italic tracking-tighter leading-none text-blue-600 dark:text-blue-400 shrink-0">
+                              <span className="text-[15px] font-bold italic tracking-tighter leading-none text-blue-600 dark:text-blue-400 shrink-0">
                                 ₱{acceptedOfferPrice.toLocaleString()}
                               </span>
-                              <span className="text-[12px] lg:text-[12px] font-black italic tracking-tighter line-through shrink-0">
+                              <span className="text-[15px] font-bold italic tracking-tighter line-through shrink-0">
                                 ₱{(getStockStandaloneSellPrice({}, kit, acceptedOfferStock) + handlingFee + installmentFee + transferFee).toLocaleString()}
                               </span>
                             </>
                           ) : availableCount > 0 ? (
                             <>
-                              <span className="text-[13px] lg:text-[13px] font-black italic tracking-tighter leading-none text-amber-500 dark:text-amber-500 shrink-0">
+                              <span className="text-[15px] font-bold italic tracking-tighter leading-none text-amber-500 dark:text-amber-500 shrink-0">
                                 ₱{lowestPrice.toLocaleString()}
                               </span>
-                              <span className="text-[12px]  lg:text-[12px] font-black italic tracking-tighter line-through shrink-0">
+                              <span className="text-[15px] font-bold italic tracking-tighter line-through shrink-0">
                                 ₱{refPrice.toLocaleString()}
                               </span>
                             </>
                           ) : (
-                            <span className={`text-[13px]  font-black tracking-tighter leading-none ${isIncludedInBundleDeal ? 'text-emerald-500' : gridUnavailableClass}`}>
+                            <span className={`text-[15px] font-bold tracking-tighter leading-none ${isIncludedInBundleDeal ? 'text-emerald-500' : gridUnavailableClass}`}>
                                 {isIncludedInBundleDeal ? "BUNDLE DEAL" : gridUnavailableLabel}
                             </span>
                           )}
@@ -1530,15 +1530,15 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                         <>
                           {adminDisplayInfo ? (
                             <>
-                              <span className="text-[13px] lg:text-[13px] font-black tracking-tighter leading-none text-neutral-900 dark:text-white shrink-0">
+                              <span className="text-[15px] font-bold tracking-tighter leading-none text-neutral-900 dark:text-white shrink-0">
                                 ₱{adminDisplayInfo.cost.toLocaleString()}
                               </span>
-                              <span className="text-[12px] lg:text-[12px] font-black tracking-tighter line-through text-emerald-600 shrink-0">
+                              <span className="text-[15px] font-bold tracking-tighter line-through text-emerald-600 shrink-0">
                                 ₱{adminDisplayInfo.profit.toLocaleString()}
                               </span>
                             </>
                           ) : (
-                              <span className="inline-flex items-center text-[13px] font-bold text-red-600 leading-none">
+                              <span className="inline-flex items-center text-[15px] font-bold text-red-600 leading-none">
                                 <span className="mr-[1px]">₱</span>
                                 <FaQuestion size={9} />
                                 <FaQuestion size={9} />

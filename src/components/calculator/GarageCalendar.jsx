@@ -48,6 +48,8 @@ export const getProjectScheduleDates = (order, item, availabilitySchedule, sched
 };
 
 // Derive busy date ranges from active orders that contain project items.
+// Pending orders are intentionally active here so a customer's own pending
+// project is shown as occupied in the project-card calendar.
 // Project days skip configured printing closures, so queued work rolls forward.
 const getOccupiedDates = (orders = [], availabilitySchedule) => {
   const occupied = new Map(); // dateKey -> count of projects occupying that day
@@ -201,8 +203,8 @@ export default function GarageCalendar({
               <Calendar size={16} strokeWidth={3} className="text-white" />
             </div>
             <div>
-              <h3 className="text-[16px] font-black uppercase tracking-[0.2em]">Garage Calendar</h3>
-              <p className="text-[16px] uppercase font-bold leading-tight">Production Availability</p>
+              <h3 className="text-[15px] font-black uppercase tracking-[0.2em]">Garage Calendar</h3>
+              <p className="text-[13px] uppercase font-bold leading-tight">Production Availability</p>
             </div>
           </div>
         </div>
@@ -242,7 +244,7 @@ export default function GarageCalendar({
               aria-pressed={unavailableWeekdays.has(weekday)}
               aria-label={`${label}: ${unavailableWeekdays.has(weekday) ? 'unavailable every week' : 'available every week'}`}
               onClick={() => adminMode && onToggleUnavailableWeekday?.(weekday)}
-              className={`text-center text-[14px] font-black uppercase tracking-widest py-1 rounded-lg transition ${adminMode ? 'cursor-pointer hover:bg-red-500/10' : ''} ${unavailableWeekdays.has(weekday) ? 'bg-red-500/15 text-red-600 dark:text-red-400' : ''}`}
+              className={`text-center text-[13px] font-black uppercase tracking-widest py-1 rounded-lg transition ${adminMode ? 'cursor-pointer hover:bg-red-500/10' : ''} ${unavailableWeekdays.has(weekday) ? 'bg-red-500/15 text-red-600 dark:text-red-400' : ''}`}
             >
               {label}
             </button>
@@ -288,7 +290,7 @@ export default function GarageCalendar({
                 aria-label={adminMode ? `${cell.key}: ${cell.isUnavailable ? 'unavailable' : 'available'}` : cell.key}
                 className={`aspect-square rounded-lg flex items-center justify-center transition-all relative ${bgClass} ${ringClass} ${adminMode && !cell.isPast ? 'cursor-pointer hover:scale-105' : ''}`}
               >
-                <span className={`text-[16px] font-bold ${textClass}`}>
+                <span className={`text-[15px] font-bold ${textClass}`}>
                   {cell.day}
                 </span>
               </button>
@@ -300,16 +302,16 @@ export default function GarageCalendar({
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 pt-2">
           <div className="flex items-center gap-1.5">
             <div className="w-2.5 h-2.5 rounded-sm bg-emerald-500" />
-            <span className="text-[12px] font-black uppercase tracking-widest">Available</span>
+            <span className="text-[13px] font-black uppercase tracking-widest">Available</span>
           </div>
             <div className="flex items-center gap-1.5">
               <div className="w-2.5 h-2.5 rounded-sm bg-red-500" />
-              <span className="text-[12px] font-black uppercase tracking-widest">{adminMode || unavailableDates.size > 0 ? 'Unavailable / occupied' : 'Occupied'}</span>
+              <span className="text-[13px] font-black uppercase tracking-widest">{adminMode || unavailableDates.size > 0 ? 'Unavailable / occupied' : 'Occupied'}</span>
             </div>
           {projectDays > 0 && (
             <div className="flex items-center gap-1.5">
               <div className="w-2.5 h-2.5 rounded-sm bg-blue-500 ring-1 ring-blue-500/40" />
-              <span className="text-[12px] font-black uppercase tracking-widest">Your Project</span>
+              <span className="text-[13px] font-black uppercase tracking-widest">Your Project</span>
             </div>
           )}
         </div>

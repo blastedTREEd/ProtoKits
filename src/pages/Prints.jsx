@@ -6,8 +6,9 @@ import ProjectCard from '../components/calculator/ProjectCard';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
 import LoginPromptModal from '../components/menu/LoginPromptModal';
-import { Droplet, Calculator, Search, Box, X, HandCoins, MoreHorizontal } from 'lucide-react';
+import { Droplet, Calculator, Search, Box, X, HandCoins, MoreHorizontal, Printer } from 'lucide-react';
 import FilamentManagerModal from '../components/calculator/FilamentManagerModal';
+import PrinterManagerModal from '../components/calculator/PrinterManagerModal';
 import RatesManagerModal from '../components/calculator/RatesManagerModal';
 import ProductCardSkeleton from '../components/common/ProductCardSkeleton';
 import AddPrintModal from '../components/calculator/AddPrintModal';
@@ -116,6 +117,7 @@ export default function Prints() {
   const isLoading = useStore((state) => state.isLoading);
   const loadBlueprints = useStore((state) => state.loadBlueprints);
   const loadPrintResources = useStore((state) => state.loadPrintResources);
+  const subscribeOrders = useStore((state) => state.subscribeOrders);
   const user = useStore((state) => state.user);
   const isAnonymousUser = useStore((state) => state.isAnonymousUser);
   const setLoginModalOpen = useStore((state) => state.setLoginModalOpen);
@@ -123,6 +125,7 @@ export default function Prints() {
   const shippingSettings = useStore((state) => state.shippingSettings);
   
   const [showFilamentModal, setShowFilamentModal] = useState(false);
+  const [showPrinterModal, setShowPrinterModal] = useState(false);
   const [showRatesModal, setShowRatesModal] = useState(false);
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [editingPrintProject, setEditingPrintProject] = useState(null);
@@ -141,6 +144,17 @@ export default function Prints() {
     loadBlueprints();
     loadPrintResources();
   }, [loadBlueprints, loadPrintResources]);
+
+  useEffect(() => {
+    if (!user?.uid) return undefined;
+
+    // Keep the project-card calendar current with pending and other active orders.
+    const unsubscribe = subscribeOrders({
+      uid: user.uid,
+      isAdminMode: isAdmin && isAdminView
+    });
+    return () => unsubscribe?.();
+  }, [subscribeOrders, user?.uid, isAdmin, isAdminView]);
 
   const filteredBlueprints = useMemo(() => {
     if (!blueprints) return [];
@@ -324,6 +338,7 @@ export default function Prints() {
   const headerActions = isAdmin && isAdminView
     ? [
         { id: 'new-project', label: 'New Project', icon: Box, tone: 'border-blue-500/20 bg-blue-500/10 text-blue-600 hover:bg-blue-500/20', onClick: openNewPrintModal },
+        { id: 'printers', label: 'Printers', icon: Printer, tone: 'border-blue-500/20 bg-blue-500/10 text-blue-600 hover:bg-blue-500/20', onClick: () => setShowPrinterModal(true) },
         { id: 'inventory', label: 'Inventory', icon: Droplet, tone: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20', onClick: () => setShowFilamentModal(true) },
         { id: 'printing-rates', label: 'Printing Rates', icon: HandCoins, tone: 'border-rose-500/20 bg-rose-500/10 text-rose-600 hover:bg-rose-500/20', onClick: () => setShowRatesModal(true) }
       ]
@@ -353,10 +368,10 @@ export default function Prints() {
         
         {/* Header Search (All Viewports) */}
         <div className={`sticky top-[56px] sm:top-[60px] z-[100] h-[60px] overflow-visible bg-neutral-50/90 dark:bg-[#0a0a0a]/90 backdrop-blur-md border-b border-black/5 dark:border-white/5 transition-transform duration-300 ease-out will-change-transform ${isContentHeaderHidden ? '-translate-y-full md:translate-y-0' : 'translate-y-0'}`}>
-          <div className="h-full w-full px-4 md:px-8 flex items-center justify-center gap-4">
+          <div className="h-full w-full px-4 md:px-8 flex items-center gap-4">
             
-            <div className={`flex flex-1 items-center gap-4 ${(isAdmin && isAdminView) ? 'max-w-2xl pr-12 xl:pr-0' : 'max-w-none pr-12'}`}>
-                <div className="relative flex-1">
+            <div className="flex min-w-0 flex-1 items-center gap-4">
+                <div className="relative min-w-0 flex-1">
                     <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 opacity-20 text-neutral-900 dark:text-white" />
                     <input
                       type="text"
@@ -366,7 +381,7 @@ export default function Prints() {
                       onClick={() => setIsToolsOpen(false)}
                       onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
                       placeholder="SEARCH PROJECTS..."
-                      className="w-full pl-12 pr-12 py-3 bg-white dark:bg-white/5 border border-black/5 dark:border-white/10 rounded-2xl text-[11px] font-black uppercase tracking-widest outline-none focus:border-blue-500 transition-all"
+                      className="w-full pl-12 pr-12 py-3 bg-white dark:bg-white/5 border border-black/5 dark:border-white/10 rounded-2xl text-[12px] font-bold uppercase tracking-widest outline-none focus:border-blue-500 transition-all"
                     />
                     {searchTerm && (
                       <button 
@@ -387,10 +402,10 @@ export default function Prints() {
             </div>
             {isAdmin && isAdminView ? (
               <>
-                <div className="absolute right-4 hidden items-center gap-1.5 xl:flex xl:right-8">
+                <div className="hidden shrink-0 items-center gap-1.5 lg:flex">
                   {renderHeaderActions()}
                 </div>
-                <div className="absolute right-4 top-1/2 z-[100] flex -translate-y-1/2 flex-col items-end gap-1.5 xl:hidden">
+                <div className="relative z-[100] flex shrink-0 flex-col items-end gap-1.5 lg:hidden">
                   <button
                     type="button"
                     onClick={() => setIsToolsOpen((isOpen) => !isOpen)}
@@ -409,7 +424,7 @@ export default function Prints() {
                 </div>
               </>
             ) : (
-              <div className="absolute right-4 top-1/2 z-[100] flex -translate-y-1/2 items-center xl:right-8">
+              <div className="relative z-[100] flex shrink-0 items-center">
                 {renderHeaderActions()}
               </div>
             )}
@@ -425,9 +440,9 @@ export default function Prints() {
             <div className="grid grid-cols-2 sm:grid-cols-4 sm:portrait:grid-cols-3 md:grid-cols-4 md:portrait:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-3 items-stretch">
               {/* --- Section Divider: Garage Projects --- */}
               {garageProjects.length > 0 && (
-                <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-3 backdrop-blur-md transition-[top] duration-300 ease-out will-change-[top] dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
+                <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-2 backdrop-blur-md transition-[top] duration-300 ease-out will-change-[top] dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
-                  <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Garage Projects</span>
+                  <span className="text-[13px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Garage Projects</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                 </div>
               )}
@@ -450,9 +465,9 @@ export default function Prints() {
 
               {/* --- Section Divider: Vault (Personal Projects) --- */}
               {(filteredVault.length > 0 || !(isAdmin && isAdminView)) && (
-                <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-3 backdrop-blur-md transition-[top] duration-300 ease-out will-change-[top] dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
+                <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-2 backdrop-blur-md transition-[top] duration-300 ease-out will-change-[top] dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
-                  <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">User Projects</span>
+                  <span className="text-[13px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">User Projects</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                 </div>
               )}
@@ -520,6 +535,7 @@ export default function Prints() {
 
       {/* MODALS */}
       {showFilamentModal && <FilamentManagerModal onClose={() => setShowFilamentModal(false)} />}
+      {showPrinterModal && <PrinterManagerModal onClose={() => setShowPrinterModal(false)} />}
       {showRatesModal && <RatesManagerModal onClose={() => setShowRatesModal(false)} />}
       {showPrintModal && <AddPrintModal onClose={closePrintModal} initialProject={editingPrintProject} />}
       <LoginPromptModal isOpen={isLoginPromptOpen} onClose={() => setIsLoginPromptOpen(false)} onLogin={() => { setLoginModalOpen(true); setIsLoginPromptOpen(false); }} onContinue={() => { setIsLoginPromptOpen(false); openCheckoutPage(itemsForCheckout, true); }} continueLabel="Check Price & Shipping" />

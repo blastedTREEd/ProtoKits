@@ -14,12 +14,26 @@ export default function Blueprints() {
   const removeFromBasket = useStore((state) => state.removeFromBasket);
   const isLoading = useStore((state) => state.isLoading);
   const loadBlueprints = useStore((state) => state.loadBlueprints);
+  const subscribeOrders = useStore((state) => state.subscribeOrders);
+  const user = useStore((state) => state.user);
+  const isAdmin = useStore((state) => state.isAdmin);
+  const isAdminView = useStore((state) => state.isAdminView);
   
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     loadBlueprints();
   }, [loadBlueprints]);
+
+  useEffect(() => {
+    if (!user?.uid) return undefined;
+
+    const unsubscribe = subscribeOrders({
+      uid: user.uid,
+      isAdminMode: isAdmin && isAdminView
+    });
+    return () => unsubscribe?.();
+  }, [subscribeOrders, user?.uid, isAdmin, isAdminView]);
 
   const filteredBlueprints = (blueprints || []).filter(p => 
     p.projectName?.toLowerCase().includes(searchTerm.toLowerCase()) ||

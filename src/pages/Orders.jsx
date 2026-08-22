@@ -2505,7 +2505,7 @@ export default function Orders() {
             <div className="max-w-7xl mx-auto px-4 md:px-8 h-full flex items-center justify-between gap-4">
               <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-2">
                 {tabData.map((tab) => (
-                  <button key={tab.id} onClick={() => { setActiveTab(tab.id); closeSelectedOrder(); }} className={`whitespace-nowrap px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest border transition-all ${activeTab === tab.id ? 'bg-blue-600 text-white border-blue-600 shadow-lg' : 'bg-transparent text-neutral-500 dark:text-neutral-300 border-black/10 dark:border-white/10 hover:border-blue-500/50'}`}>
+                  <button key={tab.id} onClick={() => { setActiveTab(tab.id); closeSelectedOrder(); }} className={`whitespace-nowrap px-4 py-2 rounded-xl text-[12px] font-black uppercase tracking-widest border transition-all ${activeTab === tab.id ? 'bg-blue-600 text-white border-blue-600 shadow-lg' : 'bg-transparent text-neutral-500 dark:text-neutral-300 border-black/10 dark:border-white/10 hover:border-blue-500/50'}`}>
                     {tab.label} ({tab.orders.length})
                   </button>
                 ))}
@@ -2538,10 +2538,10 @@ export default function Orders() {
                   return (
                     <div
                       key={row.key}
-                      className="sticky top-[116px] z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md dark:bg-[#0a0a0a]/90 md:top-[120px] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8"
+                      className="sticky top-[116px] z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-2 backdrop-blur-md dark:bg-[#0a0a0a]/90 md:top-[120px] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8"
                     >
                       <div className="h-px flex-1 bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
-                      <span className="select-none bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-[11px] font-black uppercase tracking-[0.2em] text-transparent">
+                      <span className="select-none bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-[13px] font-black uppercase tracking-[0.2em] text-transparent">
                         {row.label}
                       </span>
                       <div className="h-px flex-1 bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />

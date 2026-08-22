@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Package, Gift, Plus, Trash2, Box, ClockFading, Pencil, Search, Loader2, X, Wallet, AlertCircle, TrendingUp, Filter, Zap, ArrowBigDownDash, ArrowBigUpDash, ChevronDown, MoreHorizontal, Image as ImageIcon, Settings } from 'lucide-react';
+import { Package, Gift, Plus, Trash2, Box, ClockFading, Pencil, Search, Loader2, X, Wallet, AlertCircle, TrendingUp, Zap, Sparkles, ArrowBigDownDash, ArrowBigUpDash, ArrowBigRightDash, ArrowBigLeftDash, ChevronDown, MoreHorizontal, Image as ImageIcon, Settings } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
@@ -116,7 +116,7 @@ export default function Kits({ isActive = true }) {
   const { 
     isAdmin, isAdminView, kits: storeKits, deals, 
     isLoading, addKit,
-    user, isAnonymousUser, userOffers, notifyList, subscribeNotifyList, setLoginModalOpen, addToBasket,
+    user, isAnonymousUser, userOffers, notifyList, subscribeNotifyList, setLoginModalOpen, addToBasket, setToastMessage, priceBuiltOnhandKits,
     shippingSettings
   } = useStore();
 
@@ -138,6 +138,7 @@ export default function Kits({ isActive = true }) {
   const [kitToEdit, setKitToEdit] = useState(null);
   const [isSupplierBalancesModalOpen, setIsSupplierBalancesModalOpen] = useState(false);
   const [isSalesDashboardModalOpen, setIsSalesDashboardModalOpen] = useState(false);
+  const [isPricingBuiltKits, setIsPricingBuiltKits] = useState(false);
   const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
   const [itemsForCheckout, setItemsForCheckout] = useState([]); 
   const [isAdminToolsOpen, setIsAdminToolsOpen] = useState(false);
@@ -973,11 +974,32 @@ export default function Kits({ isActive = true }) {
   };
   
   const { isDarkMode, isSpectralMode } = useTheme();
+  const handlePriceBuiltOnhandKits = async () => {
+    if (isPricingBuiltKits) return;
+    if (!window.confirm('Update sell prices for all built on-hand kits using their cost prices?')) return;
+
+    setIsPricingBuiltKits(true);
+    try {
+      const result = await priceBuiltOnhandKits();
+      setToastMessage(
+        result.updatedStocks > 0
+          ? `Updated ${result.updatedStocks} built on-hand stock price${result.updatedStocks === 1 ? '' : 's'}.`
+          : 'No built on-hand stock prices needed updating.'
+      );
+    } catch (error) {
+      console.error('SG LOG: Failed to price built on-hand kits:', error);
+      setToastMessage('Unable to update built on-hand kit prices.');
+    } finally {
+      setIsPricingBuiltKits(false);
+    }
+  };
+
   const adminToolActions = [
     { id: 'add-kit', label: 'Add Kit', icon: Plus, tone: 'border-blue-500/20 bg-blue-500/10 text-blue-600 hover:bg-blue-500/20', onClick: () => setIsAddKitModalOpen(true) },
     { id: 'new-deal', label: 'New Deal', icon: Gift, tone: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20', onClick: () => setIsAddDealModalOpen(true) },
     { id: 'balances', label: 'Balances', icon: Wallet, tone: 'border-amber-500/20 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20', onClick: () => setIsSupplierBalancesModalOpen(true) },
     { id: 'sales', label: 'Sales', icon: TrendingUp, tone: 'border-indigo-500/20 bg-indigo-500/10 text-indigo-600 hover:bg-indigo-500/20', onClick: () => setIsSalesDashboardModalOpen(true) },
+    { id: 'price-built-onhand', label: 'Price Built Onhand', icon: Sparkles, tone: 'border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-600 hover:bg-fuchsia-500/20', onClick: handlePriceBuiltOnhandKits },
   ];
 
   const renderAdminToolButtons = () => adminToolActions.map(({ id, label, icon, tone, onClick }) => (
@@ -988,20 +1010,30 @@ export default function Kits({ isActive = true }) {
         setIsAdminToolsOpen(false);
         onClick();
       }}
-      className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border shadow-sm transition-all hover:scale-110 active:scale-95 ${tone}`}
+      disabled={id === 'price-built-onhand' && isPricingBuiltKits}
+      className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border shadow-sm transition-all hover:scale-110 active:scale-95 disabled:cursor-wait disabled:opacity-60 disabled:hover:scale-100 ${tone}`}
       aria-label={label}
       title={label}
+      aria-busy={id === 'price-built-onhand' && isPricingBuiltKits}
     >
-      {React.createElement(icon, { size: 20, strokeWidth: 2.5 })}
+      {React.createElement(id === 'price-built-onhand' && isPricingBuiltKits ? Loader2 : icon, {
+        size: 20,
+        strokeWidth: 2.5,
+        className: id === 'price-built-onhand' && isPricingBuiltKits ? 'animate-spin' : undefined
+      })}
     </button>
   ));
 
   const sortOptions = [
     { id: 'latest', label: 'Latest', icon: ClockFading, active: sortType === 'latest', nextSort: 'latest' },
-    { id: 'price', label: 'Price', icon: sortType === 'price-asc' ? ArrowBigUpDash : ArrowBigDownDash, active: sortType.startsWith('price-'), nextSort: sortType === 'price-asc' ? 'price-desc' : 'price-asc' },
-    { id: 'name', label: 'Name', icon: sortType === 'alpha-asc' ? ArrowBigUpDash : ArrowBigDownDash, active: sortType.startsWith('alpha-'), nextSort: sortType === 'alpha-asc' ? 'alpha-desc' : 'alpha-asc' },
-    { id: 'stock', label: 'Stock', icon: sortType === 'avail-asc' ? ArrowBigUpDash : ArrowBigDownDash, active: sortType.startsWith('avail-'), nextSort: sortType === 'avail-asc' ? 'avail-desc' : 'avail-asc' }
+    { id: 'price-asc', label: 'Price', icon: ArrowBigUpDash, active: sortType === 'price-asc', nextSort: 'price-asc' },
+    { id: 'price-desc', label: 'Price', icon: ArrowBigDownDash, active: sortType === 'price-desc', nextSort: 'price-desc' },
+    { id: 'name-asc', label: 'Name', icon: ArrowBigRightDash, active: sortType === 'alpha-asc', nextSort: 'alpha-asc' },
+    { id: 'name-desc', label: 'Name', icon: ArrowBigLeftDash, active: sortType === 'alpha-desc', nextSort: 'alpha-desc' },
+    { id: 'stock-asc', label: 'Stock', icon: ArrowBigUpDash, active: sortType === 'avail-asc', nextSort: 'avail-asc' },
+    { id: 'stock-desc', label: 'Stock', icon: ArrowBigDownDash, active: sortType === 'avail-desc', nextSort: 'avail-desc' }
   ];
+  const activeSortOption = sortOptions.find(option => option.active) || sortOptions[0];
 
   const sectionHeaderPosition = isContentHeaderHidden
     ? 'top-[56px] sm:top-[60px] md:top-[120px]'
@@ -1032,7 +1064,7 @@ export default function Kits({ isActive = true }) {
       >
         <div className="relative rounded-[2.1rem] flex flex-col h-full p-3 bg-white dark:bg-[var(--color-surface)]">
           <div className="absolute top-4 left-0 z-50 flex flex-col items-start">
-            <div className={`px-1.5 py-0.5 font-bold uppercase tracking-tigther text-[10px] md:text-[11px] ${isUrgentDeal ? 'bg-red-500 border-red-400' : 'bg-emerald-500 border-emerald-400'} text-white shadow-lg`}>
+            <div className={`px-1.5 py-0.5 font-bold uppercase tracking-tigther text-[13px] ${isUrgentDeal ? 'bg-red-500 border-red-400' : 'bg-emerald-500 border-emerald-400'} text-white shadow-lg`}>
               {countdownLabel}
             </div>
           </div>
@@ -1042,7 +1074,7 @@ export default function Kits({ isActive = true }) {
                 <div key={kit?.id || idx} className={`relative w-full h-full rounded-xl overflow-hidden ${getPreviewTileClass(previewKits.length, idx)}`}>
                   <img src={(() => { const id = kit?.image; if (!id) return ''; if (id.startsWith('data:') || id.startsWith('http')) return id; const match = (kit?.images || []).find(img => img.id === id); return match?.url || id; })()} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt="" />
                   {idx === 3 && remainingCount > 0 && (
-                    <div className="absolute inset-0 flex items-center justify-center text-white text-[13px] font-black italic drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]">
+                    <div className="absolute inset-0 flex items-center justify-center text-white text-[14px] font-bold italic drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]">
                       +{remainingCount}
                     </div>
                   )}
@@ -1052,14 +1084,14 @@ export default function Kits({ isActive = true }) {
           </div>
           <div className="px-1 text-center flex-1 flex flex-col min-w-0">
             <div className=" flex items-center justify-center min-w-0">
-              <h3 className="text-[12px] lg:text-[13px] font-bold uppercase tracking-tighter leading-tight line-clamp-2 w-full group-hover:text-emerald-600 transition-colors" title={deal.name}>{deal.name}</h3>
+              <h3 className="text-[14px] font-bold uppercase tracking-tighter leading-tight line-clamp-2 w-full group-hover:text-emerald-600 transition-colors" title={deal.name}>{deal.name}</h3>
             </div>
             <div className="mt-auto min-w-0 min-h-[50px] flex flex-col justify-end">
               <div className="flex items-center justify-between gap-2 min-w-0 w-full pb-1">
                 <div className="flex flex-col items-start pb-1 min-w-0 flex-1 text-left">
-                  <span className={`text-[13px] md:text-[15px] lg:text-[13px] font-black uppercase tracking-tighter truncate w-full block ${(isAdmin && isAdminView) ? 'text-blue-500 dark:text-blue-400' : 'text-emerald-500 dark:text-emerald-400'}`}>{(isAdmin && isAdminView) ? 'EDIT DEAL' : getDealGrabLabel(deal)}</span>
+                  <span className={`text-[14px] font-bold uppercase tracking-tighter truncate w-full block ${(isAdmin && isAdminView) ? 'text-blue-500 dark:text-blue-400' : 'text-emerald-500 dark:text-emerald-400'}`}>{(isAdmin && isAdminView) ? 'EDIT DEAL' : getDealGrabLabel(deal)}</span>
                   <div className="flex items-baseline gap-1 w-full min-w-0">
-                    <span className="text-[13px] md:text-[15px] lg:text-[13px] font-black italic tracking-tighter leading-none text-amber-500 dark:text-amber-400">₱{(deal.bundlePrice || 0).toLocaleString()}</span>
+                    <span className="text-[14px] font-bold italic tracking-tighter leading-none text-amber-500 dark:text-amber-400">₱{(deal.bundlePrice || 0).toLocaleString()}</span>
                   </div>
                 </div>
                 {(isAdmin && isAdminView) ? (
@@ -1093,12 +1125,9 @@ export default function Kits({ isActive = true }) {
     <PageTemplate isDarkMode={isDarkMode}>
       <div className="min-h-screen w-full bg-neutral-50 dark:bg-[#0a0a0a] transition-colors duration-500 pb-20 font-sans text-left">
         <div className={`sticky top-[56px] sm:top-[60px] z-[100] h-[60px] overflow-visible bg-neutral-50/90 dark:bg-[#0a0a0a]/90 backdrop-blur-md border-b border-black/5 dark:border-white/5 transition-transform duration-300 ease-out will-change-transform ${isContentHeaderHidden ? '-translate-y-full md:translate-y-0' : 'translate-y-0'}`}>
-          <div className="h-full w-full px-4 lg:px-8 flex items-center justify-center gap-4">
-            <div className="hidden lg:block absolute left-8">
-                <h1 className="text-sm font-black italic uppercase tracking-tighter text-neutral-900 dark:text-white leading-none whitespace-nowrap">GARAGE KITS</h1>
-            </div>
-            <div className={`flex flex-1 max-w-2xl items-center gap-4 ${(isAdmin && isAdminView) ? 'pr-12 xl:pr-0' : 'pr-0'}`}>
-                  <div className="relative flex-1">
+          <div className="h-full w-full px-4 md:px-8 flex items-center gap-4">
+            <div className="flex min-w-0 flex-1 items-center gap-4">
+                  <div className="relative min-w-0 flex-1">
                       <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 opacity-20 text-neutral-900 dark:text-white" />
                       <input
                       type="text"
@@ -1116,7 +1145,7 @@ export default function Kits({ isActive = true }) {
                         }
                       }}
                       placeholder="SEARCH KITS OR SERIES..."
-                      className="w-full pl-12 pr-12 py-3 bg-white dark:bg-white/5 border border-black/5 dark:border-white/10 rounded-2xl text-[11px] font-black uppercase tracking-widest outline-none focus:border-blue-500 transition-all"
+                      className="w-full pl-12 pr-12 py-3 bg-white dark:bg-white/5 border border-black/5 dark:border-white/10 rounded-2xl text-[12px] font-bold uppercase tracking-widest outline-none focus:border-blue-500 transition-all"
                       />
                       {inputValue && (
                         <button onClick={() => setInputValue("")} className="absolute right-4 top-1/2 -translate-y-1/2 p-1 rounded-full bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20 transition-colors">
@@ -1131,20 +1160,21 @@ export default function Kits({ isActive = true }) {
                         setIsAdminToolsOpen(false);
                         setIsSortOpen(!isSortOpen);
                       }}
-                      className="flex items-center gap-2 px-4 py-3 bg-black/5 dark:bg-white/5 rounded-2xl border border-black/5 dark:border-white/10 shrink-0 z-10 hover:bg-blue-600 transition-all active:scale-95 group"
+                      className={`flex items-center gap-2 px-4 py-3 rounded-2xl border shrink-0 z-10 transition-all active:scale-95 group ${isSortOpen ? 'bg-blue-600 text-white border-blue-600' : 'bg-black/5 dark:bg-white/5 border-black/5 dark:border-white/10 hover:bg-blue-600 hover:text-white'}`}
                     >
-                        <Filter 
-                          size={16} 
-                          className={`transition-all ${isSortOpen ? "text-blue-600 fill-blue-600" : "text-black dark:text-white opacity-70"} group-hover:text-white group-hover:fill-white group-hover:opacity-100`} 
-                        />
-                        <span className="text-[11px] font-black uppercase tracking-widest hidden sm:inline text-black dark:text-white group-hover:text-white">Sort</span>
-                        <ChevronDown size={12} className={`text-black dark:text-white opacity-40 transition-transform ${isSortOpen ? 'rotate-180' : ''} group-hover:text-white group-hover:opacity-100`} />
+                        {React.createElement(activeSortOption.icon, {
+                          size: 20,
+                          strokeWidth: 2.5,
+                          className: `transition-all ${isSortOpen ? 'text-white' : 'text-black dark:text-white opacity-70'} group-hover:text-white group-hover:opacity-100`
+                        })}
+                        <span className={`text-[12px] font-bold uppercase tracking-widest hidden sm:inline ${isSortOpen ? 'text-white' : 'text-black dark:text-white'} group-hover:text-white group-hover:opacity-100`}>{activeSortOption.label}</span>
+                        <ChevronDown size={12} className={`${isSortOpen ? 'text-white opacity-100' : 'text-black dark:text-white opacity-40'} transition-transform ${isSortOpen ? 'rotate-180' : ''} group-hover:text-white group-hover:opacity-100`} />
                     </button>
 
                     {isSortOpen && (
                       <div className="absolute right-0 top-full mt-2 w-max min-w-full bg-white dark:bg-neutral-900 border border-black/5 dark:border-white/10 rounded-2xl shadow-2xl z-[100] overflow-hidden animate-in fade-in zoom-in duration-200">
                         <div className="p-2 space-y-1">
-                          {sortOptions.map((option) => (
+                          {sortOptions.filter(option => !option.active).map((option) => (
                             <button
                               key={option.id}
                               onClick={() => {
@@ -1152,14 +1182,14 @@ export default function Kits({ isActive = true }) {
                                  setIsSortOpen(false);
                                  window.scrollTo({ top: 0, behavior: 'smooth' });
                               }}
-                              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-[12px] font-bold uppercase tracking-widest transition-all ${
                                 option.active
                                   ? 'bg-blue-600 text-white' 
-                                  : 'hover:bg-black/5 dark:hover:bg-white/5 opacity-60 hover:opacity-100'
+                                  : 'hover:bg-black/5 dark:hover:bg-white/5'
                               }`}
                             >
-                              {React.createElement(option.icon, { size: 14 })}
-                              <span className="whitespace-nowrap">{option.label}</span>
+                              {React.createElement(option.icon, { size: 20, strokeWidth: 2.5 })}
+                              <span className="whitespace-nowrap text-[12px] font-bold">{option.label}</span>
                             </button>
                           ))}
                         </div>
@@ -1169,10 +1199,10 @@ export default function Kits({ isActive = true }) {
               </div>
               {isAdmin && isAdminView && (
                 <>
-                  <div className="absolute right-4 hidden items-center gap-1.5 xl:flex xl:right-8">
+                  <div className="hidden shrink-0 items-center gap-1.5 lg:flex">
                     {renderAdminToolButtons()}
                   </div>
-                  <div className="absolute right-4 top-1/2 z-[100] flex -translate-y-1/2 flex-col items-end gap-1.5 xl:hidden">
+                  <div className="relative z-[100] flex shrink-0 flex-col items-end gap-1.5 lg:hidden">
                     <button
                       type="button"
                       onClick={() => setIsAdminToolsOpen((isOpen) => !isOpen)}
@@ -1198,9 +1228,9 @@ export default function Kits({ isActive = true }) {
             <div className="grid grid-cols-2 sm:grid-cols-4 sm:portrait:grid-cols-3 md:grid-cols-4 md:portrait:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-3 items-start justify-items-center">
               {/* --- Section Divider: Deals --- */}
               {(filteredDeals.length > 0 || activeOfferKits.length > 0 || kitGroups.clearance.length > 0) && (
-                <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-3 backdrop-blur-md transition-[top] duration-300 ease-out will-change-[top] dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
+                <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-2 backdrop-blur-md transition-[top] duration-300 ease-out will-change-[top] dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
-                  <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Deals</span>
+                  <span className="text-[13px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Deals</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                 </div>
               )}
@@ -1230,7 +1260,7 @@ export default function Kits({ isActive = true }) {
                   >
                     <div className="relative rounded-[2.1rem] flex flex-col h-full p-3 bg-white dark:bg-[var(--color-surface)]">
                       <div className="absolute top-4 left-0 z-50 flex flex-col items-start">
-                        <div className={`px-1.5 py-0.5 font-bold uppercase tracking-tigther text-[10px] md:text-[11px] ${isUrgentDeal ? 'bg-red-500 border-red-400' : 'bg-emerald-500 border-emerald-400'} text-white shadow-lg`}>
+                        <div className={`px-1.5 py-0.5 font-bold uppercase tracking-tigther text-[13px] ${isUrgentDeal ? 'bg-red-500 border-red-400' : 'bg-emerald-500 border-emerald-400'} text-white shadow-lg`}>
                            {countdownLabel}
                         </div>
                       </div>
@@ -1240,7 +1270,7 @@ export default function Kits({ isActive = true }) {
                               <div key={kit?.id || idx} className={`relative w-full h-full rounded-xl overflow-hidden ${getPreviewTileClass(previewKits.length, idx)}`}>
                                 <img src={(() => { const id = kit?.image; if (!id) return ''; if (id.startsWith('data:') || id.startsWith('http')) return id; const match = (kit?.images || []).find(img => img.id === id); return match?.url || id; })()} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt="" />
                                 {idx === 3 && remainingCount > 0 && (
-                                  <div className="absolute inset-0 flex items-center justify-center text-white text-[13px] font-black italic drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]">
+                                  <div className="absolute inset-0 flex items-center justify-center text-white text-[14px] font-bold italic drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]">
                                     +{remainingCount}
                                   </div>
                                 )}
@@ -1250,14 +1280,14 @@ export default function Kits({ isActive = true }) {
                       </div>
                       <div className="px-1 text-center flex-1 flex flex-col min-w-0">
                           <div className=" flex items-center justify-center min-w-0">
-                            <h3 className="text-[12px] lg:text-[13px] font-bold uppercase tracking-tighter leading-tight line-clamp-2 w-full group-hover:text-emerald-600 transition-colors" title={deal.name}>{deal.name}</h3>
+                            <h3 className="text-[14px] font-bold uppercase tracking-tighter leading-tight line-clamp-2 w-full group-hover:text-emerald-600 transition-colors" title={deal.name}>{deal.name}</h3>
                           </div>
                           <div className="mt-auto min-w-0 min-h-[50px] flex flex-col justify-end">
                             <div className="flex items-center justify-between gap-2 min-w-0 w-full pb-1">
                                 <div className="flex flex-col items-start pb-1 min-w-0 flex-1 text-left">
-                                  <span className={`text-[13px] md:text-[15px] lg:text-[13px] font-black uppercase tracking-tighter truncate w-full block ${(isAdmin && isAdminView) ? 'text-blue-500 dark:text-blue-400' : 'text-emerald-500 dark:text-emerald-400'}`}>{(isAdmin && isAdminView) ? 'EDIT DEAL' : getDealGrabLabel(deal)}</span>
+                                  <span className={`text-[14px] font-bold uppercase tracking-tighter truncate w-full block ${(isAdmin && isAdminView) ? 'text-blue-500 dark:text-blue-400' : 'text-emerald-500 dark:text-emerald-400'}`}>{(isAdmin && isAdminView) ? 'EDIT DEAL' : getDealGrabLabel(deal)}</span>
                                   <div className="flex items-baseline gap-1 w-full min-w-0">
-                                     <span className="text-[13px] md:text-[15px] lg:text-[13px] font-black italic tracking-tighter leading-none text-amber-500 dark:text-amber-400">₱{(deal.bundlePrice || 0).toLocaleString()}</span>
+                                     <span className="text-[14px] font-bold italic tracking-tighter leading-none text-amber-500 dark:text-amber-400">₱{(deal.bundlePrice || 0).toLocaleString()}</span>
                                   </div>
                                 </div>
                                 {(isAdmin && isAdminView) ? (
@@ -1351,9 +1381,9 @@ export default function Kits({ isActive = true }) {
 
               {/* --- Section Divider: Available Kits --- */}
               {kitGroups.available.length > 0 && (
-                <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-3 backdrop-blur-md transition-[top] duration-300 ease-out will-change-[top] dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
+                <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-2 backdrop-blur-md transition-[top] duration-300 ease-out will-change-[top] dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
-                  <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Available Kits</span>
+                  <span className="text-[13px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Available Kits</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                 </div>
               )}
@@ -1389,9 +1419,9 @@ export default function Kits({ isActive = true }) {
 
               {/* --- Section Divider: Collection --- */}
               {kitGroups.collection.length > 0 && (
-                <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-3 backdrop-blur-md transition-[top] duration-300 ease-out will-change-[top] dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
+                <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-2 backdrop-blur-md transition-[top] duration-300 ease-out will-change-[top] dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
-                  <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Collection</span>
+                  <span className="text-[13px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Collection</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                 </div>
               )}
@@ -1427,9 +1457,9 @@ export default function Kits({ isActive = true }) {
 
               {/* --- Section Divider: Out of Stock --- */}
               {kitGroups.outOfStock.length > 0 && (
-                <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-3 backdrop-blur-md transition-[top] duration-300 ease-out will-change-[top] dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
+                <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-2 backdrop-blur-md transition-[top] duration-300 ease-out will-change-[top] dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
-                  <span className="text-[11px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Out of Stock</span>
+                  <span className="text-[13px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Out of Stock</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                 </div>
               )}
@@ -1469,7 +1499,7 @@ export default function Kits({ isActive = true }) {
                 Array.from({ length: 15 }).map((_, i) => <div key={`skeleton-init-${i}`} className="w-full h-full"><KitSkeleton /></div>)
               ) : allFilteredKits.length > 0 && !isLoading && (
                 <div className="col-span-2 sm:col-span-3 lg:col-span-4 xl:col-span-5 2xl:col-span-5 py-12 text-center">
-                  <p className="text-[11px] font-black uppercase tracking-widest text-neutral-900 dark:text-white">
+                  <p className="text-[13px] font-bold uppercase tracking-widest text-neutral-900 dark:text-white">
                     {searchTerm ? (
                       "All matching kits loaded!"
                     ) : (!isAdminView ? (
@@ -1493,7 +1523,7 @@ export default function Kits({ isActive = true }) {
             {allFilteredKits.length === 0 && !isLoading && searchTerm !== "" && (
               <div className="py-20 flex flex-col items-center justify-center opacity-20 text-neutral-900 dark:text-white">
                 <Search size={48} strokeWidth={1} />
-                <p className="mt-4 font-black uppercase tracking-widest text-sm">No results found for "{searchTerm}"</p>
+                <p className="mt-4 font-bold uppercase tracking-widest text-[13px]">No results found for "{searchTerm}"</p>
               </div>
             )}
           </main>

@@ -5,6 +5,7 @@ import {
   Dumbbell, Scale, Clock, Search, Printer, Palette, UserRoundCog, Dot
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
+import { isFilamentCompatibleWithPrinter } from '../../utils/printerCompatibility';
 import MaterialCard from './MaterialCard';
 
 export default function ProjectPrepare({ 
@@ -606,6 +607,8 @@ export default function ProjectPrepare({
     let list = [...filaments]
       .filter(f => {
         const fId = String(f.id);
+
+        if (!isFilamentCompatibleWithPrinter(selectedPrinter, f)) return false;
         
         // CRITICAL: Cannot pick the same physical spool for two different slots
         if (currentModelPaletteIds.has(fId)) return false;
@@ -618,9 +621,11 @@ export default function ProjectPrepare({
     if (matSearchQuery.trim()) {
       const q = matSearchQuery.toLowerCase();
       list = list.filter(f => 
-        f.name?.toLowerCase().includes(q) || 
-        f.brand?.toLowerCase().includes(q) || 
-        f.type?.toLowerCase().includes(q)
+        isFilamentCompatibleWithPrinter(selectedPrinter, f) && (
+          f.name?.toLowerCase().includes(q) ||
+          f.brand?.toLowerCase().includes(q) ||
+          f.type?.toLowerCase().includes(q)
+        )
       );
     }
 
@@ -629,7 +634,7 @@ export default function ProjectPrepare({
         if (String(b.id) === activeMatId) return 1;
         return (parseFloat(b.remaining) || 0) - (parseFloat(a.remaining) || 0);
       });
-  }, [allFilaments, activeModel, currentMaterialId, models, selectedFilaments, matSearchQuery, activeMaterialSlotsData]);
+  }, [allFilaments, activeModel, currentMaterialId, models, selectedFilaments, matSearchQuery, activeMaterialSlotsData, selectedPrinter]);
 
   const updateModelData = (id, field, value) => {
     if (field === 'materialId') {

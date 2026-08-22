@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import MaterialCard from './MaterialCard';
 import { useStore } from '../../store/useStore';
+import { isFilamentCompatibleWithPrinter } from '../../utils/printerCompatibility';
 
 export default function ProjectPreview({ 
   allFilaments = [], 
@@ -149,6 +150,8 @@ export default function ProjectPreview({
     let list = [...filaments]
       .filter(f => {
         const fId = String(f.id);
+
+        if (!isFilamentCompatibleWithPrinter(selectedPrinter, f)) return false;
         
         // Exclude current material of active slot
         if (fId === String(currentMaterialId)) return false;
@@ -166,6 +169,7 @@ export default function ProjectPreview({
       const q = matSearchQuery.toLowerCase();
       // Search across ALL filaments, filter out current
       list = [...filaments].filter(f => 
+        isFilamentCompatibleWithPrinter(selectedPrinter, f) &&
         (f.name?.toLowerCase().includes(q) || 
          f.brand?.toLowerCase().includes(q) || 
          f.type?.toLowerCase().includes(q)) &&
@@ -193,7 +197,7 @@ export default function ProjectPreview({
         if (String(b.id) === activeMatId) return 1;
         return (parseFloat(b.remaining) || 0) - (parseFloat(a.remaining) || 0);
       });
-  }, [allFilaments, activePlate, activeMaterialSlot, activeMaterialSlotsData, plates, selectedFilaments, matSearchQuery, currentMaterialId]);
+  }, [allFilaments, activePlate, activeMaterialSlot, activeMaterialSlotsData, plates, selectedFilaments, matSearchQuery, currentMaterialId, selectedPrinter]);
 
   // --- 3. UPDATERS & NAVIGATION ---
   const updatePlateData = useCallback((id, field, value) => {

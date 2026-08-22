@@ -17,6 +17,7 @@ import {
   PackagePlus,
   Save,
   Search,
+  Sparkles,
   Tag,
   Trash2,
   Truck,
@@ -2784,18 +2785,38 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                                                 {masterForm.images.map((image) => (
                                                     <div key={image.id} className="rounded-2xl border border-white/10 p-2">
+                                                        <div className="relative aspect-square w-full overflow-hidden rounded-xl bg-black/20">
                                                         <button
                                                             type="button"
                                                             onClick={() => setPreviewAsset({ url: image.url, label: image.type })}
-                                                            className="relative aspect-square w-full overflow-hidden rounded-xl bg-black/20"
+                                                            className="absolute inset-0 w-full"
                                                         >
                                                             <img src={image.url} alt={image.type} className="h-full w-full object-cover" />
-                                                            {image.isGridImage && (
-                                                                <span className="absolute left-2 top-2 rounded-full bg-blue-600 px-2 py-1 text-[8px] font-black uppercase tracking-widest text-white">
-                                                                    Grid
-                                                                </span>
-                                                            )}
                                                         </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setMasterGridImage(image.id)}
+                                                            aria-pressed={Boolean(image.isGridImage)}
+                                                            aria-label={image.isGridImage ? 'Product grid image selected' : 'Set as product grid image'}
+                                                            title={image.isGridImage ? 'Product grid image' : 'Set as product grid image'}
+                                                            className={`absolute left-2 top-2 z-10 inline-flex h-7 w-7 items-center justify-center rounded-full border shadow-sm transition-colors ${
+                                                                image.isGridImage
+                                                                    ? 'border-blue-600 bg-blue-600 text-white'
+                                                                    : 'border-white/80 bg-white/90 text-neutral-800 hover:border-blue-600 hover:bg-blue-600 hover:text-white'
+                                                            }`}
+                                                        >
+                                                            <Sparkles size={14} strokeWidth={2.5} />
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => removeMasterImage(image.id)}
+                                                            aria-label="Delete master photo"
+                                                            title="Delete master photo"
+                                                            className="absolute right-2 top-2 z-10 inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/80 bg-white/90 text-red-500 shadow-sm transition-colors hover:border-red-500 hover:bg-red-500 hover:text-white"
+                                                        >
+                                                            <X size={14} strokeWidth={3} />
+                                                        </button>
+                                                        </div>
                                                         <button
                                                             type="button"
                                                             aria-pressed={image.type === 'BOX ART'}
@@ -2803,7 +2824,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                                 image.id,
                                                                 image.type === 'BOX ART' ? 'PROMO IMAGE' : 'BOX ART'
                                                             )}
-                                                            className={`mt-2 flex h-9 w-full items-center justify-center rounded-xl border px-2 text-[8px] font-black uppercase tracking-widest leading-none outline-none transition-colors ${
+                                                            className={`mt-2 flex h-9 w-full items-center justify-center rounded-xl border px-2 text-[10px] font-black uppercase tracking-widest leading-none outline-none transition-colors ${
                                                                 image.type === 'BOX ART'
                                                                     ? 'border-blue-600 bg-blue-600 text-white'
                                                                     : `${inputClass} hover:border-blue-500 hover:text-blue-600`
@@ -2811,26 +2832,6 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                         >
                                                             {image.type === 'BOX ART' ? 'BOX ART' : 'PROMO IMAGE'}
                                                         </button>
-                                                        <div className="mt-2 grid grid-cols-[1fr_auto] gap-2">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => setMasterGridImage(image.id)}
-                                                                className={`rounded-xl px-2 py-2 text-[8px] font-black uppercase tracking-widest ${
-                                                                    image.isGridImage
-                                                                        ? 'bg-blue-600 text-white'
-                                                                        : 'border border-white/10 opacity-70'
-                                                                }`}
-                                                            >
-                                                                Product Grid
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => removeMasterImage(image.id)}
-                                                                className="rounded-xl border border-white/10 p-2 text-red-500 opacity-70 transition-all hover:opacity-100"
-                                                            >
-                                                                <Trash2 size={13} />
-                                                            </button>
-                                                        </div>
                                                     </div>
                                                 ))}
                                             </div>

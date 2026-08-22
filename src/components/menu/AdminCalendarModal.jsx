@@ -1,8 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion as Motion } from 'framer-motion';
 import { AlertCircle, Calendar, CheckCircle2, Clock3, Printer, Truck, X } from 'lucide-react';
-import { collection, onSnapshot } from 'firebase/firestore';
-import { db } from '../../firebase/firebase';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
 import GarageCalendar, { getProjectScheduleDates } from '../calculator/GarageCalendar';
@@ -58,10 +56,10 @@ export default function AdminCalendarModal({ isOpen, onClose, embedded = false, 
   const { isDarkMode } = useTheme();
   const shippingSettings = useStore((state) => state.shippingSettings);
   const publishCheckoutSettings = useStore((state) => state.publishCheckoutSettings);
+  const orders = useStore((state) => state.orders);
+  const subscribeOrders = useStore((state) => state.subscribeOrders);
   const [scheduleType, setScheduleType] = useState('printing');
   const [availabilitySchedule, setAvailabilitySchedule] = useState(() => normalizeAvailabilitySchedule());
-  const [orders, setOrders] = useState([]);
-  const [isLoadingOrders, setIsLoadingOrders] = useState(false);
   const [saveError, setSaveError] = useState('');
 
   useEffect(() => {
@@ -73,19 +71,8 @@ export default function AdminCalendarModal({ isOpen, onClose, embedded = false, 
   useEffect(() => {
     if (!isOpen) return undefined;
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setIsLoadingOrders(true);
-    const unsubscribe = onSnapshot(collection(db, 'orders'), (snapshot) => {
-      setOrders(snapshot.docs.map((orderDoc) => ({ id: orderDoc.id, ...orderDoc.data() })));
-      setIsLoadingOrders(false);
-    }, (error) => {
-      console.error('SG LOG: Admin calendar order queue error:', error);
-      setOrders([]);
-      setIsLoadingOrders(false);
-    });
-
-    return unsubscribe;
-  }, [isOpen]);
+    return subscribeOrders({ isAdminMode: true });
+  }, [isOpen, subscribeOrders]);
 
   const queueProjects = useMemo(() => getQueueProjects(orders, availabilitySchedule), [orders, availabilitySchedule]);
   const unavailableDates = useMemo(
@@ -148,8 +135,8 @@ export default function AdminCalendarModal({ isOpen, onClose, embedded = false, 
                     <Calendar size={20} strokeWidth={3} />
                   </div>
                   <div>
-                    <h2 className="text-lg font-black uppercase italic tracking-tight">Garage Calendar</h2>
-                    <p className="text-[10px] font-black uppercase tracking-[0.18em] opacity-45">Queue &amp; availability</p>
+                    <h2 className="text-[15px] font-black uppercase italic tracking-tight">Garage Calendar</h2>
+                    <p className="text-[13px] font-black uppercase tracking-[0.18em] opacity-45">Queue &amp; availability</p>
                   </div>
                 </div>
                 <button
@@ -179,7 +166,7 @@ export default function AdminCalendarModal({ isOpen, onClose, embedded = false, 
 
                 <aside className="space-y-6 p-5 sm:p-7">
                   <div>
-                    <p className="mb-3 text-[10px] font-black uppercase tracking-[0.2em] opacity-45">Manage availability</p>
+                    <p className="mb-3 text-[13px] font-black uppercase tracking-[0.2em] opacity-45">Manage availability</p>
                     <div className="grid grid-cols-2 gap-2">
                       {scheduleOptions.map(({ id, label }) => {
                         const isSelected = scheduleType === id;
@@ -188,7 +175,7 @@ export default function AdminCalendarModal({ isOpen, onClose, embedded = false, 
                             key={id}
                             type="button"
                             onClick={() => setScheduleType(id)}
-                            className={`flex items-center justify-center gap-2 rounded-2xl border px-3 py-3 text-[11px] font-black uppercase tracking-widest transition ${isSelected ? 'border-blue-500 bg-blue-500 text-white shadow-lg shadow-blue-500/20' : 'border-black/10 hover:border-blue-500/40 dark:border-white/10'}`}
+                            className={`flex items-center justify-center gap-2 rounded-2xl border px-3 py-3 text-[13px] font-black uppercase tracking-widest transition ${isSelected ? 'border-blue-500 bg-blue-500 text-white shadow-lg shadow-blue-500/20' : 'border-black/10 hover:border-blue-500/40 dark:border-white/10'}`}
                           >
                             {id === 'printing' ? <Printer size={15} /> : <Truck size={15} />}
                             {label}
@@ -196,14 +183,14 @@ export default function AdminCalendarModal({ isOpen, onClose, embedded = false, 
                         );
                       })}
                     </div>
-                    <p className="mt-3 rounded-2xl bg-blue-500/10 p-3 text-[11px] font-bold leading-relaxed text-blue-700 dark:text-blue-300">
+                    <p className="mt-3 rounded-2xl bg-blue-500/10 p-3 text-[13px] font-bold leading-relaxed text-blue-700 dark:text-blue-300">
                       Tap a future day to toggle {scheduleType} availability. Tap a weekday header to close that weekday every week. Green days are available; red days are unavailable or occupied.
                     </p>
-                    <p className="mt-2 text-[10px] font-black uppercase tracking-widest opacity-45">
+                    <p className="mt-2 text-[13px] font-black uppercase tracking-widest opacity-45">
                       {unavailableDates.size} date override{unavailableDates.size === 1 ? '' : 's'} · {unavailableWeekdays.size} weekly closure{unavailableWeekdays.size === 1 ? '' : 's'}
                     </p>
                     {saveError && (
-                      <p className="mt-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-red-500">
+                      <p className="mt-2 flex items-center gap-2 text-[13px] font-black uppercase tracking-widest text-red-500">
                         <AlertCircle size={13} />
                         {saveError}
                       </p>
@@ -213,27 +200,25 @@ export default function AdminCalendarModal({ isOpen, onClose, embedded = false, 
                   <div>
                     <div className="mb-3 flex items-center justify-between gap-3">
                       <div>
-                        <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-45">Print queue</p>
-                        <h3 className="text-xl font-black italic">{queueProjects.length} scheduled project{queueProjects.length === 1 ? '' : 's'}</h3>
+                        <p className="text-[13px] font-black uppercase tracking-[0.2em] opacity-45">Print queue</p>
+                        <h3 className="text-[15px] font-black italic">{queueProjects.length} scheduled project{queueProjects.length === 1 ? '' : 's'}</h3>
                       </div>
                       <Clock3 size={20} className="text-blue-500" />
                     </div>
 
                     <div className="space-y-2">
-                      {isLoadingOrders ? (
-                        <div className="rounded-2xl bg-black/5 p-4 text-[10px] font-black uppercase tracking-widest opacity-50 dark:bg-white/5">Loading queue...</div>
-                      ) : queueProjects.length === 0 ? (
-                        <div className="rounded-2xl bg-black/5 p-4 text-[10px] font-black uppercase tracking-widest opacity-50 dark:bg-white/5">No active projects in queue.</div>
+                      {queueProjects.length === 0 ? (
+                        <div className="rounded-2xl bg-black/5 p-4 text-[13px] font-black uppercase tracking-widest opacity-50 dark:bg-white/5">No active projects in queue.</div>
                       ) : queueProjects.map((project) => (
                         <div key={project.id} className="rounded-2xl border border-black/5 bg-black/[0.025] p-3 dark:border-white/10 dark:bg-white/[0.03]">
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
-                              <p className="truncate text-[12px] font-black uppercase italic">{project.projectName}</p>
-                              <p className="mt-1 truncate text-[10px] font-bold uppercase opacity-50">{project.orderId} · {project.buyerName}</p>
+                              <p className="truncate text-[14px] font-black uppercase italic">{project.projectName}</p>
+                              <p className="mt-1 truncate text-[13px] font-bold uppercase opacity-50">{project.orderId} · {project.buyerName}</p>
                             </div>
-                            <span className="shrink-0 rounded-full bg-blue-500/10 px-2 py-1 text-[9px] font-black uppercase text-blue-600 dark:text-blue-300">{project.days} day{project.days === 1 ? '' : 's'}</span>
+                            <span className="shrink-0 rounded-full bg-blue-500/10 px-2 py-1 text-[13px] font-black uppercase text-blue-600 dark:text-blue-300">{project.days} day{project.days === 1 ? '' : 's'}</span>
                           </div>
-                          <div className="mt-2 flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest opacity-45">
+                          <div className="mt-2 flex items-center gap-1.5 text-[13px] font-black uppercase tracking-widest opacity-45">
                             <Clock3 size={11} />
                             Queued {formatAvailabilityDate(project.createdAt)}
                           </div>
@@ -241,7 +226,7 @@ export default function AdminCalendarModal({ isOpen, onClose, embedded = false, 
                             const scheduledStart = fromDateKey(project.scheduledDateKeys[0]);
                             const scheduledEnd = fromDateKey(project.scheduledDateKeys[project.scheduledDateKeys.length - 1]);
                             return (
-                              <div className="mt-1 text-[9px] font-black uppercase tracking-widest text-blue-600 dark:text-blue-300">
+                              <div className="mt-1 text-[13px] font-black uppercase tracking-widest text-blue-600 dark:text-blue-300">
                                 Scheduled {formatAvailabilityDate(scheduledStart)}{scheduledEnd && scheduledEnd.getTime() !== scheduledStart?.getTime() ? ` – ${formatAvailabilityDate(scheduledEnd)}` : ''}
                               </div>
                             );
@@ -251,7 +236,7 @@ export default function AdminCalendarModal({ isOpen, onClose, embedded = false, 
                     </div>
                   </div>
 
-                  <div className="flex items-start gap-2 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-[10px] font-bold leading-relaxed text-emerald-700 dark:text-emerald-300">
+                  <div className="flex items-start gap-2 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-[13px] font-bold leading-relaxed text-emerald-700 dark:text-emerald-300">
                     <CheckCircle2 size={15} className="mt-0.5 shrink-0" />
                     Project occupancy is calculated from active orders, using the same calendar shown in user projects.
                   </div>

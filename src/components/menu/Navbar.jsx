@@ -837,7 +837,7 @@ return (
         <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 hidden sm:flex items-center gap-6 lg:gap-8">
           <Link to="/" onClick={(e) => handleNavClick('/', e)} className="relative flex flex-col md:flex-row items-center justify-center gap-1 font-bold transition-colors group">
             <Home size={specs.utilIcon} className={location.pathname === '/' ? 'text-blue-500' : 'text-neutral-400 dark:text-neutral-400 group-hover:text-blue-500'} />
-            <span className={`text-[11px] md:text-[14px] font-bold uppercase tracking-tighter ${location.pathname === '/' ? 'bg-gradient-to-br from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent' : 'text-neutral-400 dark:text-neutral-400 group-hover:bg-gradient-to-br group-hover:from-[#0866FF] group-hover:to-[#00CFFF] group-hover:bg-clip-text group-hover:text-transparent'}`}>HOME</span>
+            <span className={`text-[11px] md:text-[14px] font-bold uppercase tracking-[0.005em] ${location.pathname === '/' ? 'bg-gradient-to-br from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent' : 'text-neutral-400 dark:text-neutral-400 group-hover:bg-gradient-to-br group-hover:from-[#0866FF] group-hover:to-[#00CFFF] group-hover:bg-clip-text group-hover:text-transparent'}`}>HOME</span>
           </Link>
           {navLinks.map((link) => {
             const isActive = location.pathname === link.to;
@@ -863,7 +863,7 @@ return (
                     className: `transition-colors ${iconClass}`
                   })}
                 </span>
-                <span className={`text-[11px] md:text-[14px] font-bold uppercase tracking-tighter ${labelClass}`}>{link.label}</span>
+                <span className={`text-[11px] md:text-[14px] font-bold uppercase tracking-[0.005em] ${labelClass}`}>{link.label}</span>
               </Link>
             );
           })}
@@ -1223,7 +1223,7 @@ return (
             <div style={{ height: specs.h }} className={`flex items-center justify-around px-2 border-t ${isDarkMode ? 'bg-[#121212] border-white/10' : 'bg-white border-black/5'} shadow-2xl`}>
               <button onClick={(e) => handleNavClick('/', e)} className={`flex flex-col items-center justify-center gap-1 transition-colors ${location.pathname === '/' ? 'text-garage-blue' : 'text-neutral-600 dark:text-neutral-400'}`}>
                 <Home size={20} />
-                <span className="text-[10px] font-black uppercase tracking-tighter">Home</span>
+                <span className="text-[10px] font-black uppercase tracking-[0.005em]">Home</span>
               </button>
               {navLinks.map((link) => {
                 const isActive = location.pathname === link.to;
@@ -1240,7 +1240,7 @@ return (
                     <span className="relative inline-flex items-center justify-center">
                       {React.cloneElement(link.icon, { size: 20, className: isActive ? 'text-blue-500' : '' })}
                     </span>
-                    <span className="text-[10px] font-black uppercase tracking-tighter">{link.label}</span>
+                    <span className="text-[10px] font-black uppercase tracking-[0.005em]">{link.label}</span>
                   </button>
                 );
               })}

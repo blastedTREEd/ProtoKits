@@ -341,7 +341,7 @@ export default function NotifyList() {
                   return (
                     <div
                       key={row.key}
-                      className="first:mt-4 sticky top-[110px] z-[80] -mx-4 flex items-center gap-3 bg-neutral-50/90 px-4 py-3 backdrop-blur-md dark:bg-[#0a0a0a]/90"
+                      className="first:mt-4 sticky top-[110px] z-[80] -mx-4 flex items-center gap-3 bg-neutral-50/90 px-4 py-2 backdrop-blur-md dark:bg-[#0a0a0a]/90"
                     >
                       <div className={`h-px flex-1 bg-gradient-to-r from-transparent ${colors.line} to-transparent`} />
                       <span className={`select-none bg-gradient-to-r ${colors.text} bg-clip-text text-[13px] font-black uppercase tracking-[0.2em] text-transparent`}>

@@ -570,7 +570,7 @@ export default function ProjectCard({
           {/* Status Badges Container */}
           <div className="absolute top-4 left-0 z-50 flex flex-col items-start px-2">
               {isReserved && (
-                  <div className={`px-1.5 py-0.5 font-black uppercase tracking-tigther text-[10px] md:text-[11px] ${isAdminView ? 'bg-blue-500 text-white' : 'bg-red-500 text-white'} shadow-lg`}>
+                  <div className={`px-1.5 py-0.5 font-bold uppercase tracking-tigther text-[13px] ${isAdminView ? 'bg-blue-500 text-white' : 'bg-red-500 text-white'} shadow-lg`}>
                       {isAdminView ? 'Reserved' : 'NOT FOR SALE'}
                   </div>
               )}
@@ -593,17 +593,17 @@ export default function ProjectCard({
                     {/* Box 1: Production Days */}
                     <div className={`rounded-xl flex flex-col items-center justify-center gap-1 ${isDarkMode ? 'bg-white/5' : 'bg-black/[0.03]'}`}>
                       <Clock size={20} className="text-blue-500" strokeWidth={2.5} />
-                      <span className="text-[14px] font-black italic text-blue-600 dark:text-blue-400 leading-none">{days || '—'}</span>
-                      <span className="text-[11px] font-black uppercase tracking-widest leading-none">{days === 1 ? 'Day' : 'Days'}</span>
+                      <span className="text-[15px] font-black italic text-blue-600 dark:text-blue-400 leading-none">{days || '—'}</span>
+                      <span className="text-[13px] font-black uppercase tracking-widest leading-none">{days === 1 ? 'Day' : 'Days'}</span>
                     </div>
                     {/* Box 2: Spools */}
                     <div className={`rounded-xl flex flex-col items-center justify-center gap-1 ${isDarkMode ? 'bg-white/5' : 'bg-black/[0.03]'}`}>
                       <Spool size={20} className="text-amber-500" strokeWidth={2.5} />
-                      <span className="text-[14px] font-black italic text-amber-600 dark:text-amber-400 leading-none">
+                      <span className="text-[15px] font-black italic text-amber-600 dark:text-amber-400 leading-none">
                         {spoolCount || '—'}
                       </span>
 
-                      <span className="text-[11px] font-black uppercase tracking-widest leading-none">
+                      <span className="text-[13px] font-black uppercase tracking-widest leading-none">
                         {spoolCount === 1 ? 'Spool' : 'Spools'}
                       </span>
                     </div>
@@ -614,11 +614,11 @@ export default function ProjectCard({
                       ) : (
                         <Layers size={20} className="text-emerald-500" strokeWidth={2.5} />
                       )}
-                      <span className="text-[14px] font-black italic text-emerald-600 dark:text-emerald-400 leading-none">
+                      <span className="text-[15px] font-black italic text-emerald-600 dark:text-emerald-400 leading-none">
                         {plateCount || '—'}
                       </span>
 
-                      <span className="text-[11px] font-black uppercase tracking-widest leading-none text-center">
+                      <span className="text-[13px] font-black uppercase tracking-widest leading-none text-center">
                         {itemLabel}
                       </span>
                     </div>
@@ -631,8 +631,8 @@ export default function ProjectCard({
                       ) : (
                         <Link2 size={16} strokeWidth={2.5} />
                       )}
-                      <span className={`text-[14px] font-black uppercase tracking-widest leading-none ${
-                        fileLinkIsValid ? 'text-emerald-500' : fileLinkHasValue ? 'text-red-500' : 'opacity-30'
+                        <span className={`text-[13px] font-black uppercase tracking-widest leading-none ${
+                        fileLinkIsValid ? 'text-emerald-500' : fileLinkHasValue ? 'text-red-500' : 'text-neutral-900 dark:text-white'
                       }`}>
                         {fileLinkIsValid ? 'Linked' : fileLinkHasValue ? 'Invalid' : 'No Link'}
                       </span>
@@ -668,7 +668,7 @@ export default function ProjectCard({
                       title="Modify project"
                     >
                       <Edit3 size={13} strokeWidth={3} />
-                      <span className="text-[8px] font-black uppercase tracking-widest">Modify</span>
+                      <span className="text-[12px] font-bold uppercase tracking-tighter">Modify</span>
                     </button>
                   )}
                 </div>
@@ -679,18 +679,20 @@ export default function ProjectCard({
 
             {/* CONTENT AREA */}
             <div className="px-1 text-center flex-1 flex flex-col">
-              <h3 className="text-[13px] font-bold uppercase tracking-tighter leading-tight mb-1 line-clamp-2 h-[2.5em] group-hover:text-blue-600 transition-colors">
-                {projectTitle}
-              </h3>
+              <div className="h-[2em] flex items-center justify-center min-w-0 mb-1">
+                <h3 className="text-[15px] font-bold uppercase tracking-tighter leading-tight line-clamp-2 w-full group-hover:text-blue-600 transition-colors">
+                  {projectTitle}
+                </h3>
+              </div>
               
               <div className="mt-auto">
                 <div className="flex items-center justify-between gap-2 pb-1">
                   <div className="flex flex-col items-start">
-                    <div className="text-[13px] font-black uppercase tracking-widest mb-1 select-none leading-none inline-block text-black dark:text-white">
+                    <div className="text-[14px] font-bold uppercase tracking-tighter mb-1 select-none leading-none inline-block text-black dark:text-white">
                       {methodLabel}
                     </div>
                     <div className="flex flex-row items-baseline gap-1.5">
-                        <span className="text-[14px] font-black italic tracking-tighter text-blue-600 leading-none">
+                        <span className="text-[15px] font-bold italic tracking-tighter text-blue-600 leading-none">
                           ₱{lowestPrice.toLocaleString()}
                         </span>
                     </div>

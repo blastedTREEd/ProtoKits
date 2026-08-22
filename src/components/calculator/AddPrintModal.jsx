@@ -7,9 +7,9 @@ import {
 import { useStore } from '../../store/useStore';
 import PrintsCalculator from './PrintsCalculator';
 
-const labelClass = 'mb-2 block text-[9px] font-black uppercase tracking-[0.2em] opacity-50';
-const inputClass = 'w-full bg-black/5 dark:bg-white/5 border border-[var(--color-border)] rounded-2xl px-4 py-3 text-xs font-bold outline-none focus:border-[var(--color-primary)] transition-all uppercase text-[var(--color-text-main)] placeholder:text-[var(--color-text-main)] placeholder:opacity-40';
-const numberInputClass = 'w-full bg-black/5 dark:bg-white/5 border border-[var(--color-border)] rounded-2xl px-4 py-3 text-xs font-bold outline-none focus:border-[var(--color-primary)] transition-all appearance-none text-[var(--color-text-main)] placeholder:text-[var(--color-text-main)] placeholder:opacity-40';
+const labelClass = 'mb-2 block text-[13px] font-black uppercase tracking-[0.2em] opacity-50';
+const inputClass = 'w-full bg-black/5 dark:bg-white/5 border border-[var(--color-border)] rounded-2xl px-4 py-3 text-[14px] font-bold outline-none focus:border-[var(--color-primary)] transition-all uppercase text-[var(--color-text-main)] placeholder:text-[var(--color-text-main)] placeholder:opacity-40';
+const numberInputClass = 'w-full bg-black/5 dark:bg-white/5 border border-[var(--color-border)] rounded-2xl px-4 py-3 text-[14px] font-bold outline-none focus:border-[var(--color-primary)] transition-all appearance-none text-[var(--color-text-main)] placeholder:text-[var(--color-text-main)] placeholder:opacity-40';
 const FIRESTORE_SAFE_LIMIT = 900000;
 
 const parseMoney = (value) => parseFloat(String(value || 0).replace(/,/g, '')) || 0;
@@ -64,6 +64,7 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
   const publishBlueprint = useStore((state) => state.publishBlueprint);
   const updateBlueprint = useStore((state) => state.updateBlueprint);
   const shippingSettings = useStore((state) => state.shippingSettings);
+  const printers = useStore((state) => state.printers);
   const isEditing = !!initialProject?.id;
   const [isSaving, setIsSaving] = useState(false);
   const [showCalculator, setShowCalculator] = useState(false);
@@ -72,6 +73,15 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
 
   const [imagePreviews, setImagePreviews] = useState(() => buildInitialFormData(initialProject).images);
   const fileInputRef = useRef(null);
+
+  const selectedPrinter = useMemo(() => (
+    formData.calculationData?.printer
+    || (printers || []).find((printer) => String(printer.id) === String(formData.printerId))
+    || null
+  ), [formData.calculationData, formData.printerId, printers]);
+  const printerLabel = selectedPrinter
+    ? [selectedPrinter.brand, selectedPrinter.model || selectedPrinter.name].filter(Boolean).join(' ')
+    : '';
 
   useEffect(() => {
     document.body.style.overflow = 'hidden';
@@ -308,8 +318,8 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
               <Box size={24} className="text-white" />
             </div>
             <div>
-              <h2 className="text-xl font-black uppercase italic leading-none tracking-tight">{isEditing ? 'Modify Project' : 'Register New Project'}</h2>
-              <p className="text-[10px] font-black uppercase tracking-[0.25em] text-[var(--color-primary)] mt-1.5 opacity-80">{isEditing ? 'Update Gallery, Details, Pricing, Estimate' : 'Ready-to-sell Project'}</p>
+              <h2 className="text-[15px] font-black uppercase italic leading-none tracking-tight">{isEditing ? 'Modify Project' : 'Register New Project'}</h2>
+              <p className="text-[13px] font-black uppercase tracking-[0.25em] text-[var(--color-primary)] mt-1.5 opacity-80">{isEditing ? 'Update Gallery, Details, Pricing, Estimate' : 'Ready-to-sell Project'}</p>
             </div>
           </div>
           <button onClick={onClose} className="hidden md:block p-2 hover:bg-black/5 dark:hover:bg-white/10 rounded-full transition-colors opacity-40 hover:opacity-100">
@@ -354,7 +364,7 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
                         <Trash2 size={14} />
                       </button>
                       {idx === 0 && (
-                        <div className="absolute bottom-2 left-2 px-2 py-0.5 bg-[var(--color-primary)] text-white text-[7px] font-black uppercase tracking-widest rounded">Main</div>
+                        <div className="absolute bottom-2 left-2 px-2 py-0.5 bg-[var(--color-primary)] text-white text-[13px] font-black uppercase tracking-widest rounded">Main</div>
                       )}
                     </div>
                   ))}
@@ -365,7 +375,7 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
                     <div className="p-3 rounded-full bg-black/5 dark:bg-white/5 group-hover:bg-[var(--color-primary)] group-hover:text-white transition-all">
                       <Plus size={20} />
                     </div>
-                    <span className="text-[9px] font-black uppercase tracking-widest opacity-40 group-hover:opacity-100">Add Photo</span>
+                    <span className="text-[13px] font-black uppercase tracking-widest opacity-40 group-hover:opacity-100">Add Photo</span>
                   </button>
                 </div>
                 <input ref={fileInputRef} type="file" multiple accept="image/*" className="hidden" onChange={handleFileChange} />
@@ -388,8 +398,8 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
                           <Calculator size={32} />
                         </div>
                         <div className="text-center">
-                          <span className="block text-xs font-black uppercase tracking-widest text-[var(--color-primary)]">Open Project Calculator</span>
-                          <span className="block text-[8px] font-black uppercase tracking-[0.2em] opacity-30 mt-1">To get Weight, Cost, & Print Time</span>
+                          <span className="block text-[14px] font-black uppercase tracking-widest text-[var(--color-primary)]">Open Project Calculator</span>
+                          <span className="block text-[13px] font-black uppercase tracking-[0.2em] opacity-30 mt-1">To get Weight, Cost, & Print Time</span>
                         </div>
                      </button>
                    ) : (
@@ -408,16 +418,18 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
                             <input type="number" value={formData.costPrice} readOnly className={`${numberInputClass} opacity-60 cursor-not-allowed`} />
                           </div>
                         </div>
-                        <div className="flex items-center justify-between p-4 bg-black/5 dark:bg-black/20 rounded-2xl border border-[var(--color-border)]">
+                        <div className={`flex items-center justify-between p-4 rounded-2xl border transition-colors ${selectedPrinter ? 'bg-black/5 dark:bg-black/20 border-[var(--color-border)]' : 'bg-[var(--color-primary)]/5 border-[var(--color-primary)]/30'}`}>
                             <div className="flex items-center gap-3">
-                               <Printer size={16} className="text-[var(--color-primary)]" />
+                               {selectedPrinter ? <Printer size={16} className="text-[var(--color-primary)]" /> : <Calculator size={16} className="text-[var(--color-primary)]" />}
                                <div className="text-left">
-                                  <span className="block text-[10px] font-black uppercase italic leading-none">{formData.calculationData.printer?.name || 'Unknown Printer'}</span>
-                                  <span className="block text-[7px] font-black uppercase tracking-widest opacity-30 mt-1">Hardware Used</span>
+                                  <span className="block text-[14px] font-black uppercase italic leading-none">{printerLabel || 'Edit Project Details'}</span>
+                                  <span className="block text-[13px] font-black uppercase tracking-widest opacity-30 mt-1">{selectedPrinter ? 'Hardware Used • Edit Calculator' : 'Open Print Calculator'}</span>
                                </div>
                             </div>
                             <button 
                               onClick={() => setShowCalculator(true)}
+                              aria-label={selectedPrinter ? 'Edit project calculator details' : 'Open print calculator to edit project details'}
+                              title={selectedPrinter ? 'Edit project calculator details' : 'Open print calculator to edit project details'}
                               className="p-2 hover:bg-black/5 dark:hover:bg-white/10 rounded-xl transition-colors text-[var(--color-primary)]"
                             >
                               <ChevronRight size={20} />
@@ -428,7 +440,7 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
                             {formData.calculationData.filaments?.map((f, i) => (
                               <div key={i} className="px-3 py-1.5 bg-black/5 dark:bg-white/5 rounded-full border border-[var(--color-border)] flex items-center gap-2">
                                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: f.color }} />
-                                 <span className="text-[8px] font-black uppercase tracking-widest opacity-60">{f.brand} {f.name}</span>
+                                 <span className="text-[13px] font-black uppercase tracking-widest opacity-60">{f.brand} {f.name}</span>
                               </div>
                             ))}
                          </div>
@@ -442,10 +454,10 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
                 <label className={labelClass}>Market Pricing</label>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <div className="relative bg-black/5 dark:bg-white/5 border border-[var(--color-border)] rounded-2xl pl-12 pr-4 py-4 text-sm font-bold flex items-center text-emerald-500 min-h-[54px] select-none">
+                    <div className="relative bg-black/5 dark:bg-white/5 border border-[var(--color-border)] rounded-2xl pl-12 pr-4 py-4 text-[14px] font-bold flex items-center text-emerald-500 min-h-[54px] select-none">
                       <Tag size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-500" />
                       <span>₱{(Number(formData.sellPrice) || 0).toLocaleString()}</span>
-                      <span className="text-[8px] font-black uppercase tracking-widest opacity-40 ml-auto">Sell Price</span>
+                      <span className="text-[13px] font-black uppercase tracking-widest opacity-40 ml-auto">Sell Price</span>
                     </div>
                   </div>
                   <div>
@@ -456,7 +468,7 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
                         value={formData.stock}
                         onChange={(e) => updateForm('stock', e.target.value)}
                         placeholder="QUANTITY"
-                        className={`${numberInputClass} pl-12 py-4 text-sm`}
+                        className={`${numberInputClass} pl-12 py-4 text-[14px]`}
                       />
                     </div>
                   </div>
@@ -479,10 +491,10 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
                       {formData.canAddToBasket ? <ShoppingBasket size={18} /> : <Eye size={18} />}
                     </div>
                     <div>
-                      <span className="block text-[10px] font-black uppercase tracking-widest">
+                      <span className="block text-[14px] font-black uppercase tracking-widest">
                         {formData.canAddToBasket ? 'Can Be Added To Basket' : 'Public View Only'}
                       </span>
-                      <span className="block text-[8px] font-black uppercase tracking-[0.18em] opacity-50 mt-1">
+                      <span className="block text-[13px] font-black uppercase tracking-[0.18em] opacity-50 mt-1">
                         {formData.canAddToBasket ? 'Customers can order this project' : 'Visible publicly, ordering disabled'}
                       </span>
                     </div>
@@ -500,14 +512,14 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
         <div className="p-6 md:p-8 border-t border-[var(--color-border)] bg-black/[0.02] dark:bg-white/[0.02] flex items-center justify-between shrink-0">
           <div className="flex items-center gap-6">
              <div className="flex flex-col text-left">
-                <span className="text-[9px] font-black uppercase tracking-widest opacity-30">Profit Projection</span>
-                <span className="text-xl font-black italic text-emerald-500 leading-none mt-1">
+                <span className="text-[13px] font-black uppercase tracking-widest opacity-30">Profit Projection</span>
+                <span className="text-[15px] font-black italic text-emerald-500 leading-none mt-1">
                   ₱{formData.sellPrice && formData.costPrice ? (Number(formData.sellPrice) - Number(formData.costPrice)).toLocaleString() : '0'}
                 </span>
              </div>
              {formData.costPrice > 0 && formData.sellPrice > 0 && (
                 <div className="px-3 py-1 bg-emerald-500/10 rounded-full border border-emerald-500/20">
-                   <span className="text-[9px] font-black text-emerald-500">
+                   <span className="text-[13px] font-black text-emerald-500">
                      +{Math.round(((formData.sellPrice - formData.costPrice) / formData.costPrice) * 100)}% MARGIN
                    </span>
                 </div>
@@ -516,14 +528,14 @@ export default function AddPrintModal({ onClose, initialProject = null }) {
           <div className="flex gap-3">
             <button 
               onClick={onClose}
-              className="px-8 py-4 rounded-3xl bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-[10px] font-black uppercase tracking-[0.2em] transition-all active:scale-95"
+              className="px-8 py-4 rounded-3xl bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-[13px] font-black uppercase tracking-[0.2em] transition-all active:scale-95"
             >
               Cancel
             </button>
             <button 
               onClick={handleSave}
               disabled={isSaving || isDocumentTooLarge}
-              className="px-12 py-4 rounded-3xl bg-[var(--color-primary)] hover:brightness-110 text-white text-[10px] font-black uppercase tracking-[0.2em] shadow-xl shadow-[var(--color-primary)]/20 transition-all active:scale-95 flex items-center gap-3 disabled:opacity-50 disabled:active:scale-100"
+              className="px-12 py-4 rounded-3xl bg-[var(--color-primary)] hover:brightness-110 text-white text-[13px] font-black uppercase tracking-[0.2em] shadow-xl shadow-[var(--color-primary)]/20 transition-all active:scale-95 flex items-center gap-3 disabled:opacity-50 disabled:active:scale-100"
             >
               {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
               {isEditing ? 'Save Changes' : 'Finalize Project'}
