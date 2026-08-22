@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react'; 
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useStore } from '../../store/useStore'; 
 import CaseSelection from './CaseSelection'; 
 import PrinterSelection from './PrinterSelection';
@@ -8,7 +8,7 @@ import ProjectPreview from './ProjectPreview';
 import ProjectPrepare from './ProjectPrepare';
 import ExtrasSelection from './ExtrasSelection';
 import ProjectCost from './ProjectCost';
-import { Astroid, X } from 'lucide-react';
+import { Astroid, Type, X } from 'lucide-react';
 
 const getMaterialIdFromDetail = (detail) => (
   detail?.material?.materialId
@@ -111,6 +111,9 @@ export default function PrintsCalculator({
 }) {
   // If initialData is provided, we start at the Details step (Step 1)
   const [activeStep, setActiveStep] = useState(initialData ? 1 : 0);
+  const [isSmTextBoosted, setIsSmTextBoosted] = useState(false);
+  const calculatorRef = useRef(null);
+  const boostedTextStylesRef = useRef(new Map());
   const { filamentInventory, extras, settings, updateSettings, orders, projectVault, isAdmin, isAdminView } = useStore();
   
   const estimationLimitReached = useMemo(() => {
@@ -279,7 +282,7 @@ export default function PrintsCalculator({
     );
 
 
-const handleStepBack = () => {
+  const handleStepBack = () => {
   if (isEditMode) {
     // Simply go back one step regardless of the index
     setActiveStep(prev => Math.max(0, prev - 1));
@@ -291,10 +294,60 @@ const handleStepBack = () => {
       setActiveStep(prev => Math.max(0, prev - 1));
     }
   }
-};
+  };
+
+  useEffect(() => {
+    const root = calculatorRef.current;
+    if (!root || typeof window === 'undefined') return undefined;
+
+    const smQuery = window.matchMedia('(min-width: 640px) and (max-width: 767px)');
+    const textElements = () => Array.from(root.querySelectorAll('*')).filter((element) => {
+      const hasDirectText = Array.from(element.childNodes).some(
+        (node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim()
+      );
+      const isFormControl = ['INPUT', 'TEXTAREA', 'SELECT'].includes(element.tagName);
+      return hasDirectText || isFormControl;
+    });
+
+    const restoreTextSizes = () => {
+      boostedTextStylesRef.current.forEach((previousFontSize, element) => {
+        if (element?.style) element.style.fontSize = previousFontSize;
+      });
+      boostedTextStylesRef.current.clear();
+    };
+
+    const applyTextBoost = () => {
+      restoreTextSizes();
+      if (!isSmTextBoosted || !smQuery.matches) return;
+
+      const sizes = textElements().map((element) => ({
+        element,
+        previousFontSize: element.style.fontSize,
+        computedFontSize: parseFloat(window.getComputedStyle(element).fontSize)
+      }));
+
+      sizes.forEach(({ element, previousFontSize, computedFontSize }) => {
+        if (Number.isFinite(computedFontSize)) {
+          boostedTextStylesRef.current.set(element, previousFontSize);
+          element.style.fontSize = `${computedFontSize + 2}px`;
+        }
+      });
+    };
+
+    const observer = new MutationObserver(applyTextBoost);
+    observer.observe(root, { childList: true, subtree: true, characterData: true });
+    smQuery.addEventListener?.('change', applyTextBoost);
+    applyTextBoost();
+
+    return () => {
+      observer.disconnect();
+      smQuery.removeEventListener?.('change', applyTextBoost);
+      restoreTextSizes();
+    };
+  }, [activeStep, isSmTextBoosted]);
 
   return (
-    <div className="w-full min-h-full prints-calculator-container animate-in fade-in zoom-in-95 duration-500 px-3 sm:px-5 pb-0 text-[var(--color-text-main)]">
+    <div ref={calculatorRef} className="w-full min-h-full prints-calculator-container animate-in fade-in zoom-in-95 duration-500 px-3 sm:px-5 pb-0 text-[var(--color-text-main)]">
       <style>{`
         .prints-calculator-container :where(input, .print-dimension-type) {
           font-weight: 900;
@@ -412,6 +465,21 @@ const handleStepBack = () => {
         )}
         </div>
       </div>
+
+      <button
+        type="button"
+        onClick={() => setIsSmTextBoosted((current) => !current)}
+        aria-pressed={isSmTextBoosted}
+        aria-label={isSmTextBoosted ? 'Use standard calculator text size' : 'Increase calculator text size by 2 pixels'}
+        className={`fixed bottom-24 right-4 z-[270] hidden sm:flex md:hidden items-center gap-1.5 rounded-full border px-3 py-2 shadow-xl transition-colors ${
+          isSmTextBoosted
+            ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white'
+            : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-primary)]'
+        }`}
+      >
+        <Type size={16} strokeWidth={2.5} />
+        <span className="text-[11px] font-black uppercase tracking-tight">+2px</span>
+      </button>
 
       {/* {!isEditMode && (
         <div className="bg-black text-green-400 text-[10px] p-3 rounded-xl mt-4 overflow-auto">

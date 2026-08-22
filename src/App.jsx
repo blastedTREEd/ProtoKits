@@ -100,7 +100,8 @@ const Layout = ({ children }) => {
   const [isProfileFullscreenOpen, setIsProfileFullscreenOpen] = useState(false);
   const [isNotificationFullscreenOpen, setIsNotificationFullscreenOpen] = useState(false);
   const location = useLocation();
-  const { isAdmin } = useStore();
+  const { isAdmin, shippingSettings } = useStore();
+  const isMaintenanceMode = shippingSettings?.paymentSettings?.maintenanceMode === true;
   const isFullscreenNavOpen = isProfileFullscreenOpen || isNotificationFullscreenOpen;
 
   useEffect(() => {
@@ -158,7 +159,7 @@ const Layout = ({ children }) => {
       </main>
       {isKnownRoute(location.pathname) && <Footer />}
       
-      {isAdmin && (
+      {(isAdmin || isMaintenanceMode) && (
         <div className="fixed bottom-12 left-4 z-[9999] p-2 bg-black/80 text-white rounded-full text-[10px] font-black uppercase tracking-widest backdrop-blur-md pointer-events-none">
             <span className="hidden 2xl:inline">2XL</span>
             <span className="hidden xl:inline 2xl:hidden">XL</span>
