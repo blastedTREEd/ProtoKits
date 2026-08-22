@@ -79,7 +79,7 @@ const RATE_SECTIONS = [
 const RateInput = ({ label, value, unit, type, onChange, trend }) => (
   <div className="bg-[var(--color-surface)] border border-[var(--color-border)] p-5 rounded-3xl shadow-sm flex flex-col justify-between min-h-[90px]">
     <div className="flex items-center justify-between gap-2 mb-2">
-      <label className="text-[10px] font-black uppercase tracking-widest opacity-40 block">{label}</label>
+      <label className="text-[13px] font-black uppercase tracking-widest opacity-40 block">{label}</label>
       {trend === 'up' && <TrendingUp size={12} className="text-emerald-500 flex-shrink-0" strokeWidth={3} />}
       {trend === 'down' && <TrendingDown size={12} className="text-rose-500 flex-shrink-0" strokeWidth={3} />}
     </div>
@@ -88,9 +88,9 @@ const RateInput = ({ label, value, unit, type, onChange, trend }) => (
         type={type}
         value={value}
         onChange={(e) => onChange(type === 'number' ? (parseFloat(e.target.value) || 0) : e.target.value)}
-        className="bg-transparent text-[18px] font-black text-blue-600 w-full outline-none"
+        className="bg-transparent text-[15px] font-black text-blue-600 w-full outline-none"
       />
-      <span className="text-[10px] font-bold opacity-30 whitespace-nowrap">{unit}</span>
+      <span className="text-[13px] font-bold opacity-30 whitespace-nowrap">{unit}</span>
     </div>
   </div>
 );
@@ -300,7 +300,7 @@ export default function ProjectCost({
         <button
           onClick={handleMainAction}
           disabled={isSaving}
-          className="flex-1 h-14 rounded-[2.2rem] font-black italic uppercase tracking-[0.2em] text-xs bg-[var(--color-primary)] text-white shadow-xl flex items-center justify-center gap-4 group active:scale-95 transition-all disabled:opacity-50"
+          className="flex-1 h-14 rounded-[2.2rem] font-black italic uppercase tracking-[0.2em] text-[14px] bg-[var(--color-primary)] text-white shadow-xl flex items-center justify-center gap-4 group active:scale-95 transition-all disabled:opacity-50"
         >
           {isSaving ? (
             <RefreshCw size={18} className="animate-spin" />
@@ -335,7 +335,7 @@ export default function ProjectCost({
       {data.projectName && (
         <div className="px-2 mb-2 flex items-center gap-2">
            <Tag size={12} className="text-blue-600" />
-           <span className="text-[11px] font-black uppercase italic text-[var(--color-text-main)] opacity-60">
+           <span className="text-[13px] font-black uppercase italic text-[var(--color-text-main)] opacity-60">
              {data.projectName}
            </span>
         </div>
@@ -343,7 +343,7 @@ export default function ProjectCost({
 
       <div className="w-full max-w-2xl mx-auto bg-blue-600 rounded-[2.5rem] p-8 text-white relative overflow-hidden shadow-2xl mt-4">
         <Receipt size={120} className="absolute -right-6 -bottom-6 opacity-20 rotate-12" />
-        <span className="text-[10px] font-black uppercase tracking-[0.3em] opacity-60">Lowest Price</span>
+        <span className="text-[13px] font-black uppercase tracking-[0.3em] opacity-60">Lowest Price</span>
         <div className="flex items-baseline gap-1 mt-1">
           <span className="text-[20px] font-black opacity-40">₱</span>
           <span className="preserve-print-size text-[48px] font-black italic tracking-tighter leading-none" style={{ '--preserve-size': '48px' }}>{basePriceAmount.toLocaleString()}</span>
@@ -351,7 +351,7 @@ export default function ProjectCost({
         
         {data.projectDetails?.length === 1 && data.projectDetails[0].quantity > 1 && (
             <div className="mt-1 opacity-70">
-                <span className="text-[10px] font-black uppercase tracking-[0.2em]">₱{(basePriceAmount / Math.max(1, data.projectDetails[0].quantity)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} / piece</span>
+                <span className="text-[13px] font-black uppercase tracking-[0.2em]">₱{(basePriceAmount / Math.max(1, data.projectDetails[0].quantity)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} / piece</span>
             </div>
         )}
 
@@ -359,13 +359,13 @@ export default function ProjectCost({
           <span className="text-[13px] font-black italic tracking-tighter line-through opacity-70">
             ₱{grandTotalAmount.toLocaleString()}
           </span>
-          <span className="text-[9px] font-black uppercase tracking-widest opacity-60">Grand Total</span>
+          <span className="text-[13px] font-black uppercase tracking-widest opacity-60">Grand Total</span>
         </div>
       </div>
 
       <div className="w-full max-w-2xl mx-auto bg-neutral-900 dark:bg-[var(--color-surface)] rounded-[2.5rem] p-8 text-white relative overflow-hidden shadow-xl">
         <Wallet size={120} className="absolute -right-6 -bottom-6 opacity-10 -rotate-12" />
-        <span className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-500">Downpayment</span>
+        <span className="text-[13px] font-black uppercase tracking-[0.3em] text-blue-500">Downpayment</span>
         <div className="flex items-baseline gap-1 mt-1">
           <span className="text-[20px] font-black opacity-20">₱</span>
           <span className="preserve-print-size text-[48px] font-black italic tracking-tighter leading-none" style={{ '--preserve-size': '48px' }}>{totals.dp || '0'}</span>
@@ -377,13 +377,13 @@ export default function ProjectCost({
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-blue-500 rounded-xl bg-opacity-10 text-blue-600"><ListChecks size={20} /></div>
             <div>
-              <span className="text-[10px] font-black uppercase opacity-40 block tracking-widest">Requirements</span>
-              <span className="text-[14px] font-black dark:text-white uppercase tracking-tight">Project Checklist</span>
+              <span className="text-[13px] font-black uppercase opacity-40 block tracking-widest">Requirements</span>
+              <span className="text-[15px] font-black dark:text-white uppercase tracking-tight">Project Checklist</span>
             </div>
           </div>
           <div className="text-right">
             <span className="preserve-print-size text-[32px] font-black italic text-blue-600 leading-none" style={{ '--preserve-size': '32px' }}>{totals.timeline?.days || 0}</span>
-            <span className="preserve-print-size text-[10px] font-black uppercase opacity-40 block tracking-widest" style={{ '--preserve-size': '10px' }}>Days</span>
+            <span className="preserve-print-size text-[13px] font-black uppercase opacity-40 block tracking-widest" style={{ '--preserve-size': '13px' }}>Days</span>
           </div>
         </div>
 
@@ -392,9 +392,9 @@ export default function ProjectCost({
             <div className="flex items-center justify-between w-full bg-[var(--color-surface)] px-4 py-2.5 rounded-2xl border border-[var(--color-border)]">
               <div className="flex items-center gap-2">
                 <Layers size={14} className="text-blue-500" />
-                <span className="text-[11px] font-black uppercase opacity-80">Build Plates Required</span>
+                <span className="text-[13px] font-black uppercase opacity-80">Build Plates Required</span>
               </div>
-              <span className="text-[11px] font-black text-blue-600 italic uppercase">
+              <span className="text-[13px] font-black text-blue-600 italic uppercase">
                 {checklist.totalBuildPlates} {checklist.totalBuildPlates === 1 ? 'Build Plate' : 'Build Plates'}
               </span>
             </div>
@@ -404,13 +404,13 @@ export default function ProjectCost({
               {checklist.magnets > 0 && (
                 <div className="flex-1 flex items-center gap-2 bg-[var(--color-surface)] px-4 py-3 rounded-2xl border border-[var(--color-border)] shadow-sm">
                   <Magnet size={14} className="text-purple-500" />
-                  <span className="text-[11px] font-black uppercase opacity-80">{checklist.magnets} Magnets</span>
+                  <span className="text-[13px] font-black uppercase opacity-80">{checklist.magnets} Magnets</span>
                 </div>
               )}
               {checklist.heatsets > 0 && (
                 <div className="flex-1 flex items-center gap-2 bg-[var(--color-surface)] px-4 py-3 rounded-2xl border border-[var(--color-border)] shadow-sm">
                   <Spool size={14} className="text-orange-500" />
-                  <span className="text-[11px] font-black uppercase opacity-80">{checklist.heatsets} Heatsets</span>
+                  <span className="text-[13px] font-black uppercase opacity-80">{checklist.heatsets} Heatsets</span>
                 </div>
               )}
             </div>
@@ -428,7 +428,7 @@ export default function ProjectCost({
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[13px] font-black uppercase tracking-widest transition-all ${
                 activeTab === tab.id
                   ? 'bg-[var(--color-surface)] shadow-sm text-blue-600'
                   : 'opacity-40 hover:opacity-100'
@@ -460,7 +460,7 @@ export default function ProjectCost({
                 <button
                   type="button"
                   onClick={handleCancelRateChanges}
-                  className="flex items-center gap-2 px-4 py-3 rounded-full bg-neutral-900 dark:bg-[var(--color-surface)] text-white text-[10px] font-black uppercase tracking-[0.2em] shadow-lg active:scale-95 transition-all"
+                  className="flex items-center gap-2 px-4 py-3 rounded-full bg-neutral-900 dark:bg-[var(--color-surface)] text-white text-[13px] font-black uppercase tracking-[0.2em] shadow-lg active:scale-95 transition-all"
                 >
                   <X size={14} strokeWidth={3} />
                   Cancel
@@ -468,9 +468,9 @@ export default function ProjectCost({
                 <button
                   type="button"
                   onClick={handleSaveRates}
-                  className="flex items-center gap-2 px-4 py-3 rounded-full bg-blue-600 text-white text-[10px] font-black uppercase tracking-[0.2em] shadow-lg active:scale-95 transition-all"
+                  className="flex items-center gap-2 px-4 py-3 rounded-full bg-blue-600 text-white text-[13px] font-black uppercase tracking-[0.2em] shadow-lg active:scale-95 transition-all"
                 >
-                  <span className="min-w-5 h-5 px-1 rounded-full bg-white/20 flex items-center justify-center text-[9px]">
+                  <span className="min-w-5 h-5 px-1 rounded-full bg-white/20 flex items-center justify-center text-[13px]">
                     {changedRateCount}
                   </span>
                   <Save size={14} strokeWidth={3} />
@@ -486,7 +486,7 @@ export default function ProjectCost({
               return (
                 <div key={section.id} className="w-full max-w-2xl mx-auto bg-[var(--color-bg)] rounded-[2rem] p-4 border border-[var(--color-border)] space-y-3">
                   <div className="px-2 flex items-center justify-between gap-3">
-                    <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-40">{section.title}</span>
+                    <span className="text-[13px] font-black uppercase tracking-[0.2em] opacity-40">{section.title}</span>
                     {sectionHasChanges && (
                       <button
                         type="button"

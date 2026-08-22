@@ -579,7 +579,7 @@ export default function ProjectCard({
           <div className="p-3 flex flex-col h-full">
             {/* IMAGE / ICON AREA */}
             <div className={`relative aspect-square rounded-2xl overflow-hidden mb-3 shrink-0 text-left transform-gpu ${
-              isVault && !displayImage ? 'block bg-transparent' : 'bg-[var(--color-bg)] flex items-center justify-center'
+              isVault && !displayImage ? 'block bg-blue-600/10 p-2 dark:bg-blue-600/20' : 'bg-[var(--color-bg)] flex items-center justify-center'
             }`}>
               {displayImage ? (
                 <img 
@@ -589,15 +589,15 @@ export default function ProjectCard({
                 />
               ) : isVault ? (
                 /* Vault project info boxes — 2×2 grid */
-                <div className="w-full h-full grid grid-cols-2 gap-2 bg-transparent">
+                <div className="w-full h-full grid grid-cols-2 gap-2">
                     {/* Box 1: Production Days */}
-                    <div className={`rounded-xl flex flex-col items-center justify-center gap-1 ${isDarkMode ? 'bg-white/5' : 'bg-black/[0.03]'}`}>
+                    <div className="rounded-xl flex flex-col items-center justify-center gap-1 bg-white/70 shadow-sm dark:bg-white/10">
                       <Clock size={20} className="text-blue-500" strokeWidth={2.5} />
                       <span className="text-[15px] font-black italic text-blue-600 dark:text-blue-400 leading-none">{days || '—'}</span>
                       <span className="text-[13px] font-black uppercase tracking-widest leading-none">{days === 1 ? 'Day' : 'Days'}</span>
                     </div>
                     {/* Box 2: Spools */}
-                    <div className={`rounded-xl flex flex-col items-center justify-center gap-1 ${isDarkMode ? 'bg-white/5' : 'bg-black/[0.03]'}`}>
+                    <div className="rounded-xl flex flex-col items-center justify-center gap-1 bg-white/70 shadow-sm dark:bg-white/10">
                       <Spool size={20} className="text-amber-500" strokeWidth={2.5} />
                       <span className="text-[15px] font-black italic text-amber-600 dark:text-amber-400 leading-none">
                         {spoolCount || '—'}
@@ -608,7 +608,7 @@ export default function ProjectCard({
                       </span>
                     </div>
                     {/* Box 3: Build Plates / Models / Parts */}
-                    <div className={`rounded-xl flex flex-col items-center justify-center gap-1 ${isDarkMode ? 'bg-white/5' : 'bg-black/[0.03]'}`}>
+                    <div className="rounded-xl flex flex-col items-center justify-center gap-1 bg-white/70 shadow-sm dark:bg-white/10">
                       {isSTL ? (
                         <Box size={20} className="text-emerald-500" strokeWidth={2.5} />
                       ) : (
@@ -623,7 +623,7 @@ export default function ProjectCard({
                       </span>
                     </div>
                     {/* Box 4: GDrive Link Status */}
-                    <div className={`rounded-xl flex flex-col items-center justify-center gap-1 ${isDarkMode ? 'bg-white/5' : 'bg-black/[0.03]'}`}>
+                    <div className="rounded-xl flex flex-col items-center justify-center gap-1 bg-white/70 shadow-sm dark:bg-white/10">
                       {fileLinkIsValid ? (
                         <CheckCircle2 size={20} className="text-emerald-500" strokeWidth={2.5} />
                       ) : fileLinkHasValue ? (
@@ -679,7 +679,7 @@ export default function ProjectCard({
 
             {/* CONTENT AREA */}
             <div className="px-1 text-center flex-1 flex flex-col">
-              <div className="h-[2em] flex items-center justify-center min-w-0 mb-1">
+              <div className="h-[2em] flex items-center justify-center min-w-0 mb-3">
                 <h3 className="text-[15px] font-bold uppercase tracking-tighter leading-tight line-clamp-2 w-full group-hover:text-blue-600 transition-colors">
                   {projectTitle}
                 </h3>

@@ -6,7 +6,7 @@ import ProjectCard from '../components/calculator/ProjectCard';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
 import LoginPromptModal from '../components/menu/LoginPromptModal';
-import { Droplet, Calculator, Search, Box, X, HandCoins, MoreHorizontal, Printer } from 'lucide-react';
+import { Droplet, Calculator, Search, Box, Layers, X, HandCoins, MoreHorizontal, Printer, ClockFading, ArrowBigDownDash, ArrowBigUpDash, ArrowBigRightDash, ArrowBigLeftDash, ChevronDown } from 'lucide-react';
 import FilamentManagerModal from '../components/calculator/FilamentManagerModal';
 import PrinterManagerModal from '../components/calculator/PrinterManagerModal';
 import RatesManagerModal from '../components/calculator/RatesManagerModal';
@@ -16,9 +16,87 @@ import { getCheckoutPaymentFees } from '../utils/paymentSettings';
 
 const isPrintListing = (project) => (
   project?.source === 'admin-print'
+  || project?.source === 'admin-estimate'
   || project?.listingType === 'print'
   || (!!project?.production && (!!project?.image || (Array.isArray(project?.images) && project.images.length > 0)))
 );
+
+const isAdminEstimate = (project) => project?.source === 'admin-estimate';
+
+const getProjectSortTime = (project) => {
+  const value = project?.updatedAt || project?.createdAt || project?.dateCreated || project?.date || 0;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : 0;
+};
+
+const getProjectSortPrice = (project) => (
+  Number.parseFloat(String(project?.totals?.total || project?.sellPrice || project?.price || 0).replace(/,/g, '')) || 0
+);
+
+const getProjectSortStock = (project) => Number(project?.canAddToBasket !== false);
+
+const sortPrintProjects = (projects, sortType) => [...projects].sort((a, b) => {
+  switch (sortType) {
+    case 'price-asc':
+      return getProjectSortPrice(a) - getProjectSortPrice(b);
+    case 'price-desc':
+      return getProjectSortPrice(b) - getProjectSortPrice(a);
+    case 'alpha-asc':
+      return String(a?.projectName || '').localeCompare(String(b?.projectName || ''));
+    case 'alpha-desc':
+      return String(b?.projectName || '').localeCompare(String(a?.projectName || ''));
+    case 'avail-asc':
+      return getProjectSortStock(a) - getProjectSortStock(b);
+    case 'avail-desc':
+      return getProjectSortStock(b) - getProjectSortStock(a);
+    case 'latest':
+    default:
+      return getProjectSortTime(b) - getProjectSortTime(a);
+  }
+});
+
+function ProjectEstimationCard({ onClick, shadow }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-full group relative rounded-[2.2rem] p-[2px] bg-black/5 dark:bg-white/5 transition-all duration-500 lg:hover:-translate-y-1 cursor-pointer overflow-hidden ${shadow}`}
+      aria-label="Start a new project estimation"
+    >
+      <div className="relative rounded-[2.1rem] flex flex-col h-full overflow-hidden bg-white dark:bg-[var(--color-surface)]">
+        <div className="p-3 flex flex-col h-full">
+          <div className="relative aspect-square rounded-2xl overflow-hidden mb-3 shrink-0 grid grid-cols-2 grid-rows-2 gap-2 bg-blue-600/10 p-2 dark:bg-blue-600/20">
+            <div className="row-span-2 flex items-center justify-center rounded-xl bg-white/70 text-blue-600 shadow-sm dark:bg-white/10 dark:text-blue-400">
+              <Calculator size={32} strokeWidth={2.25} />
+            </div>
+            <div className="row-span-2 grid grid-rows-2 gap-2">
+              <div className="flex items-center justify-center rounded-xl bg-white/70 text-blue-600 shadow-sm dark:bg-white/10 dark:text-blue-400">
+                <Box size={24} strokeWidth={2.25} />
+              </div>
+              <div className="flex items-center justify-center rounded-xl bg-white/70 text-blue-600 shadow-sm dark:bg-white/10 dark:text-blue-400">
+                <Layers size={24} strokeWidth={2.25} />
+              </div>
+            </div>
+          </div>
+
+          <div className="px-1 text-center flex-1 flex flex-col">
+            <div className="h-[2em] flex items-center justify-center min-w-0 mb-3">
+              <h3 className="text-[15px] font-bold uppercase tracking-tighter leading-tight text-blue-600 dark:text-blue-400 transition-colors">
+                PROJECT COST ESTIMATION
+              </h3>
+            </div>
+
+            <div className="mt-auto">
+              <div className="h-9 w-full rounded-full flex items-center justify-center gap-1.5 bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg shadow-blue-500/40 transition-all group-hover:from-blue-600 group-hover:to-cyan-500">
+                <span className="text-[15px] font-bold uppercase tracking-tighter leading-none">START NEW</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </button>
+  );
+}
 
 export default function Prints() {
   const { isDarkMode } = useTheme();
@@ -28,6 +106,9 @@ export default function Prints() {
   const [viewMode, setViewMode] = useState('idle');
   const [modifyingProject, setModifyingProject] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [sortType, setSortType] = useState('latest');
+  const [isSortOpen, setIsSortOpen] = useState(false);
+  const sortRef = useRef(null);
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -98,6 +179,16 @@ export default function Prints() {
     });
     return () => window.cancelAnimationFrame(frame);
   }, [location.pathname]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (sortRef.current && !sortRef.current.contains(event.target)) {
+        setIsSortOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const sectionHeaderPosition = isContentHeaderHidden
     ? 'top-[56px] sm:top-[60px] md:top-[120px]'
@@ -172,7 +263,7 @@ export default function Prints() {
   const garageProjects = useMemo(() => (
     (isAdmin && isAdminView)
       ? filteredBlueprints
-      : filteredBlueprints.filter(project => project?.canAddToBasket !== false)
+      : filteredBlueprints.filter(project => !isAdminEstimate(project) && project?.canAddToBasket !== false)
   ), [filteredBlueprints, isAdmin, isAdminView]);
 
   const vaultProjectTitles = useMemo(() => {
@@ -195,8 +286,17 @@ export default function Prints() {
         return searchWords.every(word => targetString.includes(word));
     });
   }, [projectVault, searchTerm, isAdmin, isAdminView, vaultProjectTitles]);
+
+  const sortedGarageProjects = useMemo(
+    () => sortPrintProjects(garageProjects, sortType),
+    [garageProjects, sortType]
+  );
+  const sortedFilteredVault = useMemo(
+    () => sortPrintProjects(filteredVault, sortType),
+    [filteredVault, sortType]
+  );
   
-  const totalMatches = garageProjects.length + filteredVault.length;
+  const totalMatches = sortedGarageProjects.length + sortedFilteredVault.length;
 
   useEffect(() => {
     if (viewMode === 'estimating') {
@@ -214,7 +314,10 @@ export default function Prints() {
   }, [searchTerm]);
 
   useEffect(() => {
-    const closeToolsOnScroll = () => setIsToolsOpen(false);
+    const closeToolsOnScroll = () => {
+      setIsToolsOpen(false);
+      setIsSortOpen(false);
+    };
     window.addEventListener('scroll', closeToolsOnScroll, { passive: true });
     return () => window.removeEventListener('scroll', closeToolsOnScroll);
   }, []);
@@ -342,9 +445,18 @@ export default function Prints() {
         { id: 'inventory', label: 'Inventory', icon: Droplet, tone: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20', onClick: () => setShowFilamentModal(true) },
         { id: 'printing-rates', label: 'Printing Rates', icon: HandCoins, tone: 'border-rose-500/20 bg-rose-500/10 text-rose-600 hover:bg-rose-500/20', onClick: () => setShowRatesModal(true) }
       ]
-    : [
-        { id: 'estimate', label: 'Estimate', icon: Calculator, tone: 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700', onClick: enterEstimating }
-      ];
+    : [];
+
+  const sortOptions = [
+    { id: 'latest', label: 'Latest', icon: ClockFading, active: sortType === 'latest', nextSort: 'latest' },
+    { id: 'price-asc', label: 'Price', icon: ArrowBigUpDash, active: sortType === 'price-asc', nextSort: 'price-asc' },
+    { id: 'price-desc', label: 'Price', icon: ArrowBigDownDash, active: sortType === 'price-desc', nextSort: 'price-desc' },
+    { id: 'name-asc', label: 'Name', icon: ArrowBigRightDash, active: sortType === 'alpha-asc', nextSort: 'alpha-asc' },
+    { id: 'name-desc', label: 'Name', icon: ArrowBigLeftDash, active: sortType === 'alpha-desc', nextSort: 'alpha-desc' },
+    { id: 'stock-asc', label: 'Stock', icon: ArrowBigUpDash, active: sortType === 'avail-asc', nextSort: 'avail-asc' },
+    { id: 'stock-desc', label: 'Stock', icon: ArrowBigDownDash, active: sortType === 'avail-desc', nextSort: 'avail-desc' }
+  ];
+  const activeSortOption = sortOptions.find(option => option.active) || sortOptions[0];
 
   const renderHeaderActions = () => headerActions.map(({ id, label, icon, tone, onClick }) => (
     <button
@@ -392,6 +504,49 @@ export default function Prints() {
                       </button>
                     )}
                 </div>
+                <div className="relative" ref={sortRef}>
+                  <button
+                    type="button"
+                    onFocus={() => setIsToolsOpen(false)}
+                    onClick={() => {
+                      setIsToolsOpen(false);
+                      setIsSortOpen((isOpen) => !isOpen);
+                    }}
+                    className={`flex items-center gap-2 px-4 py-3 rounded-2xl border shrink-0 z-10 transition-all active:scale-95 group ${isSortOpen ? 'bg-blue-600 text-white border-blue-600' : 'bg-black/5 dark:bg-white/5 border-black/5 dark:border-white/10 hover:bg-blue-600 hover:text-white'}`}
+                    aria-label="Sort projects"
+                    aria-expanded={isSortOpen}
+                  >
+                    {React.createElement(activeSortOption.icon, {
+                      size: 20,
+                      strokeWidth: 2.5,
+                      className: `transition-all ${isSortOpen ? 'text-white' : 'text-black dark:text-white opacity-70'} group-hover:text-white group-hover:opacity-100`
+                    })}
+                    <span className={`text-[12px] font-bold uppercase tracking-widest hidden sm:inline ${isSortOpen ? 'text-white' : 'text-black dark:text-white'} group-hover:text-white group-hover:opacity-100`}>{activeSortOption.label}</span>
+                    <ChevronDown size={12} className={`${isSortOpen ? 'text-white opacity-100' : 'text-black dark:text-white opacity-40'} transition-transform ${isSortOpen ? 'rotate-180' : ''} group-hover:text-white group-hover:opacity-100`} />
+                  </button>
+
+                  {isSortOpen && (
+                    <div className="absolute right-0 top-full mt-2 w-max min-w-full bg-white dark:bg-neutral-900 border border-black/5 dark:border-white/10 rounded-2xl shadow-2xl z-[100] overflow-hidden animate-in fade-in zoom-in duration-200">
+                      <div className="p-2 space-y-1">
+                        {sortOptions.filter(option => !option.active).map((option) => (
+                          <button
+                            key={option.id}
+                            type="button"
+                            onClick={() => {
+                              setSortType(option.nextSort);
+                              setIsSortOpen(false);
+                              window.scrollTo({ top: 0, behavior: 'smooth' });
+                            }}
+                            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-[12px] font-bold uppercase tracking-widest transition-all hover:bg-blue-600 hover:text-white"
+                          >
+                            {React.createElement(option.icon, { size: 20, strokeWidth: 2.5 })}
+                            <span className="whitespace-nowrap text-[12px] font-bold">{option.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
                 {searchTerm && (
                   <div className="flex items-center gap-2 px-4 py-3 bg-black/5 dark:bg-white/5 rounded-2xl border border-black/5 dark:border-white/10 shrink-0 z-10">
                     <span className="text-[9px] font-black text-blue-600 uppercase tracking-widest">
@@ -423,11 +578,7 @@ export default function Prints() {
                   )}
                 </div>
               </>
-            ) : (
-              <div className="relative z-[100] flex shrink-0 items-center">
-                {renderHeaderActions()}
-              </div>
-            )}
+            ) : null}
           </div>
         </div>
 
@@ -439,7 +590,7 @@ export default function Prints() {
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-4 sm:portrait:grid-cols-3 md:grid-cols-4 md:portrait:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-3 items-stretch">
               {/* --- Section Divider: Garage Projects --- */}
-              {garageProjects.length > 0 && (
+              {(garageProjects.length > 0 || (isAdmin && isAdminView)) && (
                 <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-2 backdrop-blur-md transition-[top] duration-300 ease-out will-change-[top] dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[13px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Garage Projects</span>
@@ -447,7 +598,11 @@ export default function Prints() {
                 </div>
               )}
 
-              {garageProjects.map((project) => {
+              {isAdmin && isAdminView && (
+                <ProjectEstimationCard onClick={enterEstimating} shadow={shadow} />
+              )}
+
+              {sortedGarageProjects.map((project) => {
                 return (
                   <ProjectCard 
                     key={project.id}
@@ -464,7 +619,7 @@ export default function Prints() {
               })}
 
               {/* --- Section Divider: Vault (Personal Projects) --- */}
-              {(filteredVault.length > 0 || !(isAdmin && isAdminView)) && (
+              {(sortedFilteredVault.length > 0 || !(isAdmin && isAdminView)) && (
                 <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-2 backdrop-blur-md transition-[top] duration-300 ease-out will-change-[top] dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[13px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">User Projects</span>
@@ -472,7 +627,11 @@ export default function Prints() {
                 </div>
               )}
 
-              {filteredVault.map((project) => {
+              {!(isAdmin && isAdminView) && (
+                <ProjectEstimationCard onClick={enterEstimating} shadow={shadow} />
+              )}
+
+              {sortedFilteredVault.map((project) => {
                 return (
                   <ProjectCard 
                     key={project.vaultId}
@@ -488,23 +647,6 @@ export default function Prints() {
                 );
               })}
 
-              {!(isAdmin && isAdminView) && filteredVault.length === 0 && !searchTerm && (
-                <div className="col-span-full flex justify-center py-16">
-                  <button
-                    type="button"
-                    onClick={enterEstimating}
-                    className="flex max-w-md cursor-pointer flex-col items-center rounded-3xl border border-blue-200 bg-blue-50/70 px-8 py-10 text-center shadow-sm transition-all hover:border-blue-400 hover:bg-blue-100/80 hover:shadow-lg active:scale-[0.98] dark:border-blue-900/60 dark:bg-blue-950/20 dark:hover:border-blue-700 dark:hover:bg-blue-950/40"
-                    aria-label="Start a new project estimation"
-                  >
-                    <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg shadow-blue-600/25">
-                      <Calculator size={24} strokeWidth={2.5} />
-                    </div>
-                    <p className="text-sm font-black uppercase tracking-widest text-blue-600 dark:text-blue-400">
-                      Tap to start new project estimation
-                    </p>
-                  </button>
-                </div>
-              )}
             </div>
           )}
 

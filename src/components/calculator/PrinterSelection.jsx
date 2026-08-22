@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useStore } from '../../store/useStore';
 import { Zap, Droplet, Layers2, CircleDot, RefreshCw } from 'lucide-react'; 
 import LoadingState from '../common/LoadingState';
+import { getPrinterFeeders } from '../../utils/printerCompatibility';
 
 export default function PrinterSelection({ onSelect, selectedPrinter: initialSelection = null }) {
   const dbPrinters = useStore((state) => state.printers);
@@ -63,11 +64,7 @@ export default function PrinterSelection({ onSelect, selectedPrinter: initialSel
   const { feeders } = useStore();
 
   const getCompatibleFeeders = (printer) => {
-    if (!printer?.autoFeed || !feeders || feeders.length === 0) return [];
-    const targetType = String(printer.autoFeed.compatibility || printer.autoFeed.type || '').toLowerCase();
-    const maxUnits = Number(printer.autoFeed.max) || 1;
-    const compatibleUnits = feeders.filter(f => String(f.type || f.compatibility || '').toLowerCase() === targetType);
-    return compatibleUnits.slice(0, maxUnits);
+    return getPrinterFeeders(printer, feeders);
   };
 
   const getPrinterSlots = (printer) => {

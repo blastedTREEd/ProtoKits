@@ -14,16 +14,6 @@ export default function CaseSelection({ onSelect, selectedCase = null }) {
 
   return (
     <div className="relative min-h-[calc(100dvh-210px)] lg:min-h-[calc(90dvh-210px)] flex flex-col pb-[160px] sm:pb-32 md:pb-32 lg:pb-32 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <style>{`
-        @keyframes soft-pulse {
-          0%, 100% { opacity: 1; transform: scale(1); }
-          50% { opacity: 0.8; transform: scale(0.97); }
-        }
-        .animate-status-pulse {
-          animation: soft-pulse 2s infinite ease-in-out;
-        }
-      `}</style>
-
       <div className="px-3 w-full max-w-2xl mx-auto grid grid-cols-1 gap-3">
         {cases.map((item) => {
           const isSelected = expandedId === item.id;
@@ -43,7 +33,7 @@ export default function CaseSelection({ onSelect, selectedCase = null }) {
                 }`}
               >
                 <div className="flex items-center gap-4 pl-2">
-                  <div className={`font-black italic uppercase text-2xl transition-all duration-300 tracking-tighter ${
+                  <div className={`font-black italic uppercase text-[20px] transition-all duration-300 tracking-tighter ${
                     isSelected ? 'text-[var(--color-primary)] scale-105 origin-left' : 'text-[var(--color-text-main)] group-hover:translate-x-1'
                   }`}>
                     {item.name}
@@ -51,7 +41,7 @@ export default function CaseSelection({ onSelect, selectedCase = null }) {
                 </div>
 
                 <div className="flex items-center gap-5">
-                  <span className={`text-[10px] font-black italic tracking-tight transition-all duration-500 uppercase animate-status-pulse text-[var(--color-primary)]`}>
+                  <span className="text-[15px] font-bold italic tracking-tight uppercase text-[var(--color-primary)]">
                     {isSelected ? `PROJECT ${item.accuracy}` : item.tagline}
                   </span>
                   
@@ -73,20 +63,18 @@ export default function CaseSelection({ onSelect, selectedCase = null }) {
                     isSelected ? 'bg-[var(--color-primary)]/20' : 'bg-[var(--color-border)] opacity-30'
                   }`} />
                   
-                  <p className={`text-[10px] font-medium leading-relaxed italic transition-colors ${
-                    isSelected ? 'text-[var(--color-text-main)]' : 'text-[var(--color-text-main)]/60'
-                  }`}>
+                  <p className="text-[14px] font-medium leading-relaxed text-[var(--color-text-main)]">
                     {item.description}
                   </p>
 
-                  <div className="flex flex-col gap-2 pt-1">
-                    <span className={`text-[10px] font-black uppercase tracking-[0.2em] transition-colors duration-500 ${
+                  <div className="flex flex-col gap-0 pt-1">
+                    <span className={`text-[14px] font-bold uppercase tracking-[0.05em] transition-colors duration-500 ${
                       isSelected ? 'text-[var(--color-primary)]' : 'text-black dark:text-white'
                     }`}>
                       REQUIRED INPUT:
                     </span>
                     
-                    <div className="flex flex-wrap gap-x-3 gap-y-1">
+                    <div className="flex flex-wrap gap-x-2 gap-y-1">
                       {(item.requirements || []).map((req, idx) => (
                         <React.Fragment key={idx}>
                           {idx > 0 && (
@@ -94,10 +82,10 @@ export default function CaseSelection({ onSelect, selectedCase = null }) {
                               isSelected ? 'bg-[var(--color-primary)]' : 'bg-[var(--color-text-main)]/30'
                             }`} />
                           )}
-                          <span className={`text-[10px] font-black uppercase tracking-widest transition-colors ${
+                          <span className={`text-[14px] font-bold uppercase tracking-[0.005em] transition-colors ${
                             isSelected 
                               ? 'text-[var(--color-primary)]' 
-                              : 'text-[var(--color-text-main)]/40'
+                              : 'text-[var(--color-text-main)]'
                           }`}>
                             {req}
                           </span>

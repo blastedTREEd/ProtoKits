@@ -1490,7 +1490,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
             </div>
 
             <div className="px-1 text-center flex-1 flex flex-col min-w-0">
-                <div className="h-[2em] flex items-center justify-center min-w-0">
+                <div className="h-[2em] flex items-center justify-center min-w-0 mb-3">
                   <h3 className="text-[15px] font-bold uppercase tracking-tighter leading-tight line-clamp-2 w-full group-hover:text-blue-600 transition-colors">{kit.name}</h3>
                 </div>
             <div className="mt-auto min-w-0 min-h-[50px] flex flex-col justify-end">

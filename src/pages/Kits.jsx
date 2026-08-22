@@ -1083,7 +1083,7 @@ export default function Kits({ isActive = true }) {
             </div>
           </div>
           <div className="px-1 text-center flex-1 flex flex-col min-w-0">
-            <div className=" flex items-center justify-center min-w-0">
+            <div className="flex items-center justify-center min-w-0 mb-3">
               <h3 className="text-[14px] font-bold uppercase tracking-tighter leading-tight line-clamp-2 w-full group-hover:text-emerald-600 transition-colors" title={deal.name}>{deal.name}</h3>
             </div>
             <div className="mt-auto min-w-0 min-h-[50px] flex flex-col justify-end">
@@ -1279,7 +1279,7 @@ export default function Kits({ isActive = true }) {
                           </div>
                       </div>
                       <div className="px-1 text-center flex-1 flex flex-col min-w-0">
-                          <div className=" flex items-center justify-center min-w-0">
+                          <div className="flex items-center justify-center min-w-0 mb-3">
                             <h3 className="text-[14px] font-bold uppercase tracking-tighter leading-tight line-clamp-2 w-full group-hover:text-emerald-600 transition-colors" title={deal.name}>{deal.name}</h3>
                           </div>
                           <div className="mt-auto min-w-0 min-h-[50px] flex flex-col justify-end">

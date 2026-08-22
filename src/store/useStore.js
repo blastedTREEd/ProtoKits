@@ -10,6 +10,7 @@ import {
   ONHAND_KIT_CONDITION,
   withStockConditionDefaults
 } from '../utils/stockConditions';
+import { normalizeFeederRecord, normalizePrinterRecord } from '../utils/printerCompatibility';
 
 const getKitTimestamp = (kit) => {
   const timestamps = [
@@ -896,13 +897,13 @@ export const useStore = create(
         });
 
         const unsubPrinters = onSnapshot(collection(db, "printers"), (snap) => {
-          set({ printers: docsToArray(snap) });
+          set({ printers: docsToArray(snap).map(normalizePrinterRecord) });
         }, (err) => {
           console.error("SG LOG: Printers subscription error:", err);
         });
 
         const unsubFeeders = onSnapshot(collection(db, "feeders"), (snap) => {
-          set({ feeders: docsToArray(snap) });
+          set({ feeders: docsToArray(snap).map(normalizeFeederRecord) });
         }, (err) => {
           console.error("SG LOG: Feeders subscription error:", err);
         });
@@ -1952,6 +1953,59 @@ export const useStore = create(
           await deleteDoc(doc(db, 'printers', id));
         } catch (error) {
           set({ printers: previousPrinters });
+          throw error;
+        }
+      },
+
+      addFeeder: async (feederData) => {
+        const { id, ...data } = feederData || {};
+        const existingIds = new Set((get().feeders || []).map((feeder) => String(feeder.id)));
+        const ref = id && !existingIds.has(String(id))
+          ? doc(db, 'feeders', id)
+          : doc(collection(db, 'feeders'));
+        const previousFeeders = get().feeders || [];
+        const nextFeeder = { ...data, id: ref.id };
+
+        set((state) => ({
+          feeders: [nextFeeder, ...(state.feeders || []).filter((feeder) => String(feeder.id) !== String(ref.id))]
+        }));
+
+        try {
+          await setDoc(ref, nextFeeder);
+        } catch (error) {
+          set({ feeders: previousFeeders });
+          throw error;
+        }
+      },
+
+      updateFeeder: async (id, patch) => {
+        if (!id || !patch) return;
+        const previousFeeders = get().feeders || [];
+        set((state) => ({
+          feeders: (state.feeders || []).map((feeder) => (
+            String(feeder.id) === String(id) ? { ...feeder, ...patch, id: feeder.id } : feeder
+          ))
+        }));
+
+        try {
+          await updateDoc(doc(db, 'feeders', id), patch);
+        } catch (error) {
+          set({ feeders: previousFeeders });
+          throw error;
+        }
+      },
+
+      deleteFeeder: async (id) => {
+        if (!id) return;
+        const previousFeeders = get().feeders || [];
+        set((state) => ({
+          feeders: (state.feeders || []).filter((feeder) => String(feeder.id) !== String(id))
+        }));
+
+        try {
+          await deleteDoc(doc(db, 'feeders', id));
+        } catch (error) {
+          set({ feeders: previousFeeders });
           throw error;
         }
       },

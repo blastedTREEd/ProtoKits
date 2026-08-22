@@ -1,5 +1,5 @@
 import React from 'react';
-import { Check, Weight, Coins, RefreshCw, Palette } from 'lucide-react';
+import { Check, Weight, Coins, Palette } from 'lucide-react';
 
 export default function MaterialCard({ 
   material, 
@@ -13,6 +13,7 @@ export default function MaterialCard({
   toggleSelect,
   isChanging,
   isGrid,
+  isChangingOption,
   readOnly,
   noBorder
 }) {
@@ -34,6 +35,53 @@ export default function MaterialCard({
   };
 
   const weightColorClass = isOutOfStock ? { color: '#ef4444' } : (isLowStock ? { color: '#f59e0b' } : { color: '#22c55e' });
+
+  if (isChangingOption) {
+    return (
+      <button
+        type="button"
+        onClick={() => onSelect(activeMaterial.id)}
+        className={`relative w-full min-h-[96px] p-4 rounded-[1.8rem] border-[1.5px] text-left transition-all duration-300 ${
+          isSelected
+            ? 'bg-[var(--color-primary)]/5 border-[var(--color-primary)]'
+            : 'bg-transparent border-gray-400/30'
+        } ${isOutOfStock ? 'opacity-60' : ''}`}
+      >
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <div
+              className="w-10 h-10 rounded-2xl shadow-inner border border-black/10 dark:border-white/10 shrink-0 flex items-center justify-center"
+              style={{ backgroundColor: isSelected ? 'var(--color-primary)' : (activeMaterial.color || '#4B91F1') }}
+            >
+              {isSelected && <RefreshCw size={16} strokeWidth={4} className="text-white" />}
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-[14px] font-bold text-[var(--color-primary)] uppercase tracking-tight shrink-0">
+                  {activeMaterial.type || 'PLA'}
+                </span>
+                <span className="text-[14px] font-bold text-[var(--color-text-main)] uppercase truncate">
+                  {activeMaterial.brand || 'Unknown'}
+                </span>
+              </div>
+              <h4 className="text-[15px] font-bold uppercase italic tracking-tight truncate text-[var(--color-text-main)]">
+                {activeMaterial.name}
+              </h4>
+            </div>
+          </div>
+
+          <div className="flex flex-col items-end shrink-0">
+            <span className="text-[14px] font-bold italic tracking-tight" style={weightColorClass}>
+              {formatWeight(activeMaterial.remaining)}G
+            </span>
+            <span className="text-[14px] font-bold uppercase tracking-tight text-[var(--color-text-main)]">
+              STOCK
+            </span>
+          </div>
+        </div>
+      </button>
+    );
+  }
 
   // ---------------------------------------------------------
   // RENDER OPTION 1: THE NEW SELECTION UI (For the List/Grid)
@@ -63,7 +111,7 @@ export default function MaterialCard({
             }}
           />
           <div className="flex items-center gap-1.5">
-            <div className="px-2 py-0.5 rounded-lg border font-black uppercase tracking-[0.1em] text-[8px] transition-all duration-500 bg-blue-500/10 border-blue-500/20 text-blue-600 dark:text-blue-400">
+            <div className="px-2 py-0.5 rounded-lg border font-bold uppercase tracking-[0.1em] text-[8px] transition-all duration-500 bg-blue-500/10 border-blue-500/20 text-blue-600 dark:text-blue-400">
               {activeMaterial.type || 'PLA'}
             </div>
             {isSelected && (
@@ -75,16 +123,16 @@ export default function MaterialCard({
         </div>
         <div className="mb-3">
           <p className="text-[10px] font-bold uppercase tracking-widest leading-none mb-1 text-[var(--color-text-main)] opacity-30">{activeMaterial.brand || 'Unknown'}</p>
-          <h3 className="text-[13px] font-black italic uppercase leading-tight tracking-tight transition-colors text-[var(--color-text-main)]">{activeMaterial.name}</h3>
+          <h3 className="text-[13px] font-bold italic uppercase leading-tight tracking-tight transition-colors text-[var(--color-text-main)]">{activeMaterial.name}</h3>
         </div>
         <div className="mt-auto flex items-center justify-between">
           <div className="flex items-center gap-1">
             <Weight size={10} className="opacity-20" />
-            <span className="text-[11px] font-black uppercase tracking-tighter" style={weightColorClass}>
+            <span className="text-[11px] font-bold uppercase tracking-tighter" style={weightColorClass}>
               {formatWeight(activeMaterial.remaining)}g left
             </span>
           </div>
-          {finalUpfront && <div className="flex items-center gap-1" style={{ color: activeColor }}><Coins size={10} strokeWidth={3} /><span className="text-[9px] font-black uppercase tracking-widest">UPFRONT</span></div>}
+          {finalUpfront && <div className="flex items-center gap-1" style={{ color: activeColor }}><Coins size={10} strokeWidth={3} /><span className="text-[9px] font-bold uppercase tracking-widest">UPFRONT</span></div>}
         </div>
       </button>
     );
@@ -105,43 +153,30 @@ export default function MaterialCard({
       `}
     >
       <div className="flex items-center gap-3 min-w-0">
-        <div 
-          className="w-10 h-10 rounded-2xl shadow-inner border border-black/10 dark:border-white/10 shrink-0" 
+        <div
+          className="w-10 h-10 rounded-2xl shadow-inner border border-black/10 dark:border-white/10 shrink-0 flex items-center justify-center"
           style={{ backgroundColor: activeMaterial.color || '#4B91F1' }}
         />
         <div className="text-left min-w-0">
-          <div className="flex items-center gap-1.5 overflow-hidden">
-            <span className="text-[10px] font-black text-[var(--color-primary)] uppercase tracking-widest shrink-0">{activeMaterial.type}</span>
-            <span className="text-[10px] font-bold opacity-20 uppercase truncate italic">{activeMaterial.brand}</span>
+          <div className="flex items-center gap-0.5 overflow-hidden">
+            <span className="text-[14px] font-bold text-[var(--color-primary)] uppercase tracking-[0.05em] shrink-0">{activeMaterial.type}</span>
+            <span className="text-[14px] font-bold text-[var(--color-text-main)] uppercase truncate italic">{activeMaterial.brand}</span>
           </div>
-          <h4 className={`text-[13px] font-black uppercase italic tracking-tighter truncate ${finalUpfront ? 'text-red-600' : 'text-[var(--color-text-main)]'}`}>
+          <h4 className={`text-[15px] font-bold uppercase tracking-tighter truncate ${finalUpfront ? 'text-red-600' : 'text-[var(--color-text-main)]'}`}>
             {activeMaterial.name}
           </h4>
         </div>
       </div>
 
       <div className="flex flex-col items-end shrink-0 gap-0.5 pr-1">
-        {isChanging ? (
-          <div className="bg-[var(--color-primary)] text-white p-1.5 rounded-full animate-pulse">
-            <RefreshCw size={12} strokeWidth={4} />
-          </div>
-        ) : (
-          <>
-            <div className="flex items-center gap-1">
-               <span className={`text-[11px] font-black italic tracking-tighter`} style={weightColorClass}>
-                 {readOnly && requiredWeight > 0 ? formatWeight(requiredWeight) : formatWeight(activeMaterial.remaining)}G
-               </span>
-               {readOnly ? (
-                 <Weight size={10} className="opacity-20" />
-               ) : (
-                 <Palette size={10} className="opacity-20" />
-               )}
-            </div>
-            <span className="text-[8px] font-black uppercase tracking-[0.2em] opacity-30">
-              {readOnly ? (requiredWeight > 0 ? 'Needed' : 'Stock') : 'Change'}
-            </span>
-          </>
-        )}
+        <div className="flex items-center gap-1">
+          <span className="text-[14px] font-bold italic tracking-[0.05em]" style={weightColorClass}>
+            {readOnly && requiredWeight > 0 ? formatWeight(requiredWeight) : formatWeight(activeMaterial.remaining)}G
+          </span>
+        </div>
+        <span className="text-[14px] font-bold uppercase tracking-[0.05em]">
+          {readOnly ? (requiredWeight > 0 ? 'Needed' : 'Stock') : (isChanging ? 'Select Below' : 'Tap to Change')}
+        </span>
       </div>
     </button>
   );

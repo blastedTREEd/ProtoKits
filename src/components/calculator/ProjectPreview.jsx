@@ -1,12 +1,12 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { 
-  Plus, Layers, WeightTilde, Droplet, ClockCheck, 
+  Plus, Layers, Spool, ClockCheck, 
   Copy, Trash2, X, Check, AlertTriangle, Search,
-  Tag, Link2, Printer, Zap
+  Printer, WeightTilde
 } from 'lucide-react';
 import MaterialCard from './MaterialCard';
 import { useStore } from '../../store/useStore';
-import { isFilamentCompatibleWithPrinter } from '../../utils/printerCompatibility';
+import { getPrinterCompatibleFilamentTypes, getPrinterFeeders, isFilamentCompatibleWithPrinter } from '../../utils/printerCompatibility';
 
 export default function ProjectPreview({ 
   allFilaments = [], 
@@ -41,15 +41,10 @@ export default function ProjectPreview({
   );
   
   const selectedPrinter = useMemo(() => printers.find(p => p.id === activePlate.printerId), [printers, activePlate.printerId]);
+  const compatibleFilamentTypes = useMemo(() => getPrinterCompatibleFilamentTypes(selectedPrinter), [selectedPrinter]);
 
   const getCompatibleFeeders = useCallback((printer) => {
-    if (!printer?.autoFeed || !feeders || feeders.length === 0) return [];
-    const targetType = String(printer.autoFeed.compatibility || printer.autoFeed.type || '').toLowerCase();
-    const maxUnits = Number(printer.autoFeed.max) || 1;
-    if (!targetType) return [];
-    return feeders
-      .filter(f => String(f.type || f.compatibility || '').toLowerCase() === targetType)
-      .slice(0, maxUnits);
+    return getPrinterFeeders(printer, feeders);
   }, [feeders]);
 
   const compatibleFeeders = useMemo(() => getCompatibleFeeders(selectedPrinter), [getCompatibleFeeders, selectedPrinter]);
@@ -138,6 +133,12 @@ export default function ProjectPreview({
       ...(selectedFilaments || []).map(f => String(f.materialId || f.id)),
       ...(plates || []).flatMap(p => (p.materialSlots?.length ? p.materialSlots.map(slot => slot.materialId) : [p.materialId]).filter(Boolean).map(String))
     ]);
+    const selectedMaterialIds = new Set(
+      (selectedFilaments || [])
+        .map(f => String(f.materialId || f.id || ''))
+        .filter(Boolean)
+    );
+    const hasSelectedMaterialFilter = selectedMaterialIds.size > 0;
 
     // CRITICAL: Cannot pick the same material for two different slots on the SAME plate
     const usedMaterialIds = new Set(
@@ -152,6 +153,9 @@ export default function ProjectPreview({
         const fId = String(f.id);
 
         if (!isFilamentCompatibleWithPrinter(selectedPrinter, f)) return false;
+
+        // Only show materials selected for this project in the change picker.
+        if (hasSelectedMaterialFilter && !selectedMaterialIds.has(fId)) return false;
         
         // Exclude current material of active slot
         if (fId === String(currentMaterialId)) return false;
@@ -164,15 +168,17 @@ export default function ProjectPreview({
         return stock > 0 || isInProjectPalette || fId === activeMatId || f.status?.toLowerCase() === 'upfront';
       });
 
-    // Search query should search all filaments, excluding current
+    // Search query should search all compatible filaments, including
+    // out-of-stock ones, while excluding assigned materials.
     if (matSearchQuery.trim()) {
       const q = matSearchQuery.toLowerCase();
-      // Search across ALL filaments, filter out current
+      // Search across ALL filaments, filter out current and assigned slots
       list = [...filaments].filter(f => 
         isFilamentCompatibleWithPrinter(selectedPrinter, f) &&
         (f.name?.toLowerCase().includes(q) || 
          f.brand?.toLowerCase().includes(q) || 
          f.type?.toLowerCase().includes(q)) &&
+        !usedMaterialIds.has(String(f.id)) &&
         String(f.id) !== String(currentMaterialId)
       );
     }
@@ -439,7 +445,7 @@ export default function ProjectPreview({
       {/* --- PLATE NAVIGATION --- */}
       <div className="project-preview-plates w-full max-w-2xl mx-auto px-3 space-y-0 text-center">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-[14px] font-black uppercase flex items-center gap-2 text-[var(--color-primary)]">
+          <h2 className="text-[15px] font-bold uppercase flex items-center gap-2 text-[var(--color-primary)]">
             <Layers size={14} strokeWidth={3} /> Build Plates {plates.length > 0 && <span className="opacity-40">({plates.length}/{MAX_PLATES})</span>}
           </h2>
           <div className="flex items-center gap-1.5 shrink-0">
@@ -447,28 +453,28 @@ export default function ProjectPreview({
               type="button"
               onClick={addBlankPlate}
               disabled={plates.length >= MAX_PLATES}
-              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${plates.length >= MAX_PLATES ? 'opacity-30 cursor-not-allowed bg-gray-400/10 text-gray-400' : 'bg-blue-500/15 text-blue-600 hover:bg-blue-500/25 active:scale-90'}`}
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${plates.length >= MAX_PLATES ? 'opacity-50 cursor-not-allowed bg-gray-400/10 text-gray-400' : 'bg-blue-500/15 text-blue-600 hover:bg-blue-500/25 active:scale-90'}`}
               title="Add build plate"
             >
-              <Plus size={14} strokeWidth={4} />
+              <Plus size={16} strokeWidth={4} />
             </button>
             <button
               type="button"
               onClick={duplicateActivePlate}
               disabled={plates.length >= MAX_PLATES || !activePlate?.id}
-              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${(plates.length >= MAX_PLATES || !activePlate?.id) ? 'opacity-30 cursor-not-allowed bg-gray-400/10 text-gray-400' : 'bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 active:scale-90'}`}
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${(plates.length >= MAX_PLATES || !activePlate?.id) ? 'opacity-50 cursor-not-allowed bg-gray-400/10 text-gray-400' : 'bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 active:scale-90'}`}
               title="Duplicate build plate"
             >
-              <Copy size={14} strokeWidth={3} />
+              <Copy size={16} strokeWidth={3} />
             </button>
             <button
               type="button"
               onClick={() => deletePlate(effectiveActiveId)}
               disabled={plates.length <= 1}
-              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${plates.length <= 1 ? 'opacity-30 cursor-not-allowed bg-red-500/5 text-red-400' : 'bg-red-500/10 hover:bg-red-500/20 text-red-600 active:scale-90'}`}
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${plates.length <= 1 ? 'opacity-50 cursor-not-allowed bg-red-500/5 text-red-400' : 'bg-red-500/10 hover:bg-red-500/20 text-red-600 active:scale-90'}`}
               title="Delete build plate"
             >
-              <Trash2 size={14} strokeWidth={3} />
+              <Trash2 size={16} strokeWidth={3} />
             </button>
           </div>
         </div>
@@ -483,7 +489,7 @@ export default function ProjectPreview({
               >
                 <div className="flex flex-col items-center leading-none">
                   {isPlateValid(plate) ? <Check size={16} strokeWidth={4} className="mb-0.5 animate-in zoom-in" /> : <Layers size={14} strokeWidth={3} className="mb-0.5" />}
-                  <span className="text-[9px] font-black uppercase italic">BP{plate.no}</span>
+                  <span className="text-[13px] font-bold uppercase italic">BP{plate.no}</span>
                 </div>
               </button>
             ))}
@@ -494,8 +500,8 @@ export default function ProjectPreview({
       {/* 🔥 NEW: PRINTER SELECTION (Collapsible) */}
       <div className="project-preview-printer flex flex-col items-center text-center w-full max-w-2xl mx-auto px-3">
         <div className="flex flex-wrap justify-between items-center w-full mb-2 gap-2">
-          <label className="text-[14px] font-black uppercase flex items-center gap-2 text-[var(--color-primary)]">
-            <Printer size={12} strokeWidth={3} /> 3D Printer
+          <label className="text-[15px] font-bold uppercase flex items-center gap-2 text-[var(--color-primary)]">
+            <Printer size={20} strokeWidth={3} /> 3D Printer
           </label>
         </div>
         
@@ -512,25 +518,32 @@ export default function ProjectPreview({
               <div className="flex justify-between items-start w-full gap-4">
                 <div className="text-left flex-1 min-w-0 flex flex-col gap-1">
                   <div className="flex flex-wrap items-baseline gap-2 min-w-0">
-                    <span className="text-[14px] font-black uppercase text-[var(--color-primary)] truncate leading-none">{selectedPrinter?.brand || 'Select Printer'}</span>
-                    <span className="text-[14px] font-black uppercase text-black dark:text-white truncate leading-none">{selectedPrinter?.model || selectedPrinter?.name || '---'}</span>
+                    <span className="text-[14px] font-bold uppercase text-[var(--color-primary)] truncate leading-none">{selectedPrinter?.brand || 'Select Printer'}</span>
+                    <span className="text-[14px] font-bold uppercase text-black dark:text-white truncate leading-none">{selectedPrinter?.model || selectedPrinter?.name || '---'}</span>
                   </div>
                   {selectedPrinter && (
-                    <span className="text-[14px] font-black uppercase text-black dark:text-white truncate leading-none">
+                    <span className="text-[14px] font-bold uppercase text-black dark:text-white truncate leading-none">
                       {formatPrinterCapacity(selectedPrinter.buildCapacity)} MM
                     </span>
                   )}
                   {selectedPrinter && (
-                    <span className="text-[14px] font-black uppercase text-black dark:text-white truncate leading-none">
+                    <span className="text-[14px] font-bold uppercase text-black dark:text-white truncate leading-none">
                       {getPrinterFilamentSlots(selectedPrinter)} Filament {getPrinterFilamentSlots(selectedPrinter) === 1 ? 'Slot' : 'Slots'}
                     </span>
                   )}
+                  {selectedPrinter && (
+                    <span className="text-[14px] font-bold uppercase text-black dark:text-white truncate leading-none">
+                      {compatibleFilamentTypes.length > 0 ? compatibleFilamentTypes.join(' • ') : 'All Filament Types'}
+                    </span>
+                  )}
                 </div>
-                <div className="flex flex-col items-end gap-1.5 shrink-0 justify-start">
-                  <span className={`text-[9px] font-black uppercase px-2 py-1 rounded-lg shrink-0 leading-none ${selectedPrinter?.status?.toLowerCase() === 'online' || selectedPrinter?.status?.toLowerCase() === 'virtual' ? 'text-green-600' : 'text-red-600'}`}>
-                    {selectedPrinter?.status || '---'}
-                  </span>
-                  <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full text-gray-500 shrink-0 leading-none">
+                <div className="flex flex-col items-end gap-0 shrink-0 justify-start">
+                  {selectedPrinter && (
+                    <span className={`text-[13px] font-bold uppercase px-2 py-1 rounded-lg shrink-0 leading-none ${selectedPrinter?.status?.toLowerCase() === 'online' || selectedPrinter?.status?.toLowerCase() === 'virtual' ? 'text-green-600' : 'text-red-600'}`}>
+                      {selectedPrinter?.status || '---'}
+                    </span>
+                  )}
+                  <span className="text-[13px] font-bold uppercase px-2 py-0.5 rounded-full text-gray-500 shrink-0 leading-none">
                     {isSelectingPrinter ? 'Selected' : 'Tap to Change'}
                   </span>
                 </div>
@@ -558,17 +571,17 @@ export default function ProjectPreview({
                       >
                         <div className="min-w-0 flex flex-col gap-1">
                           <div className="flex flex-wrap items-baseline gap-2 min-w-0">
-                            <span className="text-[14px] font-black uppercase text-[var(--color-primary)] truncate">{p.brand}</span>
-                            <span className="text-[14px] font-black uppercase text-black dark:text-white truncate">{p.model || p.name}</span>
+                            <span className="text-[14px] font-bold uppercase text-[var(--color-primary)] truncate">{p.brand}</span>
+                            <span className="text-[14px] font-bold uppercase text-black dark:text-white truncate">{p.model || p.name}</span>
                           </div>
-                          <span className="text-[14px] font-black uppercase text-black dark:text-white truncate">
+                          <span className="text-[14px] font-bold uppercase text-black dark:text-white truncate">
                             {formatPrinterCapacity(p.buildCapacity)} MM
                           </span>
-                          <span className="text-[14px] font-black uppercase text-black dark:text-white truncate">
+                          <span className="text-[14px] font-bold uppercase text-black dark:text-white truncate">
                             {getPrinterFilamentSlots(p)} Filament {getPrinterFilamentSlots(p) === 1 ? 'Slot' : 'Slots'}
                           </span>
                         </div>
-                        <span className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-lg shrink-0 ${isOnline ? 'text-green-600' : 'text-red-600'}`}>
+                        <span className={`text-[13px] font-bold uppercase px-2.5 py-1 rounded-lg shrink-0 ${isOnline ? 'text-green-600' : 'text-red-600'}`}>
                           {p.status}
                         </span>
                       </button>
@@ -583,17 +596,17 @@ export default function ProjectPreview({
       {!isSelectingPrinter && (
         <div className="space-y-6 animate-in fade-in zoom-in duration-300 w-full max-w-2xl mx-auto px-3">
           <div className="flex flex-col items-center text-center">
-            <label className="text-[12px] font-black uppercase mb-2 flex items-center justify-center gap-2 text-[var(--color-primary)]">
+            <label className="text-[15px] font-bold uppercase mb-2 flex items-center justify-center gap-2 text-[var(--color-primary)]">
               <ClockCheck size={14} strokeWidth={3} /> Print Time
             </label>
             <div className={`bg-transparent rounded-[2.5rem] px-6 py-4 flex items-center gap-1 w-full text-black dark:text-white ${containerBorderStyle}`}>
               {[{ field: 'days', sub: 'DD' }, { field: 'hours', sub: 'HH' }, { field: 'mins', sub: 'MM' }, { field: 'secs', sub: 'SS' }].map((item, idx, arr) => (
                 <React.Fragment key={item.field}>
                   <div className="flex-1 flex flex-col items-center">
-                    <input ref={inputRefs[item.field]} type="number" value={activePlate[item.field]} onFocus={() => updatePlateData(effectiveActiveId, item.field, '')} onChange={(e) => handleTimeChange(item.field, e.target.value)} placeholder="00" className="w-full text-center bg-transparent outline-none text-[18px] font-black italic text-black dark:text-white" />
-                    <span className="text-[11px] font-black text-[var(--color-primary)] uppercase">{item.sub}</span>
+                    <input ref={inputRefs[item.field]} type="number" value={activePlate[item.field]} onFocus={() => updatePlateData(effectiveActiveId, item.field, '')} onChange={(e) => handleTimeChange(item.field, e.target.value)} placeholder="00" className="w-full text-center bg-transparent outline-none text-[18px] font-bold italic text-black dark:text-white" />
+                    <span className="text-[13px] font-bold text-[var(--color-primary)] uppercase">{item.sub}</span>
                   </div>
-                  {idx < arr.length - 1 && <div className="opacity-30 font-black mb-5 text-xl">:</div>}
+                  {idx < arr.length - 1 && <div className="opacity-30 font-bold mb-5 text-xl">:</div>}
                 </React.Fragment>
               ))}
             </div>
@@ -605,32 +618,39 @@ export default function ProjectPreview({
       {!isSelectingPrinter && (
         <div className="space-y-8 transition-all duration-500 relative w-full max-w-2xl mx-auto px-3">
           <div className="space-y-3 mt-8">
+            <div className="flex gap-4 items-center text-center">
+              <div className="w-[43%] flex items-center justify-center">
+                <label className="text-[15px] font-bold uppercase flex items-center justify-center gap-2 text-[var(--color-primary)]">
+                  <WeightTilde size={18} strokeWidth={2.5} />Weight
+                </label>
+              </div>
+              <div className="w-[57%] flex items-center justify-center">
+                <label className="text-[15px] font-bold uppercase flex items-center justify-center gap-2 text-[var(--color-primary)]">
+                  <Spool size={16} strokeWidth={2.5} />Materials
+                </label>
+              </div>
+            </div>
             {activeMaterialSlotsData.map((slot, idx) => {
                 const slotMaterial = getLatestMaterial(slot.materialId, plates);
+                if (isSelectingMaterial && activeMaterialSlot !== idx) return null;
 
                 return (
-                  <div key={`${slot.materialId}-${idx}`} className={`flex gap-4 items-end transition-opacity duration-300 ${isSelectingMaterial && activeMaterialSlot !== idx ? 'opacity-30' : 'opacity-100'}`}>
+                  <div key={`${slot.materialId}-${idx}`} className="flex gap-4 items-end transition-opacity duration-300">
                     <div className="w-[43%] flex flex-col items-center text-center">
-                      <label className="text-[12px] font-black uppercase mb-2 flex items-center justify-center gap-2 text-[var(--color-primary)]">
-                        <WeightTilde size={14} strokeWidth={3} /> BP{activePlate.no} M{idx + 1}
-                      </label>
                       <div className={`w-full min-h-[68px] h-auto bg-transparent rounded-[1.8rem] relative flex flex-col items-center justify-center overflow-hidden transition-all duration-500 py-3 ${containerBorderStyle}`}>
                         <div className="flex items-baseline justify-center">
-                          <input type="number" inputMode="decimal" value={slot.weight} onFocus={() => updateMaterialSlotWeight(idx, '')} onChange={(e) => updateMaterialSlotWeight(idx, e.target.value)} placeholder="0" className={`w-14 text-center bg-transparent border-none outline-none font-black text-[18px] italic ${slotMaterial?.isUpfront ? 'text-red-600' : 'text-black dark:text-white'}`} />
-                          <span className={`text-[12px] font-black italic ${slotMaterial?.isUpfront ? 'text-red-600' : 'text-black dark:text-white'}`}>G</span>
+                          <input type="number" inputMode="decimal" value={slot.weight} onFocus={() => updateMaterialSlotWeight(idx, '')} onChange={(e) => updateMaterialSlotWeight(idx, e.target.value)} placeholder="0" className={`w-14 text-center bg-transparent border-none outline-none font-bold text-[18px] italic ${slotMaterial?.isUpfront ? 'text-red-600' : 'text-black dark:text-white'}`} />
+                          <span className={`text-[12px] font-bold italic ${slotMaterial?.isUpfront ? 'text-red-600' : 'text-black dark:text-white'}`}>G</span>
                         </div>
                         {slotMaterial?.isUpfront && (
                           <div className="flex items-center gap-1 animate-pulse-subtle mt-0.5">
                             <AlertTriangle size={8} className="text-red-600" />
-                            <span className="text-[9px] font-black uppercase text-red-600 italic">Upfront Req.</span>
+                            <span className="text-[9px] font-bold uppercase text-red-600 italic">Upfront Req.</span>
                           </div>
                         )}
                       </div>
                     </div>
                     <div className="w-[57%] flex flex-col items-center text-center">
-                      <label className="text-[12px] font-black uppercase mb-2 flex items-center justify-center gap-2 text-[var(--color-primary)]">
-                        <Droplet size={14} strokeWidth={3} /> Material {idx + 1}
-                      </label>
                       <div className="w-full relative">
                         <MaterialCard
                           mat={slotMaterial}
@@ -650,23 +670,14 @@ export default function ProjectPreview({
               })}
 
               {!isSelectingMaterial && activeMaterialSlotsData.length < activeMaterialSlotsLimit && (
-                <button type="button" onClick={addMaterialSlot} className="w-full py-3 rounded-[1.4rem] border-2 border-dashed border-[var(--color-primary)] text-[var(--color-primary)] flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest">
-                  <Plus size={15} strokeWidth={4} /> Add Material Row
+                <button type="button" onClick={addMaterialSlot} className="w-full py-3 rounded-[1.4rem] border-2 border-dashed border-[var(--color-primary)] text-[var(--color-primary)] flex items-center justify-center gap-2 text-[13px] font-bold uppercase tracking-widest">
+                  <Plus size={15} strokeWidth={4} /> Add Material
                 </button>
               )}
             </div>
 
           {isSelectingMaterial && (
             <div className="space-y-4 animate-in slide-in-from-bottom-4 duration-300 pb-10">
-              <div className="px-3 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-1.5 h-4 bg-[var(--color-primary)] rounded-full" />
-                    <h4 className="text-[11px] font-black uppercase tracking-widest text-[var(--color-primary)]">
-                      Changing Filament for BP{activePlate.no}
-                    </h4>
-                  </div>
-              </div>
-
               {(allFilaments || []).length >= 10 && (
                 <div className="px-1">
                   <div className="relative group">
@@ -675,7 +686,7 @@ export default function ProjectPreview({
                         value={matSearchQuery}
                         onChange={e => setMatSearchQuery(e.target.value)}
                         placeholder="Search colors..."
-                        className="w-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-2xl pl-11 pr-4 py-3 text-[11px] font-black uppercase tracking-widest outline-none focus:border-blue-500/50 transition-all"
+                        className="w-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-2xl pl-11 pr-4 py-3 text-[11px] font-bold uppercase tracking-widest outline-none focus:border-blue-500/50 transition-all"
                       />
                   </div>
                 </div>
@@ -687,7 +698,7 @@ export default function ProjectPreview({
                     <MaterialCard 
                       key={mat.id} 
                       mat={mat} 
-                      isGrid={true} 
+                      isChangingOption={true}
                       isSelected={String(mat.id) === String(currentMaterialId)}
                       isUpfront={mat.isUpfront}
                       onSelect={(id) => { updatePlateData(effectiveActiveId, 'materialId', id); setIsSelectingMaterial(false); setMatSearchQuery(''); }} 
@@ -695,7 +706,7 @@ export default function ProjectPreview({
                   ))
                 ) : (
                   <div className="col-span-2 py-10 text-center opacity-30">
-                    <p className="text-[10px] font-black uppercase tracking-widest">No matching filaments</p>
+                    <p className="text-[10px] font-bold uppercase tracking-widest">No matching filaments</p>
                   </div>
                 )}
               </div>
@@ -721,7 +732,7 @@ export default function ProjectPreview({
     <button 
                 onClick={handleNext}
                 disabled={!isActivePlateValid}
-                className="flex-1 h-14 rounded-[2.2rem] font-black italic uppercase tracking-[0.2em] text-xs flex items-center justify-center gap-4 bg-[var(--color-primary)] text-white shadow-xl shadow-[var(--color-primary)]/20 active:scale-95 group disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
+                className="flex-1 h-14 rounded-[2.2rem] font-bold italic uppercase tracking-[0.2em] text-xs flex items-center justify-center gap-4 bg-[var(--color-primary)] text-white shadow-xl shadow-[var(--color-primary)]/20 active:scale-95 group disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
               >
                 {isEverythingValid ? (
                   <>CONFIRM DETAILS

@@ -294,18 +294,11 @@ const handleStepBack = () => {
 };
 
   return (
-    <div className="w-full min-h-full prints-calculator-container animate-in fade-in zoom-in-95 duration-500 px-3 sm:px-5 pb-0 text-[var(--color-text-main)] [--print-font-size:12px] sm:[--print-font-size:16px] md:[--print-font-size:14px]  lg:[--print-font-size:13px] ">
+    <div className="w-full min-h-full prints-calculator-container animate-in fade-in zoom-in-95 duration-500 px-3 sm:px-5 pb-0 text-[var(--color-text-main)]">
       <style>{`
-        .prints-calculator-body :where(p, span, label, button, input, textarea, select, h1, h2, h3, h4, h5, h6) {
-          font-size: var(--print-font-size);
-        }
-        .prints-calculator-body :where(input, .print-dimension-type) {
+        .prints-calculator-container :where(input, .print-dimension-type) {
           font-weight: 900;
           font-style: italic;
-        }
-        .prints-calculator-body .preserve-print-size,
-        .prints-calculator-body .preserve-print-size * {
-          font-size: var(--preserve-size) !important;
         }
       `}</style>
       <div className="sticky top-0 z-50 -mx-3 sm:-mx-5 px-3 sm:px-5 pt-[calc(env(safe-area-inset-top)+1.25rem)] pb-3 mb-4 bg-[var(--color-surface)]/95 backdrop-blur-xl border-b border-[var(--color-border)]">
@@ -314,7 +307,7 @@ const handleStepBack = () => {
             <button onClick={() => activeStep > 0 ? (isEditMode ? setActiveStep(prev => prev - 1) : window.history.back()) : onExit()} className="active:scale-90 transition-all shrink-0">
               {headerBadge}
             </button>
-            <h1 className="text-[18px] font-black italic tracking-tighter uppercase">
+            <h1 className="text-[20px] font-black italic tracking-tighter uppercase">
               {STEP_CONFIG[activeStep]?.title} <span className="text-[var(--color-primary)]">{STEP_CONFIG[activeStep]?.accent}</span>
             </h1>
           </div>

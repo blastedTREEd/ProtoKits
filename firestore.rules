@@ -49,10 +49,12 @@ service cloud.firestore {
 
     match /printers/{id} {
       allow read: if true;
+      allow write: if isAdmin();
     }
 
     match /feeders/{id} {
       allow read: if true;
+      allow write: if isAdmin();
     }
 
     match /extras/{id} {

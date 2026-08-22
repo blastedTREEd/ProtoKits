@@ -4,6 +4,7 @@ import {
   ChevronUp, Info, TrendingUp, Wallet
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
+import { getPrinterFeeders } from '../../utils/printerCompatibility';
 
 const DEFAULT_SPOOL_WEIGHT = 1000;
 
@@ -62,16 +63,16 @@ const CostItem = ({ icon, label, value, colorClass, details }) => {
             <Icon size={24} className={textColor} />
           </div>
           <div>
-            <span className="text-[10px] font-black uppercase tracking-widest opacity-30 block mb-0.5 italic">Component</span>
-            <span className="text-[15px] font-black uppercase tracking-tight">{label}</span>
+            <span className="text-[13px] font-black uppercase tracking-widest opacity-30 block mb-0.5 italic">Component</span>
+            <span className="text-[14px] font-black uppercase tracking-tight">{label}</span>
           </div>
         </div>
         <div className="text-right">
-          <span className="text-[10px] font-black uppercase tracking-widest opacity-30 block mb-0.5 italic">Subtotal</span>
+          <span className="text-[13px] font-black uppercase tracking-widest opacity-30 block mb-0.5 italic">Subtotal</span>
           <span className={`text-[20px] font-black italic ${textColor} tracking-tighter`}>₱{value}</span>
         </div>
       </div>
-      <button onClick={() => setShowFormula(!showFormula)} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest opacity-30 hover:opacity-100 transition-all ml-[60px]">
+      <button onClick={() => setShowFormula(!showFormula)} className="flex items-center gap-2 text-[13px] font-black uppercase tracking-widest opacity-30 hover:opacity-100 transition-all ml-[60px]">
         {showFormula ? <ChevronUp size={12} strokeWidth={4} /> : <Info size={12} strokeWidth={4} />}
         {showFormula ? 'Hide Details' : 'Show Breakdown'}
       </button>
@@ -79,12 +80,12 @@ const CostItem = ({ icon, label, value, colorClass, details }) => {
         <div className="ml-[60px] bg-[var(--color-bg)]/30 rounded-[1.5rem] p-5 border border-dashed border-[var(--color-border)] animate-in slide-in-from-top-2 duration-300 space-y-4">
           {details.map((section, idx) => (section.items?.length > 0 && (
             <div key={idx} className="space-y-2">
-              {section.title && <div className="text-[9px] font-black text-blue-600 opacity-60 uppercase tracking-[0.2em] border-b border-[var(--color-border)] pb-1 mb-2">{section.title}</div>}
+              {section.title && <div className="text-[13px] font-black text-blue-600 opacity-60 uppercase tracking-[0.2em] border-b border-[var(--color-border)] pb-1 mb-2">{section.title}</div>}
               {section.items.map((item, sIdx) => (
-                <div key={sIdx} className="flex justify-between items-start text-[11px] font-bold uppercase tracking-tight gap-3">
+                <div key={sIdx} className="flex justify-between items-start text-[13px] font-bold uppercase tracking-tight gap-3">
                   <div className="flex flex-col max-w-[70%] text-[var(--color-text-main)] opacity-70">
                     <span>{item.label}</span>
-                    {item.sub && <span className="text-[9px] opacity-50 lowercase italic leading-snug mt-1">{item.sub}</span>}
+                    {item.sub && <span className="text-[13px] opacity-50 lowercase italic leading-snug mt-1">{item.sub}</span>}
                   </div>
                   <span className={`font-black whitespace-nowrap ${item.isProfit ? 'text-emerald-500' : 'text-[var(--color-text-main)]'}`}>{item.calc}</span>
                 </div>
@@ -110,11 +111,7 @@ export default function CostBreakdown({
   const feeders = useStore((state) => state.feeders);
 
   const getCompatibleFeeders = useCallback((printer) => {
-    if (!printer?.autoFeed || !feeders || feeders.length === 0) return [];
-    const targetType = String(printer.autoFeed.compatibility || printer.autoFeed.type || '').toLowerCase();
-    const maxUnits = Number(printer.autoFeed.max) || 1;
-    const compatibleUnits = feeders.filter(f => String(f.type || f.compatibility || '').toLowerCase() === targetType);
-    return compatibleUnits.slice(0, maxUnits);
+    return getPrinterFeeders(printer, feeders);
   }, [feeders]);
 
   const calculations = useMemo(() => {
@@ -854,8 +851,8 @@ export default function CostBreakdown({
               <TrendingUp size={20} />
             </div>
             <div>
-              <span className="text-[10px] font-black uppercase opacity-60 block tracking-widest italic">Net Profit</span>
-              <span className="text-[15px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-tight">Total Project Earnings</span>
+              <span className="text-[13px] font-black uppercase opacity-60 block tracking-widest italic">Net Profit</span>
+              <span className="text-[14px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-tight">Total Project Earnings</span>
             </div>
           </div>
           <div className="text-right">
@@ -870,8 +867,8 @@ export default function CostBreakdown({
               <Wallet size={20} />
             </div>
             <div>
-              <span className="text-[10px] font-black uppercase opacity-60 block tracking-widest italic">Take Home</span>
-              <span className="text-[15px] font-black uppercase tracking-tight">Pocket-Ready Income</span>
+              <span className="text-[13px] font-black uppercase opacity-60 block tracking-widest italic">Take Home</span>
+              <span className="text-[14px] font-black uppercase tracking-tight">Pocket-Ready Income</span>
             </div>
           </div>
           <div className="text-right relative z-10">

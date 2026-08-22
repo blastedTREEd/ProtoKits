@@ -18,7 +18,7 @@ export default function ProductionPlan({ schedule = [], projectCase = 'STL' }) {
     return (
       <div className="max-w-2xl mx-auto flex flex-col items-center justify-center py-20 opacity-30 italic">
         <AlertCircle size={40} className="mb-2" />
-        <p className="text-[10px] font-black uppercase tracking-widest">
+        <p className="text-[13px] font-black uppercase tracking-widest">
           No production plan generated
         </p>
       </div>
@@ -44,7 +44,7 @@ export default function ProductionPlan({ schedule = [], projectCase = 'STL' }) {
                 </div>
                 <div className="flex items-center gap-2 text-zinc-500 dark:text-zinc-400">
                   <Droplet size={13} />
-                  <span className="text-[10px] font-black uppercase tracking-[0.18em]">
+                  <span className="text-[13px] font-black uppercase tracking-[0.18em]">
                     {[day.printerName, day.filament || day.plates?.[0]?.filament || 'Unknown Filament'].filter(Boolean).join(' • ')}
                   </span>
                 </div>
@@ -52,7 +52,7 @@ export default function ProductionPlan({ schedule = [], projectCase = 'STL' }) {
 
               <div className="text-right">
                 <div className="text-[22px] font-black italic text-[var(--color-primary)] leading-none">{loadPercent}%</div>
-                <div className="text-[10px] font-black uppercase opacity-40 tracking-widest">Load</div>
+                <div className="text-[13px] font-black uppercase opacity-40 tracking-widest">Load</div>
               </div>
             </div>
 
@@ -61,19 +61,19 @@ export default function ProductionPlan({ schedule = [], projectCase = 'STL' }) {
                 <div key={plate.id} className="rounded-[1.5rem] border border-black/5 bg-zinc-50 dark:bg-white/5 p-4 space-y-3">
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0">
-                      <div className="text-[12px] font-black uppercase tracking-tight">
+                      <div className="text-[14px] font-black uppercase tracking-tight">
                         {plate.name || `${itemLabel} ${plate.id}`}
                       </div>
                       {plate.endDay > plate.startDay && (
-                        <div className="text-[8px] font-black uppercase tracking-[0.18em] text-amber-500 mt-1">
+                        <div className="text-[13px] font-black uppercase tracking-[0.18em] text-amber-500 mt-1">
                           Runs Through Day {plate.endDay}
                         </div>
                       )}
-                      <div className="text-[9px] font-bold uppercase opacity-40 tracking-widest mt-1">{plate.filament}</div>
+                      <div className="text-[13px] font-bold uppercase opacity-40 tracking-widest mt-1">{plate.filament}</div>
                     </div>
                     <div className="flex items-center gap-1 text-[var(--color-primary)] flex-shrink-0">
                       <Clock3 size={13} />
-                      <span className="text-[12px] font-black">{formatMinutes(plate.scheduledMins || plate.time)}</span>
+                      <span className="text-[14px] font-black">{formatMinutes(plate.scheduledMins || plate.time)}</span>
                     </div>
                   </div>
 
@@ -83,7 +83,7 @@ export default function ProductionPlan({ schedule = [], projectCase = 'STL' }) {
                         <div className="rounded-2xl bg-white dark:bg-zinc-900/50 border border-black/5 px-3 py-2.5">
                           <div className="flex items-center gap-2 text-purple-500 mb-1">
                             <Magnet size={12} />
-                            <span className="text-[9px] font-black uppercase tracking-widest">Magnets</span>
+                            <span className="text-[13px] font-black uppercase tracking-widest">Magnets</span>
                           </div>
                           <div className="text-[13px] font-black">{plate.magnets}</div>
                         </div>
@@ -92,7 +92,7 @@ export default function ProductionPlan({ schedule = [], projectCase = 'STL' }) {
                         <div className="rounded-2xl bg-white dark:bg-zinc-900/50 border border-black/5 px-3 py-2.5">
                           <div className="flex items-center gap-2 text-orange-500 mb-1">
                             <Spool size={12} />
-                            <span className="text-[9px] font-black uppercase tracking-widest">Heatsets</span>
+                            <span className="text-[13px] font-black uppercase tracking-widest">Heatsets</span>
                           </div>
                           <div className="text-[13px] font-black">{plate.heatsets}</div>
                         </div>
@@ -100,7 +100,7 @@ export default function ProductionPlan({ schedule = [], projectCase = 'STL' }) {
                     </div>
                   )}
 
-                  <div className="flex flex-wrap gap-2 text-[9px] font-black uppercase tracking-widest opacity-50">
+                  <div className="flex flex-wrap gap-2 text-[13px] font-black uppercase tracking-widest opacity-50">
                     <span>Job Total {formatMinutes(plate.time)}</span>
                     <span>Today {formatMinutes(plate.scheduledMins || plate.time)}</span>
                     {plate.setupMins > 0 && <span>Setup {formatMinutes(plate.setupMins)}</span>}
@@ -113,11 +113,11 @@ export default function ProductionPlan({ schedule = [], projectCase = 'STL' }) {
               ))}
             </div>
 
-            <div className="pt-1 text-[10px] font-black uppercase tracking-widest opacity-50">
+            <div className="pt-1 text-[13px] font-black uppercase tracking-widest opacity-50">
               Day Total: {formatMinutes(day.maxPrinterMins)}
               {day.gapMins > 0 && ` • Gap ${formatMinutes(day.gapMins)}`}
             </div>
-            <div className="text-[9px] font-black uppercase tracking-widest opacity-40 flex flex-wrap gap-2">
+            <div className="text-[13px] font-black uppercase tracking-widest opacity-40 flex flex-wrap gap-2">
               {day.printMins > 0 && <span>Print {formatMinutes(day.printMins)}</span>}
               {day.setupMins > 0 && <span>Setup {formatMinutes(day.setupMins)}</span>}
               {day.installMins > 0 && <span>Install {formatMinutes(day.installMins)}</span>}

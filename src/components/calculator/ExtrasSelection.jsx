@@ -91,7 +91,7 @@ export default function ExtrasSelection({
 
       {/* --- NAVIGATION --- */}
       <div className="space-y-0 text-center mb-6">
-        <h2 className="text-[12px] font-black uppercase mb-2 flex items-center justify-center gap-2 text-blue-600 px-4">
+        <h2 className="text-[14px] font-black uppercase mb-2 flex items-center justify-center gap-2 text-blue-600 px-4">
           {itemIcon} {itemLabel} Selection {projectDetails.length > 0 && <span className="opacity-40">({activeItemIdx + 1}/{projectDetails.length})</span>}
         </h2>
         
@@ -111,19 +111,19 @@ export default function ExtrasSelection({
                   >
                     <div className="flex flex-col items-center leading-none">
                       {isCurrent ? <Check size={16} strokeWidth={4} className="mb-0.5 animate-in zoom-in" /> : itemIcon}
-                      <span className="text-[9px] font-black uppercase italic">M{item.no || idx + 1}</span>
+                      <span className="text-[13px] font-black uppercase italic">M{item.no || idx + 1}</span>
                     </div>
                   </button>
 
                   {isCurrent && currentItemParts > 1 && (
                     <div className="flex items-center px-1 gap-2 animate-in fade-in slide-in-from-left-2 duration-300">
                        <div className="flex flex-col items-center justify-center w-[80px] h-[50px] rounded-full border-2 border-blue-600/30">
-                        <span className="text-[13px] font-black leading-none">{currentItemParts}</span>
-                        <span className="text-[9px] font-black text-blue-600/50 uppercase">Parts</span>
+                        <span className="text-[15px] font-black leading-none">{currentItemParts}</span>
+                        <span className="text-[13px] font-black text-blue-600/50 uppercase">Parts</span>
                       </div>
                       <div className="flex flex-col items-center justify-center w-[80px] h-[50px] rounded-full border-2 border-blue-600/30">
-                        <span className="text-[13px] font-black leading-none">{seamCount}</span>
-                        <span className="text-[9px] font-black text-blue-600/50 uppercase">Planes</span>
+                        <span className="text-[15px] font-black leading-none">{seamCount}</span>
+                        <span className="text-[13px] font-black text-blue-600/50 uppercase">Planes</span>
                       </div>
                     </div>
                   )}
@@ -135,7 +135,7 @@ export default function ExtrasSelection({
       </div>
 
       {/* --- ADD-ONS LIST --- */}
-      <h2 className="text-[12px] font-black uppercase mb-2 flex items-center justify-center gap-2 text-blue-600 px-4">
+      <h2 className="text-[14px] font-black uppercase mb-2 flex items-center justify-center gap-2 text-blue-600 px-4">
         <Shapes size={14} strokeWidth={3} /> Optional Add-Ons
       </h2>
       <div className="px-3 w-full max-w-2xl mx-auto grid gap-3">
@@ -181,7 +181,7 @@ export default function ExtrasSelection({
       
       <div className="text-left min-w-0 flex-1">
   <p
-    className={`text-[8px] font-black uppercase italic tracking-wider ${
+    className={`text-[13px] font-black uppercase italic tracking-wider ${
       isCurrentlySelected ? 'text-blue-600' : 'text-gray-500'
     }`}
   >
@@ -192,12 +192,12 @@ export default function ExtrasSelection({
       : 'ADD-ON'}
   </p>
 
-  <h4 className="font-black uppercase text-[12px] tracking-tight">
+  <h4 className="font-black uppercase text-[15px] tracking-tight">
     {item.name}
   </h4>
 
 {item.note && (
-  <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 line-clamp-2">
+  <p className="mt-0.5 text-[13px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 line-clamp-2">
     {item.note}
   </p>
 )}
@@ -224,7 +224,7 @@ export default function ExtrasSelection({
             const finalVal = (canBeEqual && currentMode === 'Equal' && val !== '') ? (val * unitPerPlane) : val;
             onUpdateQty(item.id, finalVal, activeItemIdx);
           }}
-          className={`w-10 text-center font-black italic text-[14px] bg-transparent outline-none ${isCurrentlySelected ? 'text-blue-600' : 'text-gray-400 dark:text-gray-500'}`}
+          className={`w-10 text-center font-black italic text-[15px] bg-transparent outline-none ${isCurrentlySelected ? 'text-blue-600' : 'text-gray-400 dark:text-gray-500'}`}
         />
         
         <button 
@@ -247,14 +247,14 @@ export default function ExtrasSelection({
                   {selectedVariant && (
                     <div className={`rounded-[1.2rem] border px-4 py-3 text-left ${needsUpfront ? 'border-amber-500/40 bg-amber-500/10' : 'border-black/5 dark:border-white/5 bg-black/20'}`}>
                       <div className="flex items-center justify-between gap-3">
-                        <span className={`text-[10px] font-black uppercase tracking-widest ${needsUpfront ? 'text-amber-600' : 'text-gray-400'}`}>
+                        <span className={`text-[13px] font-black uppercase tracking-widest ${needsUpfront ? 'text-amber-600' : 'text-gray-400'}`}>
                           {needsUpfront ? 'Upfront Required' : 'Stock Covered'}
                         </span>
-                        <span className={`text-[10px] font-black uppercase ${needsUpfront ? 'text-amber-600' : 'text-green-600'}`}>
+                        <span className={`text-[13px] font-black uppercase ${needsUpfront ? 'text-amber-600' : 'text-green-600'}`}>
                           {totalAssignedQty} / {selectedVariantStock}
                         </span>
                       </div>
-                      <p className={`mt-2 text-[9px] font-bold uppercase tracking-tight ${needsUpfront ? 'text-amber-700 dark:text-amber-500' : 'text-gray-500'}`}>
+                      <p className={`mt-2 text-[13px] font-bold uppercase tracking-tight ${needsUpfront ? 'text-amber-700 dark:text-amber-500' : 'text-gray-500'}`}>
                         {needsUpfront
                           ? (isUpfrontOnly
                             ? 'Excess pack sharing applies.'
@@ -268,9 +268,9 @@ export default function ExtrasSelection({
                     <div className="grid grid-cols-3 gap-2">
                       {item.variants.map(v => (
                         <button key={v.id} type="button" onClick={() => onToggleExtra({ ...item, plateIdx: activeItemIdx, price: v.price, selectedSize: v.size || v.name, selectedVariant: v })} 
-                          className={`px-2 py-2 rounded-xl border text-[10px] font-black uppercase transition-all ${String(selection?.selectedSize) === String(v.size || v.name) ? 'bg-blue-600 text-white border-blue-600' : 'bg-black/5 dark:bg-white/5 text-gray-500 border-transparent'}`}>
+                          className={`px-2 py-2 rounded-xl border text-[13px] font-black uppercase transition-all ${String(selection?.selectedSize) === String(v.size || v.name) ? 'bg-blue-600 text-white border-blue-600' : 'bg-black/5 dark:bg-white/5 text-gray-500 border-transparent'}`}>
                           <span className="block">{v.size || v.name}</span>
-                          <span className="block text-[8px] opacity-60 normal-case">{parseInt(v.qty, 10) || 0} stock</span>
+                          <span className="block text-[13px] opacity-60 normal-case">{parseInt(v.qty, 10) || 0} stock</span>
                         </button>
                       ))}
                     </div>
@@ -300,7 +300,7 @@ export default function ExtrasSelection({
       <button 
               type="button"
               onClick={onProceed} 
-              className="flex-1 h-14 rounded-[2.2rem] bg-blue-600 text-white font-black italic uppercase text-xs tracking-[0.2em] flex items-center justify-center gap-4 shadow-xl active:scale-95 group transition-all shadow-blue-600/20"
+              className="flex-1 h-14 rounded-[2.2rem] bg-blue-600 text-white font-black italic uppercase text-[14px] tracking-[0.2em] flex items-center justify-center gap-4 shadow-xl active:scale-95 group transition-all shadow-blue-600/20"
             >
               ESTIMATE COST 
               <div className="p-1 rounded-full bg-white/20 group-hover:translate-x-1 transition-transform">

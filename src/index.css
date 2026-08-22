@@ -177,6 +177,64 @@
   flex-direction: column;
 }
 
+/* Keep Project Prepare Strength and Materials straight until their two columns become cramped. */
+.project-prepare-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  row-gap: 1rem;
+}
+
+.project-prepare-strength {
+  grid-column: 1;
+  grid-row: 1;
+  width: 100%;
+  align-self: start;
+  margin-top: 1.5rem;
+}
+
+.project-prepare-material-slots {
+  grid-column: 1;
+  grid-row: 2;
+  width: 100%;
+  margin-top: 1rem;
+}
+
+.project-prepare-material-actions-row {
+  grid-column: 1;
+  grid-row: 3;
+  width: 100%;
+}
+
+/* A single material keeps Strength and Materials side by side. Once a
+   second slot exists, the sections stay stacked for clearer slot management. */
+@media (min-width: 480px) {
+  .project-prepare-layout.has-single-material {
+    grid-template-columns: 43% 57%;
+    column-gap: 0;
+  }
+
+  .project-prepare-layout.has-single-material .project-prepare-strength {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .project-prepare-layout.has-single-material .project-prepare-material-slots {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .project-prepare-layout.has-single-material .project-prepare-material-actions-row {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
+@media (max-width: 479px) {
+  .project-prepare-material-actions-row {
+    padding-left: 0;
+  }
+}
+
 @media (min-width: 640px) and (orientation: landscape) {
   .responsive-landscape-modal {
     flex-direction: row;
