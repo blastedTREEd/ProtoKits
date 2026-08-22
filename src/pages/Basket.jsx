@@ -12,6 +12,7 @@ import { getIntegerFeeShare, getStockStandaloneSellPrice, isBundleOrClearanceIte
 import { getBundleDealPricing, getClearanceBundlePricing } from '../utils/bundlePricing';
 import { getUnavailableDateSet, getUnavailableWeekdaySet, toDateKey } from '../utils/availabilitySchedule';
 import { findFirstAvailable, getOccupiedDates } from '../components/calculator/GarageCalendar';
+import ProjectStatusGrid from '../components/calculator/ProjectStatusGrid';
 // Resolves an image ID to its URL from the images array.
 // Backward compatible: if the value is already a URL (base64 or http), returns it directly.
 function resolveImage(idOrUrl, imagesArray) {
@@ -41,6 +42,81 @@ function getBasketFee(item, field, fallback) {
 function getBasketItemGroupKey(item = {}) {
   if (item.type === 'project') return JSON.stringify(item.projectData);
   return `${item.id}-${item.stockKey}-${item.offerId || 'standard'}-${item.bundleId || 'standard'}`;
+}
+
+function isValidProjectFileLink(value) {
+  if (!value || !String(value).trim()) return false;
+  try {
+    const hostname = new URL(String(value).trim()).hostname;
+    return hostname === 'drive.google.com' || hostname === 'docs.google.com';
+  } catch {
+    return false;
+  }
+}
+
+function getProjectStatusIndicators(project, { printers, orders, shippingSettings, rates }) {
+  const details = Array.isArray(project?.projectDetails) ? project.projectDetails : [];
+  const printerIds = new Set([
+    project?.printerId,
+    ...details.map((detail) => detail?.printerId),
+    ...details.flatMap((detail) => (detail?.productionJobs || []).map((job) => job?.printerId))
+  ].filter(Boolean).map(String));
+  const projectPrinters = [...printerIds]
+    .map((id) => (printers || []).find((printer) => String(printer.id) === id))
+    .filter(Boolean);
+  const printerAvailable = projectPrinters.length > 0 && projectPrinters.every((printer) => {
+    const status = String(printer.status || printer.availability || '').trim().toLowerCase();
+    if (['offline', 'maintenance', 'unavailable', 'disabled'].includes(status)) return false;
+    return printer.available === true
+      || printer.isAvailable === true
+      || ['online', 'available', 'ready'].includes(status);
+  });
+
+  const materialEntries = details.flatMap((detail) => (
+    Array.isArray(detail?.materials) && detail.materials.length > 0
+      ? detail.materials
+      : detail?.material ? [detail.material] : []
+  ));
+  const materialsAvailable = materialEntries.length > 0 && materialEntries.every((entry) => {
+    const material = entry?.material || entry?.normalizedMaterial || entry;
+    if (!material) return false;
+    const status = String(material.status || '').trim().toLowerCase();
+    const requiredWeight = Number(entry?.shareWeight ?? entry?.weight ?? 0);
+    const remainingWeight = Number(material.remaining ?? material.weight ?? 0);
+    return entry?.isUpfront !== true
+      && material.isUpfront !== true
+      && status !== 'upfront'
+      && remainingWeight > 0
+      && (requiredWeight <= 0 || remainingWeight >= requiredWeight);
+  });
+
+  const schedule = shippingSettings?.availabilitySchedule;
+  const unavailableDates = getUnavailableDateSet(schedule, 'printing');
+  const unavailableWeekdays = getUnavailableWeekdaySet(schedule, 'printing');
+  const firstAvailable = findFirstAvailable(
+    getOccupiedDates(orders, schedule),
+    unavailableDates,
+    unavailableWeekdays
+  );
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const canStartToday = Boolean(firstAvailable && toDateKey(firstAvailable) === toDateKey(today));
+
+  const is3MF = project?.method?.name?.toUpperCase() === '3MF';
+  const activeDesignServices = rates?.['design-services'] || {};
+  const hasDesignService = Boolean(
+    !is3MF
+    && project?.selectedDesignService
+    && activeDesignServices[project.selectedDesignService]?.status === true
+  );
+
+  return {
+    printerAvailable,
+    materialsAvailable,
+    canStartToday,
+    hasDesignService,
+    fileLinkIsValid: isValidProjectFileLink(project?.gdriveLink)
+  };
 }
 
 function getOfferHoursLeft(item, now) {
@@ -1078,6 +1154,15 @@ export default function Basket() {
                     ? (item.projectData?.image || item.image)
                     : resolveImage(item.image, item.images)
                       || resolveImage(kit?.image, kit?.images);
+                const isUserProject = item.type === 'project' && Boolean(item.projectData?.vaultId);
+                const liveProject = isUserProject
+                  ? (item.projectData?.vaultId
+                    ? (projectVault || []).find((project) => project.vaultId === item.projectData.vaultId)
+                    : (blueprints || []).find((project) => String(project.id) === String(item.projectData?.id)))
+                  : null;
+                const projectStatus = isUserProject
+                  ? getProjectStatusIndicators(liveProject || item.projectData, { printers, orders, shippingSettings, rates })
+                  : null;
 
                 const displayName = (item.name || '').replace(/\s*\(Pre-Order\)\s*$/i, '');
                 const stock = kit?.stocks?.[item.stockKey];
@@ -1141,7 +1226,13 @@ export default function Basket() {
                       </span>
                     ) : null}
                     <div className="relative flex items-center justify-center">
-                      {displayImage ? (
+                      {isUserProject ? (
+                        <ProjectStatusGrid
+                          {...projectStatus}
+                          bareTiles
+                          className="w-20 h-20 md:portrait:w-48 md:landscape:w-72 md:h-24 lg:w-72 xl:w-72 aspect-square md:aspect-auto rounded-xl border border-blue-100 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/30 shadow-sm p-1.5"
+                        />
+                      ) : displayImage ? (
                         <img 
                           src={displayImage} 
                           alt={displayName} 
@@ -1154,9 +1245,9 @@ export default function Basket() {
                           }}
                         />
                       ) : null}
-                      <div className={`w-20 h-20 md:portrait:w-48 md:landscape:w-72 md:h-24 lg:w-72 xl:w-72 aspect-square md:aspect-auto object-cover object-[center_25%] rounded-xl border border-neutral-100 dark:border-neutral-800 bg-neutral-200 dark:bg-neutral-800 flex items-center justify-center`} style={{ display: displayImage ? 'none' : 'flex' }}>
+                      {!isUserProject && <div className={`w-20 h-20 md:portrait:w-48 md:landscape:w-72 md:h-24 lg:w-72 xl:w-72 aspect-square md:aspect-auto object-cover object-[center_25%] rounded-xl border border-neutral-100 dark:border-neutral-800 bg-neutral-200 dark:bg-neutral-800 flex items-center justify-center`} style={{ display: displayImage ? 'none' : 'flex' }}>
                           <PackageOpen size={32} className="opacity-20" />
-                      </div>
+                      </div>}
                     </div>
                     <div className="flex-1 flex flex-col gap-3 min-w-0 min-h-[80px] justify-center">
                       <div className="flex flex-col justify-center">

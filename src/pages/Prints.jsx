@@ -55,11 +55,13 @@ const sortPrintProjects = (projects, sortType) => [...projects].sort((a, b) => {
 });
 
 function ProjectEstimationCard({ onClick, shadow }) {
+  const { isDarkMode } = useTheme();
+
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`w-full group relative rounded-[2.2rem] p-[2px] bg-black/5 dark:bg-white/5 transition-all duration-500 lg:hover:-translate-y-1 cursor-pointer overflow-hidden ${shadow}`}
+      className={`w-full group relative rounded-[2.2rem] p-[2px] ${isDarkMode ? 'bg-gradient-to-br from-blue-500 via-cyan-400 to-indigo-600' : 'bg-black/5'} transition-all duration-500 lg:hover:-translate-y-1 cursor-pointer overflow-hidden ${shadow}`}
       aria-label="Start a new project estimation"
     >
       <div className="relative rounded-[2.1rem] flex flex-col h-full overflow-hidden bg-white dark:bg-[var(--color-surface)]">

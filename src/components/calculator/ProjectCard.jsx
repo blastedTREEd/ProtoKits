@@ -1,14 +1,15 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  Box, CalendarDays, Clock, PrinterCheck, PrinterX, Zap, Plus, Lock, Edit3, Trash2, PackagePlus, PackageMinus,
+  Box, CalendarDays, Clock, Zap, Plus, Lock, Edit3, Trash2, PackagePlus, PackageMinus,
   X, Weight, Droplet, Layers, AlertTriangle, Link2, Unlink2, ExternalLink, ChevronRight, ChevronLeft,
-  ShoppingBasket, Play, Pause, FileText, ShieldCheck, CheckCircle2, XCircle, Disc3, ImagePlus,
+  ShoppingBasket, Play, Pause, FileText, ShieldCheck, CheckCircle2, XCircle, ImagePlus,
   Settings, Pencil, PencilSparkles
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
 import GarageCalendar, { findFirstAvailable, getOccupiedDates } from './GarageCalendar';
+import ProjectStatusGrid from './ProjectStatusGrid';
 import { getUnavailableDateSet, getUnavailableWeekdaySet, toDateKey } from '../../utils/availabilitySchedule';
 import { LiaGoogleDrive } from 'react-icons/lia';
 import { TbHexagon3D } from 'react-icons/tb';
@@ -828,34 +829,13 @@ export default function ProjectCard({
                 />
               ) : isVault ? (
                 /* Vault project info boxes — 2×2 grid */
-                <div className="w-full h-full grid grid-cols-2 gap-2">
-                    <div className="rounded-xl flex items-center justify-center bg-white/70 shadow-sm dark:bg-white/10">
-                      {printerIsAvailable ? (
-                        <PrinterCheck size={24} className="text-emerald-500" strokeWidth={2.5} />
-                      ) : (
-                        <PrinterX size={24} className="text-red-500" strokeWidth={2.5} />
-                      )}
-                    </div>
-                    <div className="rounded-xl flex items-center justify-center bg-white/70 shadow-sm dark:bg-white/10">
-                      <Disc3
-                        size={24}
-                        className={materialStatus.available ? 'text-emerald-500' : 'text-red-500'}
-                        strokeWidth={2.5}
-                      />
-                    </div>
-                    <div className="rounded-xl flex items-center justify-center bg-white/70 shadow-sm dark:bg-white/10">
-                      <CalendarDays size={24} className={projectCanStartToday ? 'text-blue-500' : 'text-red-500'} strokeWidth={2.5} />
-                    </div>
-                    <div className="rounded-xl flex items-center justify-center bg-white/70 shadow-sm dark:bg-white/10">
-                      {effectiveSelectedDesignService ? (
-                        <LuRotate3D size={24} className="text-violet-500" strokeWidth={2.5} />
-                      ) : fileLinkIsValid ? (
-                        <Link2 size={24} className="text-emerald-500" strokeWidth={2.5} />
-                      ) : (
-                        <Unlink2 size={24} className="text-red-500" strokeWidth={2.5} />
-                      )}
-                    </div>
-                  </div>
+                <ProjectStatusGrid
+                  printerAvailable={printerIsAvailable}
+                  materialsAvailable={materialStatus.available}
+                  canStartToday={projectCanStartToday}
+                  hasDesignService={Boolean(effectiveSelectedDesignService)}
+                  fileLinkIsValid={fileLinkIsValid}
+                />
               ) : (
                 <Box size={40} className="opacity-10 text-[var(--color-text-main)]" strokeWidth={1} />
               )}
