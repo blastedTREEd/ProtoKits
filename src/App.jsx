@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useState, useEffect, useLayoutEffect } from 'react';
+import React, { Suspense, lazy, useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { getRedirectResult } from 'firebase/auth';
 import { auth } from './firebase/firebase';
@@ -12,7 +12,7 @@ import LoadingState from './components/common/LoadingState';
 import Toast from './components/common/Toast';
 import { useStore } from './store/useStore';
 import { motion as Motion, AnimatePresence } from 'framer-motion';
-import { RefreshCw, X } from 'lucide-react';
+import { RefreshCw, Type, X } from 'lucide-react';
 import { preloadKits } from './routePreloads';
 
 const Landing = lazy(() => import('./pages/Landing'));
@@ -97,12 +97,65 @@ const isRouteDataReady = (pathname, datasets, isAdmin) => {
 
 const Layout = ({ children }) => {
   const [isCompact, setIsCompact] = useState(false);
+  const [isMdTextBoosted, setIsMdTextBoosted] = useState(false);
   const [isProfileFullscreenOpen, setIsProfileFullscreenOpen] = useState(false);
   const [isNotificationFullscreenOpen, setIsNotificationFullscreenOpen] = useState(false);
+  const layoutRef = useRef(null);
+  const boostedTextStylesRef = useRef(new Map());
   const location = useLocation();
   const { isAdmin, shippingSettings } = useStore();
   const isMaintenanceMode = shippingSettings?.paymentSettings?.maintenanceMode === true;
   const isFullscreenNavOpen = isProfileFullscreenOpen || isNotificationFullscreenOpen;
+
+  useEffect(() => {
+    const root = layoutRef.current;
+    if (!root || typeof window === 'undefined') return undefined;
+
+    const mdQuery = window.matchMedia('(min-width: 768px) and (max-width: 1023px)');
+    const textElements = () => Array.from(root.querySelectorAll('*')).filter((element) => {
+      const hasDirectText = Array.from(element.childNodes).some(
+        (node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim()
+      );
+      const isFormControl = ['INPUT', 'TEXTAREA', 'SELECT'].includes(element.tagName);
+      return hasDirectText || isFormControl;
+    });
+
+    const restoreTextSizes = () => {
+      boostedTextStylesRef.current.forEach((previousFontSize, element) => {
+        if (element?.style) element.style.fontSize = previousFontSize;
+      });
+      boostedTextStylesRef.current.clear();
+    };
+
+    const applyTextBoost = () => {
+      restoreTextSizes();
+      if (!isMdTextBoosted || !mdQuery.matches) return;
+
+      const sizes = textElements().map((element) => ({
+        element,
+        previousFontSize: element.style.fontSize,
+        computedFontSize: parseFloat(window.getComputedStyle(element).fontSize)
+      }));
+
+      sizes.forEach(({ element, previousFontSize, computedFontSize }) => {
+        if (Number.isFinite(computedFontSize)) {
+          boostedTextStylesRef.current.set(element, previousFontSize);
+          element.style.fontSize = `${computedFontSize + 2}px`;
+        }
+      });
+    };
+
+    const observer = new MutationObserver(applyTextBoost);
+    observer.observe(root, { childList: true, subtree: true, characterData: true });
+    mdQuery.addEventListener?.('change', applyTextBoost);
+    applyTextBoost();
+
+    return () => {
+      observer.disconnect();
+      mdQuery.removeEventListener?.('change', applyTextBoost);
+      restoreTextSizes();
+    };
+  }, [isMdTextBoosted]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -147,7 +200,7 @@ const Layout = ({ children }) => {
   }, []);
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div ref={layoutRef} className="min-h-screen flex flex-col">
       {isKnownRoute(location.pathname) && (
         <>
           <Stories isCompact={isCompact} hideImmediately={isFullscreenNavOpen} />
@@ -173,6 +226,21 @@ const Layout = ({ children }) => {
             </span>
         </div>
       )}
+
+      <button
+        type="button"
+        onClick={() => setIsMdTextBoosted((current) => !current)}
+        aria-pressed={isMdTextBoosted}
+        aria-label={isMdTextBoosted ? 'Use standard global text size' : 'Increase global text size by 2 pixels'}
+        className={`fixed bottom-12 right-4 z-[9999] hidden md:flex lg:hidden items-center gap-1.5 rounded-full border px-3 py-2 shadow-xl transition-colors ${
+          isMdTextBoosted
+            ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white'
+            : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-primary)]'
+        }`}
+      >
+        <Type size={16} strokeWidth={2.5} />
+        <span className="text-[11px] font-black uppercase tracking-tight">+2px Global</span>
+      </button>
     </div>
   );
 };
