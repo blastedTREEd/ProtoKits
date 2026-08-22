@@ -692,7 +692,7 @@ export default function ProjectPreview({
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3">
                 {sortedMaterials.length > 0 ? (
                   sortedMaterials.map(mat => (
                     <MaterialCard 
@@ -705,7 +705,7 @@ export default function ProjectPreview({
                     />
                   ))
                 ) : (
-                  <div className="col-span-2 py-10 text-center opacity-30">
+                  <div className="col-span-1 py-10 text-center opacity-30">
                     <p className="text-[10px] font-bold uppercase tracking-widest">No matching filaments</p>
                   </div>
                 )}

@@ -34,7 +34,7 @@ export default function MaterialCard({
     return num % 1 === 0 ? num.toString() : num.toFixed(1);
   };
 
-  const weightColorClass = isOutOfStock ? { color: '#ef4444' } : (isLowStock ? { color: '#f59e0b' } : { color: '#22c55e' });
+  const weightColorClass = isOutOfStock ? { color: '#ef4444' } : (isLowStock ? { color: '#f59e0b' } : { color: '#10b981' });
 
   if (isChangingOption) {
     return (
