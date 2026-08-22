@@ -111,7 +111,7 @@ export default function PrintsCalculator({
 }) {
   // If initialData is provided, we start at the Details step (Step 1)
   const [activeStep, setActiveStep] = useState(initialData ? 1 : 0);
-  const [isSmTextBoosted, setIsSmTextBoosted] = useState(false);
+  const [isMdPortraitTextBoosted, setIsMdPortraitTextBoosted] = useState(false);
   const calculatorRef = useRef(null);
   const boostedTextStylesRef = useRef(new Map());
   const { filamentInventory, extras, settings, updateSettings, orders, projectVault, isAdmin, isAdminView } = useStore();
@@ -300,7 +300,7 @@ export default function PrintsCalculator({
     const root = calculatorRef.current;
     if (!root || typeof window === 'undefined') return undefined;
 
-    const smQuery = window.matchMedia('(min-width: 640px) and (max-width: 767px)');
+    const mdPortraitQuery = window.matchMedia('(min-width: 768px) and (max-width: 1023px) and (orientation: portrait)');
     const textElements = () => Array.from(root.querySelectorAll('*')).filter((element) => {
       const hasDirectText = Array.from(element.childNodes).some(
         (node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim()
@@ -318,7 +318,7 @@ export default function PrintsCalculator({
 
     const applyTextBoost = () => {
       restoreTextSizes();
-      if (!isSmTextBoosted || !smQuery.matches) return;
+      if (!isMdPortraitTextBoosted || !mdPortraitQuery.matches) return;
 
       const sizes = textElements().map((element) => ({
         element,
@@ -336,15 +336,15 @@ export default function PrintsCalculator({
 
     const observer = new MutationObserver(applyTextBoost);
     observer.observe(root, { childList: true, subtree: true, characterData: true });
-    smQuery.addEventListener?.('change', applyTextBoost);
+    mdPortraitQuery.addEventListener?.('change', applyTextBoost);
     applyTextBoost();
 
     return () => {
       observer.disconnect();
-      smQuery.removeEventListener?.('change', applyTextBoost);
+      mdPortraitQuery.removeEventListener?.('change', applyTextBoost);
       restoreTextSizes();
     };
-  }, [activeStep, isSmTextBoosted]);
+  }, [activeStep, isMdPortraitTextBoosted]);
 
   return (
     <div ref={calculatorRef} className="w-full min-h-full prints-calculator-container animate-in fade-in zoom-in-95 duration-500 px-3 sm:px-5 pb-0 text-[var(--color-text-main)]">
@@ -468,11 +468,11 @@ export default function PrintsCalculator({
 
       <button
         type="button"
-        onClick={() => setIsSmTextBoosted((current) => !current)}
-        aria-pressed={isSmTextBoosted}
-        aria-label={isSmTextBoosted ? 'Use standard calculator text size' : 'Increase calculator text size by 2 pixels'}
-        className={`fixed bottom-24 right-4 z-[270] hidden sm:flex md:hidden items-center gap-1.5 rounded-full border px-3 py-2 shadow-xl transition-colors ${
-          isSmTextBoosted
+        onClick={() => setIsMdPortraitTextBoosted((current) => !current)}
+        aria-pressed={isMdPortraitTextBoosted}
+        aria-label={isMdPortraitTextBoosted ? 'Use standard calculator text size' : 'Increase calculator text size by 2 pixels'}
+        className={`fixed bottom-24 right-4 z-[270] hidden md:portrait:flex lg:hidden items-center gap-1.5 rounded-full border px-3 py-2 shadow-xl transition-colors ${
+          isMdPortraitTextBoosted
             ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white'
             : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-primary)]'
         }`}
