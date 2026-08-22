@@ -105,7 +105,7 @@ export default function CaseSelection({ onSelect, selectedCase = null, maintenan
           <button 
             onClick={() => selectedMethod && onSelect(selectedMethod)}
             disabled={!selectedMethod || maintenanceMode}
-            className={`flex-1 h-14 rounded-[2.2rem] font-black italic uppercase tracking-[0.2em] text-xs bg-[var(--color-primary)] text-white shadow-xl flex items-center justify-center gap-4 group active:scale-95 transition-all ${selectedMethod && !maintenanceMode ? '' : 'opacity-50 cursor-not-allowed active:scale-100'}`}
+            className={`flex-1 h-14 rounded-[2.2rem] font-black italic uppercase tracking-[0.2em] text-[14px] bg-[var(--color-primary)] text-white shadow-xl flex items-center justify-center gap-4 group active:scale-95 transition-all ${selectedMethod && !maintenanceMode ? '' : 'opacity-50 cursor-not-allowed active:scale-100'}`}
           >
             {maintenanceMode ? 'MAINTENANCE MODE' : 'NEXT'}
             {!maintenanceMode && (

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { 
   Plus, PackageMinus, PackagePlus, Box, Droplet, Copy, Trash2, X, Lock,
   VectorSquare, RefreshCw, Check, Scissors, Cpu,
@@ -176,6 +176,7 @@ export default function ProjectPrepare({
   const [matSearchQuery, setMatSearchQuery] = useState('');
   const [activeMaterialSlot, setActiveMaterialSlot] = useState(0);
   const [isSelectingPrinter, setIsSelectingPrinter] = useState(false);
+  const modelInputRefs = useRef({});
 
   const activeModelId = internalActiveId || (prepareData?.[0]?.id || null);
   const activeModel = useMemo(() => prepareData?.find(m => m.id === activeModelId) || prepareData[0] || {}, [prepareData, activeModelId]);
@@ -865,6 +866,26 @@ export default function ProjectPrepare({
   const isActiveModelValid = activeModel ? isModelValid(activeModel) : false;
   const nextIncompleteModel = models.find(m => !isModelValid(m) && String(m.id) !== String(activeModel?.id));
 
+  const focusFirstMissingModelInput = () => {
+    if (!activeModel?.id) return;
+
+    const missingDimension = ['length', 'width', 'height'].find((field) => (
+      getMMValue(activeModel[field], activeModel.unit) <= 0
+    ));
+    if (missingDimension) {
+      const input = modelInputRefs.current[`${activeModel.id}-${missingDimension}`];
+      input?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      input?.focus();
+      return;
+    }
+
+    if (!activeModel.materialId) {
+      setIsSelectingPrinter(false);
+      setIsSelectingMaterial(true);
+      setMatSearchQuery('');
+    }
+  };
+
   const timeBreakdown = useMemo(() => {
     const hoursToUse = logicalData.parts > 1 ? logicalData.part.hours : activeEstimatedHours;
     const totalMinutes = Math.round(hoursToUse * 60);
@@ -1149,7 +1170,7 @@ export default function ProjectPrepare({
                     <div className="flex-1 flex flex-col items-center min-w-0 relative">
                       <div className="relative w-full flex items-center justify-center h-[24px]">
                         {displayValue === '' && !ghostDisplay && <div className="absolute opacity-50 pointer-events-none"><Cpu size={18} /></div>}
-                        <input type="text" inputMode="decimal" placeholder={ghostDisplay} value={displayValue} onFocus={() => setPrepareData(p=>p.map(m=>m.id===activeModelId?{...m, [item.field]:''}:m))} onChange={(e) => updateModelData(activeModelId, item.field, e.target.value)} className="w-full text-center bg-transparent outline-none text-[15px] font-bold italic" />
+                        <input ref={(node) => { modelInputRefs.current[`${activeModelId}-${item.field}`] = node; }} type="text" inputMode="decimal" placeholder={ghostDisplay} value={displayValue} onFocus={() => setPrepareData(p=>p.map(m=>m.id===activeModelId?{...m, [item.field]:''}:m))} onChange={(e) => updateModelData(activeModelId, item.field, e.target.value)} className="w-full text-center bg-transparent outline-none text-[15px] font-bold italic" />
                       </div>
                       <span className="text-[14px] font-bold uppercase mt-1 text-[var(--color-primary)]">{item.label}</span>
                     </div>
@@ -1309,7 +1330,11 @@ export default function ProjectPrepare({
     </button>
             <button 
               onClick={() => { 
-                if (!isActiveModelValid || isTripleLimitHit) return;
+                 if (isTripleLimitHit) return;
+                 if (!isActiveModelValid) {
+                   focusFirstMissingModelInput();
+                   return;
+                 }
                 if (nextIncompleteModel) {
                   setInternalActiveId(nextIncompleteModel.id); 
                 } else {
@@ -1499,10 +1524,10 @@ export default function ProjectPrepare({
                   onConfirm(projectSummary); 
                 }
               }} 
-              disabled={!isActiveModelValid || isTripleLimitHit}
-              className="flex-1 h-14 rounded-[2.2rem] font-bold italic uppercase tracking-[0.2em] text-xs flex items-center justify-center gap-4 transition-all duration-500 active:scale-95 group bg-[var(--color-primary)] text-white shadow-xl shadow-[var(--color-primary)]/20 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
+               disabled={isTripleLimitHit || !activeModel?.id}
+              className="flex-1 h-14 rounded-[2.2rem] font-bold italic uppercase tracking-[0.2em] text-[14px] flex items-center justify-center gap-4 transition-all duration-500 active:scale-95 group bg-[var(--color-primary)] text-white shadow-xl shadow-[var(--color-primary)]/20 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
             >
-              {isEverythingValid ? (<>CONFIRM DETAILS <div className="p-1 rounded-full bg-white/20 group-hover:translate-x-1 transition-transform"><svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="4" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg></div></>) : (<>NEXT MODEL <Box size={14} /></>)}
+              {!isActiveModelValid ? (<>ENTER DETAILS <Box size={14} /></>) : isEverythingValid ? (<>CONFIRM DETAILS <div className="p-1 rounded-full bg-white/20 group-hover:translate-x-1 transition-transform"><svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="4" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg></div></>) : (<>NEXT MODEL <Box size={14} /></>)}
             </button>
           </div>
         </div>

@@ -21,6 +21,7 @@ export default function ProjectPreview({
   const MAX_PLATES = 8;
 
   const inputRefs = {
+    weightBySlot: useRef({}),
     days: useRef(null), hours: useRef(null), mins: useRef(null), secs: useRef(null)
   };
 
@@ -283,11 +284,31 @@ export default function ProjectPreview({
   const isActivePlateValid = activePlate ? isPlateValid(activePlate) : false;
   const nextIncompletePlate = plates.find(p => !isPlateValid(p) && String(p.id) !== String(activePlate?.id));
 
+  const focusFirstMissingPlateInput = () => {
+    if (!activePlate?.id) return;
+
+    if (!(parseFloat(activePlate.weight) > 0)) {
+      const missingWeightIndex = activeMaterialSlotsData.findIndex((slot) => !(parseFloat(slot.weight) > 0));
+      const weightInput = inputRefs.weightBySlot.current[missingWeightIndex >= 0 ? missingWeightIndex : 0];
+      weightInput?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      weightInput?.focus();
+      return;
+    }
+
+    const missingTimeField = ['days', 'hours', 'mins', 'secs'].find((field) => (
+      activePlate[field] === '' || activePlate[field] === null || activePlate[field] === undefined
+    ));
+    const timeInput = inputRefs[missingTimeField || 'days'];
+    timeInput?.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    timeInput?.current?.focus();
+  };
+
   const handleNext = () => {
     if (!isActivePlateValid) {
       const targetPlate = firstIncomplete || activePlate;
       if (targetPlate?.id) setActivePlateId(targetPlate.id);
       setIsSelectingMaterial(false);
+      focusFirstMissingPlateInput();
       return;
     }
     if (nextIncompletePlate) {
@@ -639,7 +660,7 @@ export default function ProjectPreview({
                     <div className="w-[43%] flex flex-col items-center text-center">
                       <div className={`w-full min-h-[68px] h-auto bg-transparent rounded-[1.8rem] relative flex flex-col items-center justify-center overflow-hidden transition-all duration-500 py-3 ${containerBorderStyle}`}>
                         <div className="flex items-baseline justify-center">
-                          <input type="number" inputMode="decimal" value={slot.weight} onFocus={() => updateMaterialSlotWeight(idx, '')} onChange={(e) => updateMaterialSlotWeight(idx, e.target.value)} placeholder="0" className={`w-14 text-center bg-transparent border-none outline-none font-bold text-[18px] italic ${slotMaterial?.isUpfront ? 'text-red-600' : 'text-black dark:text-white'}`} />
+                           <input ref={(node) => { inputRefs.weightBySlot.current[idx] = node; }} type="number" inputMode="decimal" value={slot.weight} onFocus={() => updateMaterialSlotWeight(idx, '')} onChange={(e) => updateMaterialSlotWeight(idx, e.target.value)} placeholder="0" className={`w-14 text-center bg-transparent border-none outline-none font-bold text-[18px] italic ${slotMaterial?.isUpfront ? 'text-red-600' : 'text-black dark:text-white'}`} />
                           <span className={`text-[12px] font-bold italic ${slotMaterial?.isUpfront ? 'text-red-600' : 'text-black dark:text-white'}`}>G</span>
                         </div>
                         {slotMaterial?.isUpfront && (
@@ -731,10 +752,12 @@ export default function ProjectPreview({
     </button>
     <button 
                 onClick={handleNext}
-                disabled={!isActivePlateValid}
-                className="flex-1 h-14 rounded-[2.2rem] font-bold italic uppercase tracking-[0.2em] text-xs flex items-center justify-center gap-4 bg-[var(--color-primary)] text-white shadow-xl shadow-[var(--color-primary)]/20 active:scale-95 group disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
+                disabled={!activePlate?.id}
+                className="flex-1 h-14 rounded-[2.2rem] font-bold italic uppercase tracking-[0.2em] text-[14px] flex items-center justify-center gap-4 bg-[var(--color-primary)] text-white shadow-xl shadow-[var(--color-primary)]/20 active:scale-95 group disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
               >
-                {isEverythingValid ? (
+                {!isActivePlateValid ? (
+                  <>ENTER DETAILS <Layers size={14} /></>
+                ) : isEverythingValid ? (
                   <>CONFIRM DETAILS
                   <div className="p-1 rounded-full bg-white/20 group-hover:translate-x-1 transition-transform">
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="4" viewBox="0 0 24 24">

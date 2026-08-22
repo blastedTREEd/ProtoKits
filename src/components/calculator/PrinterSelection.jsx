@@ -257,7 +257,7 @@ export default function PrinterSelection({ onSelect, selectedPrinter: initialSel
               });
             }}
             disabled={!isSelectedOnline}
-            className={`w-full py-5 rounded-[2.2rem] font-black italic uppercase tracking-[0.2em] text-xs bg-[var(--color-primary)] text-white shadow-xl active:scale-95 transition-all ${isSelectedOnline ? '' : 'opacity-50 cursor-not-allowed active:scale-100'}`}
+            className={`w-full py-5 rounded-[2.2rem] font-black italic uppercase tracking-[0.2em] text-[14px] bg-[var(--color-primary)] text-white shadow-xl active:scale-95 transition-all ${isSelectedOnline ? '' : 'opacity-50 cursor-not-allowed active:scale-100'}`}
           >
             NEXT
           </button>

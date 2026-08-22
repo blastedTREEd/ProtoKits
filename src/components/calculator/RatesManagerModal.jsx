@@ -125,12 +125,22 @@ export default function RatesManagerModal({ onClose }) {
     const patch = { ...(rates[parentId] || {}), ...(draftRates[parentId] || {}) };
     const savePatch = { ...patch };
 
+    if (parentId === 'electricity-cost' && Object.prototype.hasOwnProperty.call(savePatch, 'electricityRate')) {
+      const rawElectricityRate = String(savePatch.electricityRate ?? '').trim();
+      const numericElectricityRate = Number(rawElectricityRate);
+      if (!rawElectricityRate || !Number.isFinite(numericElectricityRate) || numericElectricityRate < 0) {
+        alert('Enter a valid non-negative electricity rate.');
+        return;
+      }
+      savePatch.electricityRate = numericElectricityRate;
+    }
+
     // handleRateChange keeps a complete section draft for reliable nested
     // updates. Do not let an unchanged electricity rate count as a renewal
     // merely because another electricity setting was edited.
     if (
       parentId === 'electricity-cost'
-      && draftRates[parentId]?.electricityRate === rates[parentId]?.electricityRate
+      && Number(draftRates[parentId]?.electricityRate) === Number(rates[parentId]?.electricityRate)
     ) {
       delete savePatch.electricityRate;
     }
@@ -282,7 +292,17 @@ export default function RatesManagerModal({ onClose }) {
                               inputMode={field.type === 'number' ? 'decimal' : undefined}
                               value={displayValue}
                               readOnly={isReadOnly}
-                              onChange={(e) => handleRateChange(section.id, field.key, field.type === 'number' ? (e.target.value === '' ? '' : parseFloat(e.target.value)) : e.target.value, null, field.parentKey || null)}
+                              onChange={(e) => handleRateChange(
+                                section.id,
+                                field.key,
+                                field.type === 'number'
+                                  ? (section.id === 'electricity-cost' && field.key === 'electricityRate'
+                                    ? e.target.value
+                                    : (e.target.value === '' ? '' : parseFloat(e.target.value)))
+                                  : e.target.value,
+                                null,
+                                field.parentKey || null
+                              )}
                               className={`bg-transparent text-[15px] font-black text-emerald-500 outline-none w-full ${isReadOnly ? 'cursor-default' : ''}`}
                             />
                           )}
