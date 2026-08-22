@@ -644,13 +644,15 @@ export default function ProjectCard({
     return Boolean(firstAvailable && toDateKey(firstAvailable) === toDateKey(today));
   }, [orders, shippingSettings?.availabilitySchedule]);
 
-  // Gate both adding and ordering on all four project status indicators. The
-  // persisted production flag remains a separate admin control and is not
-  // changed just because a printer/material/calendar/link is currently red.
-  const canUseProject = printerIsAvailable
-    && materialStatus.available
-    && projectCanStartToday
-    && (Boolean(effectiveSelectedDesignService) || fileLinkIsValid);
+  // Garage Projects use the admin-controlled production flag as their public
+  // availability gate. Personal project vaults still require all of the
+  // printer, material, schedule, and design/file-link checks before ordering.
+  const canUseProject = isBlueprint
+    ? isProductionEnabled
+    : printerIsAvailable
+      && materialStatus.available
+      && projectCanStartToday
+      && (Boolean(effectiveSelectedDesignService) || fileLinkIsValid);
   const canAddToBasket = isProductionEnabled && canUseProject;
   const canModifyProject = isVault && !canUseProject;
 

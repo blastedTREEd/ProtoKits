@@ -139,10 +139,6 @@ export default function Basket() {
       .filter((item) => item.type === 'project')
       .filter((item) => {
         if (item.projectData?.canAddToBasket === false) return true;
-        const projectStatusIndicators = item.projectData?.projectStatusIndicators;
-        if (projectStatusIndicators && Object.values(projectStatusIndicators).some((status) => status !== true)) {
-          return true;
-        }
         const blueprintId = item.projectData?.id ? String(item.projectData.id) : '';
         return Boolean(blueprintId && projectProductionStatuses[blueprintId] === false);
       })
@@ -222,9 +218,21 @@ export default function Basket() {
           : (blueprints || []).find((project) => String(project.id) === String(storedProject.id));
         const project = liveProject || storedProject;
         const storedIndicators = storedProject.projectStatusIndicators;
+        const isGarageProject = !storedProject.vaultId && Boolean(storedProject.id);
 
         if (!liveProject && storedIndicators) {
-          return Object.values(storedIndicators).some((status) => status !== true);
+          // Garage Projects are governed by the persisted production switch;
+          // their printer/material/calendar readiness indicators are not a
+          // reason to remove an already-added public project from the basket.
+          if (!isGarageProject) {
+            return Object.values(storedIndicators).some((status) => status !== true);
+          }
+        }
+
+        if (isGarageProject) {
+          const blueprintId = String(project?.id || storedProject.id);
+          return project?.canAddToBasket === false
+            || projectProductionStatuses[blueprintId] === false;
         }
 
         const is3MF = project?.method?.name?.toUpperCase() === '3MF';
@@ -245,7 +253,7 @@ export default function Basket() {
       })
       .map((item) => item.basketId)
       .filter(Boolean);
-  }, [activeBasket, blueprints, orders, printers, projectVault, rates, shippingSettings?.availabilitySchedule]);
+  }, [activeBasket, blueprints, orders, printers, projectProductionStatuses, projectVault, rates, shippingSettings?.availabilitySchedule]);
 
   const clearanceKitIds = useMemo(() => {
     const ids = new Set();
