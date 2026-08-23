@@ -1622,6 +1622,13 @@ export const useStore = create(
         await setDoc(docRef, data, { merge: true });
       },
 
+      updatePaymentSetting: async (path, value) => {
+        if (!path) return;
+        await updateDoc(doc(db, 'settings', 'checkout'), {
+          [`paymentSettings.${path}`]: value
+        });
+      },
+
       // I-delete ang specific payment method keys mula sa Firestore gamit ang deleteField().
       // Hindi pwedeng gamitin ang setDoc+merge para dito kasi hindi nito tinatanggal ang
       // mga existing keys na wala sa bagong data — nag-a-add/overwrite lang, hindi nagde-delete.
@@ -1635,6 +1642,8 @@ export const useStore = create(
           deletions[`paymentSettings.methods.${method}Qr`] = deleteField();
           deletions[`paymentSettings.methods.${method}TransferDiscount`] = deleteField();
           deletions[`paymentSettings.methods.${method}DiscountAmount`] = deleteField();
+          deletions[`paymentSettings.methods.${method}CashTransferFee`] = deleteField();
+          deletions[`paymentSettings.methods.${method}TransferFee`] = deleteField();
         });
         console.log('SG DEBUG: Deleting payment method keys from Firestore:', Object.keys(deletions));
         await updateDoc(docRef, deletions);

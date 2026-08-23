@@ -288,11 +288,11 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
         const suboptions = Object.fromEntries(
           Object.keys(config.suboptions || {}).sort().map(key => [
             key,
-            config.suboptions[key]?.handlingDiscount === true
+            config.suboptions[key]?.handlingFee === true
           ])
         );
         return [method, {
-          handlingDiscount: config.handlingDiscount === true,
+          handlingFee: config.handlingFee === true,
           suboptions
         }];
       })

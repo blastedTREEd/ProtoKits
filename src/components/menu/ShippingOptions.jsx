@@ -82,16 +82,19 @@ export default function ShippingOptions({
     }
   };
 
-  // Handling discount — unified read from .suboptions[subKey].handlingDiscount
-  const getHandlingDiscount = (method, methodVal, subKey = null) => {
+  // Handling fee — unified read from .handlingFee / .suboptions[subKey].handlingFee.
+  // Legacy handlingDiscount data is inverted only as a migration fallback.
+  const getHandlingFee = (method, methodVal, subKey = null) => {
     const methodObj = typeof methodVal === 'object' && methodVal !== null ? methodVal : {};
     if (!subKey) {
-      return methodObj.handlingDiscount === true;
+      if (methodObj.handlingFee !== undefined) return methodObj.handlingFee === true;
+      if (methodObj.handlingDiscount !== undefined) return methodObj.handlingDiscount !== true;
+      return true;
     }
-    // Una i-check ang .suboptions[subKey].handlingDiscount
     const subConfig = methodObj.suboptions?.[subKey];
-    if (subConfig?.handlingDiscount !== undefined) return subConfig.handlingDiscount;
-    return false;
+    if (subConfig?.handlingFee !== undefined) return subConfig.handlingFee === true;
+    if (subConfig?.handlingDiscount !== undefined) return subConfig.handlingDiscount !== true;
+    return true;
   };
 
   // --- CRUD Handlers ---
@@ -109,14 +112,14 @@ export default function ShippingOptions({
         active: true,
         requiredFields: [1, 2, 5, 6, 7, 9, 10, 11, 12], // default fields
         courierName: '',
-        handlingDiscount: false,
+        handlingFee: true,
         suboptions: {
           'standard-delivery': {
             active: true,
             label: 'Standard Delivery',
             requiredFields: [1, 2, 5, 6, 7, 9, 10, 11, 12],
             courierName: '',
-            handlingDiscount: false,
+            handlingFee: true,
             isSelfBooking: false,
             isPickupRequired: false
           }
@@ -157,7 +160,7 @@ export default function ShippingOptions({
             label: label,
             requiredFields: [1, 2, 5, 6, 7, 9, 10, 11, 12], // default fields
             courierName: '',
-            handlingDiscount: false,
+            handlingFee: true,
             isSelfBooking: false,    // Customer ang mag-bubook ng sarili nilang courier
             isPickupRequired: false // Kailangan mag-select ng pickup point
           }
@@ -275,15 +278,15 @@ export default function ShippingOptions({
     if (hasChanges) setShippingMethods(nextMethods);
   }, [shippingMethods, setShippingMethods]);
 
-  // --- Handling Discount Toggle ---
-  const HandlingDiscountToggle = ({ method, methodVal, subKey = null }) => {
-    const isDiscounted = getHandlingDiscount(method, methodVal, subKey);
+  // --- Handling Fee Toggle ---
+  const HandlingFeeToggle = ({ method, methodVal, subKey = null }) => {
+    const isFeeEnabled = getHandlingFee(method, methodVal, subKey);
 
     const toggle = () => {
       if (subKey) {
-        updateSuboptionConfig(method, subKey, { handlingDiscount: !isDiscounted }, true);
+        updateSuboptionConfig(method, subKey, { handlingFee: !isFeeEnabled }, true);
       } else {
-        updateMethodConfig(method, { handlingDiscount: !isDiscounted }, true);
+        updateMethodConfig(method, { handlingFee: !isFeeEnabled }, true);
       }
     };
 
@@ -292,12 +295,12 @@ export default function ShippingOptions({
         type="button"
         onClick={toggle}
         className={`px-3 py-1.5 rounded-xl text-[13px] font-black uppercase tracking-tighter transition-all border ${
-          isDiscounted
-            ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
+          isFeeEnabled
+            ? 'bg-garage-blue text-white border-garage-blue shadow-md shadow-blue-500/20'
             : 'bg-black/5 dark:bg-white/5 text-neutral-400 border-transparent'
         }`}
       >
-        {isDiscounted ? 'Discount Enabled' : 'Discount Disabled'}
+        Handling Fee
       </button>
     );
   };
@@ -336,11 +339,11 @@ export default function ShippingOptions({
         onClick={toggle}
         className={`px-3 py-1.5 rounded-xl text-[13px] font-black uppercase tracking-tighter transition-all border ${
           isEnabled
-            ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
+            ? 'bg-garage-blue text-white border-garage-blue shadow-md shadow-blue-500/20'
             : 'bg-black/5 dark:bg-white/5 text-neutral-400 border-transparent'
         }`}
       >
-        {isEnabled ? 'Branch Dropoff Enabled' : 'Branch Dropoff Disabled'}
+        Branch Dropoff
       </button>
     );
   };
@@ -370,7 +373,8 @@ export default function ShippingOptions({
             const order = { 'Self-Pickup': 0, 'Seller Meetup': 1 };
             const aOrder = order[a] ?? 2;
             const bOrder = order[b] ?? 2;
-            return aOrder - bOrder;
+            if (aOrder !== bOrder) return aOrder - bOrder;
+            return String(a).localeCompare(String(b), undefined, { sensitivity: 'base' });
           })
           .map(m => {
         const methodVal = shippingMethods[m];
@@ -383,15 +387,11 @@ export default function ShippingOptions({
 
         // Suboptionlist — unified: laging mula sa .suboptions, sorted standard-delivery first
         const subOptionsList = Object.entries(methodConfig.suboptions || {})
-          .sort(([aKey], [bKey]) => {
-            if (aKey === 'standard-delivery') return -1;
-            if (bKey === 'standard-delivery') return 1;
-            return 0;
-          })
           .map(([key, val]) => ({
             key,
             label: val.label || key
-          }));
+          }))
+          .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
 
         const isMainConfigExpanded = expandedConfigs[m];
 
@@ -412,31 +412,34 @@ export default function ShippingOptions({
                 handleToggleMethod(m);
               }
             }}
-            className={`cursor-pointer rounded-3xl border p-5 space-y-4 transition-all ${isActive
-              ? 'border-2 border-garage-blue bg-black/5 shadow-md shadow-blue-500/10 dark:bg-white/5'
+            className={`relative cursor-pointer rounded-3xl border p-5 space-y-4 transition-all ${isActive
+              ? 'border-black/5 bg-black/5 shadow-md shadow-blue-500/10 dark:border-white/5 dark:bg-white/5'
               : 'border-black/5 bg-black/5 dark:border-white/5 dark:bg-white/5'}`}
           >
+            {/* Custom courier delete control */}
+            {!isDefaultMethod(m) && (
+              <button
+                type="button"
+                onClick={() => handleDeleteCustomMethod(m)}
+                title="Delete Shipping Method"
+                className="absolute right-5 top-5 flex h-8 w-8 items-center justify-center rounded-full bg-red-500 text-white shadow-md shadow-red-500/20 transition-all hover:bg-red-600 active:scale-95"
+                aria-label={`Delete ${m}`}
+              >
+                <Trash2 size={15} strokeWidth={2.5} />
+              </button>
+            )}
+
             {/* Method Header */}
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex flex-col text-left">
+            <div className="flex flex-wrap items-start justify-between gap-4 pr-10">
+              <div className="flex min-w-0 flex-col text-left">
                 <span className="text-[14px] font-black uppercase italic text-garage-blue flex items-center gap-2">
                   {m}
-                  {/* Ang Seller Meetup at Self-Pickup lang ang hindi matatanggal */}
-                  {!isDefaultMethod(m) && (
-                    <button
-                      onClick={() => handleDeleteCustomMethod(m)}
-                      className="text-red-500 hover:text-red-600 transition-colors p-1"
-                      title="Delete Shipping Method"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  )}
                 </span>
                 <span className="text-[13px] font-bold opacity-45 uppercase">{isActive ? 'Available' : 'Disabled'}</span>
               </div>
               {isActive && !hasSuboptions && (
-                <div className="flex flex-wrap justify-end gap-2">
-                  <HandlingDiscountToggle method={m} methodVal={methodVal} />
+                <div className="flex min-w-0 flex-1 flex-wrap justify-end gap-2 max-lg:mt-1 max-lg:w-full max-lg:flex-none max-lg:basis-full max-lg:justify-start">
+                  <HandlingFeeToggle method={m} methodVal={methodVal} />
                   {!isDefaultMethod(m) && (
                     <BranchDropoffToggle method={m} methodVal={methodVal} />
                   )}
@@ -446,11 +449,11 @@ export default function ShippingOptions({
                       onClick={() => updateMethodConfig(m, { cashEnabled: !methodConfig.cashEnabled }, true)}
                       className={`px-3 py-1.5 rounded-xl text-[13px] font-black uppercase tracking-tighter transition-all border ${
                         methodConfig.cashEnabled
-                          ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
+                          ? 'bg-garage-blue text-white border-garage-blue shadow-md shadow-blue-500/20'
                           : 'bg-black/5 dark:bg-white/5 text-neutral-400 border-transparent'
                       }`}
                     >
-                      {methodConfig.cashEnabled ? 'Cash Enabled' : 'Cash Disabled'}
+                      Cash Payment
                     </button>
                   )}
                 </div>
@@ -462,13 +465,13 @@ export default function ShippingOptions({
 
                 {/* Add Suboption Input — always visible for non-default custom methods */}
                 {!isDefaultMethod(m) && (
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <input
                       type="text"
                       placeholder="Add New Suboption (e.g. Standard, COD)"
                       value={newSubOptionLabels[m] || ''}
                       onChange={(e) => setNewSubOptionLabels(prev => ({ ...prev, [m]: e.target.value }))}
-                      className="flex-grow px-3 py-2 rounded-xl text-[13px] font-bold bg-white/5 dark:bg-black/5 border border-black/5 dark:border-white/5 focus:outline-none text-neutral-900 dark:text-white"
+                      className="min-w-0 flex-1 rounded-xl border border-black/5 bg-white/5 px-3 py-2 text-[13px] font-bold text-neutral-900 focus:outline-none dark:border-white/5 dark:bg-black/5 dark:text-white"
                     />
                     <button
                       onClick={() => handleAddSuboption(m)}
@@ -482,17 +485,6 @@ export default function ShippingOptions({
                 {/* Case 1: No suboptions — method-level discount + form fields */}
                 {!hasSuboptions && (
                   <div className="space-y-3 pl-2">
-                    {/* Row 1: Configure Form Fields */}
-                    <div className="flex items-center">
-                      <button
-                        onClick={() => toggleExpanded(m)}
-                        className="flex items-center gap-1.5 text-[13px] font-black uppercase text-blue-600 hover:underline"
-                      >
-                        <Settings size={12} />
-                        {isMainConfigExpanded ? 'Hide Fields Config' : 'Configure Form Fields'}
-                        {isMainConfigExpanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
-                      </button>
-                    </div>
                     {isMainConfigExpanded && (
                       <ShippingFieldsConfig
                         requiredFields={defaultRequiredFields || methodConfig.requiredFields || []}
@@ -504,6 +496,17 @@ export default function ShippingOptions({
                         lockedFieldIds={defaultRequiredFields || (getBranchDropoff(methodVal) ? BRANCH_DROPOFF_REQUIRED_FIELDS : [])}
                       />
                     )}
+                    <div className="flex items-center pt-1">
+                      <button
+                        type="button"
+                        onClick={() => toggleExpanded(m)}
+                        className="flex items-center gap-1.5 rounded-xl border border-garage-blue/30 bg-garage-blue/10 px-3 py-2 text-[13px] font-black uppercase text-garage-blue transition-all hover:bg-garage-blue hover:text-white"
+                      >
+                        <Settings size={12} />
+                        {isMainConfigExpanded ? 'Hide Fields Config' : 'Configure Form Fields'}
+                        {isMainConfigExpanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+                      </button>
+                    </div>
                   </div>
                 )}
 
@@ -518,6 +521,7 @@ export default function ShippingOptions({
                         const isSubExpanded = expandedConfigs[`${m}-${sub.key}`];
                         const isBranchDropoffEnabled = getBranchDropoff(methodVal, sub.key);
                         const isOrderPickupEnabled = subVal.isPickupRequired === true;
+                        const isStandardDelivery = sub.key === 'standard-delivery';
 
                         return (
                           <div
@@ -540,20 +544,13 @@ export default function ShippingOptions({
                               ? 'border-2 border-garage-blue bg-black/5 shadow-md shadow-blue-500/10 dark:bg-white/5'
                               : 'border-black/5 bg-black/5 dark:border-white/5 dark:bg-white/5'}`}
                           >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div className="flex min-w-0 items-center gap-2">
                                 <span className="text-[13px] font-black uppercase tracking-wider">{sub.label}</span>
-                                {/* Lahat ng suboptions ay matatanggal */}
-                                <button
-                                  onClick={() => handleDeleteSuboption(m, sub.key)}
-                                  className="text-red-500 hover:text-red-600 transition-colors p-1"
-                                >
-                                  <Trash2 size={12} />
-                                </button>
                               </div>
                               {isSubActive && (
-                                <div className="flex flex-wrap justify-end gap-2">
-                                  <HandlingDiscountToggle method={m} methodVal={methodVal} subKey={sub.key} />
+                                <div className="flex min-w-0 flex-1 flex-wrap justify-end gap-2 max-lg:mt-1 max-lg:w-full max-lg:flex-none max-lg:basis-full max-lg:justify-start">
+                                  <HandlingFeeToggle method={m} methodVal={methodVal} subKey={sub.key} />
                                   {!isDefaultMethod(m) && !isOrderPickupEnabled && (
                                     <BranchDropoffToggle method={m} methodVal={methodVal} subKey={sub.key} />
                                   )}
@@ -563,7 +560,7 @@ export default function ShippingOptions({
                                       onClick={() => toggleOrderPickup(m, sub.key)}
                                       className={`px-3 py-1.5 rounded-xl text-[13px] font-black uppercase tracking-tighter transition-all border ${
                                         isOrderPickupEnabled
-                                          ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
+                                          ? 'bg-garage-blue text-white border-garage-blue shadow-md shadow-blue-500/20'
                                           : 'bg-black/5 dark:bg-white/5 text-neutral-400 border-transparent'
                                       }`}
                                     >
@@ -576,18 +573,6 @@ export default function ShippingOptions({
 
                             {isSubActive && (
                               <div className="space-y-3">
-                                {/* Row 1: Configure Form Fields */}
-                                <div className="flex items-center animate-in fade-in duration-200">
-                                  <button
-                                    onClick={() => toggleExpanded(`${m}-${sub.key}`)}
-                                    className="flex items-center gap-1 text-[13px] font-black uppercase text-blue-600 hover:underline"
-                                  >
-                                    <Settings size={12} />
-                                    {isSubExpanded ? 'Hide Fields Config' : 'Configure Form Fields'}
-                                    {isSubExpanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
-                                  </button>
-                                </div>
-
                                 {isSubExpanded && (
                                   <ShippingFieldsConfig
                                     requiredFields={isOrderPickupEnabled
@@ -607,6 +592,31 @@ export default function ShippingOptions({
                                 )}
                               </div>
                             )}
+
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              {isSubActive ? (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleExpanded(`${m}-${sub.key}`)}
+                                  className="flex items-center gap-1 rounded-xl border border-garage-blue/30 bg-garage-blue/10 px-3 py-2 text-[13px] font-black uppercase text-garage-blue transition-all hover:bg-garage-blue hover:text-white"
+                                >
+                                  <Settings size={12} />
+                                  {isSubExpanded ? 'Hide Fields Config' : 'Configure Form Fields'}
+                                  {isSubExpanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+                                </button>
+                              ) : <span />}
+                              {!isStandardDelivery && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteSuboption(m, sub.key)}
+                                  title={`Delete ${sub.label}`}
+                                  className="flex h-8 w-8 items-center justify-center rounded-full bg-red-500 text-white shadow-md shadow-red-500/20 transition-all hover:bg-red-600 active:scale-95"
+                                  aria-label={`Delete ${sub.label}`}
+                                >
+                                  <Trash2 size={15} strokeWidth={2.5} />
+                                </button>
+                              )}
+                            </div>
                           </div>
                         );
                       })}
@@ -621,13 +631,13 @@ export default function ShippingOptions({
       {/* Add New Shipping Method */}
       <div className="p-6 rounded-3xl border-2 border-dashed border-garage-blue/20 bg-black/5 dark:bg-white/5 space-y-4 text-left">
         <h4 className="text-[14px] font-black uppercase italic text-garage-blue">Add New Shipping Method</h4>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <input
             type="text"
             placeholder="e.g. J&T Express, Fedex"
             value={newMethodName}
             onChange={(e) => setNewMethodName(e.target.value)}
-            className="flex-grow px-4 py-3.5 rounded-2xl text-[13px] font-bold bg-white dark:bg-neutral-800 border border-black/10 dark:border-white/5 focus:outline-none focus:ring-2 focus:ring-garage-blue/50 text-neutral-900 dark:text-white placeholder:text-neutral-400"
+            className="min-w-0 flex-1 rounded-2xl border border-black/10 bg-white px-4 py-3.5 text-[13px] font-bold text-neutral-900 focus:outline-none focus:ring-2 focus:ring-garage-blue/50 dark:border-white/5 dark:bg-neutral-800 dark:text-white placeholder:text-neutral-400"
           />
           <button
             onClick={handleAddCustomMethod}

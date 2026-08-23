@@ -5,6 +5,5 @@ export const getCheckoutPaymentFees = (data = {}) => {
   const handlingFee = Number(settings.handlingFee || 0);
   const installmentFee = Number(settings.installmentFee || 0);
   const transferFee = Number(settings.transferFee || 0);
-  const cashInFee = Number(settings.cashInFee || 0);
-  return { handlingFee, installmentFee, transferFee, cashInFee };
+  return { handlingFee, installmentFee, transferFee };
 };

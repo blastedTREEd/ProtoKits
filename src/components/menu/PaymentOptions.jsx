@@ -7,10 +7,12 @@ export default function PaymentOptions({
   handleSave,
   updatePaymentData,
   deleteMethod,
+  persistPaymentSetting,
   showSave = true,
   hasChanges = false
 }) {
   const [newMethod, setNewMethod] = useState('');
+  const [qrDrafts, setQrDrafts] = useState({});
 
   const basePlans = ['full', 'installment'];
   // 'cash' is always present (default, read-only). 'gcash' is only shown if it exists in settings.
@@ -36,9 +38,39 @@ export default function PaymentOptions({
       const reader = new FileReader();
       reader.onloadend = () => {
         const base64String = reader.result;
-        updatePaymentData('methods', `${method}Qr`, base64String);
+        setQrDrafts(prev => ({ ...prev, [method]: base64String }));
       };
       reader.readAsDataURL(file);
+    }
+  };
+
+  const getQrValue = (method) => (
+    Object.prototype.hasOwnProperty.call(qrDrafts, method)
+      ? qrDrafts[method]
+      : paymentSettings?.methods?.[`${method}Qr`] || null
+  );
+
+  const hasQrDraft = (method) => Object.prototype.hasOwnProperty.call(qrDrafts, method);
+
+  const cancelQrChange = (method) => {
+    setQrDrafts(prev => {
+      const next = { ...prev };
+      delete next[method];
+      return next;
+    });
+  };
+
+  const saveQrChange = async (method) => {
+    if (!hasQrDraft(method)) return;
+
+    const nextQr = qrDrafts[method] || null;
+    updatePaymentData('methods', `${method}Qr`, nextQr);
+    const persisted = persistPaymentSetting
+      ? await persistPaymentSetting('methods', `${method}Qr`, nextQr)
+      : true;
+
+    if (persisted !== false) {
+      cancelQrChange(method);
     }
   };
 
@@ -157,10 +189,8 @@ export default function PaymentOptions({
           <BadgeDollarSign size={16} className="text-garage-blue opacity-60" />
           <h3 className="text-[13px] font-black uppercase tracking-widest opacity-40">Service Charge</h3>
         </div>
-        {renderFeeInput('handlingFee', 'Handling fee per item', 'Added to public product prices')}
-        {renderFeeInput('installmentFee', 'Installment fee per item', 'Added to public product prices and discounted on full payment')}
-        {renderFeeInput('cashInFee', 'Cash In Fee', 'Added to total checkout for Cash payment method')}
-        {renderFeeInput('transferFee', 'QR Payment Fee', 'Added to total checkout for QR payment methods')}
+        {renderFeeInput('handlingFee', 'Handling fee per order', 'Added once to the selected checkout order')}
+        {renderFeeInput('installmentFee', 'Reservation fee per item', 'Added to each item for the Reservation payment plan')}
       </div>
 
       <div className="space-y-4">
@@ -182,8 +212,7 @@ export default function PaymentOptions({
           <div className="grid grid-cols-1 gap-2">
             {cat.options.map(opt => {
               const isActive = paymentSettings?.[cat.id]?.[opt] !== false;
-              const hasTransferDiscount = paymentSettings?.[cat.id]?.[`${opt}TransferDiscount`] === true;
-              const discountAmount = paymentSettings?.[cat.id]?.[`${opt}DiscountAmount`] ?? 0;
+              const cashTransferFee = paymentSettings?.[cat.id]?.[`${opt}CashTransferFee`] ?? 0;
               
               return (
                 <div key={opt} className="bg-black/5 dark:bg-white/5 rounded-2xl border border-transparent overflow-hidden">
@@ -191,25 +220,11 @@ export default function PaymentOptions({
                     <div className="flex flex-col text-left">
                       <span className="text-[14px] font-black uppercase italic text-garage-blue">{opt}</span>
                       <span className="text-[13px] font-bold opacity-40 uppercase">
-                        {isActive ? (hasTransferDiscount ? 'Discount Enabled' : 'Enabled') : 'Disabled'}
+                        {isActive ? 'Enabled' : 'Disabled'}
                       </span>
                     </div>
                     
                     <div className="flex items-center gap-3">
-                       {/* Transfer Fee Discount Button - Only show if method is active */}
-                       {cat.id === 'methods' && isActive && (
-                         <button
-                           onClick={() => handleToggleSetting('methods', `${opt}TransferDiscount`)}
-                          className={`px-3 py-1.5 rounded-xl text-[13px] font-black uppercase tracking-tighter transition-all border ${
-                             hasTransferDiscount 
-                               ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20 shadow-lg shadow-emerald-500/5' 
-                               : 'bg-black/5 dark:bg-white/5 text-neutral-500 border-transparent opacity-40 hover:opacity-100'
-                           }`}
-                         >
-                           {hasTransferDiscount ? 'Discount On' : 'No Discount'}
-                         </button>
-                       )}
-
                        {/* Delete Button — only 'cash' is read-only (default); all others including GCash can be deleted */}
                        {cat.id === 'methods' && opt !== 'cash' && (
                          <button
@@ -231,11 +246,11 @@ export default function PaymentOptions({
                     </div>
                   </div>
 
-                  {cat.id === 'methods' && isActive && opt !== 'cash' && (
+                  {cat.id === 'methods' && isActive && (
                     <div className="px-4 pb-4 animate-in slide-in-from-top-2 duration-300 space-y-3">
                       <div className="rounded-xl bg-white/60 dark:bg-black/20 p-3">
                         <label className="mb-2 block text-[13px] font-black uppercase tracking-widest opacity-40">
-                          Payment Discount Amount
+                          Cash Transfer Fee
                         </label>
                         <div className="relative">
                           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[13px] font-black opacity-40">₱</span>
@@ -243,38 +258,86 @@ export default function PaymentOptions({
                             type="text"
                             inputMode="numeric"
                             pattern="[0-9]*"
-                            value={discountAmount}
+                            value={cashTransferFee}
                             onFocus={() => {
-                              if (Number(discountAmount || 0) === 0) updatePaymentData('methods', `${opt}DiscountAmount`, '');
+                              if (Number(cashTransferFee || 0) === 0) updatePaymentData('methods', `${opt}CashTransferFee`, '');
                             }}
                             onChange={(e) => {
                               const val = e.target.value.replace(/\D/g, '');
-                              updatePaymentData('methods', `${opt}DiscountAmount`, val === '' ? '' : Number(val));
+                              updatePaymentData('methods', `${opt}CashTransferFee`, val === '' ? '' : Number(val));
                             }}
                             onBlur={() => {
-                              if (paymentSettings?.methods?.[`${opt}DiscountAmount`] === '') updatePaymentData('methods', `${opt}DiscountAmount`, 0);
+                              const nextValue = paymentSettings?.methods?.[`${opt}CashTransferFee`] === ''
+                                ? 0
+                                : Math.max(0, Number(paymentSettings?.methods?.[`${opt}CashTransferFee`] ?? cashTransferFee) || 0);
+                              if (paymentSettings?.methods?.[`${opt}CashTransferFee`] === '') {
+                                updatePaymentData('methods', `${opt}CashTransferFee`, nextValue);
+                              }
+                              persistPaymentSetting?.('methods', `${opt}CashTransferFee`, nextValue);
                             }}
                             className="w-full rounded-xl bg-white/80 py-3 pl-7 pr-4 text-[13px] font-black outline-none focus:ring-2 focus:ring-garage-blue/30 dark:bg-black/30"
                           />
                         </div>
                       </div>
-                      {paymentSettings?.methods?.[`${opt}Qr`] ? (
-                        <div className="relative w-full h-32 rounded-xl overflow-hidden border border-white/10 bg-white">
-                          <img src={paymentSettings.methods[`${opt}Qr`]} alt={`${opt} QR`} className="w-full h-full object-contain" />
-                          <button
-                            onClick={() => updatePaymentData('methods', `${opt}Qr`, null)}
-                            className="absolute top-2 right-2 p-1 bg-black/50 text-white rounded-full hover:bg-red-500 transition-colors"
-                          >
-                            <X size={12} />
-                          </button>
+                      {opt !== 'cash' && (getQrValue(opt) ? (
+                        <div className="space-y-2">
+                          <div className="relative w-full h-32 rounded-xl overflow-hidden border border-white/10 bg-white">
+                            <img src={getQrValue(opt)} alt={`${opt} QR`} className="w-full h-full object-contain" />
+                            <button
+                              type="button"
+                              onClick={() => setQrDrafts(prev => ({ ...prev, [opt]: null }))}
+                              className="absolute top-2 right-2 p-1 bg-black/50 text-white rounded-full hover:bg-red-500 transition-colors"
+                              aria-label={`Remove ${opt} QR`}
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
+                          {hasQrDraft(opt) && (
+                            <div className="flex justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => cancelQrChange(opt)}
+                                className="rounded-lg border border-black/10 px-4 py-2 text-[12px] font-black uppercase dark:border-white/10"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => saveQrChange(opt)}
+                                className="rounded-lg bg-garage-blue px-4 py-2 text-[12px] font-black uppercase text-white"
+                              >
+                                Save
+                              </button>
+                            </div>
+                          )}
                         </div>
                       ) : (
-                        <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-white/10 rounded-xl cursor-pointer hover:border-garage-blue/50 transition-colors bg-white/5">
-                          <Upload size={20} className="opacity-40" />
-                          <span className="text-[13px] font-bold mt-2 opacity-50 uppercase">Upload {opt} QR</span>
-                          <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, opt)} />
-                        </label>
-                      )}
+                        <div className="space-y-2">
+                          <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-white/10 rounded-xl cursor-pointer hover:border-garage-blue/50 transition-colors bg-white/5">
+                            <Upload size={20} className="opacity-40" />
+                            <span className="text-[13px] font-bold mt-2 opacity-50 uppercase">Upload {opt} QR</span>
+                            <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, opt)} />
+                          </label>
+                          {hasQrDraft(opt) && (
+                            <div className="flex justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => cancelQrChange(opt)}
+                                className="rounded-lg border border-black/10 px-4 py-2 text-[12px] font-black uppercase dark:border-white/10"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => saveQrChange(opt)}
+                                className="rounded-lg bg-garage-blue px-4 py-2 text-[12px] font-black uppercase text-white"
+                              >
+                                Save
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>

@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { 
   ShoppingBag, ShoppingBasket, X, Clock, Package, ShelvingUnit, PackageMinus, PackagePlus, PackageX, Calendar, UserCheck, Info,
-  ChevronRight, ChevronLeft, Truck, Pencil, Trash2, Bell, Plane, Plus, ArrowBigUpDash, Bike, Gift, Zap, Forward
+  ChevronRight, ChevronLeft, Truck, Bike, Pencil, Trash2, Bell, Plane, Plus, ArrowBigUpDash, Gift, Zap, Forward
   } from 'lucide-react';
 import { FaQuestion } from 'react-icons/fa';
 import { useStore } from '../../store/useStore';
@@ -170,7 +170,9 @@ function getStockCostPrice(stock) {
 }
 
 function getAvailabilityGroupLabel(stock) {
-  return isOnHandStock(stock) ? 'ONHAND' : (stock?.eta || 'TBA').toUpperCase();
+  if (isOnHandStock(stock)) return 'ONHAND';
+  const etaMonth = String(stock?.eta || 'TBA').trim().split(/\s+/)[0] || 'TBA';
+  return `ETA ${etaMonth}`.toUpperCase();
 }
 
 function getAvailabilityGroupKey(prefix, stock) {
@@ -539,18 +541,28 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     return base;
   }, [kit, visibleStocks, stockList]);
 
-  const { refPrice, displayPrice, lowestPrice } = useMemo(() => {
+  const { displayPrice } = useMemo(() => {
     const base = Number(sellPrice || 0);
     const hFee = handlingFee;
     const iFee = installmentFee;
     const tFee = transferFee;
     
     return {
-      refPrice: base + hFee + iFee + tFee,
-      displayPrice: base + hFee + iFee + tFee,
-      lowestPrice: base
+      displayPrice: base + hFee + iFee + tFee
     };
   }, [sellPrice, handlingFee, installmentFee, transferFee]);
+
+  const priceDisplayStock = useMemo(() => (
+    selectedStock
+      || visibleStocks.find(stock => isOnHandStock(stock))
+      || visibleStocks.find(stock => isPreOrderStock(stock))
+      || null
+  ), [selectedStock, visibleStocks]);
+  const cardSellPrice = Number(priceDisplayStock?.sellPrice || sellPrice || 0);
+  const cardIsPreOrder = isPreOrderStock(priceDisplayStock);
+  const cardReferencePrice = cardIsPreOrder
+    ? cardSellPrice + Math.max(0, Number(installmentFee) || 0)
+    : cardSellPrice;
 
   const shelfItem = useMemo(() => {
     // Find if the current kit is reserved by any admin on the shared shelf
@@ -707,6 +719,11 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   const selectedAvailabilityGroup = useMemo(() => {
     return selectableAvailabilityGroups.find(group => group.key === selectedGroupLabel) || null;
   }, [selectableAvailabilityGroups, selectedGroupLabel]);
+
+  const availabilityHeaderGroup = selectedAvailabilityGroup?.tag === 'bundleDeal'
+    ? visibleAvailabilityGroups[0]
+    : (selectedAvailabilityGroup || visibleAvailabilityGroups[0]);
+  const AvailabilityHeaderIcon = availabilityHeaderGroup?.isOnHand ? Bike : Plane;
 
   const isSelectedCollectionGroup = ['collection', 'acceptedOffer'].includes(selectedAvailabilityGroup?.tag);
   const selectedBundleDealDetails = selectedAvailabilityGroup?.dealDetails || null;
@@ -1255,10 +1272,12 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   const gridUnavailableClass = hasReserved ? 'text-blue-500' : 'text-red-500';
   const modalLowestPrice = acceptedOfferPrice > 0
     ? acceptedOfferPrice
-    : Number(selectedBundleDealDetails?.currentItemPrice || sellPrice || 0);
+    : Number(selectedBundleDealDetails?.currentItemPrice || cardSellPrice || 0);
   const modalReferencePrice = acceptedOfferPrice > 0
     ? acceptedOfferPrice + handlingFee + installmentFee + transferFee
-    : displayPrice;
+    : selectedBundleDealDetails?.deal
+      ? displayPrice
+      : cardReferencePrice;
   const activeBundleDeal = selectedBundleDealDetails?.deal || null;
   const modalTopPrice = selectedBundleDealDetails?.deal
     ? Number(sellPrice || 0)
@@ -1399,12 +1418,20 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     const isBundleDealGroup = group.tag === 'bundleDeal';
     const isClearanceDealGroup = isBundleDealGroup && group.isClearanceDeal;
     const isFullyReserved = !isCollectionGroup && availableCountInGroup === 0;
+    const isAvailabilityGroup = !isCollectionGroup && !isBundleDealGroup;
+    const hasFreeShipping = isAvailabilityGroup && group.items.some(item => {
+      const isEligible = item.isFreeShippingEligible;
+      const until = item.freeShippingUntil;
+      if (!isEligible) return false;
+      if (!until) return true;
+      return Date.now() < new Date(until).getTime();
+    });
 
     return (
       <button 
         key={group.key || group.label} 
         onClick={() => handleSelectGroup(group)} 
-        className={`relative px-4 py-2.5 rounded-xl border text-[13px] font-black uppercase tracking-[0.05em] transition-all flex items-center gap-2
+        className={`relative overflow-visible px-4 py-2.5 rounded-xl border text-[13px] font-black uppercase tracking-[0.05em] transition-all flex items-center gap-2
           ${isSelected 
             ? isCollectionGroup
               ? 'bg-red-500 border-red-500 text-white shadow-lg shadow-red-500/20'
@@ -1420,28 +1447,35 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
           ${isFullyReserved && !isSelected ? 'opacity-50' : ''}
         `}
       >
-        {!isCollectionGroup && !isBundleDealGroup && group.items.some(item => {
-            const isEligible = item.isFreeShippingEligible;
-            const until = item.freeShippingUntil;
-            if (!isEligible) return false;
-            if (!until) return true;
-            return Date.now() < new Date(until).getTime();
-        }) && (
-          <span className="absolute -top-3 w-[80%] -right-3  tracking-[0.15em] font-black uppercase italic bg-emerald-500 text-white text-[11.5px] px-0.5 py-0.5 rounded-md font-bold shadow uppercase backdrop-blur-sm">
-            FREE SHIPPING 
-          </span>
-        )}
-
-        {isBundleDealGroup ? <Gift size={18}/> : group.isOnHand ? <Package size={18}/> : <Plane size={18}/>}
-
-        {group.label}
-
-        {!isBundleDealGroup && (
-          <span className={`ml-1 px-1.5 py-0.5 rounded-md text-[8px] ${
-            isSelected ? 'bg-white/20' : isCollectionGroup ? 'bg-red-500/10 text-red-500' : 'bg-blue-600/10 text-blue-600'
-          }`}>
-            {group.items.length}
-          </span>
+        {isAvailabilityGroup ? (
+          <>
+            <span className="flex items-center gap-2 text-[15px] font-bold uppercase tracking-[0.05em]">
+              <span className="text-[15px] leading-none font-bold">
+                {group.items.length}
+              </span>
+              <span className={`h-4 w-px ${isSelected ? 'bg-white/70' : 'bg-current opacity-40'}`} aria-hidden="true" />
+              <span>{group.label}</span>
+              {/* {hasFreeShipping && (
+                <span
+                  className="ml-1 inline-flex h-5 w-5 shrink-0 items-center justify-center text-emerald-500"
+                  aria-label="Free shipping"
+                  title="Free shipping"
+                >
+                  <Truck size={18} strokeWidth={2.5} fill="currentColor" aria-hidden="true" />
+                </span>
+              )} */}
+            </span>
+          </>
+        ) : (
+          <>
+            {isBundleDealGroup ? <Gift size={18}/> : group.isOnHand ? <Package size={18}/> : <Plane size={18}/>}
+            <span>{group.label}</span>
+            {!isBundleDealGroup && (
+              <span className={`ml-1 text-[13px] leading-none font-black ${isSelected ? 'text-white' : isCollectionGroup ? 'text-red-500' : 'text-blue-600'}`}>
+                {group.items.length}
+              </span>
+            )}
+          </>
         )}
       </button>
     );
@@ -1512,12 +1546,14 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                             </>
                           ) : availableCount > 0 ? (
                             <>
-                              <span className="text-[15px] font-bold italic tracking-tighter leading-none text-amber-500 dark:text-amber-500 shrink-0">
-                                ₱{lowestPrice.toLocaleString()}
+                              <span className="text-[15px] font-bold italic tracking-tighter leading-none text-blue-600 dark:text-blue-400 shrink-0">
+                                ₱{cardSellPrice.toLocaleString()}
                               </span>
-                              <span className="text-[15px] font-bold italic tracking-tighter line-through shrink-0">
-                                ₱{refPrice.toLocaleString()}
-                              </span>
+                              {cardIsPreOrder && (
+                                <span className="text-[15px] font-bold italic tracking-tighter line-through shrink-0">
+                                  ₱{cardReferencePrice.toLocaleString()}
+                                </span>
+                              )}
                             </>
                           ) : (
                             <span className={`text-[15px] font-bold tracking-tighter leading-none ${isIncludedInBundleDeal ? 'text-emerald-500' : gridUnavailableClass}`}>
@@ -1634,20 +1670,22 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                           <div className="lg:hidden sm:hidden md:flex flex-col gap-0.5">
                             <div className="flex flex-col gap-1">
                               {showPublicModalPrice && (
-                               <div className="flex items-center gap-2">
+                                  <div className="flex items-center gap-2">
                                   <p className="text-[28px] sm:text-5xl font-black italic tracking-tighter leading-none text-blue-600 flex">
                                     ₱{modalTopPrice.toLocaleString()}
                                   </p>
-                                  <div className="flex flex-col gap-0 pt-1 sm:pt-1.5">
-                                    <p className={`${selectedBundleDealDetails?.deal ? 'text-[13px] md:text-[22px]' : 'text-[10px] md:text-[14px]'} font-black italic tracking-tighter leading-none whitespace-nowrap ${selectedBundleDealDetails?.deal ? 'text-emerald-600' : 'text-amber-600'}`}>
-                                      {selectedBundleDealDetails?.deal
-                                        ? <>&#8369;{(selectedBundleDealDetails.isClearance ? modalClearanceDiscount : getDealDiscountAmount(activeBundleDeal)).toLocaleString()} OFF ELIGIBLE</>
-                                        : isLimitedTimeAcceptedOffer ? 'ACCEPTED OFFER' : 'LOWEST PRICE'}
-                                    </p>
-                                    <p className={`${selectedBundleDealDetails?.deal ? 'text-[10px] md:text-[14px]' : 'text-[13px] md:text-[22px]'} font-black italic tracking-tighter leading-tight line-through`}>
-                                      ₱{modalReferencePrice.toLocaleString()}
-                                    </p>
-                                  </div>
+                                  {(selectedBundleDealDetails?.deal || isLimitedTimeAcceptedOffer || cardIsPreOrder) && (
+                                    <div className="flex flex-col gap-0 pt-1 sm:pt-1.5">
+                                      <p className={`${selectedBundleDealDetails?.deal ? 'text-[13px] md:text-[22px]' : 'text-[10px] md:text-[14px]'} font-black italic tracking-tighter leading-none whitespace-nowrap ${selectedBundleDealDetails?.deal ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                        {selectedBundleDealDetails?.deal
+                                          ? <>&#8369;{(selectedBundleDealDetails.isClearance ? modalClearanceDiscount : getDealDiscountAmount(activeBundleDeal)).toLocaleString()} OFF ELIGIBLE</>
+                                          : isLimitedTimeAcceptedOffer ? 'ACCEPTED OFFER' : 'FULL PAYMENT'}
+                                      </p>
+                                      <p className={`${selectedBundleDealDetails?.deal ? 'text-[10px] md:text-[14px]' : 'text-[13px] md:text-[22px]'} font-black italic tracking-tighter leading-tight line-through`}>
+                                        ₱{modalReferencePrice.toLocaleString()}
+                                      </p>
+                                    </div>
+                                  )}
                                 </div>
                               )}
                               {isAdminView && (
@@ -1671,7 +1709,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                           </div>
                       )}
                       <h2 className="pr-14 sm:pr-16 lg:pr-20 text-[16px] sm:text-4xl md:text-2xl lg:text-4xl font-black italic uppercase tracking-tighter leading-[0.9] break-words">{kit.name}</h2>
-                      <div className="flex flex-wrap items-center gap-2 text-[14px]  font-black uppercase tracking-[0.2em]">
+                      <div className="flex flex-wrap items-center gap-2 text-[14px] font-bold uppercase tracking-[0.2em]">
                         {metaTags.map((tag, index) => (
                           <React.Fragment key={`${tag}-${index}`}>
                             {index > 0 && <span className="w-1.5 h-1.5 rounded-full bg-blue-600" />}
@@ -1687,16 +1725,18 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                   <p className="text-[28px] lg:text-[40px] font-black italic tracking-tighter leading-none text-blue-600 flex">
                                     ₱{modalTopPrice.toLocaleString()}
                                   </p>
-                                  <div className="flex flex-col gap-0 pt-1.5">
-                                    <p className={`${selectedBundleDealDetails?.deal ? 'text-[18px]' : 'text-[12px]'} font-black italic tracking-tighter leading-none whitespace-nowrap ${selectedBundleDealDetails?.deal ? 'text-emerald-600' : 'text-amber-600'}`}>
-                                      {selectedBundleDealDetails?.deal
-                                        ? <>&#8369;{(selectedBundleDealDetails.isClearance ? modalClearanceDiscount : getDealDiscountAmount(activeBundleDeal)).toLocaleString()} OFF ELIGIBLE</>
-                                        : isLimitedTimeAcceptedOffer ? 'ACCEPTED OFFER' : 'LOWEST PRICE'}
-                                    </p>
-                                    <p className={`${selectedBundleDealDetails?.deal ? 'text-[12px]' : 'text-[18px]'} font-black italic tracking-tighter leading-none line-through`}>
-                                      ₱{modalReferencePrice.toLocaleString()}
-                                    </p>
-                                  </div>
+                                  {(selectedBundleDealDetails?.deal || isLimitedTimeAcceptedOffer || cardIsPreOrder) && (
+                                    <div className="flex flex-col gap-0 pt-1.5">
+                                      <p className={`${selectedBundleDealDetails?.deal ? 'text-[18px]' : 'text-[12px]'} font-black italic tracking-tighter leading-none whitespace-nowrap ${selectedBundleDealDetails?.deal ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                        {selectedBundleDealDetails?.deal
+                                          ? <>&#8369;{(selectedBundleDealDetails.isClearance ? modalClearanceDiscount : getDealDiscountAmount(activeBundleDeal)).toLocaleString()} OFF ELIGIBLE</>
+                                          : isLimitedTimeAcceptedOffer ? 'ACCEPTED OFFER' : 'FULL PAYMENT'}
+                                      </p>
+                                      <p className={`${selectedBundleDealDetails?.deal ? 'text-[12px]' : 'text-[18px]'} font-black italic tracking-tighter leading-none line-through`}>
+                                        ₱{modalReferencePrice.toLocaleString()}
+                                      </p>
+                                    </div>
+                                  )}
                                 </div>
                               )}
                               {isAdminView && (
@@ -1721,22 +1761,22 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                       )}
                     </div>
                     <div className="space-y-2 px-8">
-                      <p className="text-[12px] font-black uppercase tracking-[0.1em] text-neutral-400 flex items-center gap-2 text-left"><Package size={18} /> Condition Details</p>
+                      <p className="text-[14px] font-bold uppercase tracking-[0.1em] text-neutral-600 dark:text-neutral-300 flex items-center gap-2 text-left"><Package size={18} /> Condition Details</p>
                       <div className="flex flex-wrap gap-1.5">
                         {conditionDetailsStock && getConditionDetails(conditionDetailsStock).length > 0 ? (
                           getConditionDetails(conditionDetailsStock).map((detail, i) => {
                               let colorClass = "bg-blue-500/10 text-blue-500 border-blue-500/20";
                               if (detail.value.includes("Pristine") || detail.value.includes("Built") || detail.value.includes("Complete")) colorClass = "bg-emerald-500/10 text-emerald-500 border-emerald-500/20";
                               if (detail.value.includes("Dented") || detail.value.includes("Opened") || detail.value.includes("Incomplete") || detail.value.includes("Mark")) colorClass = "bg-amber-500/10 text-amber-400 border-amber-400/60";
-                              return <span key={i} className={`text-[12px] font-black uppercase tracking-[0.05em] px-2.5 py-1 rounded-lg border shadow-sm ${colorClass}`}>{detail.label}</span>;
+                              return <span key={i} className={`text-[15px] font-bold uppercase tracking-[0.05em] px-2.5 py-1 rounded-lg border shadow-sm ${colorClass}`}>{detail.label}</span>;
                               })
                         ) : (
-                          <span className="text-[12px] font-black tracking-[0.1em] uppercase px-2.5 py-1 rounded-lg bg-neutral-500/10 text-neutral-500 border border-neutral-500/20">No Info</span>
+                          <span className="text-[15px] font-bold tracking-[0.1em] uppercase px-2.5 py-1 rounded-lg bg-neutral-500/10 text-neutral-500 border border-neutral-500/20">No Info</span>
                         )}
                       </div>
                       {/* 🌟 2. RE-CHECK MO KUNG GANITO ANG NAKALAGAY SA MAIN MODAL AREA 🌟 */}
                       {(conditionDetailsStock?.issueDescription || visibleStocks[0]?.issueDescription) && (
-  <div className="mt-2 flex items-center gap-1.5 w-fit px-2.5 py-2 rounded-lg border shadow-sm bg-amber-500/10 text-amber-500 border-amber-500/20 dark:border-amber-400/60 text-[12px] font-black uppercase tracking-[0.05em]">
+  <div className="mt-2 flex items-center gap-1.5 w-fit px-2.5 py-2 rounded-lg border shadow-sm bg-amber-500/10 text-amber-500 border-amber-500/20 dark:border-amber-400/60 text-[15px] font-bold uppercase tracking-[0.05em]">
     <div className="flex-none text-amber-500">
       <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12" y1="16" y2="16"/>
@@ -1750,14 +1790,14 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
 )}
                     </div>
                     <div className="space-y-4 px-8 pb-12">
-                      <h4 className="text-[12px] font-black uppercase tracking-[0.1em] opacity-30 flex items-center gap-2 text-left"><Bike size={20} /> AVAILABILITY</h4>
+                      <h4 className="text-[14px] font-bold uppercase tracking-[0.1em] text-neutral-600 dark:text-neutral-300 flex items-center gap-2 text-left"><AvailabilityHeaderIcon size={20} /> AVAILABILITY</h4>
                       <div className="flex flex-wrap gap-2">
                         {visibleAvailabilityGroups.length > 0 ? visibleAvailabilityGroups.map(renderAvailabilityGroupButton) : <span className="text-[11px] font-black uppercase px-2.5 py-1 rounded-lg bg-neutral-500/10 text-neutral-500 border border-neutral-500/20">No Info</span>}
                       </div>
 
                       {isAdmin && isAdminView && collectionGroupedVariants.length > 0 && (
                         <div className="pt-4 space-y-2">
-                          <h4 className="text-[12px] font-black uppercase tracking-[0.1em] opacity-30 flex items-center gap-2 text-left">
+                          <h4 className="text-[14px] font-bold uppercase tracking-[0.1em] text-neutral-600 dark:text-neutral-300 flex items-center gap-2 text-left">
                             <ShelvingUnit size={18} /> COLLECTION
                           </h4>
                           <div className="flex flex-wrap gap-2">
@@ -1768,7 +1808,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
 
                       {bundleDealDetails.length > 0 && (
                         <div className="pt-4 space-y-2">
-                          <h4 className="text-[12px] font-black uppercase tracking-[0.1em] opacity-30 flex items-center gap-2 text-left">
+                          <h4 className="text-[14px] font-bold uppercase tracking-[0.1em] text-neutral-600 dark:text-neutral-300 flex items-center gap-2 text-left">
                             <Gift size={18} /> {bundleDealDetails.some(detail => detail.isClearance) ? 'BUNDLE & CLEARANCE DEALS' : 'BUNDLE DEALS'}
                           </h4>
                           <div className="space-y-4">
@@ -1803,7 +1843,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                               >
                                 <div className="flex items-start justify-between gap-3 px-1">
                                   <div className="min-w-0 flex-1 text-left">
-                                    <p className={`truncate text-[13px] font-black uppercase italic leading-tight ${deal.type === 'clearance' ? 'text-red-500' : 'text-emerald-500'}`}>{displayName}</p>
+                                    <p className={`truncate text-[15px] font-bold uppercase italic leading-tight ${deal.type === 'clearance' ? 'text-red-500' : 'text-emerald-500'}`}>{displayName}</p>
                                   </div>
                                   <div className="shrink-0 pt-0.5 text-right">
                                     <p className={`text-[12px] font-black uppercase ${deal.type !== 'clearance' && getDealCountdownLabel(deal.validUntil) === 'LAST DAY' ? 'text-red-500' : ''}`}>
@@ -1867,8 +1907,8 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                             )}
                                           </div>
                                           <div className="min-w-0 flex-1 text-left">
-                                            <p className="line-clamp-1 text-[13px] font-black uppercase leading-tight">{includedKit.name}</p>
-                                            <p className="mt-0.5 truncate text-[13px] font-black uppercase tracking-widest text-neutral-900 dark:text-white">
+                                            <p className="line-clamp-1 text-[15px] font-bold uppercase leading-tight">{includedKit.name}</p>
+                                            <p className="mt-0.5 truncate text-[15px] font-bold uppercase tracking-widest text-neutral-900 dark:text-white">
                                               {[includedKit.brand, includedKit.specs?.line, includedKit.specs?.scale].filter(Boolean).join(' / ') || 'Included Kit'}
                                             </p>
                                           </div>

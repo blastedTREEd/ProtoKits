@@ -166,6 +166,19 @@ const findCheckoutKit = (kits = [], item = {}) => {
       : null);
 };
 
+const isPreOrderKitItem = (item, kits = []) => {
+  if (isProjectCheckoutItem(item)) return false;
+  const kit = findCheckoutKit(kits, item);
+  return item?.isPreOrder === true || isPreOrderStock(kit?.stocks?.[item?.stockKey], item?.status);
+};
+
+const isOnhandKitItem = (item, kits = []) => {
+  if (isProjectCheckoutItem(item)) return false;
+  const kit = findCheckoutKit(kits, item);
+  const stock = kit?.stocks?.[item?.stockKey];
+  return String(item?.status || stock?.status || '').trim().toLowerCase() === 'onhand';
+};
+
 const getClearanceDealKitIds = (deal) => {
   const explicitIds = normalizeDealKitIds(deal?.clearanceKitIds);
   return explicitIds.length > 0
@@ -218,7 +231,9 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
     const stock = kit?.stocks?.[item.stockKey];
     const sellPrice = Number(stock?.sellPrice || item.sellPrice || kit?.sellPrice || 0);
     const handling = Number(item.appliedHandlingFee ?? fees.handlingFee ?? 0);
-    const installment = Number(item.appliedInstallmentFee ?? fees.installmentFee ?? 0);
+    const installment = isPreOrderKitItem(item, kits)
+      ? 0
+      : Number(item.appliedInstallmentFee ?? fees.installmentFee ?? 0);
     const transfer = Number(item.appliedTransferFee ?? fees.transferFee ?? 0);
 
     return {
@@ -438,7 +453,7 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
       bundleSize,
       bundleFeeShare,
       bundleReferencePrice: row.refPrice
-        + Number(item.appliedInstallmentFee || fees.installmentFee || 0)
+        + Number(item.appliedInstallmentFee || 0)
         + Number(item.appliedHandlingFee || fees.handlingFee || 0)
         + Number(item.appliedTransferFee || fees.transferFee || 0),
       allowShelfBundle: true,
@@ -571,20 +586,29 @@ const isSubMethodEnabled = (methodConfig, subKey) => {
   return subVal !== false;
 };
 
-// Kuhanin ang handling discount setting — resolved subKey para tamang suboption ang ma-lookup
-const getHandlingDiscountSetting = (shippingMethods = {}, method, subKey = null) => {
+// Resolve whether the selected shipping method charges the handling fee.
+// Legacy handlingDiscount values are inverted only for backward compatibility;
+// newly saved settings use handlingFee directly.
+const getHandlingFeeSetting = (shippingMethods = {}, method, subKey = null) => {
   const methodConfig = shippingMethods?.[method];
-  if (typeof methodConfig !== 'object' || methodConfig === null) return false;
+  if (typeof methodConfig !== 'object' || methodConfig === null) return true;
   const hasSuboptions = hasConfiguredSuboptions(methodConfig);
   if (subKey) {
     const rk = resolveSuboptionKey(methodConfig, subKey);
     const subConfig = methodConfig.suboptions?.[rk];
-    if (subConfig?.handlingDiscount !== undefined) return subConfig.handlingDiscount;
-    return false;
+    if (subConfig?.handlingFee !== undefined) return subConfig.handlingFee === true;
+    if (subConfig?.handlingDiscount !== undefined) return subConfig.handlingDiscount !== true;
+    return true;
   }
-  if (hasSuboptions) return false;
-  return methodConfig.handlingDiscount === true;
+  if (hasSuboptions) return true;
+  if (methodConfig.handlingFee !== undefined) return methodConfig.handlingFee === true;
+  if (methodConfig.handlingDiscount !== undefined) return methodConfig.handlingDiscount !== true;
+  return true;
 };
+
+// Kept as a compatibility helper for shipping-option ranking and labels.
+// Handling fees are no longer represented as checkout discounts.
+const getHandlingDiscountSetting = () => false;
 
 const hasConfiguredSuboptions = (methodConfig) => (
   Object.keys(methodConfig?.suboptions || {}).length > 0
@@ -599,7 +623,7 @@ const getSuboptionLabel = (shippingMethods, method, subKey) => {
 
 const getPaymentMethodConfig = (methods = {}, method = '') => {
   const raw = String(method || '').trim();
-  if (!raw) return { active: false, transferDiscount: false, discountAmount: 0, qr: null };
+  if (!raw) return { active: false, cashTransferFee: 0, qr: null };
 
   const compact = raw.replace(/\s+/g, '');
   const lower = raw.toLowerCase();
@@ -609,16 +633,13 @@ const getPaymentMethodConfig = (methods = {}, method = '') => {
     key.replace(/\s+/g, '').toLowerCase() === compactLower
   ) || lower;
 
-  const transferDiscountKey = Object.keys(methods || {}).find(key =>
-    key.toLowerCase() === `${methodKey.toLowerCase()}transferdiscount` ||
-    key.toLowerCase() === `${lower}transferdiscount` ||
-    key.toLowerCase() === `${compactLower}transferdiscount`
-  );
-  const discountAmountKey = Object.keys(methods || {}).find(key =>
-    key.toLowerCase() === `${methodKey.toLowerCase()}discountamount` ||
-    key.toLowerCase() === `${lower}discountamount` ||
-    key.toLowerCase() === `${compactLower}discountamount`
-  );
+  const methodKeyCompact = methodKey.replace(/\s+/g, '').toLowerCase();
+  const cashTransferFeeKey = Object.keys(methods || {}).find(key => {
+    const keyCompact = key.replace(/\s+/g, '').toLowerCase();
+    return keyCompact === `${methodKeyCompact}cashtransferfee`
+      || keyCompact === `${compactLower}cashtransferfee`
+      || keyCompact === `${lower.replace(/\s+/g, '')}cashtransferfee`;
+  });
   const qrKey = Object.keys(methods || {}).find(key =>
     key.toLowerCase() === `${methodKey.replace(/\s+/g, '').toLowerCase()}qr` ||
     key.toLowerCase() === `${compactLower}qr`
@@ -627,8 +648,7 @@ const getPaymentMethodConfig = (methods = {}, method = '') => {
   return {
     key: methodKey,
     active: isMethodEnabled(methods?.[methodKey]),
-    transferDiscount: transferDiscountKey ? methods[transferDiscountKey] === true : false,
-    discountAmount: Math.max(0, Number(discountAmountKey ? methods[discountAmountKey] : 0) || 0),
+    cashTransferFee: Math.max(0, Number(cashTransferFeeKey ? methods[cashTransferFeeKey] : 0) || 0),
     qr: qrKey ? methods[qrKey] : null
   };
 };
@@ -1153,6 +1173,11 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     return checkUsesMeetupLocation(method, methodConfig, subKey);
   }, [checkoutData, storeAdmin]);
 
+  const isShippingNotApplicable = useMemo(() => (
+    checkoutData.shippingMethod === 'Self-Pickup'
+    || checkoutData.shippingMethod === 'Seller Meetup'
+  ), [checkoutData.shippingMethod]);
+
   // Pickup-point checkout always resolves to the active point tagged
   // Rate Checking. This supplies both the public address and map pin
   // dynamically, so a different tagged point can be configured later.
@@ -1229,19 +1254,48 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     return shopDefaultLocation;
   }, [selectedMeetupDetails, shopDefaultLocation]);
 
+  const isInstallmentPlan = checkoutData.paymentPlan === 'partial' || checkoutData.paymentPlan === 'reservation';
+  const isReservationPlan = checkoutData.paymentPlan === 'reservation';
+  const selectedPaymentMethodConfig = getPaymentMethodConfig(
+    storeAdmin?.paymentSettings?.methods,
+    checkoutData.paymentMethod
+  );
+  const configuredTransferFee = selectedPaymentMethodConfig.cashTransferFee || 0;
+  const isTransferFeeApplicable = configuredTransferFee > 0;
+  const planFeeLabel = 'Reservation Fee';
+
   const checkoutItems = useMemo(() => {
     const checkoutFees = getCheckoutPaymentFees({ shippingSettings: storeAdmin });
-    const { handlingFee, installmentFee, transferFee } = checkoutFees;
+    const { handlingFee, installmentFee } = checkoutFees;
+    const selectedSubKey = getSelectedShippingSubKey(checkoutData);
+    const handlingEnabled = getHandlingFeeSetting(
+      storeAdmin?.shippingMethods,
+      checkoutData.shippingMethod,
+      selectedSubKey
+    );
+    const effectiveHandlingFee = handlingEnabled ? handlingFee : 0;
     const normalizedItems = (items || []).map(item => {
       const quantity = item.quantity || 1;
       const kit = findCheckoutKit(kits, item);
-      const appliedHandlingFee = Number(item.appliedHandlingFee) > 0 ? Number(item.appliedHandlingFee) : handlingFee;
-      const appliedInstallmentFee = Number(item.appliedInstallmentFee) > 0 ? Number(item.appliedInstallmentFee) : installmentFee;
-      const appliedTransferFee = Number(item.appliedTransferFee) > 0 ? Number(item.appliedTransferFee) : transferFee;
+      const appliedHandlingFee = handlingEnabled
+        ? (Number(item.appliedHandlingFee) > 0 ? Number(item.appliedHandlingFee) : handlingFee)
+        : 0;
+      const storedInstallmentFee = Number(item.appliedInstallmentFee) > 0
+        ? Number(item.appliedInstallmentFee)
+        : installmentFee;
+      const appliedInstallmentFee = isReservationPlan && !isPreOrderKitItem(item, kits)
+        ? storedInstallmentFee
+        : 0;
+      const storedTransferFee = Number(item.appliedTransferFee) > 0
+        ? Number(item.appliedTransferFee)
+        : configuredTransferFee;
+      const appliedTransferFee = isTransferFeeApplicable ? configuredTransferFee : 0;
       const basePrice = getCheckoutItemBasePrice(item, kit, {
         handling: appliedHandlingFee,
-        installment: appliedInstallmentFee,
-        transfer: appliedTransferFee
+        // Remove any fee already embedded in a stored basket price before
+        // applying the current payment-plan surcharge.
+        installment: storedInstallmentFee,
+        transfer: storedTransferFee
       });
       
       return {
@@ -1254,6 +1308,9 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
         images: item.images || kit?.images || null,
         appliedHandlingFee,
         appliedInstallmentFee,
+        // Keep the configured reservation fee available even when Full
+        // Payment removes it from the payable item price.
+        reservationFee: storedInstallmentFee,
         appliedTransferFee,
         originalSellPrice: isProjectCheckoutItem(item)
           ? 0
@@ -1267,22 +1324,19 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
 
     return applyActiveBasketDeal(normalizedItems, deals, kits, {
       ...checkoutFees,
-      handlingFee,
-      installmentFee,
-      transferFee
+      handlingFee: effectiveHandlingFee,
+      installmentFee: isReservationPlan ? installmentFee : 0,
+      transferFee: isTransferFeeApplicable ? configuredTransferFee : 0
     });
-  }, [items, kits, deals, storeAdmin]);
+  }, [checkoutData, configuredTransferFee, isReservationPlan, isTransferFeeApplicable, items, kits, deals, storeAdmin]);
 
+  const isPreOrderKitCheckoutItem = useCallback((item) => {
+    return isPreOrderKitItem(item, kits);
+  }, [kits]);
 
   const hasPreOrders = useMemo(() => {
-    return checkoutItems.some(item => {
-      if (isProjectCheckoutItem(item)) return false;
-      const itemStatus = (item.status || '').toUpperCase();
-      const kit = (kits || []).find(k => k.id === item.id);
-      const stockStatus = (kit?.stocks?.[item.stockKey]?.status || '').toUpperCase();
-      return itemStatus.includes('PRE-ORDER') || item.isPreOrder || stockStatus.includes('PRE-ORDER');
-    });
-  }, [checkoutItems, kits]);
+    return checkoutItems.some(isPreOrderKitCheckoutItem);
+  }, [checkoutItems, isPreOrderKitCheckoutItem]);
 
   const hasProjects = useMemo(() => {
     return checkoutItems.some(isProjectCheckoutItem);
@@ -1349,38 +1403,63 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       suboptionLabel.toLowerCase().includes('cash on');
   }, [checkoutData, storeAdmin]);
 
+  // Branch Dropoff is represented by required field 13 in either the
+  // selected courier suboption or the courier-level configuration.
+  const usesBranchDropoff = useMemo(() => {
+    const method = checkoutData.shippingMethod;
+    if (!method) return false;
+
+    const methodConfig = storeAdmin?.shippingMethods?.[method];
+    const selectedSubKey = getSelectedShippingSubKey(checkoutData, storeAdmin?.shippingMethods);
+    return getRequiredFields(methodConfig, selectedSubKey)
+      .some(fieldId => Number(fieldId) === 13);
+  }, [checkoutData, storeAdmin]);
+
 
   const orderFees = useMemo(() => {
     const fallbackHandling = Math.max(0, ...(items || []).map(item => Number(item.appliedHandlingFee || 0)));
-    const fallbackTransfer = Math.max(0, ...(items || []).map(item => Number(item.appliedTransferFee || 0)));
     const configuredHandling = Number(storeAdmin?.paymentSettings?.handlingFee ?? storeAdmin?.pickupDetails?.handlingFee ?? 0);
-    const configuredTransfer = Number(storeAdmin?.paymentSettings?.transferFee ?? 0);
-    const handling = Math.max(configuredHandling, fallbackHandling);
-    const transfer = Math.max(configuredTransfer, fallbackTransfer);
+    const selectedSubKey = getSelectedShippingSubKey(checkoutData);
+    const handlingEnabled = getHandlingFeeSetting(storeAdmin?.shippingMethods, checkoutData.shippingMethod, selectedSubKey);
+    const handling = handlingEnabled ? Math.max(configuredHandling, fallbackHandling) : 0;
+    const transfer = isTransferFeeApplicable ? configuredTransferFee : 0;
     return { handling, transfer };
-  }, [items, storeAdmin]);
+  }, [checkoutData, configuredTransferFee, isTransferFeeApplicable, items, storeAdmin]);
 
   const totalAppliedHandlingFee = useMemo(() => orderFees.handling, [orderFees]);
-  const projectInstallmentFee = useMemo(() => {
-    return hasProjects ? (checkoutItems.find(isProjectCheckoutItem)?.appliedInstallmentFee || 0) : 0;
-  }, [checkoutItems, hasProjects]);
+  const totalReservationFee = useMemo(() => (
+    checkoutItems.reduce((sum, item) => {
+      if (isPreOrderKitCheckoutItem(item)) return sum;
+      const reservationFee = Number(item.reservationFee ?? item.appliedInstallmentFee ?? 0);
+      return sum + Math.max(0, reservationFee) * (Number(item.quantity) || 1);
+    }, 0)
+  ), [checkoutItems, isPreOrderKitCheckoutItem]);
 
-  const kitInstallmentFeesTotal = useMemo(() => {
-    return checkoutItems
-      .filter(item => !isProjectCheckoutItem(item))
-      .reduce((sum, item) => sum + (item.appliedInstallmentFee || 0) * (item.quantity || 1), 0);
-  }, [checkoutItems]);
+  const totalAppliedInstallmentFee = isReservationPlan ? totalReservationFee : 0;
 
-  const totalAppliedInstallmentFee = useMemo(() => kitInstallmentFeesTotal + projectInstallmentFee, [kitInstallmentFeesTotal, projectInstallmentFee]);
+  const fullPaymentReservationFeeDiscount = useMemo(() => {
+    if (checkoutData.paymentPlan !== 'full') return 0;
+
+    return checkoutItems.reduce((sum, item) => {
+      if (!isPreOrderKitCheckoutItem(item)) return sum;
+      const reservationFee = Number(item.reservationFee ?? item.appliedInstallmentFee ?? 0);
+      return sum + Math.max(0, reservationFee) * (Number(item.quantity) || 1);
+    }, 0);
+  }, [checkoutData.paymentPlan, checkoutItems, isPreOrderKitCheckoutItem]);
 
   const totalAppliedTransferFee = useMemo(() => orderFees.transfer, [orderFees]);
 
 // HANAPIN AT I-UPDATE ANG BASETOTAL SA IYONG CHECKOUTMODAL.JSX
-const baseTotal = useMemo(() => {
-  // 1. Kunin muna ang sum ng lahat ng items (Base Price + Installment Fee * Quantity)
+  const baseTotal = useMemo(() => {
+  // Reservation plans charge the fee. Full Payment includes the pre-order
+  // fee in the comparison total, then removes it through the discount below.
   const itemsTotal = checkoutItems.reduce((total, item) => {
     const basePrice = Number(item.price || item.sellPrice || item.projectData?.sellPrice || 0);
-    const installmentFee = Number(item.appliedInstallmentFee) || 0;
+    const installmentFee = isReservationPlan
+      ? (Number(item.appliedInstallmentFee) || 0)
+      : fullPaymentReservationFeeDiscount > 0 && isPreOrderKitCheckoutItem(item)
+        ? (Number(item.reservationFee ?? item.appliedInstallmentFee) || 0)
+        : 0;
     
     return total + (basePrice + installmentFee) * (item.quantity || 1);
   }, 0);
@@ -1389,48 +1468,30 @@ const baseTotal = useMemo(() => {
   // Sa ganitong paraan, hindi mababawasan ang final total mo pero hindi rin madodoble kada item!
   return itemsTotal + (orderFees.handling || 0) + (orderFees.transfer || 0);
 
-}, [checkoutItems, orderFees]);
+}, [checkoutItems, fullPaymentReservationFeeDiscount, isPreOrderKitCheckoutItem, isReservationPlan, orderFees]);
 
   const transferFeeDiscount = useMemo(() => {
-    if (!checkoutData.shippingMethod || !checkoutData.paymentMethod) return 0;
-    const methodConfig = getPaymentMethodConfig(storeAdmin?.paymentSettings?.methods, checkoutData.paymentMethod);
-    return methodConfig.transferDiscount ? totalAppliedTransferFee : 0;
-  }, [checkoutData.shippingMethod, checkoutData.paymentMethod, totalAppliedTransferFee, storeAdmin]);
+    return 0;
+  }, []);
 
   const fixedPaymentMethodDiscount = useMemo(() => {
-    if (!checkoutData.paymentMethod) return 0;
-    const methodConfig = getPaymentMethodConfig(storeAdmin?.paymentSettings?.methods, checkoutData.paymentMethod);
-    return Math.max(0, Number(methodConfig.discountAmount || 0));
-  }, [checkoutData.paymentMethod, storeAdmin?.paymentSettings?.methods]);
+    return 0;
+  }, []);
 
   const paymentMethodDiscount = useMemo(() => {
     return Math.max(transferFeeDiscount, fixedPaymentMethodDiscount);
   }, [fixedPaymentMethodDiscount, transferFeeDiscount]);
 
-  const handlingFeeDiscount = useMemo(() => {
-    if (!checkoutData.shippingMethod) return 0;
-    const method = checkoutData.shippingMethod;
-    const subKey = getSelectedShippingSubKey(checkoutData);
-    const suboptionValue = getSuboptionCandidatesFromKey(storeAdmin?.shippingMethods, method, subKey);
-    const hasFreeShipping = checkoutItems.some(item => (
-      isItemShippingEligibleForFreeShipping(item, method, suboptionValue)
-    ));
-    const shouldDiscountHandling = hasFreeShipping
-      || getHandlingDiscountSetting(storeAdmin?.shippingMethods, method, subKey);
-    if (!shouldDiscountHandling) return 0;
-    return totalAppliedHandlingFee;
-  }, [checkoutData, checkoutItems, storeAdmin?.shippingMethods, totalAppliedHandlingFee]);
+  // Handling fees are controlled by the selected shipping method now. They are
+  // never converted into a checkout discount or shown with a strikethrough.
+  const handlingFeeDiscount = 0;
 
-  const installmentFeeDiscount = useMemo(() => {
-    const hasDiscount = checkoutData.paymentPlan === 'full';
-    return hasDiscount ? totalAppliedInstallmentFee : 0;
-  }, [checkoutData.paymentPlan, totalAppliedInstallmentFee]);
+  // Full Payment discounts the reservation fee only for pre-order kits.
+  const installmentFeeDiscount = fullPaymentReservationFeeDiscount;
 
-  // Payment-method promos apply to the cash transfer fee only. A smaller
-  // promo reduces that fee; it never silently discounts the kits themselves.
-  const cashTransferFeeDiscount = useMemo(() => {
-    return Math.min(Math.max(0, paymentMethodDiscount), totalAppliedTransferFee);
-  }, [paymentMethodDiscount, totalAppliedTransferFee]);
+  // Payment-method discounts have been replaced by cash-transfer fees. The
+  // configured fee is charged in full whenever the selected method applies.
+  const cashTransferFeeDiscount = 0;
 
   const garageDiscount = useMemo(() => {
     return handlingFeeDiscount + installmentFeeDiscount + cashTransferFeeDiscount;
@@ -1441,8 +1502,8 @@ const baseTotal = useMemo(() => {
     return isNaN(result) ? 0 : Math.max(0, result);
   }, [baseTotal, garageDiscount]);
 
-  // Keep all item installment fees visible in the subtotal. Full payment
-  // removes them through its own explicit discount row below.
+  // Only Partial and Reservation plans include installment fees in the
+  // subtotal. Full payment uses the base item prices.
   const summaryItemsSubtotal = useMemo(() => {
     return checkoutItems.reduce((sum, item) => {
       const sourceKit = findCheckoutKit(kits, item);
@@ -1450,10 +1511,14 @@ const baseTotal = useMemo(() => {
       const basePrice = isBundleOrClearanceItem(item) && standalonePrice > 0
         ? standalonePrice
         : Number(item.price || item.sellPrice || item.projectData?.sellPrice || 0);
-      const installmentFee = Number(item.appliedInstallmentFee || 0);
+      const installmentFee = isReservationPlan
+        ? Number(item.appliedInstallmentFee || 0)
+        : checkoutData.paymentPlan === 'full' && isPreOrderKitCheckoutItem(item)
+          ? Number(item.reservationFee || 0)
+          : 0;
       return sum + (basePrice + installmentFee) * (item.quantity || 1);
     }, 0);
-  }, [checkoutItems, kits]);
+  }, [checkoutItems, fullPaymentReservationFeeDiscount, isPreOrderKitCheckoutItem, isReservationPlan, kits]);
 
   const bundleDiscount = useMemo(() => {
     return checkoutItems.reduce((sum, item) => {
@@ -1487,15 +1552,13 @@ const baseTotal = useMemo(() => {
   const isCashTransferFeeFullyDiscounted = cashTransferFeeDiscount >= orderFees.transfer && orderFees.transfer > 0;
   const remainingHandlingFee = Math.max(0, orderFees.handling - handlingFeeDiscount);
   const remainingCashTransferFee = Math.max(0, orderFees.transfer - cashTransferFeeDiscount);
-  const fullPaymentInstallmentDiscount = checkoutData.paymentPlan === 'full' ? totalAppliedInstallmentFee : 0;
-
   const distributedOrderFees = useMemo(() => {
     const lineValues = checkoutItems.map(item => {
       const sourceKit = findCheckoutKit(kits, item);
       const standaloneBasePrice = isProjectCheckoutItem(item)
         ? Number(item.projectData?.sellPrice || item.sellPrice || item.price || 0)
         : getStockStandaloneSellPrice(item, sourceKit);
-      const installmentFee = Number(item.appliedInstallmentFee || 0);
+      const installmentFee = isReservationPlan ? Number(item.appliedInstallmentFee || 0) : 0;
       return (standaloneBasePrice + installmentFee) * (Number(item.quantity) || 1);
     });
     const handlingShares = distributeFeeByLineValue(remainingHandlingFee, lineValues);
@@ -1530,11 +1593,6 @@ const baseTotal = useMemo(() => {
     });
   }, [checkoutItems, orderFees.handling, orderFees.transfer]);
 
-  const isInstallmentPlan = useMemo(() => (
-    checkoutData.paymentPlan === 'partial' ||
-    checkoutData.paymentPlan === 'reservation'
-  ), [checkoutData.paymentPlan]);
-
   const amountDueNow = useMemo(() => {
     return isInstallmentPlan ? Number(checkoutData.initialPayment || 0) : totalToSettle;
   }, [checkoutData.initialPayment, isInstallmentPlan, totalToSettle]);
@@ -1568,6 +1626,20 @@ const baseTotal = useMemo(() => {
     return isNaN(ceilingBase) ? 0 : Math.min(Math.max(0, ceilingBase), totalToSettle);
   }, [checkoutItems, rates, totalToSettle]);
 
+  const onhandKitUnitCount = useMemo(() => (
+    checkoutItems.reduce((count, item) => (
+      count + (isOnhandKitItem(item, kits) ? Math.max(1, Number(item.quantity) || 1) : 0)
+    ), 0)
+  ), [checkoutItems, kits]);
+
+  const requiredInitialPayment = useMemo(() => {
+    if (!isReservationPlan || onhandKitUnitCount < 2) return minInitialPayment;
+    return Math.min(
+      Math.max(minInitialPayment, totalReservationFee),
+      totalToSettle
+    );
+  }, [isReservationPlan, minInitialPayment, onhandKitUnitCount, totalReservationFee, totalToSettle]);
+
   const isMethodFreeShipping = useCallback((method, subKey = null) => {
     if (checkoutItems.length === 0) return false;
     // Gamitin ang label ng suboption para sa free shipping matching
@@ -1588,14 +1660,14 @@ const baseTotal = useMemo(() => {
   useEffect(() => {
     if (checkoutData.paymentPlan && checkoutData.paymentPlan !== 'full') {
       const current = Number(checkoutData.initialPayment) || 0;
-      if (current < minInitialPayment) {
-        updateCheckoutData(prev => ({ ...prev, initialPayment: minInitialPayment }));
+      if (current < requiredInitialPayment) {
+        updateCheckoutData(prev => ({ ...prev, initialPayment: requiredInitialPayment }));
       } else if (current > totalToSettle) {
         updateCheckoutData(prev => ({ ...prev, initialPayment: totalToSettle }));
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [minInitialPayment, totalToSettle, checkoutData.paymentPlan, updateCheckoutData]);
+  }, [requiredInitialPayment, totalToSettle, checkoutData.paymentPlan, updateCheckoutData]);
 
   // Generic free-shipping config override para sa lahat ng methods
   // Kung ang isang item ay may free shipping para sa specific method+suboption, i-force enable ang method
@@ -2325,9 +2397,9 @@ const handleFinalizeOrder = async () => {
 
     if (checkoutData.paymentPlan !== 'full') {
       const currentInitial = Number(checkoutData.initialPayment) || 0;
-      if (currentInitial < minInitialPayment) {
+      if (currentInitial < requiredInitialPayment) {
         const planLabel = checkoutData.paymentPlan === 'partial' ? 'partial payment' : 'reservation';
-        alert(`Initial payment for ${planLabel} must be at least ₱${minInitialPayment.toLocaleString()}.`);
+        alert(`Initial payment for ${planLabel} must be at least ₱${requiredInitialPayment.toLocaleString()}.`);
         return;
       }
       if (currentInitial > totalToSettle) {
@@ -2645,13 +2717,14 @@ const handleFinalizeOrder = async () => {
       if (hasKits && !isCashOnOnhand && !isFreeShippingApplied) {
         plans.push('reservation');
       }
-      // Partial plan para sa projects, at on-hand kits na may Cash On suboption
-      if (hasProjects || isCashOnOnhand) {
+      // Partial plan is available only for projects or a courier/suboption
+      // configured with Branch Dropoff (required field 13).
+      if (hasProjects || usesBranchDropoff) {
         plans.push('partial');
       }
     }
     return plans;
-  }, [storeAdmin, checkoutItems, hasProjects, hasPreOrders, isCashOnSuboption, isFreeShippingApplied]);
+  }, [storeAdmin, checkoutItems, hasProjects, hasPreOrders, isCashOnSuboption, isFreeShippingApplied, usesBranchDropoff]);
 
   const availablePaymentMethods = useMemo(() => {
     const settings = { ...(storeAdmin?.paymentSettings?.methods || {}) };
@@ -2717,7 +2790,7 @@ const handleFinalizeOrder = async () => {
           updateCheckoutData(prev => ({ 
             ...prev, 
             paymentPlan: availablePaymentPlans[0],
-            initialPayment: availablePaymentPlans[0] === 'full' ? 0 : minInitialPayment
+            initialPayment: availablePaymentPlans[0] === 'full' ? 0 : requiredInitialPayment
           }));
         }
         // Auto-reset kung ang current plan ay wala na sa available plans (e.g. nag-switch sa COD)
@@ -2729,18 +2802,10 @@ const handleFinalizeOrder = async () => {
           }));
         }
         if (availablePaymentMethods.length > 0) {
-          // Select the best available discount once the checkout's shipping
-          // context is known. After that, a customer's manual choice wins.
+          // Select the first available method once the checkout context is
+          // known. Cash-transfer fees are charges, not customer savings, so
+          // checkout must never auto-select a method based on fee amount.
           if (!checkoutData.shippingMethod) return;
-
-          const highestDiscountMethod = availablePaymentMethods.reduce((best, method) => {
-            const config = getPaymentMethodConfig(storeAdmin?.paymentSettings?.methods, method);
-            const discount = Math.max(
-              config.transferDiscount ? totalAppliedTransferFee : 0,
-              Number(config.discountAmount || 0)
-            );
-            return discount > best.discount ? { method, discount } : best;
-          }, { method: availablePaymentMethods[0], discount: -1 }).method;
 
           // Gamitin ang case-insensitive comparison para hindi ma-reset ang user selection
           // dahil sa case mismatch (e.g. "GCash" vs "Gcash", "UnionBank" vs "Unionbank")
@@ -2749,14 +2814,14 @@ const handleFinalizeOrder = async () => {
             m => m.toLowerCase() === currentMethod.toLowerCase()
           );
           if (!hasPreselectedRef.current || !isCurrentValid) {
-            updateCheckoutData(prev => ({ ...prev, paymentMethod: highestDiscountMethod }));
+            updateCheckoutData(prev => ({ ...prev, paymentMethod: availablePaymentMethods[0] }));
             hasPreselectedRef.current = true;
           }
         }
       }, 0);
       return () => clearTimeout(timer);
     }
-  }, [isOpen, shippingOptions, preferredShippingMethod, availablePaymentPlans, availablePaymentMethods, checkoutData.shippingMethod, checkoutData.paymentPlan, checkoutData.paymentMethod, minInitialPayment, handleShippingChange, updateCheckoutData, checkoutItems, enabledShippingMethods, storeAdmin, pickupPoints, isMethodFreeShipping, totalAppliedTransferFee]);
+  }, [isOpen, shippingOptions, preferredShippingMethod, availablePaymentPlans, availablePaymentMethods, checkoutData.shippingMethod, checkoutData.paymentPlan, checkoutData.paymentMethod, requiredInitialPayment, handleShippingChange, updateCheckoutData, checkoutItems, enabledShippingMethods, storeAdmin, pickupPoints, isMethodFreeShipping]);
 
 
 
@@ -3040,9 +3105,10 @@ const handleFinalizeOrder = async () => {
         .replace(/\s*\((?:Bundle|Clearance) Item\)\s*$/i, '');
       const quantity = Number(item.quantity) || 1;
       const itemInstallmentFee = Number(item.appliedInstallmentFee || 0);
-      const displayInstallmentFee = checkoutData.paymentPlan === 'full'
-        ? 0
-        : itemInstallmentFee;
+      const reservationFee = Number(item.reservationFee ?? itemInstallmentFee ?? 0);
+      const isFullPaymentPreOrder = checkoutData.paymentPlan === 'full'
+        && isPreOrderKitCheckoutItem(item);
+      const displayInstallmentFee = isReservationPlan ? itemInstallmentFee : 0;
       const basePrice = Number(item.price || item.sellPrice || item.projectData?.displayPrice || item.projectData?.sellPrice || 0);
       const distributedFee = distributedOrderFees[idx] || { total: 0 };
       const standaloneFee = standaloneDistributedOrderFees[idx]?.total || 0;
@@ -3051,7 +3117,10 @@ const handleFinalizeOrder = async () => {
       const standaloneBasePrice = isProjectCheckoutItem(item)
         ? Number(item.projectData?.sellPrice || item.sellPrice || item.price || 0)
         : getStockStandaloneSellPrice(item, kit);
-      const standaloneUnitPrice = standaloneBasePrice + itemInstallmentFee + standaloneFee;
+      const standaloneReservationFee = isReservationPlan || isFullPaymentPreOrder
+        ? (isReservationPlan ? itemInstallmentFee : reservationFee)
+        : 0;
+      const standaloneUnitPrice = standaloneBasePrice + standaloneReservationFee + standaloneFee;
       const isDiscounted = standaloneUnitPrice > unitPrice;
       const itemKitId = item.id || item.kitId || item.productId;
       const clearanceKitIds = Array.isArray(item.clearanceKitIds)
@@ -3344,24 +3413,33 @@ const handleFinalizeOrder = async () => {
                 {unusedClearanceDiscount > 0 && (
                   <div className="flex justify-between text-amber-200"><span>Unused Discount (Cost Cap)</span><span>₱{unusedClearanceDiscount.toLocaleString()}</span></div>
                 )}
-                {fullPaymentInstallmentDiscount > 0 && (
-                  <div className="flex justify-between text-emerald-200"><span>Full Payment Discount</span><span>-₱{fullPaymentInstallmentDiscount.toLocaleString()}</span></div>
+                {isReservationPlan && totalAppliedInstallmentFee > 0 && (
+                  <div className="flex justify-between text-amber-200"><span>{planFeeLabel}</span><span>₱{totalAppliedInstallmentFee.toLocaleString()}</span></div>
                 )}
-                <div className="flex justify-between">
-                  <span>Handling Fee</span>
-                  <span className={isHandlingFeeDiscounted ? 'line-through text-emerald-200' : ''}>₱{orderFees.handling.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Cash Transfer Fee</span>
-                  {isCashTransferFeeFullyDiscounted ? (
-                    <span className="line-through text-emerald-200">₱{orderFees.transfer.toLocaleString()}</span>
-                  ) : isCashTransferFeeDiscounted ? (
-                    <span>₱{remainingCashTransferFee.toLocaleString()}</span>
-                  ) : (
-                    <span>₱{orderFees.transfer.toLocaleString()}</span>
-                  )}
-                </div>
-                <div className={`flex justify-between ${isFreeShippingApplied ? 'text-emerald-200' : ''}`}><span>Shipping Fee</span><span>{checkoutData.shippingMethod === 'Self-Pickup' ? 'Not Applicable' : isFreeShippingApplied ? 'Free Shipping' : 'Not Included'}</span></div>
+                {fullPaymentReservationFeeDiscount > 0 && (
+                  <div className="flex justify-between text-emerald-200"><span>Full Payment Discount</span><span>-₱{fullPaymentReservationFeeDiscount.toLocaleString()}</span></div>
+                )}
+                {orderFees.handling > 0 && (
+                  <div className="flex justify-between">
+                    <span>Handling Fee</span>
+                    <span className={isHandlingFeeDiscounted ? 'line-through text-emerald-200' : ''}>₱{orderFees.handling.toLocaleString()}</span>
+                  </div>
+                )}
+                {orderFees.transfer > 0 && (
+                  <div className="flex justify-between">
+                    <span>Cash Transfer Fee</span>
+                    {isCashTransferFeeFullyDiscounted ? (
+                      <span className="line-through text-emerald-200">₱{orderFees.transfer.toLocaleString()}</span>
+                    ) : isCashTransferFeeDiscounted ? (
+                      <span>₱{remainingCashTransferFee.toLocaleString()}</span>
+                    ) : (
+                      <span>₱{orderFees.transfer.toLocaleString()}</span>
+                    )}
+                  </div>
+                )}
+                {!isShippingNotApplicable && (
+                  <div className={`flex justify-between ${isFreeShippingApplied ? 'text-emerald-200' : ''}`}><span>Shipping Fee</span><span>{isFreeShippingApplied ? 'Free Shipping' : 'Not Included'}</span></div>
+                )}
                 <div className="flex justify-between border-t border-white/15 pt-4 text-xl font-black italic"><span>Total</span><span>₱{totalToSettle.toLocaleString()}</span></div>
                 {isInstallmentPlan && (
                   <div className="flex justify-between text-[13px] font-black text-emerald-200"><span>Due Now</span><span>₱{amountDueNow.toLocaleString()}</span></div>
@@ -3374,10 +3452,15 @@ const handleFinalizeOrder = async () => {
                   <div className="grid grid-cols-2 gap-2">
                     {availablePaymentPlans.map(plan => {
                       const label = plan === 'full' ? 'Full' : plan === 'partial' ? 'Partial' : 'Reservation';
+                      const planAmountLabel = plan === 'full' && fullPaymentReservationFeeDiscount > 0
+                        ? `₱${fullPaymentReservationFeeDiscount.toLocaleString()} Off`
+                        : plan === 'reservation' && totalReservationFee > 0
+                          ? `₱${totalReservationFee.toLocaleString()} Fee`
+                          : '';
                       const isSelected = checkoutData.paymentPlan === plan;
                       return (
-                        <button key={plan} onClick={() => { setAgreedToPolicy(false); updateCheckoutData(prev => ({ ...prev, paymentPlan: plan, initialPayment: plan === 'full' ? 0 : minInitialPayment })); }} className={`rounded-xl border py-3 text-[13px] font-black uppercase ${isSelected ? 'border-white bg-white text-blue-600' : 'border-white/80 text-white'}`}>
-                          {label}{plan === 'full' && totalAppliedInstallmentFee > 0 ? ` ₱${totalAppliedInstallmentFee} OFF` : ''}
+                        <button key={plan} onClick={() => { setAgreedToPolicy(false); updateCheckoutData(prev => ({ ...prev, paymentPlan: plan, initialPayment: plan === 'full' ? 0 : (plan === 'reservation' ? requiredInitialPayment : minInitialPayment) })); }} className={`rounded-xl border py-3 text-[13px] font-black uppercase ${isSelected ? 'border-white bg-white text-blue-600' : 'border-white/80 text-white'}`}>
+                          {label}{planAmountLabel ? ` ${planAmountLabel}` : ''}
                         </button>
                       );
                     })}
@@ -3393,7 +3476,7 @@ const handleFinalizeOrder = async () => {
                       onChange={(e) => updateCheckoutData(prev => ({ ...prev, initialPayment: Number(e.target.value) }))}
                       onBlur={(e) => {
                         const val = Number(e.target.value) || 0;
-                        updateCheckoutData(prev => ({ ...prev, initialPayment: Math.min(Math.max(Math.ceil(val / 10) * 10, minInitialPayment), totalToSettle) }));
+                        updateCheckoutData(prev => ({ ...prev, initialPayment: Math.min(Math.max(Math.ceil(val / 10) * 10, requiredInitialPayment), totalToSettle) }));
                       }}
                       className="w-full rounded-xl border border-white/50 bg-white/10 px-4 py-3 text-[13px] font-black text-white outline-none placeholder:text-white/30 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     />
@@ -3428,15 +3511,12 @@ const handleFinalizeOrder = async () => {
                   <div className="grid grid-cols-2 gap-2">
                     {availablePaymentMethods.map(method => {
                       const methodConfig = getPaymentMethodConfig(storeAdmin?.paymentSettings?.methods, method);
-                      const methodDiscount = Math.max(
-                        methodConfig.transferDiscount ? totalAppliedTransferFee : 0,
-                        Number(methodConfig.discountAmount || 0)
-                      );
-                      const hasDiscount = methodDiscount > 0;
+                      const methodFee = Number(methodConfig.cashTransferFee || 0);
+                      const hasFee = methodFee > 0;
                       const isSelected = checkoutData.paymentMethod?.toLowerCase() === method.toLowerCase();
                       return (
                         <button key={method} onClick={() => updateCheckoutData(prev => ({ ...prev, paymentMethod: method }))} className={`rounded-xl border px-3 py-3 text-[13px] font-black uppercase ${isSelected ? 'border-white bg-white text-blue-600' : 'border-white/80 text-white'}`}>
-                          {method}{hasDiscount ? ` ₱${methodDiscount.toLocaleString()} OFF` : ''}
+                          {method}{hasFee ? ` ₱${methodFee.toLocaleString()} FEE` : ''}
                         </button>
                       );
                     })}
@@ -4132,9 +4212,10 @@ const handleFinalizeOrder = async () => {
   
   // 2. I-add ang installment fee (₱2,100 + ₱100 = ₱2,200)
   const itemInstallmentFee = Number(item.appliedInstallmentFee || 0);
-  const displayInstallmentFee = checkoutData.paymentPlan === 'full'
-    ? 0
-    : itemInstallmentFee;
+      const reservationFee = Number(item.reservationFee ?? itemInstallmentFee ?? 0);
+      const isFullPaymentPreOrder = checkoutData.paymentPlan === 'full'
+        && isPreOrderKitCheckoutItem(item);
+      const displayInstallmentFee = isReservationPlan ? itemInstallmentFee : 0;
   const quantity = Number(item.quantity) || 1;
   const distributedFee = distributedOrderFees[idx] || { total: 0 };
   const itemPrice = basePrice + displayInstallmentFee + (distributedFee.total / quantity);
@@ -4144,7 +4225,10 @@ const handleFinalizeOrder = async () => {
   const standaloneBasePrice = isProjectCheckoutItem(item)
     ? Number(item.projectData?.sellPrice || item.sellPrice || item.price || 0)
     : getStockStandaloneSellPrice(item, sourceKit);
-  const standalonePrice = standaloneBasePrice + itemInstallmentFee + standaloneFee;
+  const standaloneReservationFee = isReservationPlan || isFullPaymentPreOrder
+    ? (isReservationPlan ? itemInstallmentFee : reservationFee)
+    : 0;
+  const standalonePrice = standaloneBasePrice + standaloneReservationFee + standaloneFee;
   const isDiscountedItem = standalonePrice > itemPrice;
 
   // 3. Resolve the image
@@ -4209,30 +4293,42 @@ const handleFinalizeOrder = async () => {
                           <span>₱{unusedClearanceDiscount.toLocaleString()}</span>
                         </div>
                       )}
-                      {fullPaymentInstallmentDiscount > 0 && (
-                        <div className="flex justify-between uppercase font-black text-emerald-300">
-                          <span>Full Payment Discount</span>
-                          <span>-₱{fullPaymentInstallmentDiscount.toLocaleString()}</span>
+                      {isReservationPlan && totalAppliedInstallmentFee > 0 && (
+                        <div className="flex justify-between uppercase font-black text-amber-200">
+                          <span>{planFeeLabel}</span>
+                          <span>₱{totalAppliedInstallmentFee.toLocaleString()}</span>
                         </div>
                       )}
-                      <div className="flex justify-between uppercase opacity-100">
-                        <span>Handling Fee</span>
-                        <span className={isHandlingFeeDiscounted ? 'line-through text-emerald-300' : ''}>₱{orderFees.handling.toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between uppercase opacity-100">
-                        <span>Cash Transfer Fee</span>
-                        {isCashTransferFeeFullyDiscounted ? (
-                          <span className="line-through text-emerald-300">₱{orderFees.transfer.toLocaleString()}</span>
-                        ) : isCashTransferFeeDiscounted ? (
-                          <span>₱{remainingCashTransferFee.toLocaleString()}</span>
-                        ) : (
-                          <span>₱{orderFees.transfer.toLocaleString()}</span>
-                        )}
-                      </div>
-                      <div className={`flex justify-between uppercase ${isFreeShippingApplied ? 'text-emerald-300' : 'text-white/60'}`}>
-                        <span>Shipping Fee</span>
-                        <span>{checkoutData.shippingMethod === 'Self-Pickup' ? 'NOT APPLICABLE' : isFreeShippingApplied ? 'FREE SHIPPING' : 'NOT INCLUDED'}</span>
-                      </div>
+                      {fullPaymentReservationFeeDiscount > 0 && (
+                        <div className="flex justify-between uppercase font-black text-emerald-300">
+                          <span>Full Payment Discount</span>
+                          <span>-₱{fullPaymentReservationFeeDiscount.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {orderFees.handling > 0 && (
+                        <div className="flex justify-between uppercase opacity-100">
+                          <span>Handling Fee</span>
+                          <span className={isHandlingFeeDiscounted ? 'line-through text-emerald-300' : ''}>₱{orderFees.handling.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {orderFees.transfer > 0 && (
+                        <div className="flex justify-between uppercase opacity-100">
+                          <span>Cash Transfer Fee</span>
+                          {isCashTransferFeeFullyDiscounted ? (
+                            <span className="line-through text-emerald-300">₱{orderFees.transfer.toLocaleString()}</span>
+                          ) : isCashTransferFeeDiscounted ? (
+                            <span>₱{remainingCashTransferFee.toLocaleString()}</span>
+                          ) : (
+                            <span>₱{orderFees.transfer.toLocaleString()}</span>
+                          )}
+                        </div>
+                      )}
+                      {!isShippingNotApplicable && (
+                        <div className={`flex justify-between uppercase ${isFreeShippingApplied ? 'text-emerald-300' : 'text-white/60'}`}>
+                          <span>Shipping Fee</span>
+                          <span>{isFreeShippingApplied ? 'FREE SHIPPING' : 'NOT INCLUDED'}</span>
+                        </div>
+                      )}
                       <div className="flex justify-between text-lg font-black italic uppercase pt-2"><span>Total</span><span>₱{totalToSettle.toLocaleString()}</span></div>
                   </div>
                   <div className="space-y-5 pt-5 border-t border-white/10">
@@ -4243,17 +4339,21 @@ const handleFinalizeOrder = async () => {
                             {availablePaymentPlans.map(plan => {
                               const isSelected = checkoutData.paymentPlan === plan;
                               const label = plan === 'full' ? 'Full' : plan === 'reservation' ? 'Reservation' : 'Partial';
+                              const planAmountLabel = plan === 'full' && fullPaymentReservationFeeDiscount > 0
+                                ? `₱${fullPaymentReservationFeeDiscount.toLocaleString()} Off`
+                                : plan === 'reservation' && totalReservationFee > 0
+                                  ? `₱${totalReservationFee.toLocaleString()} Fee`
+                                  : '';
                               return (
                                 <motion.button
                                   key={plan}
                                   whileTap={{ scale: 0.98 }}
-                                  onClick={() => { setAgreedToPolicy(false); updateCheckoutData(prev => ({ ...prev, paymentPlan: plan, initialPayment: plan === 'full' ? 0 : minInitialPayment })); }}
+                                  onClick={() => { setAgreedToPolicy(false); updateCheckoutData(prev => ({ ...prev, paymentPlan: plan, initialPayment: plan === 'full' ? 0 : (plan === 'reservation' ? requiredInitialPayment : minInitialPayment) })); }}
                                   className={`w-full py-3 rounded-xl text-[11px] font-black uppercase border transition-all flex items-center justify-center gap-1.5 ${
                                     isSelected ? 'bg-white text-blue-600 border-white shadow-lg' : 'bg-transparent text-white border-white hover:bg-white/5'
                                   }`}
                                 >
-                                  <span>{label}</span>
-                                  {plan === 'full' && totalAppliedInstallmentFee > 0 && <span className={`text-[11px] font-black ${isSelected ? 'text-black/80' : 'text-emerald-300'}`}>₱{totalAppliedInstallmentFee} OFF</span>}
+                                  <span>{label}{planAmountLabel ? ` ${planAmountLabel}` : ''}</span>
                                 </motion.button>
                               );
                             })}
@@ -4278,7 +4378,7 @@ const handleFinalizeOrder = async () => {
                                     whileFocus={{ scale: 1.01 }}
                                     transition={{ duration: 0.1 }}
                                     type="number" 
-                                    placeholder={minInitialPayment.toString()}
+                                    placeholder={requiredInitialPayment.toString()}
                                     value={checkoutData.initialPayment || ''} 
                                     onChange={(e) => {
                                       const val = Number(e.target.value);
@@ -4289,19 +4389,19 @@ const handleFinalizeOrder = async () => {
                                       // Always apply ceiling by 10s to user input
                                       const ceilingVal = Math.ceil(val / 10) * 10;
                                       
-                                      // Clamp within valid range [minInitialPayment, totalToSettle]
-                                      const clampedVal = Math.min(Math.max(ceilingVal, minInitialPayment), totalToSettle);
+                                      // Clamp within the plan-specific minimum and total.
+                                      const clampedVal = Math.min(Math.max(ceilingVal, requiredInitialPayment), totalToSettle);
                                       
                                       updateCheckoutData(prev => ({...prev, initialPayment: clampedVal}));
                                     }}
-                                    min={minInitialPayment}
+                                    min={requiredInitialPayment}
                                     max={totalToSettle}
                                     className="w-full pl-8 pr-4 py-3 rounded-xl text-xs font-black focus:outline-none focus:ring-2 focus:ring-white bg-white/10 text-white placeholder:text-white/20 border border-white/60 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                   />
                               </div>
                               <p className="text-[10px] font-bold uppercase">
-                              {checkoutData.initialPayment <= minInitialPayment
-                              ? `Minimum ${checkoutData.paymentPlan === 'partial' ? 'downpayment amount' : 'reservation fee'} is ₱${minInitialPayment.toLocaleString()}`
+                              {checkoutData.initialPayment <= requiredInitialPayment
+                              ? `Minimum ${checkoutData.paymentPlan === 'partial' ? 'downpayment amount' : 'reservation fee'} is ₱${requiredInitialPayment.toLocaleString()}`
                               : checkoutData.initialPayment >= totalToSettle
                                 ? 'Why not grab that discount?'
                                 : `This is more than minimum ${checkoutData.paymentPlan === 'partial' ? 'project downpayment' : 'reservation fee'}`}
@@ -4358,7 +4458,7 @@ const handleFinalizeOrder = async () => {
                                       </>
                                     );
                                   })()}
-                                  {Number(checkoutData.initialPayment) > minInitialPayment && (
+                                  {Number(checkoutData.initialPayment) > requiredInitialPayment && (
                                     <span className="ml-1.5 text-emerald-300 font-bold">(*Excess is refundable)</span>
                                   )}
                                 </span>
@@ -4375,11 +4475,8 @@ const handleFinalizeOrder = async () => {
                               ang cash restriction, pre-order check, at active/disabled check. */}
                           {availablePaymentMethods.map(method => {
                             const methodConfig = getPaymentMethodConfig(storeAdmin?.paymentSettings?.methods, method);
-                            const methodDiscount = Math.max(
-                              methodConfig.transferDiscount ? totalAppliedTransferFee : 0,
-                              Number(methodConfig.discountAmount || 0)
-                            );
-                            const hasDiscount = methodDiscount > 0;
+                            const methodFee = Number(methodConfig.cashTransferFee || 0);
+                            const hasFee = methodFee > 0;
                             const isSelected = checkoutData.paymentMethod?.toLowerCase() === method.toLowerCase();
 
                             return (
@@ -4387,16 +4484,16 @@ const handleFinalizeOrder = async () => {
                                  key={method}
                                  whileTap={{ scale: 0.98 }}
                                  onClick={() => updateCheckoutData(prev => ({ ...prev, paymentMethod: method }))}
-                                 className={`w-full py-3 px-4 rounded-xl text-[10px] font-black uppercase border transition-all flex items-center ${hasDiscount ? 'justify-between' : 'justify-center'} ${
+                                 className={`w-full py-3 px-4 rounded-xl text-[10px] font-black uppercase border transition-all flex items-center ${hasFee ? 'justify-between' : 'justify-center'} ${
                                    isSelected
                                    ? 'bg-white text-blue-600 border-white shadow-lg'
                                    : 'bg-transparent text-white border-white hover:bg-white/5'
                                  }`}
                                >
                                  <span>{method}</span>
-                                 {hasDiscount && (
+                                 {hasFee && (
                                    <span className={`text-[10px] font-black ${isSelected ? 'text-black/80' : 'text-emerald-300'}`}>
-                                     ₱{methodDiscount.toLocaleString()} OFF
+                                     ₱{methodFee.toLocaleString()} FEE
                                    </span>
                                  )}
                                </motion.button>

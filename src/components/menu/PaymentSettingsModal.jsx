@@ -7,7 +7,7 @@ import PaymentOptions from './PaymentOptions';
 
 const PaymentSettingsModal = forwardRef(function PaymentSettingsModal({ isOpen, onClose, embedded = false, visible = true, onChangesChange = null }, ref) {
   const { isDarkMode } = useTheme();
-  const { user, updateShippingSettings, publishCheckoutSettings, shippingSettings, deletePaymentMethods } = useStore();
+  const { user, updateShippingSettings, updatePaymentSetting, publishCheckoutSettings, shippingSettings, deletePaymentMethods } = useStore();
   const scrollRef = useRef(null);
   const [canDrag, setCanDrag] = useState(true);
 
@@ -15,8 +15,9 @@ const PaymentSettingsModal = forwardRef(function PaymentSettingsModal({ isOpen, 
     return Object.fromEntries(
       Object.entries(methods).filter(([key, value]) => {
         const k = key.toLowerCase();
-        // Hapusin ang fee keys at null/undefined na QR values (para hindi mag-pollute sa Firestore)
-        if (k.endsWith('fee')) return false;
+        // Keep per-method cash-transfer fees, but remove legacy fee keys from
+        // the methods map and null/undefined QR values before saving.
+        if (k.endsWith('fee') && !k.endsWith('cashtransferfee')) return false;
         if (k.endsWith('qr') && (value === null || value === undefined)) return false;
         return true;
       })
@@ -34,7 +35,6 @@ const PaymentSettingsModal = forwardRef(function PaymentSettingsModal({ isOpen, 
       methods: { cash: true, ...cleanPaymentMethods(savedSettings.methods || {}) },
       handlingFee: Number(savedSettings.handlingFee ?? 0),
       installmentFee: Number(savedSettings.installmentFee ?? 0),
-      cashInFee: Number(savedSettings.cashInFee ?? 0),
       transferFee: Number(savedSettings.transferFee ?? 0),
       preOrderSettleDays: Number(savedSettings.preOrderSettleDays ?? 10),
       reservationSettleDays: Number(savedSettings.reservationSettleDays ?? 10),
@@ -118,6 +118,8 @@ const PaymentSettingsModal = forwardRef(function PaymentSettingsModal({ isOpen, 
       delete updatedMethods[`${method}Qr`];
       delete updatedMethods[`${method}TransferDiscount`];
       delete updatedMethods[`${method}DiscountAmount`];
+      delete updatedMethods[`${method}CashTransferFee`];
+      delete updatedMethods[`${method}TransferFee`];
       return { ...prev, methods: updatedMethods };
     });
     setDeletedMethods(prev => [...prev, method]);
@@ -125,17 +127,28 @@ const PaymentSettingsModal = forwardRef(function PaymentSettingsModal({ isOpen, 
 
   const getPaymentSavingsState = (settings = {}) => {
     const methods = settings.methods || {};
-    const methodDiscounts = Object.fromEntries(
+    const methodTransferFees = Object.fromEntries(
       Object.keys(methods)
-        .filter(key => key.toLowerCase().endsWith('transferdiscount') || key.toLowerCase().endsWith('discountamount'))
+        .filter(key => key.toLowerCase().endsWith('cashtransferfee'))
         .sort()
         .map(key => [key, methods[key]])
     );
 
     return JSON.stringify({
       installmentFee: Number(settings.installmentFee) || 0,
-      methodDiscounts
+      methodTransferFees
     });
+  };
+
+  const persistPaymentSetting = async (category, option, value) => {
+    if (!category || !option || !updatePaymentSetting) return false;
+    try {
+      await updatePaymentSetting(`${category}.${option}`, value);
+      return true;
+    } catch (error) {
+      console.error('SG LOG: Payment setting blur save failed:', error);
+      return false;
+    }
   };
 
   const hasPaymentSavingsChange = () => (
@@ -147,7 +160,6 @@ const PaymentSettingsModal = forwardRef(function PaymentSettingsModal({ isOpen, 
     methods: cleanPaymentMethods(settings.methods || {}),
     handlingFee: Number(settings.handlingFee ?? 0),
     installmentFee: Number(settings.installmentFee ?? 0),
-    cashInFee: Number(settings.cashInFee ?? 0),
     transferFee: Number(settings.transferFee ?? 0),
     preOrderSettleDays: Number(settings.preOrderSettleDays ?? 10),
     reservationSettleDays: Number(settings.reservationSettleDays ?? 10),
@@ -191,7 +203,6 @@ const PaymentSettingsModal = forwardRef(function PaymentSettingsModal({ isOpen, 
         },
         handlingFee: Math.max(0, Number(paymentSettings.handlingFee) || 0),
         installmentFee: Math.max(0, Number(paymentSettings.installmentFee) || 0),
-        cashInFee: Math.max(0, Number(paymentSettings.cashInFee) || 0),
         transferFee: Math.max(0, Number(paymentSettings.transferFee) || 0),
         preOrderSettleDays: Math.max(1, Number(paymentSettings.preOrderSettleDays) || 10),
         reservationSettleDays: Math.max(1, Number(paymentSettings.reservationSettleDays) || 10),
@@ -202,6 +213,21 @@ const PaymentSettingsModal = forwardRef(function PaymentSettingsModal({ isOpen, 
         }
       };
 
+      // QR payment fees and the old payment-method discount fields are no
+      // longer part of checkout pricing.
+      delete normalizedPaymentSettings.transferFee;
+      delete normalizedPaymentSettings.cashInFee;
+      Object.keys(normalizedPaymentSettings.methods || {}).forEach((key) => {
+        const normalizedKey = key.toLowerCase();
+        if (
+          normalizedKey.endsWith('transferdiscount')
+          || normalizedKey.endsWith('discountamount')
+          || (normalizedKey.endsWith('transferfee') && !normalizedKey.endsWith('cashtransferfee'))
+        ) {
+          delete normalizedPaymentSettings.methods[key];
+        }
+      });
+
       // I-purge ang deleted methods mula sa normalizedPaymentSettings bago i-save
       // (kasama ang kanilang QR, TransferDiscount, at DiscountAmount keys)
       if (deletedMethods.length > 0) {
@@ -210,6 +236,8 @@ const PaymentSettingsModal = forwardRef(function PaymentSettingsModal({ isOpen, 
           delete normalizedPaymentSettings.methods[`${method}Qr`];
           delete normalizedPaymentSettings.methods[`${method}TransferDiscount`];
           delete normalizedPaymentSettings.methods[`${method}DiscountAmount`];
+          delete normalizedPaymentSettings.methods[`${method}CashTransferFee`];
+          delete normalizedPaymentSettings.methods[`${method}TransferFee`];
         });
       }
 
@@ -258,6 +286,7 @@ const PaymentSettingsModal = forwardRef(function PaymentSettingsModal({ isOpen, 
         updatePaymentData={updatePaymentData}
         handleSave={handleSave}
         deleteMethod={deleteMethod}
+        persistPaymentSetting={persistPaymentSetting}
         showSave={!embedded}
         hasChanges={hasPaymentChange()}
       />
