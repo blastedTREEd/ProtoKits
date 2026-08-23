@@ -150,7 +150,7 @@ export default function AdminCalendarModal({ isOpen, onClose, embedded = false, 
               </header>
             )}
 
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            <div data-modal-scroll-container className="min-h-0 flex-1 overflow-y-auto">
               <div className="grid min-h-full grid-cols-1 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
                 <section className="border-b border-black/5 dark:border-white/10 lg:border-b-0 lg:border-r">
                   <GarageCalendar

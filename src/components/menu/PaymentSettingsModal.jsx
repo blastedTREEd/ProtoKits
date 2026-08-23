@@ -249,7 +249,8 @@ const PaymentSettingsModal = forwardRef(function PaymentSettingsModal({ isOpen, 
     <div
       ref={scrollRef}
       onScroll={handleScroll}
-      className="min-h-0 flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar touch-pan-y"
+      data-modal-scroll-container
+      className="min-h-0 flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar"
     >
       <PaymentOptions
         paymentSettings={paymentSettings}

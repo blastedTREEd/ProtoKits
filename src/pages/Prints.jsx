@@ -578,35 +578,6 @@ export default function Prints() {
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-4 sm:portrait:grid-cols-3 md:grid-cols-4 md:portrait:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-3 items-stretch">
-              {/* --- Section Divider: Garage Projects --- */}
-              {(garageProjects.length > 0 || (isAdmin && isAdminView)) && (
-                <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-2 backdrop-blur-md transition-[top] duration-300 ease-out will-change-[top] dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
-                  <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
-                  <span className="text-[13px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Garage Projects</span>
-                  <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
-                </div>
-              )}
-
-              {isAdmin && isAdminView && (
-                <ProjectEstimationCard onClick={enterEstimating} shadow={shadow} />
-              )}
-
-              {sortedGarageProjects.map((project) => {
-                return (
-                  <ProjectCard 
-                    key={project.id}
-                    project={project}
-                    type="blueprint"
-                    onBasketAction={handleBasketAction}
-                    onOrderNow={handleOrderNow}
-                    showManagementActions={isAdmin && isAdminView}
-                    onModify={isAdmin && isAdminView ? handleModify : undefined}
-                    onDelete={isAdmin && isAdminView ? handleDeletePrintProject : undefined}
-                    openOnMount={routeProjectId === project.id}
-                  />
-                );
-              })}
-
               {/* --- Section Divider: Vault (Personal Projects) --- */}
               {(sortedFilteredVault.length > 0 || !(isAdmin && isAdminView)) && (
                 <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-2 backdrop-blur-md transition-[top] duration-300 ease-out will-change-[top] dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
@@ -632,6 +603,35 @@ export default function Prints() {
                     showManagementActions={true}
                     onModify={handleModify}
                     onDelete={handleDeleteVaultProject}
+                  />
+                );
+              })}
+
+              {/* --- Section Divider: Garage Projects --- */}
+              {(garageProjects.length > 0 || (isAdmin && isAdminView)) && (
+                <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/60 px-4 py-2 backdrop-blur-md transition-[top] duration-300 ease-out will-change-[top] dark:bg-[#0a0a0a]/60 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderPosition}`}>
+                  <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
+                  <span className="text-[13px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Garage Projects</span>
+                  <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
+                </div>
+              )}
+
+              {isAdmin && isAdminView && (
+                <ProjectEstimationCard onClick={enterEstimating} shadow={shadow} />
+              )}
+
+              {sortedGarageProjects.map((project) => {
+                return (
+                  <ProjectCard 
+                    key={project.id}
+                    project={project}
+                    type="blueprint"
+                    onBasketAction={handleBasketAction}
+                    onOrderNow={handleOrderNow}
+                    showManagementActions={isAdmin && isAdminView}
+                    onModify={isAdmin && isAdminView ? handleModify : undefined}
+                    onDelete={isAdmin && isAdminView ? handleDeletePrintProject : undefined}
+                    openOnMount={routeProjectId === project.id}
                   />
                 );
               })}

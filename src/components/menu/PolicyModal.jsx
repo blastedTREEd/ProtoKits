@@ -72,6 +72,9 @@ export default function PolicyModal({ policy, isOpen, onClose, zIndexClass = 'z-
             drag={canDrag ? 'y' : false}
             dragListener={false}
             dragControls={dragControls}
+            dragSnapToOrigin
+            dragMomentum={false}
+            dragTransition={{ bounceStiffness: 500, bounceDamping: 30 }}
             dragConstraints={{ top: 0, bottom: 420 }}
             dragElastic={{ top: 0, bottom: 0.4 }}
             onDragEnd={(event, info) => {
@@ -89,7 +92,13 @@ export default function PolicyModal({ policy, isOpen, onClose, zIndexClass = 'z-
               />
             </div>
 
-            <div className={`relative z-10 flex shrink-0 items-center justify-between border-b p-6 shadow-sm md:p-8 ${isDarkMode ? 'border-white/5 bg-neutral-900 shadow-black/20' : 'border-black/5 bg-white shadow-black/5'}`}>
+            <div
+              onPointerDownCapture={(event) => {
+                if (!canDrag || event.target.closest('button, a, input, textarea, select, [role="button"]')) return;
+                dragControls.start(event);
+              }}
+              className={`relative z-10 flex shrink-0 cursor-grab touch-none items-center justify-between border-b p-6 shadow-sm active:cursor-grabbing md:p-8 ${isDarkMode ? 'border-white/5 bg-neutral-900 shadow-black/20' : 'border-black/5 bg-white shadow-black/5'}`}
+            >
               <div className="ml-2 flex items-center gap-3">
                 <div className="rounded-xl bg-garage-blue/10 p-2 text-garage-blue">
                   <PolicyIcon size={20} />
@@ -101,7 +110,17 @@ export default function PolicyModal({ policy, isOpen, onClose, zIndexClass = 'z-
               </button>
             </div>
 
-            <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto custom-scrollbar">
+            <div
+              ref={scrollRef}
+              onScroll={handleScroll}
+              onPointerDown={(event) => {
+                if (!canDrag || event.target.closest('button, a, input, textarea, select, [role="button"], .leaflet-container')) return;
+                if (event.currentTarget.scrollTop > 0) return;
+                event.stopPropagation();
+                dragControls.start(event);
+              }}
+              className="flex-1 overflow-y-auto custom-scrollbar"
+            >
               <Suspense fallback={<div className="flex min-h-[40vh] items-center justify-center"><Loader2 className="animate-spin text-garage-blue" size={30} /></div>}>
                 <PolicyContent isModal />
               </Suspense>

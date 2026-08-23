@@ -14,6 +14,7 @@ export default function ShippingOptions({
   handleToggleMethod, 
   handleSave,
   setShippingMethods, // Direkta mula sa FulfillmentModal para sa mas simpleng state updates
+  persistShippingMethods = null,
   showSave = true,
   hasChanges = false
 }) {
@@ -43,11 +44,11 @@ export default function ShippingOptions({
   };
 
   // I-update ang suboption config — laging nasa .suboptions[subKey]
-  const updateSuboptionConfig = (m, subKey, patch) => {
+  const updateSuboptionConfig = (m, subKey, patch, persist = false) => {
     const methodObj = getMethodConfig(m);
     const suboptions = methodObj.suboptions || {};
     const subObj = suboptions[subKey] || { active: true };
-    setShippingMethods({
+    const nextMethods = {
       ...shippingMethods,
       [m]: {
         ...methodObj,
@@ -56,15 +57,29 @@ export default function ShippingOptions({
           [subKey]: { ...subObj, ...patch }
         }
       }
-    });
+    };
+    setShippingMethods(nextMethods);
+    if (persist && persistShippingMethods) {
+      Promise.resolve(persistShippingMethods(nextMethods)).catch((error) => {
+        console.error('Failed to persist shipping toggle:', error);
+        alert('Failed to update shipping settings.');
+      });
+    }
   };
 
-  const updateMethodConfig = (m, patch) => {
+  const updateMethodConfig = (m, patch, persist = false) => {
     const methodObj = getMethodConfig(m);
-    setShippingMethods({
+    const nextMethods = {
       ...shippingMethods,
       [m]: { ...methodObj, ...patch }
-    });
+    };
+    setShippingMethods(nextMethods);
+    if (persist && persistShippingMethods) {
+      Promise.resolve(persistShippingMethods(nextMethods)).catch((error) => {
+        console.error('Failed to persist shipping toggle:', error);
+        alert('Failed to update shipping settings.');
+      });
+    }
   };
 
   // Handling discount — unified read from .suboptions[subKey].handlingDiscount
@@ -266,9 +281,9 @@ export default function ShippingOptions({
 
     const toggle = () => {
       if (subKey) {
-        updateSuboptionConfig(method, subKey, { handlingDiscount: !isDiscounted });
+        updateSuboptionConfig(method, subKey, { handlingDiscount: !isDiscounted }, true);
       } else {
-        updateMethodConfig(method, { handlingDiscount: !isDiscounted });
+        updateMethodConfig(method, { handlingDiscount: !isDiscounted }, true);
       }
     };
 
@@ -309,9 +324,9 @@ export default function ShippingOptions({
         updateSuboptionConfig(method, subKey, {
           requiredFields: nextFields,
           ...(isEnabled ? {} : { isPickupRequired: false, isSelfBooking: false })
-        });
+        }, true);
       } else {
-        updateMethodConfig(method, { requiredFields: nextFields });
+        updateMethodConfig(method, { requiredFields: nextFields }, true);
       }
     };
 
@@ -343,21 +358,21 @@ export default function ShippingOptions({
       requiredFields: nextFields,
       isPickupRequired: !isEnabled,
       isSelfBooking: false
-    });
+    }, true);
   };
 
 
   return (
-    <div className="space-y-6 text-left">
-      {Object.keys(shippingMethods)
-        .filter(m => m !== 'Free Shipping')
-        .sort((a, b) => {
-          const order = { 'Self-Pickup': 0, 'Seller Meetup': 1 };
-          const aOrder = order[a] ?? 2;
-          const bOrder = order[b] ?? 2;
-          return aOrder - bOrder;
-        })
-        .map(m => {
+    <div className="space-y-4 text-left">
+        {Object.keys(shippingMethods)
+          .filter(m => m !== 'Free Shipping')
+          .sort((a, b) => {
+            const order = { 'Self-Pickup': 0, 'Seller Meetup': 1 };
+            const aOrder = order[a] ?? 2;
+            const bOrder = order[b] ?? 2;
+            return aOrder - bOrder;
+          })
+          .map(m => {
         const methodVal = shippingMethods[m];
         const methodConfig = getMethodConfig(m);
         const isActive = methodConfig.active !== false;
@@ -380,10 +395,29 @@ export default function ShippingOptions({
 
         const isMainConfigExpanded = expandedConfigs[m];
 
-        return (
-          <div key={m} className="p-5 rounded-3xl border border-black/5 dark:border-white/5 bg-black/5 dark:bg-white/5 space-y-4">
+          return (
+          <div
+            key={m}
+            role="switch"
+            tabIndex={0}
+            aria-checked={isActive}
+            onClick={(event) => {
+              const interactiveTarget = event.target.closest('button, a, input, textarea, select, [role="button"], [role="switch"]');
+              if (interactiveTarget && interactiveTarget !== event.currentTarget) return;
+              handleToggleMethod(m);
+            }}
+            onKeyDown={(event) => {
+              if ((event.key === 'Enter' || event.key === ' ') && event.target === event.currentTarget) {
+                event.preventDefault();
+                handleToggleMethod(m);
+              }
+            }}
+            className={`cursor-pointer rounded-3xl border p-5 space-y-4 transition-all ${isActive
+              ? 'border-2 border-garage-blue bg-black/5 shadow-md shadow-blue-500/10 dark:bg-white/5'
+              : 'border-black/5 bg-black/5 dark:border-white/5 dark:bg-white/5'}`}
+          >
             {/* Method Header */}
-            <div className="flex justify-between items-center">
+            <div className="flex items-start justify-between gap-4">
               <div className="flex flex-col text-left">
                 <span className="text-[14px] font-black uppercase italic text-garage-blue flex items-center gap-2">
                   {m}
@@ -400,16 +434,27 @@ export default function ShippingOptions({
                 </span>
                 <span className="text-[13px] font-bold opacity-45 uppercase">{isActive ? 'Available' : 'Disabled'}</span>
               </div>
-              <button
-                type="button"
-                onClick={() => handleToggleMethod(m)}
-                role="switch"
-                aria-checked={isActive}
-                aria-label={`Toggle ${m}`}
-                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border-2 border-transparent transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-garage-blue/30 ${isActive ? 'bg-garage-blue' : 'bg-neutral-300'}`}
-              >
-                <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition-transform duration-300 ease-in-out ${isActive ? 'translate-x-5' : 'translate-x-0'}`} />
-              </button>
+              {isActive && !hasSuboptions && (
+                <div className="flex flex-wrap justify-end gap-2">
+                  <HandlingDiscountToggle method={m} methodVal={methodVal} />
+                  {!isDefaultMethod(m) && (
+                    <BranchDropoffToggle method={m} methodVal={methodVal} />
+                  )}
+                  {isDefaultMethod(m) && (
+                    <button
+                      type="button"
+                      onClick={() => updateMethodConfig(m, { cashEnabled: !methodConfig.cashEnabled }, true)}
+                      className={`px-3 py-1.5 rounded-xl text-[13px] font-black uppercase tracking-tighter transition-all border ${
+                        methodConfig.cashEnabled
+                          ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
+                          : 'bg-black/5 dark:bg-white/5 text-neutral-400 border-transparent'
+                      }`}
+                    >
+                      {methodConfig.cashEnabled ? 'Cash Enabled' : 'Cash Disabled'}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
             {isActive && (
@@ -448,26 +493,6 @@ export default function ShippingOptions({
                         {isMainConfigExpanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
                       </button>
                     </div>
-                    {/* Row 2: Discount + Cash pills */}
-                    <div className="flex flex-wrap items-center gap-2">
-                      <HandlingDiscountToggle method={m} methodVal={methodVal} />
-                      {!isDefaultMethod(m) && (
-                        <BranchDropoffToggle method={m} methodVal={methodVal} />
-                      )}
-                      {isDefaultMethod(m) && (
-                        <button
-                          type="button"
-                          onClick={() => updateMethodConfig(m, { cashEnabled: !methodConfig.cashEnabled })}
-                          className={`px-3 py-1.5 rounded-xl text-[13px] font-black uppercase tracking-tighter transition-all border ${
-                            methodConfig.cashEnabled
-                              ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
-                              : 'bg-black/5 dark:bg-white/5 text-neutral-400 border-transparent'
-                          }`}
-                        >
-                          {methodConfig.cashEnabled ? 'Cash Enabled' : 'Cash Disabled'}
-                        </button>
-                      )}
-                    </div>
                     {isMainConfigExpanded && (
                       <ShippingFieldsConfig
                         requiredFields={defaultRequiredFields || methodConfig.requiredFields || []}
@@ -495,8 +520,27 @@ export default function ShippingOptions({
                         const isOrderPickupEnabled = subVal.isPickupRequired === true;
 
                         return (
-                          <div key={sub.key} className="p-3.5 rounded-2xl border border-black/5 dark:border-white/5 bg-black/5 dark:bg-white/5 space-y-3">
-                            <div className="flex justify-between items-center">
+                          <div
+                            key={sub.key}
+                            role="switch"
+                            tabIndex={0}
+                            aria-checked={isSubActive}
+                            onClick={(event) => {
+                              const interactiveTarget = event.target.closest('button, a, input, textarea, select, [role="button"], [role="switch"]');
+                              if (interactiveTarget && interactiveTarget !== event.currentTarget) return;
+                              updateSuboptionConfig(m, sub.key, { active: !isSubActive });
+                            }}
+                            onKeyDown={(event) => {
+                              if ((event.key === 'Enter' || event.key === ' ') && event.target === event.currentTarget) {
+                                event.preventDefault();
+                                updateSuboptionConfig(m, sub.key, { active: !isSubActive });
+                              }
+                            }}
+                            className={`cursor-pointer space-y-3 rounded-2xl border p-3.5 transition-all ${isSubActive
+                              ? 'border-2 border-garage-blue bg-black/5 shadow-md shadow-blue-500/10 dark:bg-white/5'
+                              : 'border-black/5 bg-black/5 dark:border-white/5 dark:bg-white/5'}`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
                               <div className="flex items-center gap-2">
                                 <span className="text-[13px] font-black uppercase tracking-wider">{sub.label}</span>
                                 {/* Lahat ng suboptions ay matatanggal */}
@@ -507,35 +551,8 @@ export default function ShippingOptions({
                                   <Trash2 size={12} />
                                 </button>
                               </div>
-                              {/* Suboption active toggle — laging gumagamit ng updateSuboptionConfig */}
-                              <button
-                                type="button"
-                                onClick={() => updateSuboptionConfig(m, sub.key, { active: !isSubActive })}
-                                role="switch"
-                                aria-checked={isSubActive}
-                                aria-label={`Toggle ${sub.label}`}
-                                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border-2 border-transparent transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-garage-blue/30 ${isSubActive ? 'bg-garage-blue' : 'bg-neutral-300'}`}
-                              >
-                                <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition-transform duration-300 ease-in-out ${isSubActive ? 'translate-x-5' : 'translate-x-0'}`} />
-                              </button>
-                            </div>
-
-                            {isSubActive && (
-                              <div className="space-y-3">
-                                {/* Row 1: Configure Form Fields */}
-                                <div className="flex items-center animate-in fade-in duration-200">
-                                  <button
-                                    onClick={() => toggleExpanded(`${m}-${sub.key}`)}
-                                    className="flex items-center gap-1 text-[13px] font-black uppercase text-blue-600 hover:underline"
-                                  >
-                                    <Settings size={12} />
-                                    {isSubExpanded ? 'Hide Fields Config' : 'Configure Form Fields'}
-                                    {isSubExpanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
-                                  </button>
-                                </div>
-
-                                {/* Row 2: Discount + behavior flag pills */}
-                                <div className="flex flex-wrap items-center gap-2 animate-in fade-in duration-200">
+                              {isSubActive && (
+                                <div className="flex flex-wrap justify-end gap-2">
                                   <HandlingDiscountToggle method={m} methodVal={methodVal} subKey={sub.key} />
                                   {!isDefaultMethod(m) && !isOrderPickupEnabled && (
                                     <BranchDropoffToggle method={m} methodVal={methodVal} subKey={sub.key} />
@@ -553,6 +570,22 @@ export default function ShippingOptions({
                                       Pickup Order
                                     </button>
                                   )}
+                                </div>
+                              )}
+                            </div>
+
+                            {isSubActive && (
+                              <div className="space-y-3">
+                                {/* Row 1: Configure Form Fields */}
+                                <div className="flex items-center animate-in fade-in duration-200">
+                                  <button
+                                    onClick={() => toggleExpanded(`${m}-${sub.key}`)}
+                                    className="flex items-center gap-1 text-[13px] font-black uppercase text-blue-600 hover:underline"
+                                  >
+                                    <Settings size={12} />
+                                    {isSubExpanded ? 'Hide Fields Config' : 'Configure Form Fields'}
+                                    {isSubExpanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+                                  </button>
                                 </div>
 
                                 {isSubExpanded && (
@@ -583,9 +616,8 @@ export default function ShippingOptions({
               </div>
             )}
           </div>
-        );
-      })}
-
+          );
+        })}
       {/* Add New Shipping Method */}
       <div className="p-6 rounded-3xl border-2 border-dashed border-garage-blue/20 bg-black/5 dark:bg-white/5 space-y-4 text-left">
         <h4 className="text-[14px] font-black uppercase italic text-garage-blue">Add New Shipping Method</h4>
