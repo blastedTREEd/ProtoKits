@@ -19,7 +19,7 @@ import L from 'leaflet';
 import DynamicShippingForm from './DynamicShippingForm';
 import PolicyModal from '../menu/PolicyModal';
 import { getIntegerFeeShare, getStockStandaloneSellPrice, isBundleOrClearanceItem } from '../../utils/standalonePricing';
-import { getBundleDealPricing, getClearanceBundlePricing, getDistributedFeeShare } from '../../utils/bundlePricing';
+import { getBundleDealPricing, getClearanceBundlePricing } from '../../utils/bundlePricing';
 import {
   formatAvailabilityDate,
   getNextAvailableDate,
@@ -429,7 +429,6 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
   const deal = best.deal;
   const rowByKitId = new globalThis.Map(best.rows.map(row => [row.kitId, row]));
   const bundleSize = best.rows.length;
-  const bundleFeeTotal = Number(fees.handlingFee || 0) + Number(fees.transferFee || 0);
   const clearanceSourceKitId = deal.type === 'clearance'
     ? best.rows.find(row => row.isClearance)?.kitId || ''
     : '';
@@ -441,7 +440,6 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
     const row = rowByKitId.get(getCheckoutKitId(item));
     if (!row || isProjectCheckoutItem(item) || item.offerPrice) return item;
 
-    const bundleFeeShare = getDistributedFeeShare(bundleFeeTotal, row._clearanceIndex ?? best.rows.indexOf(row), bundleSize);
     return {
       ...item,
       name: String(item.name || row.kit?.name || '').replace(/\s*\((?:Bundle|Clearance) Item\)\s*$/i, ''),
@@ -451,13 +449,13 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
       isClearanceBundle: deal.type === 'clearance',
       clearanceKitIds: best.rows.filter(row => row.isClearance).map(row => row.kitId),
       bundleSize,
-      bundleFeeShare,
-      bundleReferencePrice: row.refPrice
-        + Number(item.appliedInstallmentFee || 0)
-        + Number(item.appliedHandlingFee || fees.handlingFee || 0)
-        + Number(item.appliedTransferFee || fees.transferFee || 0),
+      bundleFeeShare: 0,
+      bundleReferencePrice: row.refPrice,
       allowShelfBundle: true,
       appliedBundlePrice: row.finalPrice,
+      appliedHandlingFee: 0,
+      appliedInstallmentFee: 0,
+      appliedTransferFee: 0,
       price: row.finalPrice,
       displayPrice: row.finalPrice,
       clearanceUnusedDiscount: unusedClearanceDiscount,
@@ -1277,19 +1275,20 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     const normalizedItems = (items || []).map(item => {
       const quantity = item.quantity || 1;
       const kit = findCheckoutKit(kits, item);
-      const appliedHandlingFee = handlingEnabled
+      const isDealItem = isBundleOrClearanceItem(item);
+      const appliedHandlingFee = !isDealItem && handlingEnabled
         ? (Number(item.appliedHandlingFee) > 0 ? Number(item.appliedHandlingFee) : handlingFee)
         : 0;
-      const storedInstallmentFee = Number(item.appliedInstallmentFee) > 0
+      const storedInstallmentFee = !isDealItem && Number(item.appliedInstallmentFee) > 0
         ? Number(item.appliedInstallmentFee)
-        : installmentFee;
-      const appliedInstallmentFee = isReservationPlan && !isPreOrderKitItem(item, kits)
+        : (isDealItem ? 0 : installmentFee);
+      const appliedInstallmentFee = isReservationPlan
         ? storedInstallmentFee
         : 0;
-      const storedTransferFee = Number(item.appliedTransferFee) > 0
+      const storedTransferFee = !isDealItem && Number(item.appliedTransferFee) > 0
         ? Number(item.appliedTransferFee)
-        : configuredTransferFee;
-      const appliedTransferFee = isTransferFeeApplicable ? configuredTransferFee : 0;
+        : (isDealItem ? 0 : configuredTransferFee);
+      const appliedTransferFee = !isDealItem && isTransferFeeApplicable ? configuredTransferFee : 0;
       const basePrice = getCheckoutItemBasePrice(item, kit, {
         handling: appliedHandlingFee,
         // Remove any fee already embedded in a stored basket price before
@@ -1308,9 +1307,8 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
         images: item.images || kit?.images || null,
         appliedHandlingFee,
         appliedInstallmentFee,
-        // Keep the configured reservation fee available even when Full
-        // Payment removes it from the payable item price.
-        reservationFee: storedInstallmentFee,
+        // Keep the configured reservation fee available for reservation checkout.
+        reservationFee: isDealItem ? 0 : storedInstallmentFee,
         appliedTransferFee,
         originalSellPrice: isProjectCheckoutItem(item)
           ? 0
@@ -1421,15 +1419,15 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     const configuredHandling = Number(storeAdmin?.paymentSettings?.handlingFee ?? storeAdmin?.pickupDetails?.handlingFee ?? 0);
     const selectedSubKey = getSelectedShippingSubKey(checkoutData);
     const handlingEnabled = getHandlingFeeSetting(storeAdmin?.shippingMethods, checkoutData.shippingMethod, selectedSubKey);
-    const handling = handlingEnabled ? Math.max(configuredHandling, fallbackHandling) : 0;
-    const transfer = isTransferFeeApplicable ? configuredTransferFee : 0;
+    const hasFeeBearingItems = checkoutItems.some(item => !isBundleOrClearanceItem(item));
+    const handling = hasFeeBearingItems && handlingEnabled ? Math.max(configuredHandling, fallbackHandling) : 0;
+    const transfer = hasFeeBearingItems && isTransferFeeApplicable ? configuredTransferFee : 0;
     return { handling, transfer };
-  }, [checkoutData, configuredTransferFee, isTransferFeeApplicable, items, storeAdmin]);
+  }, [checkoutData, checkoutItems, configuredTransferFee, isTransferFeeApplicable, items, storeAdmin]);
 
   const totalAppliedHandlingFee = useMemo(() => orderFees.handling, [orderFees]);
   const totalReservationFee = useMemo(() => (
     checkoutItems.reduce((sum, item) => {
-      if (isPreOrderKitCheckoutItem(item)) return sum;
       const reservationFee = Number(item.reservationFee ?? item.appliedInstallmentFee ?? 0);
       return sum + Math.max(0, reservationFee) * (Number(item.quantity) || 1);
     }, 0)
@@ -1438,28 +1436,20 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   const totalAppliedInstallmentFee = isReservationPlan ? totalReservationFee : 0;
 
   const fullPaymentReservationFeeDiscount = useMemo(() => {
-    if (checkoutData.paymentPlan !== 'full') return 0;
-
-    return checkoutItems.reduce((sum, item) => {
-      if (!isPreOrderKitCheckoutItem(item)) return sum;
-      const reservationFee = Number(item.reservationFee ?? item.appliedInstallmentFee ?? 0);
-      return sum + Math.max(0, reservationFee) * (Number(item.quantity) || 1);
-    }, 0);
-  }, [checkoutData.paymentPlan, checkoutItems, isPreOrderKitCheckoutItem]);
+    return 0;
+  }, []);
 
   const totalAppliedTransferFee = useMemo(() => orderFees.transfer, [orderFees]);
 
 // HANAPIN AT I-UPDATE ANG BASETOTAL SA IYONG CHECKOUTMODAL.JSX
   const baseTotal = useMemo(() => {
-  // Reservation plans charge the fee. Full Payment includes the pre-order
-  // fee in the comparison total, then removes it through the discount below.
+  // Reservation plans charge the configured reservation fee. Full Payment
+  // uses the sell price without a reservation-fee discount.
   const itemsTotal = checkoutItems.reduce((total, item) => {
     const basePrice = Number(item.price || item.sellPrice || item.projectData?.sellPrice || 0);
     const installmentFee = isReservationPlan
       ? (Number(item.appliedInstallmentFee) || 0)
-      : fullPaymentReservationFeeDiscount > 0 && isPreOrderKitCheckoutItem(item)
-        ? (Number(item.reservationFee ?? item.appliedInstallmentFee) || 0)
-        : 0;
+      : 0;
     
     return total + (basePrice + installmentFee) * (item.quantity || 1);
   }, 0);
@@ -1468,7 +1458,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   // Sa ganitong paraan, hindi mababawasan ang final total mo pero hindi rin madodoble kada item!
   return itemsTotal + (orderFees.handling || 0) + (orderFees.transfer || 0);
 
-}, [checkoutItems, fullPaymentReservationFeeDiscount, isPreOrderKitCheckoutItem, isReservationPlan, orderFees]);
+}, [checkoutItems, isReservationPlan, orderFees]);
 
   const transferFeeDiscount = useMemo(() => {
     return 0;
@@ -1486,8 +1476,8 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   // never converted into a checkout discount or shown with a strikethrough.
   const handlingFeeDiscount = 0;
 
-  // Full Payment discounts the reservation fee only for pre-order kits.
-  const installmentFeeDiscount = fullPaymentReservationFeeDiscount;
+  // Reservation fees are charged only when the reservation plan is selected.
+  const installmentFeeDiscount = 0;
 
   // Payment-method discounts have been replaced by cash-transfer fees. The
   // configured fee is charged in full whenever the selected method applies.
@@ -1502,8 +1492,8 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     return isNaN(result) ? 0 : Math.max(0, result);
   }, [baseTotal, garageDiscount]);
 
-  // Only Partial and Reservation plans include installment fees in the
-  // subtotal. Full payment uses the base item prices.
+  // Reservation plans include the reservation fee in the subtotal.
+  // Full payment uses the sell price with no reservation-fee discount.
   const summaryItemsSubtotal = useMemo(() => {
     return checkoutItems.reduce((sum, item) => {
       const sourceKit = findCheckoutKit(kits, item);
@@ -1513,12 +1503,10 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
         : Number(item.price || item.sellPrice || item.projectData?.sellPrice || 0);
       const installmentFee = isReservationPlan
         ? Number(item.appliedInstallmentFee || 0)
-        : checkoutData.paymentPlan === 'full' && isPreOrderKitCheckoutItem(item)
-          ? Number(item.reservationFee || 0)
-          : 0;
+        : 0;
       return sum + (basePrice + installmentFee) * (item.quantity || 1);
     }, 0);
-  }, [checkoutItems, fullPaymentReservationFeeDiscount, isPreOrderKitCheckoutItem, isReservationPlan, kits]);
+  }, [checkoutItems, isReservationPlan, kits]);
 
   const bundleDiscount = useMemo(() => {
     return checkoutItems.reduce((sum, item) => {
@@ -1554,6 +1542,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   const remainingCashTransferFee = Math.max(0, orderFees.transfer - cashTransferFeeDiscount);
   const distributedOrderFees = useMemo(() => {
     const lineValues = checkoutItems.map(item => {
+      if (isBundleOrClearanceItem(item)) return 0;
       const sourceKit = findCheckoutKit(kits, item);
       const standaloneBasePrice = isProjectCheckoutItem(item)
         ? Number(item.projectData?.sellPrice || item.sellPrice || item.price || 0)
@@ -1577,11 +1566,16 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   // fees on every line.
   const standaloneDistributedOrderFees = useMemo(() => {
     const totalUnits = checkoutItems.reduce(
-      (sum, item) => sum + Math.max(1, Number(item.quantity) || 1),
+      (sum, item) => isBundleOrClearanceItem(item)
+        ? sum
+        : sum + Math.max(1, Number(item.quantity) || 1),
       0
     );
     let unitOffset = 0;
     return checkoutItems.map(item => {
+      if (isBundleOrClearanceItem(item)) {
+        return { handling: 0, transfer: 0, total: 0 };
+      }
       const handling = getIntegerFeeShare(orderFees.handling, totalUnits, unitOffset);
       const transfer = getIntegerFeeShare(orderFees.transfer, totalUnits, unitOffset);
       unitOffset += Math.max(1, Number(item.quantity) || 1);
@@ -1897,27 +1891,6 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       });
   }, [isAdminCheckoutConfigReady, enabledShippingMethods, pickupPoints, storeAdmin, checkoutItems, isMethodFreeShipping]);
 
-  const preferredShippingMethod = useMemo(() => {
-    const userOrders = (orders || [])
-      .filter(order => !user?.uid || order.userId === user.uid)
-      .slice()
-      .sort((a, b) => {
-        const getTime = (value) => value?.seconds ? value.seconds * 1000 : new Date(value || 0).getTime();
-        return getTime(b.createdAt) - getTime(a.createdAt);
-      });
-
-    for (const order of userOrders) {
-      const method = String(order.shippingMethod || '')
-        .replace(/\s*\([^)]*\)/g, '')
-        .split(':')[0]
-        .trim();
-      if (method && shippingOptions.includes(method)) return method;
-    }
-
-    if (shippingOptions.includes('Self-Pickup')) return 'Self-Pickup';
-    return shippingOptions[0] || '';
-  }, [orders, shippingOptions, user?.uid]);
-
   const getRankedSuboptions = useCallback((method, methodConfig = null) => {
     const config = methodConfig || enabledShippingMethods?.[method] || storeAdmin?.shippingMethods?.[method];
     const suboptions = Object.entries(config?.suboptions || {}).filter(([subKey, subVal]) => {
@@ -1944,6 +1917,39 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   const getBestSuboptionKey = useCallback((method, methodConfig = null) => {
     return getRankedSuboptions(method, methodConfig)[0]?.subKey || '';
   }, [getRankedSuboptions]);
+
+  const preferredShippingMethod = useMemo(() => {
+    const hasPreOrderFreeShipping = hasPreOrders && checkoutItems.some(item => (
+      isPreOrderKitCheckoutItem(item) && isFreeShippingActive(item, null)
+    ));
+
+    if (hasPreOrderFreeShipping) {
+      const freeShippingMethod = shippingOptions.find(method => (
+        isMethodFreeShipping(method)
+        || getRankedSuboptions(method).some(option => option.isFree)
+      ));
+      if (freeShippingMethod) return freeShippingMethod;
+    }
+
+    const userOrders = (orders || [])
+      .filter(order => !user?.uid || order.userId === user.uid)
+      .slice()
+      .sort((a, b) => {
+        const getTime = (value) => value?.seconds ? value.seconds * 1000 : new Date(value || 0).getTime();
+        return getTime(b.createdAt) - getTime(a.createdAt);
+      });
+
+    for (const order of userOrders) {
+      const method = String(order.shippingMethod || '')
+        .replace(/\s*\([^)]*\)/g, '')
+        .split(':')[0]
+        .trim();
+      if (method && shippingOptions.includes(method)) return method;
+    }
+
+    if (shippingOptions.includes('Self-Pickup')) return 'Self-Pickup';
+    return shippingOptions[0] || '';
+  }, [checkoutItems, getRankedSuboptions, hasPreOrders, isMethodFreeShipping, isPreOrderKitCheckoutItem, orders, shippingOptions, user?.uid]);
 
   const getCourierShippingBadge = useCallback((method) => {
     if (isMethodFreeShipping(method)) return 'FREE SHIPPING';
@@ -3105,9 +3111,6 @@ const handleFinalizeOrder = async () => {
         .replace(/\s*\((?:Bundle|Clearance) Item\)\s*$/i, '');
       const quantity = Number(item.quantity) || 1;
       const itemInstallmentFee = Number(item.appliedInstallmentFee || 0);
-      const reservationFee = Number(item.reservationFee ?? itemInstallmentFee ?? 0);
-      const isFullPaymentPreOrder = checkoutData.paymentPlan === 'full'
-        && isPreOrderKitCheckoutItem(item);
       const displayInstallmentFee = isReservationPlan ? itemInstallmentFee : 0;
       const basePrice = Number(item.price || item.sellPrice || item.projectData?.displayPrice || item.projectData?.sellPrice || 0);
       const distributedFee = distributedOrderFees[idx] || { total: 0 };
@@ -3117,9 +3120,7 @@ const handleFinalizeOrder = async () => {
       const standaloneBasePrice = isProjectCheckoutItem(item)
         ? Number(item.projectData?.sellPrice || item.sellPrice || item.price || 0)
         : getStockStandaloneSellPrice(item, kit);
-      const standaloneReservationFee = isReservationPlan || isFullPaymentPreOrder
-        ? (isReservationPlan ? itemInstallmentFee : reservationFee)
-        : 0;
+      const standaloneReservationFee = isReservationPlan ? itemInstallmentFee : 0;
       const standaloneUnitPrice = standaloneBasePrice + standaloneReservationFee + standaloneFee;
       const isDiscounted = standaloneUnitPrice > unitPrice;
       const itemKitId = item.id || item.kitId || item.productId;
@@ -4212,9 +4213,6 @@ const handleFinalizeOrder = async () => {
   
   // 2. I-add ang installment fee (₱2,100 + ₱100 = ₱2,200)
   const itemInstallmentFee = Number(item.appliedInstallmentFee || 0);
-      const reservationFee = Number(item.reservationFee ?? itemInstallmentFee ?? 0);
-      const isFullPaymentPreOrder = checkoutData.paymentPlan === 'full'
-        && isPreOrderKitCheckoutItem(item);
       const displayInstallmentFee = isReservationPlan ? itemInstallmentFee : 0;
   const quantity = Number(item.quantity) || 1;
   const distributedFee = distributedOrderFees[idx] || { total: 0 };
@@ -4225,9 +4223,7 @@ const handleFinalizeOrder = async () => {
   const standaloneBasePrice = isProjectCheckoutItem(item)
     ? Number(item.projectData?.sellPrice || item.sellPrice || item.price || 0)
     : getStockStandaloneSellPrice(item, sourceKit);
-  const standaloneReservationFee = isReservationPlan || isFullPaymentPreOrder
-    ? (isReservationPlan ? itemInstallmentFee : reservationFee)
-    : 0;
+  const standaloneReservationFee = isReservationPlan ? itemInstallmentFee : 0;
   const standalonePrice = standaloneBasePrice + standaloneReservationFee + standaloneFee;
   const isDiscountedItem = standalonePrice > itemPrice;
 

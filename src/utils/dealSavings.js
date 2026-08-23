@@ -24,19 +24,11 @@ export const getDealSaveUpToAmount = (
 ) => {
   if (!deal) return 0;
 
-  // Clearance shows the current kit plus two additional kit slots. The plus
-  // suffix communicates that customers may add more kits and gain more fee
-  // savings beyond the displayed baseline.
-  const installmentCount = deal.type === 'clearance'
-    ? 2
-    : Math.max(0, Number(kitCount) || Number(deal.kitIds?.length) || 0);
-
-  return getDealDiscountAmount(deal)
-    + (toAmount(installmentFee) * installmentCount)
-    + toAmount(handlingFee)
-    + toAmount(transferFee);
+  // Bundle and clearance prices are deal-only prices. They do not include
+  // reservation/installment, handling, or transfer fees.
+  return getDealDiscountAmount(deal);
 };
 
 export const getDealSaveUpToLabel = (deal, fees = {}) => (
-  `SAVE UP TO ₱${getDealSaveUpToAmount(deal, fees).toLocaleString()}${deal?.type === 'clearance' ? '+' : ''}`
+  `SAVE UP TO ₱${getDealSaveUpToAmount(deal, fees).toLocaleString()} OFF`
 );

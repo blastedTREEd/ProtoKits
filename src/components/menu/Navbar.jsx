@@ -137,9 +137,11 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   const [profileImgError, setProfileImgError] = useState(false);
 
   const profileModalRef = useRef(null);
+  const profileScrollRef = useRef(null);
   const profileBtnRef = useRef(null);
   const navbarRef = useRef(null);
   const profileDragControls = useDragControls();
+  const [isProfileListAtEnd, setIsProfileListAtEnd] = useState(false);
   const policyScrollCleanupRef = useRef(null);
 
   const startProfileDrag = (event) => {
@@ -148,9 +150,11 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   };
 
   const handleProfileSurfacePointerDown = (event) => {
-    // Keep menu controls interactive. Empty panel space can be used as a
-    // larger dismissal surface on mobile and landscape tablet layouts.
-    if (event.target.closest('button, a, input, textarea, select, [role="button"], [data-panel-interactive="true"]')) return;
+    // Keep menu controls interactive until the final menu item is visible.
+    // Once the profile list is at the bottom, the whole sheet becomes a
+    // larger upward-dismiss surface.
+    if (!isProfileListAtEnd) return;
+    if (event.target.closest('input, textarea, select, [data-panel-interactive="true"]')) return;
     startProfileDrag(event);
   };
 
@@ -332,6 +336,31 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   useEffect(() => {
     setProfileImgError(false);
   }, [profilePhotoURL]);
+
+  useEffect(() => {
+    if (!isProfileOpen || !isProfileFullscreen) {
+      setIsProfileListAtEnd(false);
+      return undefined;
+    }
+
+    const list = profileScrollRef.current;
+    if (!list) return undefined;
+
+    const updateProfileListPosition = () => {
+      setIsProfileListAtEnd(
+        list.scrollTop + list.clientHeight >= list.scrollHeight - 4
+      );
+    };
+
+    updateProfileListPosition();
+    list.addEventListener('scroll', updateProfileListPosition, { passive: true });
+    const frame = window.requestAnimationFrame(updateProfileListPosition);
+
+    return () => {
+      list.removeEventListener('scroll', updateProfileListPosition);
+      window.cancelAnimationFrame(frame);
+    };
+  }, [isProfileFullscreen, isProfileOpen, isAdmin, isAdminView, user, showFacebook]);
 
   useEffect(() => {
     if (!isProfileOpen || !isProfileFullscreen) {
@@ -970,9 +999,11 @@ return (
                     dragListener={false}
                     dragControls={profileDragControls}
                     dragConstraints={{ top: -420, bottom: 0 }}
-                    dragElastic={{ top: 0.2, bottom: 0 }}
+                    dragElastic={{ top: 0, bottom: 0 }}
+                    dragMomentum={false}
+                    dragDirectionLock
                     onDragEnd={(event, info) => {
-                      if (isProfileFullscreen && (info.offset.y < -90 || info.velocity.y < -500)) {
+                      if (isProfileFullscreen && isProfileListAtEnd && (info.offset.y < -90 || info.velocity.y < -500)) {
                         setIsProfileOpen(false);
                       }
                     }}
@@ -980,8 +1011,11 @@ return (
                   >
                   <div className={`${isProfileFullscreen ? 'flex h-full max-h-full flex-col rounded-b-[2.5rem]' : 'max-h-[calc(100dvh-5rem)] rounded-[2rem]'} overflow-hidden border ${isDarkMode ? 'border-white/10 bg-[#0a0a0a]' : 'border-black/10 bg-white'}`}>
                     <div
+                      ref={profileScrollRef}
                       onPointerDown={isProfileFullscreen ? handleProfileSurfacePointerDown : undefined}
-                      className={isProfileFullscreen ? 'min-h-0 flex-1 overflow-y-auto overscroll-contain' : 'max-h-[calc(100dvh-5rem)] overflow-y-auto overscroll-contain'}
+                      className={isProfileFullscreen
+                        ? `min-h-0 flex-1 overflow-y-auto overscroll-contain ${isProfileListAtEnd ? 'touch-none select-none' : ''}`
+                        : 'max-h-[calc(100dvh-5rem)] overflow-y-auto overscroll-contain'}
                     >
                     <div className={isProfileFullscreen ? 'flex min-h-full flex-col' : undefined}>
                     <div className="p-6 flex flex-col items-center text-center space-y-3 border-b border-black/5 dark:border-white/5">
@@ -1162,8 +1196,8 @@ return (
                     {isProfileFullscreen && (
                       <div
                         aria-label="Drag up to close profile"
-                        onPointerDown={startProfileDrag}
-                        className="min-h-0 flex-1 touch-none cursor-grab select-none active:cursor-grabbing"
+                        onPointerDown={isProfileListAtEnd ? startProfileDrag : undefined}
+                        className={`min-h-0 flex-1 select-none ${isProfileListAtEnd ? 'touch-none cursor-grab active:cursor-grabbing' : ''}`}
                       />
                     )}
                     </div>
@@ -1171,14 +1205,15 @@ return (
 
                     {isProfileFullscreen && (
                       <div
-                        onPointerDown={startProfileDrag}
-                        className="flex min-h-12 w-full shrink-0 cursor-grab touch-none items-center justify-center pb-3 pt-2 active:cursor-grabbing"
+                        onPointerDown={isProfileListAtEnd ? startProfileDrag : undefined}
+                        className={`flex min-h-12 w-full shrink-0 items-center justify-center pb-3 pt-2 ${isProfileListAtEnd ? 'cursor-grab touch-none active:cursor-grabbing' : ''}`}
                       >
                         <div
                           role="button"
                           tabIndex={0}
                           aria-label="Drag up to close profile"
                           onPointerDown={(event) => {
+                            if (!isProfileListAtEnd) return;
                             event.stopPropagation();
                             profileDragControls.start(event);
                           }}

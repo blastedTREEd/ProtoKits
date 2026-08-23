@@ -15,7 +15,7 @@ import SalesDashboardModal from '../components/kitcards/SalesDashboardModal';
 import LoginPromptModal from '../components/menu/LoginPromptModal';
 import LoadingState from '../components/common/LoadingState';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
-import { getDistributedFeeShare, getBundleDealPricing, getClearanceBundlePricing, getHighestCostStock } from '../utils/bundlePricing';
+import { getBundleDealPricing, getClearanceBundlePricing, getHighestCostStock } from '../utils/bundlePricing';
 import { isOfferCheckoutActive } from '../utils/offerUtils';
 import { getDealGrabLabel } from '../utils/dealSavings';
 
@@ -825,9 +825,7 @@ export default function Kits({ isActive = true }) {
     }
 
     const bundleSize = pricedRows.length;
-    const bundleFeeTotal = handlingFee + transferFee;
-    return pricedRows.map(({ kit, finalPrice, availableStock, refPrice }, index) => {
-      const bundleFeeShare = getDistributedFeeShare(bundleFeeTotal, index, bundleSize);
+    return pricedRows.map(({ kit, finalPrice, availableStock, refPrice }) => {
       return {
         ...kit,
         name: kit?.name,
@@ -837,14 +835,14 @@ export default function Kits({ isActive = true }) {
         isClearanceBundle: deal.type === 'clearance',
         clearanceKitIds: deal.clearanceKitIds || [],
         bundleSize,
-        bundleFeeShare,
-        bundleReferencePrice: refPrice + installmentFee + bundleFeeShare,
+        bundleFeeShare: 0,
+        bundleReferencePrice: refPrice,
         allowShelfBundle: true,
         stockKey: availableStock?.key || 'default',
         price: finalPrice,
-        appliedHandlingFee: handlingFee,
-        appliedInstallmentFee: installmentFee,
-        appliedTransferFee: transferFee
+        appliedHandlingFee: 0,
+        appliedInstallmentFee: 0,
+        appliedTransferFee: 0
       };
     });
   };

@@ -2418,21 +2418,24 @@ export const useStore = create(
         const basePrice = Number.isFinite(offerPrice) && offerPrice > 0
           ? offerPrice
           : Number(stock.sellPrice || 0);
-        const isBundleItem = Boolean(itemData.isBundleItem);
+        const isBundleItem = Boolean(itemData.isBundleItem || itemData.isClearanceBundle);
+        const itemHandlingFee = isBundleItem ? 0 : hFee;
+        const itemInstallmentFee = isBundleItem ? 0 : iFee;
+        const itemTransferFee = isBundleItem ? 0 : tFee;
         const clean = { 
           id: kit.id, 
           name: (itemData.name || kit.name || '').replace(/\s*\(Pre-Order\)\s*$/i, ''), 
           image: itemData.image || kit.image || '',
           brand: itemData.brand || kit.brand || '',
           specs: itemData.specs || kit.specs || {},
-          price: isBundleItem ? Number(itemData.price ?? basePrice) : basePrice + hFee + iFee + tFee,
+          price: isBundleItem ? Number(itemData.price ?? basePrice) : basePrice + itemHandlingFee + itemInstallmentFee + itemTransferFee,
           costPrice: Number(stock.costPrice || 0),
           sellPrice: basePrice,
           status: stock.status || 'onhand',
           eta: stock.eta || '',
-          appliedHandlingFee: hFee, 
-          appliedInstallmentFee: iFee, 
-          appliedTransferFee: tFee,
+          appliedHandlingFee: itemHandlingFee, 
+          appliedInstallmentFee: itemInstallmentFee, 
+          appliedTransferFee: itemTransferFee,
           stockKey: targetKey, 
           type: itemData.type || 'kit', 
           basketId, 

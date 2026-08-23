@@ -451,14 +451,18 @@ export default function Basket() {
   }, [shippingSettings]);
 
   const basketOrderFees = useMemo(() => ({
-    handling: Math.max(
-      Number(handlingFee) || 0,
-      ...activeBasket.map(item => Number(item.appliedHandlingFee) || 0)
-    ),
-    transfer: Math.max(
-      Number(transferFee) || 0,
-      ...activeBasket.map(item => Number(item.appliedTransferFee) || 0)
-    )
+    handling: activeBasket.some(item => !isBundleOrClearanceItem(item))
+      ? Math.max(
+        Number(handlingFee) || 0,
+        ...activeBasket.map(item => Number(item.appliedHandlingFee) || 0)
+      )
+      : 0,
+    transfer: activeBasket.some(item => !isBundleOrClearanceItem(item))
+      ? Math.max(
+        Number(transferFee) || 0,
+        ...activeBasket.map(item => Number(item.appliedTransferFee) || 0)
+      )
+      : 0
   }), [activeBasket, handlingFee, transferFee]);
 
   // Handling and transfer fees are charged once per selected basket set. Use
@@ -466,16 +470,19 @@ export default function Basket() {
   // two shares while the order still receives only one fee of each type.
   const selectedFeeUnitCount = useMemo(() => (
     activeBasket
-      .filter(item => activeSelection.includes(item.basketId))
+      .filter(item => activeSelection.includes(item.basketId) && !isBundleOrClearanceItem(item))
       .reduce((sum, item) => sum + Math.max(1, Number(item.quantity) || 1), 0)
   ), [activeBasket, activeSelection]);
 
   const getBasketStandaloneFeeShare = useCallback((item) => {
+    if (isBundleOrClearanceItem(item)) {
+      return { handling: 0, transfer: 0 };
+    }
     const isSelected = Array.isArray(item.basketIds)
       ? item.basketIds.some(id => activeSelection.includes(id))
       : activeSelection.includes(item.basketId);
     if (isSelected && selectedFeeUnitCount > 1) {
-      const selectedItems = activeBasket.filter(candidate => activeSelection.includes(candidate.basketId));
+      const selectedItems = activeBasket.filter(candidate => activeSelection.includes(candidate.basketId) && !isBundleOrClearanceItem(candidate));
       const targetKey = getBasketItemGroupKey(item);
       const targetIndex = selectedItems.findIndex(candidate => getBasketItemGroupKey(candidate) === targetKey);
       const selectedFeeUnitIndex = targetIndex < 0
@@ -496,6 +503,7 @@ export default function Basket() {
 
   const getBasketStandalonePrice = useCallback((item) => {
     if (item.type === 'project') return Number(item.projectData?.sellPrice || item.price || 0);
+    if (isBundleOrClearanceItem(item)) return Number(item.price || item.sellPrice || 0);
 
     const kit = kits.find(k => k.id === item.id);
     const stockSellPrice = Number(getStockStandaloneSellPrice(item, kit) || 0);
@@ -710,9 +718,15 @@ export default function Basket() {
       eta: item.eta || stock?.eta,
       minDownpayment: item.minDownpayment ?? stock?.minDownpayment,
       price: getEffectiveItemPrice(item),
-      appliedHandlingFee: Number(item.appliedHandlingFee) > 0 ? Number(item.appliedHandlingFee) : handlingFee,
-      appliedInstallmentFee: Number(item.appliedInstallmentFee) > 0 ? Number(item.appliedInstallmentFee) : installmentFee,
-      appliedTransferFee: Number(item.appliedTransferFee) > 0 ? Number(item.appliedTransferFee) : transferFee,
+      appliedHandlingFee: isBundleOrClearanceItem(item)
+        ? 0
+        : Number(item.appliedHandlingFee) > 0 ? Number(item.appliedHandlingFee) : handlingFee,
+      appliedInstallmentFee: isBundleOrClearanceItem(item)
+        ? 0
+        : Number(item.appliedInstallmentFee) > 0 ? Number(item.appliedInstallmentFee) : installmentFee,
+      appliedTransferFee: isBundleOrClearanceItem(item)
+        ? 0
+        : Number(item.appliedTransferFee) > 0 ? Number(item.appliedTransferFee) : transferFee,
       isFreeShippingEligible,
       freeShippingUntil,
       freeShippingMethod: item.freeShippingMethod || stock?.freeShippingMethod || 'All',
