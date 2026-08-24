@@ -11,6 +11,7 @@ import { isOfferCheckoutActive, valueToMillis } from '../utils/offerUtils';
 import { getIntegerFeeShare, getStockStandaloneSellPrice, isBundleOrClearanceItem } from '../utils/standalonePricing';
 import { getBundleDealPricing, getClearanceBundlePricing } from '../utils/bundlePricing';
 import { getUnavailableDateSet, getUnavailableWeekdaySet, toDateKey } from '../utils/availabilitySchedule';
+import { getStockEta } from '../utils/stockDates';
 import { findFirstAvailable, getOccupiedDates } from '../components/calculator/GarageCalendar';
 import ProjectStatusGrid from '../components/calculator/ProjectStatusGrid';
 // Resolves an image ID to its URL from the images array.
@@ -145,19 +146,33 @@ function isBundleDealActive(deal, now = Date.now()) {
   return !(validFrom && validFrom.getTime() > now) && !(validUntil && validUntil.getTime() <= now);
 }
 
+function isOnHandStock(stock = {}) {
+  const status = String(stock?.status || '').toLowerCase().trim();
+  return status === 'onhand' || status === 'on hand';
+}
+
+function isPreOrderStock(stock = {}) {
+  const status = String(stock?.status || '').toLowerCase().trim();
+  return status.includes('pre') || status.includes('batch') || status.includes('eta');
+}
+
+const BASKET_SELECTION_STORAGE_KEY = 'snorlaxgarage:basket-selection-restore';
+const BASKET_SCROLL_TARGET_STORAGE_KEY = 'snorlaxgarage:basket-scroll-target';
+
 export default function Basket() {
   const { isDarkMode } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
   const { 
     user, isAnonymousUser, basket, shelf, isAdmin, isAdminView, removeFromBasket, kits, userOffers, userOffersLoaded, addToBasket, addProjectToBasket, decrementProjectQuantity,
-    guestBasket, isLoading, setLoginModalOpen, shippingSettings, loadMissingKits, keepOneOfEachToShelf, deals, loadBlueprintProductionStatuses,
+    guestBasket, isLoading, setLoginModalOpen, shippingSettings, loadMissingKits, refreshBasket, keepOneOfEachToShelf, deals, loadBlueprintProductionStatuses,
     orders, printers, rates, projectVault, blueprints
   } = useStore();
   const [isKeepingOnes, setIsKeepingOnes] = useState(false);
   const [offerNow, setOfferNow] = useState(0);
   const [projectProductionStatuses, setProjectProductionStatuses] = useState({});
   const [isProjectStatusLoading, setIsProjectStatusLoading] = useState(false);
+  const restoredScrollTargetRef = useRef('');
   const [manualSelectedIds, setManualSelectedIds] = useState(() => (
     Array.isArray(location.state?.restoreSelectionIds)
       ? location.state.restoreSelectionIds
@@ -172,6 +187,46 @@ export default function Basket() {
   }, []);
 
   const activeBasket = user && !isAnonymousUser ? ((isAdmin && isAdminView) ? shelf : basket) : guestBasket;
+
+  const restoreSelectionIdsFromLocation = location.state?.restoreSelectionIds;
+  const scrollToBasketIdFromLocation = location.state?.scrollToBasketId;
+
+  useEffect(() => {
+    let restoreSelectionIds = Array.isArray(restoreSelectionIdsFromLocation)
+      ? restoreSelectionIdsFromLocation
+      : null;
+
+    if (!restoreSelectionIds && typeof window !== 'undefined') {
+      try {
+        const storedSelection = window.sessionStorage.getItem(BASKET_SELECTION_STORAGE_KEY);
+        restoreSelectionIds = storedSelection ? JSON.parse(storedSelection) : null;
+      } catch (error) {
+        console.warn('SG LOG: Unable to restore basket selection:', error);
+      }
+    }
+
+    if (!Array.isArray(restoreSelectionIds) || activeBasket.length === 0) return;
+
+    const availableBasketIds = new Set(
+      activeBasket.map((item) => item.basketId).filter(Boolean)
+    );
+    const restoredIds = [...new Set(
+      restoreSelectionIds.filter((basketId) => availableBasketIds.has(basketId))
+    )];
+
+    if (restoredIds.length > 0) {
+      setManualSelectedIds((currentIds) => (
+        currentIds.length === restoredIds.length
+          && currentIds.every((basketId) => restoredIds.includes(basketId))
+          ? currentIds
+          : restoredIds
+      ));
+    }
+
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.removeItem(BASKET_SELECTION_STORAGE_KEY);
+    }
+  }, [activeBasket, restoreSelectionIdsFromLocation]);
 
   const projectBlueprintIds = useMemo(() => (
     [...new Set(
@@ -336,10 +391,17 @@ export default function Basket() {
     (deals || []).forEach((deal) => {
       if (deal?.type !== 'clearance' || deal.isActive === false) return;
       const kitIds = deal.clearanceKitIds?.length ? deal.clearanceKitIds : (deal.kitIds || []);
+      const canFulfillOnhand = kitIds.length > 0 && kitIds.every((kitId) => {
+        const kit = (kits || []).find((candidate) => String(candidate.id) === String(kitId));
+        return Boolean(kit && Object.values(kit.stocks || {}).some((stock) => (
+          isOnHandStock(stock) && !stock.isReserved && !stock.order?.orderId
+        )));
+      });
+      if (!canFulfillOnhand) return;
       kitIds.forEach((kitId) => ids.add(kitId));
     });
     return ids;
-  }, [deals]);
+  }, [deals, kits]);
 
   const activeSelection = useMemo(() => {
     const currentBasketIds = activeBasket.map(i => i.basketId);
@@ -374,6 +436,7 @@ export default function Basket() {
     new Set(
       activeBasket
         .filter(item => activeSelection.includes(item.basketId) && item.type !== 'project')
+        .filter(item => isOnHandStock(item))
         .filter(item => clearanceKitIds.has(item.id) || clearanceKitIds.has(String(item.id)))
         .map(item => String(item.id))
     )
@@ -432,6 +495,14 @@ export default function Basket() {
       loadMissingKits(activeBasketIds);
     }
   }, [activeBasket, loadMissingKits]);
+
+  useEffect(() => {
+    if (location.pathname !== '/basket' && location.pathname !== '/shelf') return;
+
+    void refreshBasket().catch((error) => {
+      console.error('SG LOG: Basket refresh on return failed:', error);
+    });
+  }, [isAdmin, isAdminView, isAnonymousUser, location.pathname, refreshBasket, user?.uid]);
 
   useEffect(() => {
     if (isAdmin) {
@@ -525,23 +596,23 @@ export default function Basket() {
       if (item.type === 'project' || (item.bundleId && !item.isClearanceBundle)) return false;
       const kit = kits.find((candidate) => candidate.id === item.id);
       const stock = kit?.stocks?.[item.stockKey];
-      const status = String(stock?.status || item.status || '').toLowerCase();
-      return !status.includes('pre') && !status.includes('batch') && !status.includes('eta');
+      return isOnHandStock(stock || item);
     });
     if (selectedRows.length !== selectedItems.length) return { prices: new Map(), sourceBasketId: '' };
 
-    const rowsByKitId = new Map(selectedRows.map((item) => {
-      const kit = kits.find((candidate) => candidate.id === item.id);
-      const stock = kit?.stocks?.[item.stockKey];
-      return [String(item.id), {
+      const rowsByKitId = new Map(selectedRows.map((item) => {
+        const kit = kits.find((candidate) => candidate.id === item.id);
+        const stock = kit?.stocks?.[item.stockKey];
+        return [String(item.id), {
         item,
         kit,
         kitId: String(item.id),
         refPrice: Number(stock?.sellPrice || item.sellPrice || kit?.sellPrice || item.price || 0),
-        sellPrice: Number(stock?.sellPrice || item.sellPrice || kit?.sellPrice || item.price || 0),
-        costPrice: Number(stock?.costPrice || item.costPrice || 0)
-      }];
-    }));
+          sellPrice: Number(stock?.sellPrice || item.sellPrice || kit?.sellPrice || item.price || 0),
+          costPrice: Number(stock?.costPrice || item.costPrice || 0),
+          isOnHand: isOnHandStock(stock || item)
+        }];
+      }));
 
     const candidates = (deals || [])
       .filter((deal) => deal?.type === 'clearance' && deal.isActive !== false)
@@ -552,7 +623,7 @@ export default function Basket() {
             ? [deal.clearanceKitId]
             : (deal.kitIds || []).slice(0, 1);
         const selectedClearanceKitIds = [...new Set(configuredIds.map(String))]
-          .filter((kitId) => rowsByKitId.has(kitId));
+          .filter((kitId) => rowsByKitId.get(kitId)?.isOnHand);
         if (selectedClearanceKitIds.length === 0) return null;
 
         const rows = [...rowsByKitId.values()];
@@ -715,7 +786,7 @@ export default function Basket() {
     return {
       ...item,
       status: item.status || stock?.status,
-      eta: item.eta || stock?.eta,
+      eta: getStockEta(stock || item),
       minDownpayment: item.minDownpayment ?? stock?.minDownpayment,
       price: getEffectiveItemPrice(item),
       appliedHandlingFee: isBundleOrClearanceItem(item)
@@ -735,6 +806,22 @@ export default function Basket() {
   }, [getEffectiveItemPrice, handlingFee, installmentFee, transferFee, kits]);
 
   const openCheckoutPage = (items, isGuestPreview = !user || isAnonymousUser) => {
+    if (typeof window !== 'undefined' && activeSelection.length > 0) {
+      window.sessionStorage.setItem(
+        BASKET_SELECTION_STORAGE_KEY,
+        JSON.stringify(activeSelection)
+      );
+
+      const firstBasketId = items
+        .flatMap((item) => Array.isArray(item?.basketIds)
+          ? item.basketIds
+          : item?.basketId ? [item.basketId] : [])
+        .find(Boolean);
+      if (firstBasketId) {
+        window.sessionStorage.setItem(BASKET_SCROLL_TARGET_STORAGE_KEY, firstBasketId);
+      }
+    }
+
     navigate('/checkout', {
       state: {
         items,
@@ -764,7 +851,8 @@ export default function Basket() {
         const stock = kit?.stocks?.[item.stockKey];
         
         const status = stock?.status?.toLowerCase() || 'default';
-        const eta = stock?.eta ? `-${stock.eta.toLowerCase().replace(/\s+/g, '-')}` : '';
+        const effectiveEta = getStockEta(stock || item);
+        const eta = effectiveEta ? `-${effectiveEta.toLowerCase().replace(/\s+/g, '-')}` : '';
         const batchIdentifier = `${status}${eta}`;
         
         const key = getBasketValidationKey(item.id, batchIdentifier, item.offerId);
@@ -790,7 +878,8 @@ export default function Basket() {
         
         const availableInBatch = Object.values(kitSource?.stocks || {}).filter(s => {
             const sStatus = s.status?.toLowerCase() || 'default';
-            const sEta = s.eta ? `-${s.eta.toLowerCase().replace(/\s+/g, '-')}` : '';
+            const effectiveEta = getStockEta(s);
+            const sEta = effectiveEta ? `-${effectiveEta.toLowerCase().replace(/\s+/g, '-')}` : '';
             const sBatch = `${sStatus}${sEta}`;
             return sBatch === batchIdentifier && !s.isReserved && !s.order?.orderId;
         }).length;
@@ -841,7 +930,8 @@ export default function Basket() {
         const kit = kits.find(k => k.id === item.id);
         const stock = kit?.stocks?.[item.stockKey];
         const status = stock?.status?.toLowerCase() || 'default';
-        const eta = stock?.eta ? `-${stock.eta.toLowerCase().replace(/\s+/g, '-')}` : '';
+        const effectiveEta = getStockEta(stock || item);
+        const eta = effectiveEta ? `-${effectiveEta.toLowerCase().replace(/\s+/g, '-')}` : '';
         return getBasketValidationKey(item.id, `${status}${eta}`, item.offerId) === key;
       });
 
@@ -898,11 +988,19 @@ export default function Basket() {
     return { totalKits, totalCostPrice, totalSellPrice, possibleProfit };
   }, [isAdmin, isAdminView, activeBasket, getBasketStandalonePrice]);
 
-  const toggleSelection = (basketId) => {
+  const toggleSelectionGroup = useCallback((basketIds = []) => {
+    const ids = [...new Set(basketIds.filter(Boolean))];
+    if (ids.length === 0) return;
+
     setManualSelectedIds(prev => {
-      return prev.includes(basketId) ? prev.filter(id => id !== basketId) : [...prev, basketId];
+      const allGroupItemsSelected = ids.every((basketId) => prev.includes(basketId));
+      if (allGroupItemsSelected) {
+        return prev.filter((basketId) => !ids.includes(basketId));
+      }
+
+      return [...new Set([...prev, ...ids])];
     });
-  };
+  }, []);
 
   const toggleSelectAll = () => {
     if (activeSelection.length === activeBasket.length) {
@@ -1039,6 +1137,47 @@ export default function Basket() {
     return Object.values(grouped).sort((a, b) => (b.sortTime || 0) - (a.sortTime || 0));
   }, [activeBasket]);
 
+  useEffect(() => {
+    let scrollTargetId = scrollToBasketIdFromLocation;
+    if (!scrollTargetId && typeof window !== 'undefined') {
+      scrollTargetId = window.sessionStorage.getItem(BASKET_SCROLL_TARGET_STORAGE_KEY);
+    }
+
+    if (!scrollTargetId || isBasketRowsLoading) return;
+    if (restoredScrollTargetRef.current === scrollTargetId) return;
+
+    const targetRow = [...document.querySelectorAll('[data-basket-row-ids]')]
+      .find((element) => element.dataset.basketRowIds
+        .split('|')
+        .includes(String(scrollTargetId)));
+    if (!targetRow) return;
+
+    const frameId = window.requestAnimationFrame(() => {
+      const rowRect = targetRow.getBoundingClientRect();
+      const navbar = document.querySelector('nav');
+      const basketHeader = document.querySelector('[data-basket-sticky-header]');
+      const basketSeparator = document.querySelector('[data-basket-sticky-separator]');
+      const navbarRect = navbar?.getBoundingClientRect();
+      const basketHeaderRect = basketHeader?.getBoundingClientRect();
+      const basketSeparatorRect = basketSeparator?.getBoundingClientRect();
+      const headerOffset = Math.max(
+        navbarRect?.height || 0,
+        basketHeaderRect?.bottom || 0,
+        basketSeparatorRect?.bottom || 0
+      ) + 16;
+      const nextScrollTop = Math.max(
+        0,
+        window.scrollY + rowRect.top - headerOffset
+      );
+
+      restoredScrollTargetRef.current = scrollTargetId;
+      window.sessionStorage.removeItem(BASKET_SCROLL_TARGET_STORAGE_KEY);
+      window.scrollTo({ top: nextScrollTop, behavior: 'smooth' });
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [groupedItems, isBasketRowsLoading, scrollToBasketIdFromLocation]);
+
   const hasVisibleBasketItems = !isBasketRowsLoading && groupedItems.length > 0;
 
   const basketRows = useMemo(() => {
@@ -1091,7 +1230,7 @@ export default function Basket() {
   return (
     <PageTemplate isDarkMode={isDarkMode}>
       <div className="min-h-screen flex flex-col bg-neutral-50 dark:bg-[#0a0a0a] transition-colors duration-500">
-        <div className="sticky top-[50px] z-[90] h-[60px] w-full bg-neutral-50 dark:bg-[#0a0a0a] border-b border-black/5 dark:border-white/5">
+        <div data-basket-sticky-header className="sticky top-[50px] z-[90] h-[60px] w-full bg-neutral-50 dark:bg-[#0a0a0a] border-b border-black/5 dark:border-white/5">
           <div className="max-w-7xl mx-auto px-4 md:px-8 h-full flex items-center justify-between">
             <div className="flex items-center gap-4">
                 {activeBasket.length > 0 && (
@@ -1141,6 +1280,7 @@ export default function Basket() {
                   return (
                     <div
                       key={row.key}
+                      data-basket-sticky-separator={index === 0 ? true : undefined}
                       className={`sticky top-[110px] z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-2 backdrop-blur-md dark:bg-[#0a0a0a]/90 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${index === 0 ? 'mt-4' : ''}`}
                     >
                       <div className="h-px flex-1 bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
@@ -1186,27 +1326,41 @@ export default function Basket() {
                 const scale = kit?.specs?.scale || item.specs?.scale;
                 
                 const itemStatusLabel = String(stock?.status || item.status || '');
-                const isPreOrder = /pre[-\s]?order/i.test(itemStatusLabel);
+                const isPreOrder = isPreOrderStock(stock || item);
                 const hasMultipleSelectedClearanceKits = selectedClearanceKitIds.size >= 2;
                 const isWinningSelectedClearanceKit = item.basketIds?.includes(
                   selectedClearancePricing.sourceBasketId
                 );
-                const isClearanceKit = item.type !== 'project' && (
+                const isClearanceKit = item.type !== 'project' && isOnHandStock(stock || item) && !isPreOrder && (
                   hasMultipleSelectedClearanceKits
                     ? isSelected && isWinningSelectedClearanceKit
                     : Boolean(item.isClearanceBundle) || clearanceKitIds.has(item.id)
                 );
                 const isBundleDealSelection = selectedBundleDealKitIds.has(item.id);
-                const etaLabel = stock?.eta || item.eta || 'TBA';
+                const isActiveBundleDealItem = item.type !== 'project'
+                  && !item.isClearanceBundle
+                  && Boolean(item.bundleId)
+                  && activeBundleDealIds.has(String(item.bundleId));
+                const etaLabel = getStockEta(stock || item) || 'TBA';
                 const offerHoursLeft = item.offerId && isOfferCheckoutActive(item, offerNow)
                   ? getOfferHoursLeft(item, offerNow)
                   : 0;
                 const shelfCostPrice = Number(item.costPrice ?? stock?.costPrice ?? 0);
                 const shelfSellPrice = Number(item.sellPrice ?? stock?.sellPrice ?? getBasketStandalonePrice(item));
                 const basketPriceComparison = getBasketPriceComparison(item);
+                const bundleStandaloneSellPrice = Number(
+                  item.sellPrice
+                  ?? stock?.sellPrice
+                  ?? item.bundleReferencePrice
+                  ?? basketPriceComparison.standalonePrice
+                  ?? 0
+                );
+                const showBundleStrikethrough = isActiveBundleDealItem
+                  && bundleStandaloneSellPrice > basketPriceComparison.displayPrice;
                 
                 const itemStatus = stock?.status?.toLowerCase() || 'default';
-                const itemEta = stock?.eta ? `-${stock.eta.toLowerCase().replace(/\s+/g, '-')}` : '';
+                const effectiveItemEta = getStockEta(stock || item);
+                const itemEta = effectiveItemEta ? `-${effectiveItemEta.toLowerCase().replace(/\s+/g, '-')}` : '';
                 const itemBatchIdentifier = `${itemStatus}${itemEta}`;
                 const validationKey = getBasketValidationKey(item.id, itemBatchIdentifier, item.offerId);
                 const itemError = validation.itemRules[validationKey];
@@ -1219,7 +1373,9 @@ export default function Basket() {
                 return (
                   <div 
                     key={uniqueGroupKey} 
-                    onClick={() => item.basketIds.forEach(toggleSelection)}
+                    data-basket-row-id={item.basketIds[0] || ''}
+                    data-basket-row-ids={item.basketIds.join('|')}
+                    onClick={() => toggleSelectionGroup(item.basketIds)}
                     className={`${cardClasses} relative`}
                   >
                     {item.type !== 'project' && offerHoursLeft > 0 ? (
@@ -1290,9 +1446,9 @@ export default function Basket() {
                             ? 'text-emerald-600'
                             : 'text-neutral-900 dark:text-white'
                         }`}>₱{basketPriceComparison.displayPrice.toLocaleString()}</p>
-                        {!isAdminView && basketPriceComparison.isDiscounted && (
+                        {!isAdminView && showBundleStrikethrough && (
                           <p className="text-[14px] font-black leading-none text-neutral-500 line-through dark:text-neutral-400">
-                            ₱{basketPriceComparison.standalonePrice.toLocaleString()}
+                            ₱{bundleStandaloneSellPrice.toLocaleString()}
                           </p>
                         )}
                         </div>
@@ -1428,7 +1584,8 @@ export default function Basket() {
                             const kit = kits.find(k => k.id === item.id);
                             const stock = kit?.stocks?.[item.stockKey];
                             const status = stock?.status?.toLowerCase() || 'default';
-                            const eta = stock?.eta ? `-${stock.eta.toLowerCase().replace(/\s+/g, '-')}` : '';
+                            const effectiveEta = getStockEta(stock || item);
+                            const eta = effectiveEta ? `-${effectiveEta.toLowerCase().replace(/\s+/g, '-')}` : '';
                             const batchKey = item.type === 'project' ? 'project' : `${status}${eta}`;
                             return { ...normalizeCheckoutItem(item), batchKey };
                         });
@@ -1458,7 +1615,8 @@ export default function Basket() {
                                           const kit = kits.find(k => k.id === item.id);
                                           const stock = kit?.stocks?.[item.stockKey];
                                           const status = stock?.status?.toLowerCase() || 'default';
-                                          const eta = stock?.eta ? `-${stock.eta.toLowerCase().replace(/\s+/g, '-')}` : '';
+                                          const effectiveEta = getStockEta(stock || item);
+                                          const eta = effectiveEta ? `-${effectiveEta.toLowerCase().replace(/\s+/g, '-')}` : '';
                                           return getBasketValidationKey(item.id, `${status}${eta}`, item.offerId) === key;
                                         });
                                         if (matchingItemsInBasket.length > limit) {
@@ -1532,7 +1690,7 @@ export default function Basket() {
                                           const sorted = [...selectedItems].sort((a, b) => {
                                               const kitA = kits.find(k => k.id === a.id);
                                               const kitB = kits.find(k => k.id === b.id);
-                                              return parseETA(kitA?.stocks?.[a.stockKey]?.eta) - parseETA(kitB?.stocks?.[b.stockKey]?.eta);
+                                              return parseETA(getStockEta(kitA?.stocks?.[a.stockKey])) - parseETA(getStockEta(kitB?.stocks?.[b.stockKey]));
                                           });
                                           newIds = selectedItems.filter(i => i.batchKey === sorted[0].batchKey).map(i => i.basketId);
                                       }

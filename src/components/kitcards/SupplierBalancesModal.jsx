@@ -87,14 +87,19 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
         const cost = Number(stock.costPrice || 0);
         const paid = Number(stock.paidToSupplier || 0);
         const balance = cost - paid;
+        const isPreOrder = stock.status?.toLowerCase().includes('pre') || stock.status?.toLowerCase().includes('batch');
+        const isPaidInFull = cost > 0 && paid >= cost;
 
-        if (balance !== 0) {
+        // Keep outstanding balances and paid pre-orders visible until they
+        // arrive or are explicitly cancelled.
+        if (balance !== 0 || (isPreOrder && isPaidInFull)) {
           items.push({
             ...stock,
             balance,
             cost,
             paid,
-            isPreOrder: stock.status?.toLowerCase().includes('pre') || stock.status?.toLowerCase().includes('batch')
+            isPreOrder,
+            isPaidInFull
           });
         }
       });
@@ -536,9 +541,9 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
 
                         <div className="shrink-0 text-right">
                           <div className="flex items-baseline justify-end gap-2">
-                          <p className="text-[10px] font-black uppercase tracking-widest opacity-40">Balance</p>
-                          <p className={`text-sm font-black italic ${item.balance > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
-                            ₱{item.balance.toLocaleString()}
+                          <p className="text-[10px] font-black uppercase tracking-widest opacity-40">{item.isPaidInFull ? 'Paid' : 'Balance'}</p>
+                          <p className={`text-sm font-black italic ${item.isPaidInFull ? 'text-emerald-500' : item.balance > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
+                            {item.isPaidInFull ? '₱0' : `₱${item.balance.toLocaleString()}`}
                           </p>
                           </div>
                           <div className="mt-2 flex flex-wrap justify-end gap-1">
@@ -553,15 +558,17 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
                                 Arrived
                               </button>
                             )}
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                markPaid(item);
-                              }}
-                              className="rounded-lg bg-blue-600 px-2 py-1 text-[11px] font-black uppercase text-white hover:bg-blue-700 transition-all"
-                            >
-                              Paid
-                            </button>
+                            {!item.isPaidInFull && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  markPaid(item);
+                                }}
+                                className="rounded-lg bg-blue-600 px-2 py-1 text-[11px] font-black uppercase text-white hover:bg-blue-700 transition-all"
+                              >
+                                Paid
+                              </button>
+                            )}
                             {!isOnHand && (
                               <button
                                 onClick={(e) => {

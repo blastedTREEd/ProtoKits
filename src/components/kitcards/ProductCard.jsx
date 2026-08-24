@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { 
-  ShoppingBag, ShoppingBasket, X, Clock, Package, ShelvingUnit, PackageMinus, PackagePlus, PackageX, Calendar, UserCheck, Info,
+  X, Clock, Package, ShelvingUnit, PackageMinus, PackagePlus, PackageX, Calendar, UserCheck, Info,
   ChevronRight, ChevronLeft, Bike, Pencil, Trash2, Bell, Plane, Plus, ArrowBigUpDash, Gift, Zap, Forward
   } from 'lucide-react';
 import { FaQuestion } from 'react-icons/fa';
@@ -13,6 +13,7 @@ import { getBundleDealPricing, getClearanceBundlePricing, getHighestCostStock } 
 import { formatOfferCountdown, isOfferCheckoutActive } from '../../utils/offerUtils';
 import { getStockStandaloneSellPrice } from '../../utils/standalonePricing';
 import { getDealDiscountAmount, getDealGrabLabel, getDealSaveUpToLabel } from '../../utils/dealSavings';
+import { getStockEta } from '../../utils/stockDates';
 
 // Resolves an image ID to its URL from the images array.
 // Backward compatible: if the value is already a URL (base64 or http), returns it directly.
@@ -149,9 +150,8 @@ function getConditionDetails(stock) {
 }
 
 function stockMatchesDealSource(stock, source = 'onhand') {
-  const status = String(stock?.status || '').toLowerCase();
-  const isPreOrder = status.includes('pre') || status.includes('batch');
-  return source === 'preorder' ? isPreOrder : !isPreOrder;
+  const isPreOrder = isPreOrderStock(stock);
+  return source === 'preorder' ? isPreOrder : isOnHandStock(stock);
 }
 
 function isOnHandStock(stock) {
@@ -171,13 +171,13 @@ function getStockCostPrice(stock) {
 
 function getAvailabilityGroupLabel(stock) {
   if (isOnHandStock(stock)) return 'ONHAND';
-  const etaMonth = String(stock?.eta || 'TBA').trim().split(/\s+/)[0] || 'TBA';
+  const etaMonth = String(getStockEta(stock) || 'TBA').trim().split(/\s+/)[0] || 'TBA';
   return `ETA ${etaMonth}`.toUpperCase();
 }
 
 function getAvailabilityGroupKey(prefix, stock) {
   const stockType = isOnHandStock(stock) ? 'onhand' : 'preorder';
-  const etaKey = (stock?.eta || 'TBA').toString().trim().toLowerCase().replace(/\s+/g, '-');
+  const etaKey = (getStockEta(stock) || 'TBA').toString().trim().toLowerCase().replace(/\s+/g, '-');
   return `${prefix}-${stockType}-${etaKey}`;
 }
 
@@ -198,7 +198,7 @@ function getBundleKitPrice(deal, dealKit, allKits = []) {
   if (deal.type === 'clearance') {
     const rows = includedKits.map(k => {
       const stocks = Object.values(k?.stocks || {});
-      const sourceStock = getPreferredDealStock(stocks, deal.stockSource || 'onhand') || stocks[0];
+      const sourceStock = getPreferredDealStock(stocks, 'onhand');
       return {
         kit: k,
         kitId: k.id,
@@ -496,7 +496,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       const key = getAvailabilityGroupKey('availability', s);
       
       if (!groups[key]) {
-        groups[key] = { key, label, items: [], isOnHand, eta: s.eta, tag: 'availability' };
+        groups[key] = { key, label, items: [], isOnHand, eta: getStockEta(s), tag: 'availability' };
       }
       groups[key].items.push(s);
     });
@@ -593,7 +593,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       const isOnHand = isOnHandStock(s);
       const label = getAvailabilityGroupLabel(s);
       const key = getAvailabilityGroupKey('collection', s);
-      if (!groups[key]) groups[key] = { key, label, items: [], isOnHand, eta: s.eta, tag: 'collection' };
+      if (!groups[key]) groups[key] = { key, label, items: [], isOnHand, eta: getStockEta(s), tag: 'collection' };
       groups[key].items.push(s);
     });
     return Object.values(groups).sort((a, b) => {
@@ -627,7 +627,9 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
         isBundlePurchasableStock(stock, source)
         && (isAdminView || !stock.isReserved)
       );
-      const stockSource = deal.stockSource || 'onhand';
+      // Clearance is on-hand only. Pre-order clearance would reserve stock
+      // against a deal while still requiring future logistics fulfillment.
+      const stockSource = 'onhand';
       return dealKitIds.every(dealKitId => {
         const dealKit = dealKitId === kitId ? kit : (allKits || []).find(k => k.id === dealKitId);
         const stocks = Object.values(dealKit?.stocks || {});
@@ -646,7 +648,8 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
             ...(deal.kitIds || []).filter(id => !(deal.previewKitIds || []).includes(id))
           ].filter((id, index, ids) => id && ids.indexOf(id) === index);
       const includedKits = orderedKitIds.map(id => id === kitId ? kit : (allKits || []).find(k => k.id === id)).filter(Boolean);
-      const currentKitStock = stockList.find(stock => isBundlePurchasableStock(stock, deal.stockSource || 'onhand')) || null;
+      const currentStockSource = deal.type === 'clearance' ? 'onhand' : (deal.stockSource || 'onhand');
+      const currentKitStock = stockList.find(stock => isBundlePurchasableStock(stock, currentStockSource)) || null;
       const currentItemPrice = getBundleKitPrice(deal, kit, allKits);
       const bundlePrice = Number(deal.bundlePrice ?? Math.max(0, Number(deal.totalSell || 0) - Number(deal.discountAmount || 0)));
       return {
@@ -684,7 +687,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       label: getAvailabilityGroupLabel(acceptedOfferStock),
       items: [acceptedOfferStock],
       isOnHand: isOnHandStock(acceptedOfferStock),
-      eta: acceptedOfferStock.eta,
+      eta: getStockEta(acceptedOfferStock),
       tag: 'acceptedOffer',
       offer: acceptedOffer
     };
@@ -1150,7 +1153,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       appliedInstallmentFee: itemInstallmentFee,
       appliedTransferFee: itemTransferFee,
       status: stockForBasket.status,
-      eta: stockForBasket.eta,
+      eta: getStockEta(stockForBasket),
       isFreeShippingEligible: stockForBasket.isFreeShippingEligible || false,
       freeShippingUntil: stockForBasket.freeShippingUntil || '',
       freeShippingMethod: stockForBasket.freeShippingMethod || 'All',
@@ -1246,7 +1249,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
           appliedInstallmentFee: installmentFee,
           appliedTransferFee: transferFee,
           status: finalStock.status,
-          eta: finalStock.eta,
+          eta: getStockEta(finalStock),
           isFreeShippingEligible: finalStock.isFreeShippingEligible || false,
           freeShippingUntil: finalStock.freeShippingUntil || '',
           freeShippingMethod: finalStock.freeShippingMethod || 'All',
@@ -1269,7 +1272,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
         appliedInstallmentFee: installmentFee,
         appliedTransferFee: transferFee,
         status: finalStock.status,
-        eta: finalStock.eta,
+        eta: getStockEta(finalStock),
         isFreeShippingEligible: finalStock.isFreeShippingEligible || false,
         freeShippingUntil: finalStock.freeShippingUntil || '',
         freeShippingMethod: finalStock.freeShippingMethod || 'All',
@@ -1713,7 +1716,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                       <p className={`${selectedBundleDealDetails?.deal ? 'text-[15px] md:text-[15px]' : cardIsPreOrder ? 'text-[24px] md:text-[24px]' : 'text-[10px] md:text-[14px]'} font-black italic tracking-tighter leading-none whitespace-nowrap ${selectedBundleDealDetails?.deal ? 'text-emerald-600' : 'text-amber-600'}`}>
                                         {selectedBundleDealDetails?.deal
                                           ? selectedBundleDealDetails.isClearance
-                                            ? <>SAVE UP TO &#8369;{modalClearanceDiscount.toLocaleString()} OFF</>
+                                            ? <>&#8369;{modalClearanceDiscount.toLocaleString()} OFF ELIGIBLE</>
                                             : <>&#8369;{getDealDiscountAmount(activeBundleDeal).toLocaleString()} OFF ELIGIBLE</>
                                           : isLimitedTimeAcceptedOffer
                                             ? 'ACCEPTED OFFER'
@@ -1772,7 +1775,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                       <p className={`${selectedBundleDealDetails?.deal ? 'text-[15px]' : cardIsPreOrder ? 'text-[15px] text-emerald-600' : 'text-[12px]'} font-black italic tracking-[0.05em] leading-none whitespace-nowrap ${selectedBundleDealDetails?.deal ? 'text-emerald-600' : 'text-amber-600'}`}>
                                         {selectedBundleDealDetails?.deal
                                           ? selectedBundleDealDetails.isClearance
-                                            ? <>SAVE UP TO &#8369;{modalClearanceDiscount.toLocaleString()} OFF</>
+                                            ? <>&#8369;{modalClearanceDiscount.toLocaleString()} OFF ELIGIBLE</>
                                             : <>&#8369;{getDealDiscountAmount(activeBundleDeal).toLocaleString()} OFF ELIGIBLE</>
                                           : isLimitedTimeAcceptedOffer
                                             ? 'ACCEPTED OFFER'
@@ -1885,23 +1888,23 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                     handleSelectGroup(bundleGroup);
                                   }
                                 }}
-                                className={`relative space-y-2 rounded-2xl border px-4 py-3 transition-colors duration-300 cursor-pointer ${isSelectedBundlePanel
-                                  ? 'border-red-400 bg-red-500/90 text-white shadow-lg shadow-red-500/30'
-                                  : 'border-black/5 bg-black/5 hover:border-blue-600/50 dark:border-white/10 dark:bg-white/5'}`}
+                                className={`relative space-y-2 rounded-2xl border-2 px-4 py-3 transition-colors duration-300 cursor-pointer ${isSelectedBundlePanel
+                                  ? 'border-blue-600 bg-white text-neutral-900 shadow-lg shadow-blue-600/20 dark:bg-white dark:text-neutral-900'
+                                  : 'border-white/60 bg-white/60 hover:border-blue-600/50 dark:border-white/10 dark:bg-white/5'}`}
                               >
                                 <div className="flex items-start justify-between gap-3 px-1">
                                   <div className="min-w-0 flex-1 text-left">
-                                    <p className={`truncate text-[15px] font-bold uppercase italic leading-tight ${isSelectedBundlePanel ? 'text-white' : 'text-red-500'}`}>{displayName}</p>
+                                    <p className="truncate text-[15px] font-bold uppercase italic leading-tight text-emerald-600">{displayName}</p>
                                   </div>
                                   <div className="shrink-0 pt-0.5 text-right">
-                                    <p className={`text-[12px] font-black uppercase ${isSelectedBundlePanel ? 'text-white' : deal.type !== 'clearance' && getDealCountdownLabel(deal.validUntil) === 'LAST DAY' ? 'text-red-500' : ''}`}>
+                                    <p className={`text-[12px] font-black uppercase text-neutral-900 ${deal.type !== 'clearance' && getDealCountdownLabel(deal.validUntil) === 'LAST DAY' ? 'text-red-500' : ''}`}>
                                       {deal.type === 'clearance' ? '+1 OR MORE KITS' : getDealCountdownLabel(deal.validUntil)}
                                     </p>
                                   </div>
                                 </div>
 
                                 {isSelectedBundlePanel ? (
-                                  <div>
+                                  <div className="space-y-2">
                                     {includedKits.map((includedKit, includedIndex) => {
                                       const bundleKitPrice = Number(getBundleKitPrice(deal, includedKit, allKits) || 0);
                                       const displayedDealPrice = deal.type === 'clearance'
@@ -1927,7 +1930,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                               handleOpenIncludedKit(includedKit, event);
                                             }
                                           }}
-                                          className={`flex w-full cursor-pointer items-center gap-4 py-3 transition-all duration-300 hover:translate-x-0.5 ${includedIndex === 0 ? 'pt-0' : ''} ${includedIndex === includedKits.length - 1 ? 'pb-0' : ''} ${includedIndex > 0 ? 'border-t border-black/5 dark:border-white/10' : ''}`}
+                                          className="grid w-full cursor-pointer grid-cols-[auto,minmax(0,1fr)] items-center gap-x-4 gap-y-2 px-3 py-3 text-neutral-900 transition-all duration-300 hover:translate-x-0.5"
                                         >
                                           <div className="flex items-center justify-center shrink-0">
                                             {resolveImage(includedKit.image, includedKit.images) ? (
@@ -1942,53 +1945,60 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                               </div>
                                             )}
                                           </div>
-                                          <div className="min-w-0 flex-1 text-left">
+                                          <div className="min-w-0 text-left">
                                             <p className="line-clamp-1 text-[15px] font-bold uppercase leading-tight">{includedKit.name}</p>
-                                            <p className={`mt-0.5 truncate text-[15px] font-bold uppercase tracking-widest ${isSelectedBundlePanel ? 'text-white' : 'text-neutral-900 dark:text-white'}`}>
-                                              {[includedKit.brand, includedKit.specs?.line, includedKit.specs?.scale].filter(Boolean).join(' / ') || 'Included Kit'}
+                                            <p className="mt-0.5 truncate text-[15px] font-bold uppercase tracking-widest text-neutral-900">
+                                              {[includedKit.brand, includedKit.specs?.line || includedKit.specs?.scale].filter(Boolean).join(' / ') || 'Included Kit'}
                                             </p>
-                                          </div>
-                                          <div className="text-right shrink-0">
-                                            <p className={`text-[16px] font-black italic ${isSelectedBundlePanel ? 'text-white' : 'text-emerald-600'}`}>
-                                              {deal.type === 'clearance'
-                                                ? `₱${clearanceDiscountShares[includedIndex].toLocaleString()} OFF`
-                                                : `₱${displayedDealPrice.toLocaleString()}`}
-                                            </p>
-                                            {deal.type !== 'clearance' && bundleReferencePrice > 0 && bundleReferencePrice !== displayedDealPrice && (
-                                              <p className={`mt-0.5 text-[15px] font-black line-through ${isSelectedBundlePanel && deal.type === 'clearance' ? 'text-white' : 'text-black'}`}>&#8369;{bundleReferencePrice.toLocaleString()}</p>
-                                            )}
+                                            <div className="mt-1 flex items-baseline justify-between gap-2">
+                                              {deal.type === 'clearance' ? (
+                                                <>
+                                                  <p className="text-[16px] font-black italic text-neutral-900">
+                                                    &#8369;{bundleReferencePrice.toLocaleString()}
+                                                  </p>
+                                                  <p className="text-[16px] font-black italic text-emerald-600">
+                                                    UP TO &#8369;{clearanceDiscountShares[includedIndex].toLocaleString()} OFF
+                                                  </p>
+                                                </>
+                                              ) : (
+                                                <>
+                                                  {bundleReferencePrice > 0 && bundleReferencePrice !== displayedDealPrice && (
+                                                    <p className="text-[15px] font-black text-black line-through">&#8369;{bundleReferencePrice.toLocaleString()}</p>
+                                                  )}
+                                                  <p className="text-[16px] font-black italic text-emerald-600">
+                                                    &#8369;{displayedDealPrice.toLocaleString()}
+                                                  </p>
+                                                </>
+                                              )}
+                                            </div>
                                           </div>
                                         </div>
                                       );
                                     })}
                                     {deal.type === 'clearance' && (
-                                      ['+1 OR MORE KITS'].map((placeholderName) => (
-                                        <div
-                                          key="clearance-expanded-placeholder"
-                                          className="flex w-full items-center gap-4 border-t border-black/5 py-3 dark:border-white/10"
+                                      <div
+                                        className="grid w-full cursor-default grid-cols-[auto,minmax(0,1fr)] items-center gap-x-4 px-3 py-3"
+                                        title="Additional kit required for clearance discount"
+                                        aria-label="Additional kit required for clearance discount"
                                         >
-                                          <div className="flex shrink-0 items-center justify-center">
-                                            <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-xl border border-blue-200 bg-gradient-to-br from-blue-100 via-blue-200 to-blue-400 dark:border-blue-900 dark:from-blue-900 dark:via-blue-800 dark:to-blue-600 md:landscape:h-22 md:landscape:w-40">
-                                              <img
-                                                src="/snorlaxgarage.png"
-                                                className="h-full w-full scale-75 object-contain p-2 opacity-60"
-                                                alt=""
-                                              />
-                                            </div>
+                                        <div className="flex shrink-0 items-center justify-center">
+                                          <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-xl border border-neutral-100 bg-neutral-200 animate-pulse-blue dark:border-neutral-800 dark:bg-neutral-800 md:landscape:h-22 md:landscape:w-40">
+                                            <img src="/snorlaxgarage.png" alt="Loading..." className="h-full w-full object-contain opacity-20" />
                                           </div>
-                                          <div className="min-w-0 flex-1 text-left">
-                                            <p className="line-clamp-1 text-[13px] font-black uppercase leading-tight">{placeholderName}</p>
-                                          </div>
-                                          <div className="shrink-0 text-right">
-                                            <p className="text-[16px] font-black italic text-white">
-                                              &#8369;{clearanceDiscountShares[1].toLocaleString()} OFF
+                                        </div>
+                                        <div className="min-w-0 text-left">
+                                          <p className="line-clamp-1 text-[15px] font-bold uppercase leading-tight">+1 OR MORE KITS</p>
+                                          <div className="mt-1 flex items-baseline justify-between gap-2">
+                                            <p className="text-[16px] font-black italic text-neutral-900">&#8369;???</p>
+                                            <p className="text-[16px] font-black italic text-emerald-600">
+                                              UP TO &#8369;{clearanceDiscountShares[1].toLocaleString()} OFF
                                             </p>
                                           </div>
                                         </div>
-                                      ))
+                                      </div>
                                     )}
                                     <div className="flex justify-end pt-2">
-                                      <p className="text-[16px] font-black uppercase leading-none text-white">
+                                      <p className="text-[16px] font-black uppercase italic leading-none text-emerald-600">
                                         {getDealSaveUpToLabel(deal, { kitCount: includedKits.length })}
                                       </p>
                                     </div>
@@ -1997,40 +2007,47 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                   <div className="space-y-1 px-1 pt-1">
                                     <div className="flex min-w-0 flex-wrap items-center pl-1">
                                       {includedKits.map((includedKit, includedIndex) => (
-                                        <div
-                                          key={includedKit.id}
-                                          className={`h-20 w-20 overflow-hidden rounded-full border-2 border-white bg-neutral-200 shadow-sm dark:bg-neutral-800 ${includedIndex > 0 ? '-ml-1.5' : ''}`}
-                                        >
-                                          {resolveImage(includedKit.image, includedKit.images) ? (
-                                            <img
-                                              src={resolveImage(includedKit.image, includedKit.images)}
-                                              className="h-full w-full object-cover object-[center_25%]"
-                                              alt=""
-                                            />
-                                          ) : (
-                                            <div className="flex h-full w-full items-center justify-center">
-                                              <Package size={10} className="opacity-20" />
+                                        (() => {
+                                          const includedKitImage = resolveImage(includedKit.image, includedKit.images);
+                                          const includedKitImageMeta = (includedKit.images || []).find((image) => (
+                                            image.id === includedKit.image || image.url === includedKit.image
+                                          ));
+                                          const usesBoxArtImage = !includedKitImageMeta || includedKitImageMeta.type === 'BOX ART';
+
+                                          return (
+                                            <div
+                                              key={includedKit.id}
+                                              className={`h-20 w-20 overflow-hidden rounded-full border-2 border-white bg-neutral-200 shadow-sm dark:bg-neutral-800 ${includedIndex > 0 ? '-ml-1.5' : ''}`}
+                                            >
+                                              {includedKitImage ? (
+                                                <img
+                                                  src={includedKitImage}
+                                                  className={`h-full w-full object-cover object-[center_25%] ${usesBoxArtImage ? '' : 'scale-[1.2]'}`}
+                                                  alt=""
+                                                />
+                                              ) : (
+                                                <div className="flex h-full w-full items-center justify-center">
+                                                  <Package size={10} className="opacity-20" />
+                                                </div>
+                                              )}
                                             </div>
-                                          )}
-                                        </div>
+                                          );
+                                        })()
                                       ))}
                                       {deal.type === 'clearance' && Array.from({ length: 1 }, (_, placeholderIndex) => (
                                         <div
                                           key={`clearance-placeholder-${placeholderIndex}`}
-                                          className="-ml-1.5 h-20 w-20 cursor-default overflow-hidden rounded-full border-2 border-blue-200 bg-gradient-to-br from-blue-100 via-blue-200 to-blue-400 shadow-sm dark:border-blue-900 dark:from-blue-900 dark:via-blue-800 dark:to-blue-600"
+                                          className="relative -ml-1.5 flex h-20 w-20 cursor-default items-center justify-center overflow-hidden rounded-full border-2 border-neutral-100 bg-neutral-200 shadow-sm dark:border-neutral-800 dark:bg-neutral-800"
                                           title="Add another kit to unlock the clearance discount"
                                           aria-label="Additional kit required for clearance discount"
                                         >
-                                          <img
-                                            src="/snorlaxgarage.png"
-                                            className="h-full w-full scale-75 object-contain p-2 opacity-60"
-                                            alt=""
-                                          />
+                                          <div className="absolute inset-0 animate-pulse-blue" />
+                                          <img src="/snorlaxgarage.png" alt="Loading..." className="relative z-10 h-full w-full object-contain opacity-20" />
                                         </div>
                                       ))}
                                     </div>
                                     <div className="flex justify-end">
-                                      <p className="text-[15px] font-black italic leading-none text-red-500">
+                                      <p className="text-[15px] font-black italic leading-none text-emerald-600">
                                         {getDealGrabLabel(deal).replace(/^GRAB\b/i, 'GRAB UP TO')}
                                       </p>
                                     </div>
@@ -2100,24 +2117,24 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                               </button>
                             </div>
                           ) : activeBundleDeal && activeBundleItemPrice > 0 && !isAdminView ? (
-                            <div className="flex w-full items-center justify-between gap-3">
-                              <div className="min-w-0 flex-1 px-4 py-3 rounded-2xl border border-black/5 dark:border-white/10">
-                                <div className="flex items-center justify-center text-center text-[14px] font-black uppercase tracking-tight">
+                            <div className={`flex w-full items-stretch justify-between gap-2 ${activeBundleDeal?.type === 'clearance' ? 'flex-row-reverse' : ''}`}>
+                              <div className="min-w-0 basis-0 flex-1 flex items-center justify-center px-2 py-4 rounded-full border border-black/5 dark:border-white/10">
+                                <div className="flex items-center justify-center text-center">
                                   {activeBundleDeal?.type === 'clearance' ? (
-                                    <span className="text-red-500 whitespace-nowrap">
+                                    <span className="text-[16px] font-black italic uppercase leading-none text-emerald-600 whitespace-nowrap">
                                       &#8369;{modalClearanceDiscount.toLocaleString()} OFF ELIGIBLE
                                     </span>
                                   ) : (
-                                    <span className="text-red-500 whitespace-nowrap">
+                                    <span className="text-[16px] font-black italic uppercase leading-none text-emerald-600 whitespace-nowrap">
                                       ₱{activeBundlePrice.toLocaleString()} BUNDLE DEAL
                                     </span>
                                   )}
                                 </div>
                               </div>
-                              <div className="min-w-0 flex-1 flex items-stretch justify-center">
+                              <div className="min-w-0 basis-0 flex-1 flex items-stretch justify-center">
                                 <button 
                                   onClick={() => handleDealCheckout(activeBundleDeal, kitId)} 
-                                  className="w-full flex items-center justify-center gap-2 px-2 py-4 rounded-full text-white font-black italic uppercase text-[12px] tracking-widest shadow-lg transition-all active:scale-95 whitespace-nowrap bg-gradient-to-br from-red-500 to-red-600 shadow-red-500/20"
+                                  className="w-full flex items-center justify-center gap-2 px-2 py-4 rounded-full text-white font-black italic uppercase text-[12px] tracking-widest shadow-lg transition-all active:scale-95 whitespace-nowrap bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-emerald-500/20"
                                 >
                                   <Zap size={14} fill="currentColor" /> {activeBundleDeal?.type === 'clearance' ? 'ADD TO BASKET' : 'GRAB DEAL'}
                                 </button>
@@ -2148,9 +2165,9 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                           ) : (
                                  <div className="flex w-full items-stretch gap-2">
                                    {!isAdminView && (
-                                     <button onClick={handleAddToCart} className="flex-1 flex items-center justify-center gap-2 px-2 py-4 rounded-full font-black italic uppercase text-[12px] tracking-widest transition-all active:scale-95 whitespace-nowrap border-t border-black/5 dark:border-white/10 group/basket bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg shadow-blue-500/20"><ShoppingBasket size={14} strokeWidth={2.5}/> {addToCartLabel}</button>
+                                     <button onClick={handleAddToCart} className="flex-1 flex items-center justify-center gap-2 px-2 py-4 rounded-full font-black italic uppercase text-[12px] tracking-widest transition-all active:scale-95 whitespace-nowrap border-t border-black/5 dark:border-white/10 group/basket bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg shadow-blue-500/20">{addToCartLabel}</button>
                                    )}
-                                   <button onClick={(e) => handleBuyNow(e, selectedStock || visibleStocks[0])} className="flex-1 flex items-center justify-center gap-2 px-2 py-4 rounded-full text-white font-black italic uppercase text-[12px] tracking-widest shadow-2xl transition-all active:scale-95 whitespace-nowrap group/buy bg-gradient-to-br from-amber-500 to-orange-600 shadow-orange-500/30 hover:bg-orange-600">{buyLabel === "RELEASE STOCK" ? <PackageMinus size={14} /> : <ShoppingBag size={14} />}{buyLabel}</button>
+                                   <button onClick={(e) => handleBuyNow(e, selectedStock || visibleStocks[0])} className="flex-1 flex items-center justify-center gap-2 px-2 py-4 rounded-full text-white font-black italic uppercase text-[12px] tracking-widest shadow-2xl transition-all active:scale-95 whitespace-nowrap group/buy bg-gradient-to-br from-amber-500 to-orange-600 shadow-orange-500/30 hover:bg-orange-600">{buyLabel}</button>
                                  </div>
                                  ))}
                       </div>

@@ -11,6 +11,7 @@ import {
   withStockConditionDefaults
 } from '../utils/stockConditions';
 import { normalizeFeederRecord, normalizePrinterRecord } from '../utils/printerCompatibility';
+import { getStockEta } from '../utils/stockDates';
 
 const getKitTimestamp = (kit) => {
   const timestamps = [
@@ -1206,6 +1207,27 @@ export const useStore = create(
         }
       },
 
+      refreshBasket: async () => {
+        const { user, isAnonymousUser, isAdmin, isAdminView } = get();
+
+        if (!user || isAnonymousUser) {
+          const guestBasket = JSON.parse(localStorage.getItem('sg_guest_basket') || '[]');
+          set({ guestBasket });
+          return;
+        }
+
+        const isShelf = isAdmin && isAdminView;
+        const basketRef = isShelf
+          ? collection(db, 'shelf')
+          : collection(db, 'users', user.uid, 'basket');
+        const basketSnap = await getDocs(basketRef);
+        const refreshedItems = basketSnap.docs
+          .map((basketDoc) => ({ ...basketDoc.data(), basketId: basketDoc.id }))
+          .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+
+        set(isShelf ? { shelf: refreshedItems } : { basket: refreshedItems });
+      },
+
       fetchAdmins: () => {
         return onSnapshot(collection(db, "admins"), (snap) => {
           set({ adminsList: snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) });
@@ -1284,7 +1306,7 @@ export const useStore = create(
                     costPrice: Number(stock.costPrice || 0),
                     sellPrice: Number(stock.sellPrice || 0),
                     status: stock.status || 'onhand',
-                    eta: stock.eta || '',
+                    eta: getStockEta(stock),
                     appliedHandlingFee: handlingFee,
                     appliedInstallmentFee: installmentFee,
                     appliedTransferFee: transferFee,
@@ -1365,7 +1387,7 @@ export const useStore = create(
                     costPrice: Number(stock.costPrice || 0),
                     sellPrice: Number(stock.sellPrice || 0),
                     status: stock.status || 'onhand',
-                    eta: stock.eta || '',
+                    eta: getStockEta(stock),
                     appliedHandlingFee: handlingFee,
                     appliedInstallmentFee: installmentFee,
                     appliedTransferFee: transferFee,
@@ -2432,7 +2454,7 @@ export const useStore = create(
           costPrice: Number(stock.costPrice || 0),
           sellPrice: basePrice,
           status: stock.status || 'onhand',
-          eta: stock.eta || '',
+          eta: getStockEta(stock),
           appliedHandlingFee: itemHandlingFee, 
           appliedInstallmentFee: itemInstallmentFee, 
           appliedTransferFee: itemTransferFee,
@@ -3141,7 +3163,7 @@ export const useStore = create(
                 costPrice: Number(stock.costPrice || 0),
                 sellPrice: Number(stock.sellPrice || 0),
                 status: stock.status || 'onhand',
-                eta: stock.eta || '',
+                eta: getStockEta(stock),
                 appliedHandlingFee: handlingFee,
                 appliedInstallmentFee: installmentFee,
                 appliedTransferFee: transferFee,

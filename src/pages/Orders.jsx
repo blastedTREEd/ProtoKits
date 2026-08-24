@@ -16,6 +16,7 @@ import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import LoadingState from '../components/common/LoadingState';
 import { getStandaloneUnitPrice } from '../utils/standalonePricing';
+import { getStockEta } from '../utils/stockDates';
 
 let DefaultIcon = L.icon({ iconUrl: markerIcon, shadowUrl: markerShadow, iconSize: [25, 41], iconAnchor: [12, 41] });
 L.Marker.prototype.options.icon = DefaultIcon;
@@ -749,7 +750,7 @@ export default function Orders() {
     const search = String(manualOrderData.search || '').trim().toLowerCase();
     if (!search) return legacyStockChoices.slice(0, 24);
     return legacyStockChoices.filter(({ kit, stock }) => (
-      [kit.name, kit.brand, kit.specs?.line, kit.specs?.scale, stock.status, stock.eta]
+      [kit.name, kit.brand, kit.specs?.line, kit.specs?.scale, stock.status, getStockEta(stock)]
         .filter(Boolean)
         .join(' ')
         .toLowerCase()
@@ -3016,7 +3017,7 @@ export default function Orders() {
                           const selected = manualOrderData.selectedItems.some(item => item.kitId === kit.id && item.stockKey === stockKey);
                           const image = resolveImage(kit.image, kit.images) || '/snorlaxgarage.png';
                           return <button key={`${kit.id}:${stockKey}`} type="button" disabled={selected} onClick={() => setManualOrderData(prev => ({ ...prev, selectedItems: [...prev.selectedItems, { kitId: kit.id, stockKey, name: kit.name, image, costPrice: Number(stock.costPrice || 0), meta: [kit.brand, kit.specs?.line, stock.status].filter(Boolean).join(' • ') }] }))} className="flex w-full items-center gap-3 rounded-xl border border-black/5 bg-white p-2 text-left transition hover:border-blue-400 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/5 dark:bg-white/[0.03]">
-                            <img src={image} alt="" className="h-12 w-16 rounded-lg object-cover" /><span className="min-w-0 flex-1"><span className="block truncate text-[12px] font-black uppercase">{kit.name}</span><span className="block truncate text-[10px] font-bold uppercase tracking-wider opacity-45">{[kit.brand, kit.specs?.line, stock.status, stock.eta].filter(Boolean).join(' • ')}</span></span><span className="shrink-0 text-right leading-tight"><span className="block text-[12px] font-black text-emerald-600">SELL ₱{Number(stock.sellPrice || kit.sellPrice || 0).toLocaleString()}</span><span className="block text-[10px] font-black opacity-50">COST ₱{Number(stock.costPrice || 0).toLocaleString()}</span></span>
+                            <img src={image} alt="" className="h-12 w-16 rounded-lg object-cover" /><span className="min-w-0 flex-1"><span className="block truncate text-[12px] font-black uppercase">{kit.name}</span><span className="block truncate text-[10px] font-bold uppercase tracking-wider opacity-45">{[kit.brand, kit.specs?.line, stock.status, getStockEta(stock)].filter(Boolean).join(' • ')}</span></span><span className="shrink-0 text-right leading-tight"><span className="block text-[12px] font-black text-emerald-600">SELL ₱{Number(stock.sellPrice || kit.sellPrice || 0).toLocaleString()}</span><span className="block text-[10px] font-black opacity-50">COST ₱{Number(stock.costPrice || 0).toLocaleString()}</span></span>
                           </button>;
                         })}
                         {filteredLegacyStockChoices.length === 0 && <p className="p-5 text-center text-[11px] font-black uppercase tracking-widest opacity-40">No available non-collection stock found</p>}
@@ -3072,7 +3073,7 @@ export default function Orders() {
                       <select className="w-full p-4 rounded-xl border bg-transparent text-xs font-black" value={manualOrderData.selectedStockKey} onChange={(e) => setManualOrderData(prev => ({...prev, selectedStockKey: e.target.value}))} required>
                         <option value="">-- Choose Stock Variant --</option>
                         {availableStocks.map(s => (
-                          <option key={s.key} value={s.key}>{s.status} {s.eta ? `(${s.eta})` : ''} - ₱{s.sellPrice?.toLocaleString()}</option>
+                          <option key={s.key} value={s.key}>{s.status} {getStockEta(s) ? `(${getStockEta(s)})` : ''} - ₱{s.sellPrice?.toLocaleString()}</option>
                         ))}
                       </select>
                     </div>

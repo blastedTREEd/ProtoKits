@@ -20,6 +20,7 @@ import DynamicShippingForm from './DynamicShippingForm';
 import PolicyModal from '../menu/PolicyModal';
 import { getIntegerFeeShare, getStockStandaloneSellPrice, isBundleOrClearanceItem } from '../../utils/standalonePricing';
 import { getBundleDealPricing, getClearanceBundlePricing } from '../../utils/bundlePricing';
+import { getStockEta } from '../../utils/stockDates';
 import {
   formatAvailabilityDate,
   getNextAvailableDate,
@@ -146,9 +147,14 @@ const isPreOrderStock = (stock = {}, fallbackStatus = '') => {
   return status.includes('pre') || status.includes('batch') || status.includes('eta');
 };
 
+const isOnHandStock = (stock = {}, fallbackStatus = '') => {
+  const status = String(stock.status || fallbackStatus || '').toLowerCase().trim();
+  return status === 'onhand' || status === 'on hand';
+};
+
 const stockMatchesCheckoutDealSource = (stock, item, source = 'onhand') => {
   const isPreOrder = isPreOrderStock(stock, item?.status);
-  return source === 'preorder' ? isPreOrder : !isPreOrder;
+  return source === 'preorder' ? isPreOrder : isOnHandStock(stock, item?.status);
 };
 
 const normalizeDealKitIds = (value) => {
@@ -176,7 +182,7 @@ const isOnhandKitItem = (item, kits = []) => {
   if (isProjectCheckoutItem(item)) return false;
   const kit = findCheckoutKit(kits, item);
   const stock = kit?.stocks?.[item?.stockKey];
-  return String(item?.status || stock?.status || '').trim().toLowerCase() === 'onhand';
+  return isOnHandStock(stock, item?.status);
 };
 
 const getClearanceDealKitIds = (deal) => {
@@ -344,7 +350,10 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
         return stockMatchesCheckoutDealSource(stock || {}, item, 'onhand');
       })
       : [];
-    const selectedClearanceKitIds = clearanceKitIds.filter(kitId => itemByKitId.has(kitId));
+    const selectedClearanceKitIds = clearanceKitIds.filter(kitId => {
+      const item = itemByKitId.get(kitId);
+      return item && isOnhandKitItem(item, kits);
+    });
     if (isClearanceDeal && (selectedClearanceKitIds.length === 0 || clearanceRows.length < 2)) return;
 
     // A normal bundle always wins over clearance for the same kit. This
@@ -3132,11 +3141,21 @@ const handleFinalizeOrder = async () => {
       const clearanceSourceKitId = item.clearanceSourceKitId || clearanceKitIds[0];
       const isClearanceSource = item.isClearanceBundle === true
         && clearanceSourceKitId
-        && String(clearanceSourceKitId) === String(itemKitId);
+        && String(clearanceSourceKitId) === String(itemKitId)
+        && isOnhandKitItem(item, kits);
       const isClearanceDealItem = !isProjectCheckoutItem(item) && isClearanceSource;
       const isBundleDealItem = !isProjectCheckoutItem(item)
         && item.isBundleItem === true
         && item.isClearanceBundle !== true;
+      const isPreOrderItem = isPreOrderKitItem(item, kits);
+      const etaLabel = getStockEta(kit?.stocks?.[item?.stockKey] || item);
+      const dealTag = isBundleDealItem
+        ? 'BUNDLE DEAL'
+        : isClearanceDealItem
+          ? 'CLEARANCE'
+          : isPreOrderItem && etaLabel
+            ? etaLabel
+            : '';
       return {
         id: item.basketId || item.stockKey || item.id || idx,
         image: displayImage,
@@ -3148,11 +3167,8 @@ const handleFinalizeOrder = async () => {
         standaloneUnitPrice,
         isBundleItem: isBundleOrClearanceItem(item),
         isClearanceSource,
-        dealTag: isBundleDealItem
-          ? 'BUNDLE DEAL'
-          : isClearanceDealItem
-            ? 'CLEARANCE'
-            : '',
+        isPreOrder: isPreOrderItem,
+        dealTag,
         isClearanceDealItem,
         isDiscounted
       };
@@ -3358,7 +3374,11 @@ const handleFinalizeOrder = async () => {
                   <div key={`${row.id}-${idx}`} className="relative grid grid-cols-[5rem_minmax(0,1fr)_auto] gap-3 rounded-2xl border border-black/5 bg-white p-3 dark:border-white/5 dark:bg-neutral-900 lg:grid-cols-[18rem_minmax(0,1fr)_auto]">
                     {row.dealTag && (
                       <span className={`absolute left-0 bottom-5 z-10 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm ${
-                        row.isClearanceDealItem ? 'bg-red-500' : 'bg-emerald-600'
+                        row.isClearanceDealItem
+                          ? 'bg-red-500'
+                          : row.isPreOrder
+                            ? 'bg-blue-600'
+                            : 'bg-emerald-600'
                       }`}>
                         {row.dealTag}
                       </span>

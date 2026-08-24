@@ -18,6 +18,7 @@ import { getCheckoutPaymentFees } from '../utils/paymentSettings';
 import { getBundleDealPricing, getClearanceBundlePricing, getHighestCostStock } from '../utils/bundlePricing';
 import { isOfferCheckoutActive } from '../utils/offerUtils';
 import { getDealGrabLabel } from '../utils/dealSavings';
+import { getStockEta } from '../utils/stockDates';
 
 // --- Spectral gradient helpers (mirrored from ProductCard) ---
 const SPECTRAL_GRADIENTS = [
@@ -87,9 +88,10 @@ function getOrderedKits(kits, kitIds) {
 }
 
 function stockMatchesDealSource(stock, source = 'onhand') {
-  const status = String(stock?.status || '').toLowerCase();
-  const isPreOrder = status.includes('pre') || status.includes('batch');
-  return source === 'preorder' ? isPreOrder : !isPreOrder;
+  const status = String(stock?.status || '').toLowerCase().trim();
+  const isPreOrder = status.includes('pre') || status.includes('batch') || status.includes('eta');
+  const isOnHand = status === 'onhand' || status === 'on hand';
+  return source === 'preorder' ? isPreOrder : isOnHand;
 }
 
 function isBundlePurchasableStock(stock, source = 'onhand') {
@@ -448,7 +450,7 @@ export default function Kits({ isActive = true }) {
         ).join(' ');
 
         // Kunin at pagsama-samahin ang lahat ng ETA values na nasa stocks ng kit na ito
-        const stockEtas = stocksArray.map(s => (s.eta || '').toLowerCase()).join(' ');
+        const stockEtas = stocksArray.map(s => getStockEta(s).toLowerCase()).join(' ');
 
         const hasFreeShipping = stocksArray.some(s => {
           if (!s.isFreeShippingEligible) return false;
@@ -505,7 +507,7 @@ export default function Kits({ isActive = true }) {
             const monthRegex = new RegExp(`\\b${word}|\\b${matchedFullMonth.slice(0,3)}`, 'i');
             
             if (stocksArray.some(s => {
-              const etaText = (s.eta || '').toLowerCase();
+              const etaText = getStockEta(s).toLowerCase();
               if (!etaText) return false;
 
               // Match 1: Tumutugma ba ang text sa pangalan ng buwan?
@@ -678,7 +680,7 @@ export default function Kits({ isActive = true }) {
         const kit = (storeKits || []).find((candidate) => candidate.id === kitId);
         if (!kit) return false;
         return Object.values(kit.stocks || {}).some((stock) => (
-          isBundlePurchasableStock(stock, deal.stockSource || 'onhand')
+          isBundlePurchasableStock(stock, 'onhand')
         ));
       })
     ));
@@ -881,7 +883,7 @@ export default function Kits({ isActive = true }) {
         name: clearanceKit.name,
         stockKey: availableStock.key,
         status: availableStock.status || 'onhand',
-        eta: availableStock.eta || '',
+        eta: getStockEta(availableStock),
         costPrice: Number(availableStock.costPrice || 0),
         sellPrice: Number(availableStock.sellPrice || clearanceKit.sellPrice || 0),
         price: Number(availableStock.sellPrice || clearanceKit.sellPrice || 0) + handlingFee + installmentFee + transferFee,

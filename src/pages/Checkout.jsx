@@ -27,7 +27,10 @@ export default function Checkout() {
     if (returnPath && restoreSelectionIds.length > 0) {
       navigate(returnPath, {
         replace: true,
-        state: { restoreSelectionIds }
+        state: {
+          restoreSelectionIds,
+          scrollToBasketId: restoreSelectionIds[0]
+        }
       });
       return;
     }

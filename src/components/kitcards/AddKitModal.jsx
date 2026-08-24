@@ -50,6 +50,7 @@ const DEFAULT_MASTER = {
 
 const DEFAULT_STOCK = {
   status: 'Onhand',
+  deliveryMonth: '',
   eta: '',
   costPrice: '',
   paidToSupplier: '',
@@ -93,7 +94,8 @@ function getLocalDatetime() {
 
 function hasStockDetails(stock, masterImage = '') {
   return Boolean(
-    stock.eta ||
+    stock.deliveryMonth ||
+      stock.eta ||
       stock.costPrice ||
       stock.paidToSupplier ||
       stock.sellPrice ||
@@ -369,7 +371,8 @@ function getEtaSortValue(eta) {
 }
 
 function formatEtaFromMonthCode(value) {
-  const cleaned = value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3);
+  const normalized = String(value || '').trim().toUpperCase();
+  const cleaned = normalized.replace(/[^A-Z]/g, '').slice(0, 3);
   if (!cleaned) return '';
 
   const matchedMonth = MONTH_CODES.find((code) => code.startsWith(cleaned));
@@ -380,9 +383,32 @@ function formatEtaFromMonthCode(value) {
   const currentMonthIndex = now.getMonth();
   const currentYear = now.getFullYear();
   const targetMonthIndex = MONTH_CODES.indexOf(matchedMonth);
-  const targetYear = targetMonthIndex < currentMonthIndex ? currentYear + 1 : currentYear;
+  const suppliedYear = normalized.match(/\b(20\d{2})\b/)?.[1];
+  const targetYear = suppliedYear
+    ? Number(suppliedYear)
+    : (targetMonthIndex < currentMonthIndex ? currentYear + 1 : currentYear);
 
   return `${matchedMonth} ${targetYear}`;
+}
+
+function shiftMonthLabel(value, offset) {
+  const normalized = formatEtaFromMonthCode(value);
+  if (!normalized) return '';
+
+  const parsed = Date.parse(`${normalized} 1`);
+  if (Number.isNaN(parsed)) return '';
+
+  const shifted = new Date(parsed);
+  shifted.setMonth(shifted.getMonth() + offset);
+  return `${MONTH_CODES[shifted.getMonth()]} ${shifted.getFullYear()}`;
+}
+
+function getEtaFromDeliveryMonth(value) {
+  return shiftMonthLabel(value, 1);
+}
+
+function getDeliveryMonthFromEta(value) {
+  return shiftMonthLabel(value, -1);
 }
 
 function normalizeStockStatus(status) {
@@ -1170,6 +1196,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
     setStockForm((prev) => withStockConditionDefaults({
       ...prev,
       status: normalizedStatus,
+      deliveryMonth: normalizedStatus === 'Onhand' ? '' : prev.deliveryMonth,
       eta: normalizedStatus === 'Onhand' ? '' : prev.eta,
       paidToSupplier: normalizedStatus === 'Onhand' ? prev.costPrice : prev.paidToSupplier,
       isFreeShippingEligible: normalizedStatus === 'Onhand' ? false : prev.isFreeShippingEligible,
@@ -1182,14 +1209,14 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
     }));
   };
 
-  const handleEtaChange = (value) => {
-    updateStock('eta', value);
+  const handleDeliveryMonthChange = (value) => {
+    updateStock('deliveryMonth', value);
   };
 
-  const handleEtaBlur = () => {
+  const handleDeliveryMonthBlur = () => {
     setStockForm((prev) => ({
       ...prev,
-      eta: prev.eta ? formatEtaFromMonthCode(prev.eta) : ''
+      deliveryMonth: prev.deliveryMonth ? formatEtaFromMonthCode(prev.deliveryMonth) : ''
     }));
   };
 
@@ -1285,6 +1312,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
     setStockForm(withStockConditionDefaults({
       ...DEFAULT_STOCK,
       status: latestEta ? 'Pre-Order' : 'Onhand',
+      deliveryMonth: latestEta ? getDeliveryMonthFromEta(latestEta) : '',
       eta: latestEta,
       publicReleaseDate: '',
       boxImage: masterForm.image || '',
@@ -1300,6 +1328,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
     setStockMode('edit');
     setStockForm(withStockConditionDefaults({
       status: normalizedStatus,
+      deliveryMonth: stockItem.deliveryMonth || getDeliveryMonthFromEta(stockItem.eta),
       eta: stockItem.eta || '',
       costPrice: stockItem.costPrice ?? '',
       paidToSupplier:
@@ -1341,6 +1370,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
     setStockMode('new');
     setStockForm(withStockConditionDefaults({
       status: normalizedStatus,
+      deliveryMonth: stockItem.deliveryMonth || getDeliveryMonthFromEta(stockItem.eta),
       eta: stockItem.eta || '',
       costPrice: stockItem.costPrice ?? '',
       paidToSupplier:
@@ -1577,11 +1607,18 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       payload.stockUpdateKey = editingStockKey || undefined;
       
       const existingStock = editingStockKey ? (selectedExistingKit?.stocks?.[editingStockKey] || {}) : {};
+      const deliveryMonth = stockForm.status === 'Onhand'
+        ? ''
+        : (stockForm.deliveryMonth || getDeliveryMonthFromEta(stockForm.eta));
+      const calculatedEta = stockForm.status === 'Onhand'
+        ? ''
+        : (getEtaFromDeliveryMonth(deliveryMonth) || stockForm.eta.trim().toUpperCase());
       
       payload.newStock = withStockConditionDefaults({
         ...existingStock,
         status: stockForm.status,
-        eta: stockForm.eta.trim().toUpperCase(),
+        deliveryMonth,
+        eta: calculatedEta,
         costPrice: normalizeNumber(stockForm.costPrice),
         paidToSupplier: normalizeNumber(stockForm.paidToSupplier),
         sellPrice: normalizeNumber(stockForm.sellPrice),
@@ -1679,7 +1716,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       // jpPrice: sanitizeRealNumberInput(getBatchValue(row, 'JP PRICE', 'JAPAN PRICE') || masterForm.jpPrice),
       phPrice: sanitizeRealNumberInput(getBatchValue(row, 'PH PRICE', 'PHP PRICE') || masterForm.phPrice),
       status,
-      eta: status === 'Onhand' ? '' : getBatchValue(row, 'ETA / BATCH LABEL', 'ETA', 'BATCH').trim().toUpperCase(),
+      deliveryMonth: status === 'Onhand' ? '' : getBatchValue(row, 'DELIVERY MONTH', 'ETA / BATCH LABEL', 'ETA', 'BATCH').trim().toUpperCase(),
       costPrice,
       paidToSupplier: sanitizeRealNumberInput(
         getBatchValue(row, 'PAID TO SUPPLIER', 'PAID') || (status === 'Onhand' ? costPrice : '')
@@ -1704,7 +1741,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
     const errors = [];
     if (!row.name?.trim()) errors.push('Kit name required');
     if (!row.sellPrice || normalizeNumber(row.sellPrice) <= 0) errors.push('Sell price required');
-    if (row.status !== 'Onhand' && !row.eta?.trim()) errors.push('ETA required for pre-order');
+    if (row.status !== 'Onhand' && !row.deliveryMonth?.trim()) errors.push('Delivery month required for pre-order');
     return errors;
   };
 
@@ -1712,7 +1749,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
     setBatchPreviewRows((prev) =>
       prev.map((row) => {
         if (row.id !== rowId) return row;
-        if (typeof value === 'string' && ['name', 'brand', 'series', 'grade', 'ratio', 'eta', 'boxCondition', 'kitCondition', 'keepNow'].includes(field)) {
+        if (typeof value === 'string' && ['name', 'brand', 'series', 'grade', 'ratio', 'deliveryMonth', 'boxCondition', 'kitCondition', 'keepNow'].includes(field)) {
           value = value.toUpperCase();
         }
         const next = { ...row, [field]: value };
@@ -1736,7 +1773,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
             next.kitCondition = normalizedOnhand.kitCondition;
           }
           if (next.status === 'Onhand') {
-            next.eta = '';
+            next.deliveryMonth = '';
             next.paidToSupplier = next.paidToSupplier || next.costPrice;
           }
         }
@@ -1798,7 +1835,8 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       updateMasterOnly: false,
       newStock: {
         status,
-        eta: status === 'Onhand' ? '' : row.eta.trim().toUpperCase(),
+        deliveryMonth: status === 'Onhand' ? '' : row.deliveryMonth.trim().toUpperCase(),
+        eta: status === 'Onhand' ? '' : (getEtaFromDeliveryMonth(row.deliveryMonth) || row.deliveryMonth.trim().toUpperCase()),
         costPrice: normalizeNumber(row.costPrice),
         paidToSupplier: normalizeNumber(row.paidToSupplier),
         sellPrice: normalizeNumber(row.sellPrice),
@@ -1965,7 +2003,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       ['MASTER JAPAN PRICE', ({ kit }) => kit.jpPrice],
       ['MASTER PHP PRICE', ({ kit }) => kit.phPrice],
       ['STATUS', ({ stock }) => stock.status],
-      ['ETA / BATCH LABEL', ({ stock }) => stock.eta],
+      ['DELIVERY MONTH', ({ stock }) => stock.deliveryMonth || getDeliveryMonthFromEta(stock.eta)],
       ['PUBLIC RELEASE DATE', ({ stock }) => stock.publicReleaseDate],
       ['COST PRICE', ({ stock }) => stock.costPrice],
       ['PAID TO SUPPLIER', ({ stock }) => stock.paidToSupplier],
@@ -2393,7 +2431,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                         <table className="min-w-[1320px] border-collapse text-left text-[10px]">
                                             <thead className="bg-blue-600">
                                                 <tr>
-                                                    {['Row', 'Status', 'Kit Name', 'Brand', 'Series', 'Grade', 'Ratio', 'PH', 'Availability', 'ETA', 'Cost', 'Paid', 'Sell', 'DP', 'Keep', ''].map((header) => (
+                                                    {['Row', 'Status', 'Kit Name', 'Brand', 'Series', 'Grade', 'Ratio', 'PH', 'Availability', 'Delivery Month', 'Cost', 'Paid', 'Sell', 'DP', 'Keep', ''].map((header) => (
                                                         <th key={header} className="sticky top-0 z-10 border-b border-white/10 px-3 py-2  text-white text-[9px] uppercase tracking-[0.18em]">
                                                             {header}
                                                         </th>
@@ -2433,7 +2471,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                                     <option value="Pre-Order">Pre-Order</option>
                                                                 </select>
                                                             </td>
-                                                            <td className="px-2 py-2"><input value={row.eta} onChange={(event) => updateBatchPreviewRow(row.id, 'eta', event.target.value.toUpperCase())} disabled={row.status === 'Onhand'} className={`${batchInputClass} min-w-[7rem] disabled:opacity-40`} /></td>
+                                                            <td className="px-2 py-2"><input value={row.deliveryMonth} onChange={(event) => updateBatchPreviewRow(row.id, 'deliveryMonth', event.target.value.toUpperCase())} disabled={row.status === 'Onhand'} className={`${batchInputClass} min-w-[7rem] disabled:opacity-40`} /></td>
                                                             <td className="px-2 py-2"><input value={row.costPrice} onChange={(event) => updateBatchPreviewRow(row.id, 'costPrice', event.target.value)} className={`${batchInputClass} min-w-[6rem]`} /></td>
                                                             <td className="px-2 py-2"><input value={row.paidToSupplier} onChange={(event) => updateBatchPreviewRow(row.id, 'paidToSupplier', event.target.value)} className={`${batchInputClass} min-w-[6rem]`} /></td>
                                                             <td className="px-2 py-2"><input value={row.sellPrice} onChange={(event) => updateBatchPreviewRow(row.id, 'sellPrice', event.target.value)} className={`${batchInputClass} min-w-[6rem]`} /></td>
@@ -3022,12 +3060,12 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                             </div>
 
                                             <div>
-                                                <label className={labelClass}>ETA / Batch Label</label>
+                                                <label className={labelClass}>Delivery Month</label>
                                                 <input
-                                                value={stockForm.eta}
-                                                onChange={(event) => handleEtaChange(event.target.value)}
-                                                onBlur={handleEtaBlur}
-                                                placeholder={stockForm.status === 'Onhand' ? 'AVAILABLE' : 'MAY'}
+                                                value={stockForm.deliveryMonth}
+                                                onChange={(event) => handleDeliveryMonthChange(event.target.value)}
+                                                onBlur={handleDeliveryMonthBlur}
+                                                placeholder={stockForm.status === 'Onhand' ? 'AVAILABLE' : 'AUG 2026'}
                                                 className={inputClass}
                                                 disabled={stockForm.status === 'Onhand'}
                                                 />
