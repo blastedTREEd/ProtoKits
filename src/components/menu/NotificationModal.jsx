@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AnimatePresence, motion as Motion, useDragControls } from 'framer-motion';
+import { AnimatePresence, motion as Motion, useDragControls, useMotionValue } from 'framer-motion';
 import {
   AlertTriangle,
   BadgeDollarSign,
@@ -212,6 +212,9 @@ export default function NotificationModal({
   const notificationListRef = useRef(null);
   const dragControls = useDragControls();
   const swipingNotificationRef = useRef(null);
+  const contentGestureRef = useRef(null);
+  const panelDragY = useMotionValue(0);
+  const [isContentDragging, setIsContentDragging] = useState(false);
   const [isNotificationListAtEnd, setIsNotificationListAtEnd] = useState(false);
   const swipeDismissOffset = allowSwipeDismiss ? 40 : 90;
   const shouldSlideUpOnExit = isFullscreen || allowSwipeDismiss;
@@ -252,7 +255,15 @@ export default function NotificationModal({
   }, [isFullscreen, isOpen, notifications.length, updateNotificationListPosition]);
 
   useEffect(() => {
+    if (isOpen) {
+      panelDragY.set(0);
+      setIsContentDragging(false);
+    }
+  }, [isOpen, panelDragY]);
+
+  useEffect(() => {
     if (!isOpen || isFullscreen) return undefined;
+    if (typeof window !== 'undefined' && window.innerWidth < 1024) return undefined;
 
     const handleOutsideScroll = (event) => {
       if (panelRef.current?.contains(event.target)) return;
@@ -275,11 +286,7 @@ export default function NotificationModal({
     if (!isOpen || !isFullscreen) return undefined;
 
     window.dispatchEvent(new Event('notificationFullscreenOpen'));
-    const handlePageScroll = () => onClose?.();
-    window.addEventListener('scroll', handlePageScroll, { passive: true });
-
     return () => {
-      window.removeEventListener('scroll', handlePageScroll);
       window.dispatchEvent(new Event('notificationFullscreenClose'));
     };
   }, [isOpen, isFullscreen, onClose]);
@@ -309,15 +316,72 @@ export default function NotificationModal({
     // Keep controls interactive until the user has reached the final
     // notification. At the bottom, the whole sheet can be dragged upward.
     if (!isNotificationListAtEnd) return;
-    if (event.target.closest('button, a, input, textarea, select, [role="button"]')) return;
-    startPanelDrag(event);
+    if (event.target.closest('button, a, input, textarea, select')) return;
+    contentGestureRef.current = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      direction: null,
+      dragged: false
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+
+  const handleNotificationListPointerMove = (event) => {
+    const gesture = contentGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+
+    const deltaY = event.clientY - gesture.startY;
+    if (!gesture.direction) {
+      if (Math.abs(deltaY) < 6) return;
+      if (deltaY > 0) {
+        event.currentTarget.releasePointerCapture?.(event.pointerId);
+        contentGestureRef.current = null;
+        return;
+      }
+      gesture.direction = 'up';
+    }
+
+    if (gesture.direction === 'up') {
+      event.preventDefault();
+      gesture.dragged = true;
+      setIsContentDragging(true);
+      panelDragY.set(Math.max(-420, Math.min(0, deltaY)));
+    }
+  };
+
+  const finishNotificationListGesture = (event) => {
+    const gesture = contentGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+
+    const deltaY = event.clientY - gesture.startY;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    contentGestureRef.current = null;
+    if (gesture.direction === 'up') {
+      if (deltaY < -90) {
+        setIsContentDragging(false);
+        panelDragY.set(0);
+        onClose?.();
+      } else {
+        setIsContentDragging(false);
+        panelDragY.set(0);
+      }
+    }
   };
 
   return (
     <AnimatePresence>
       {isOpen && (
       <>
-      {isFullscreen && dimBackdrop && <div className="fixed inset-0 z-[100] bg-black/30" onClick={onClose} />}
+      {isFullscreen && (
+        <Motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.25, ease: 'easeOut' }}
+          className={`fixed inset-0 z-[100] ${dimBackdrop ? 'bg-black/30' : 'bg-transparent'}`}
+          onClick={onClose}
+        />
+      )}
 
       <div
         style={isFullscreen ? panelStyle : undefined}
@@ -325,7 +389,7 @@ export default function NotificationModal({
       >
         <Motion.div
           ref={panelRef}
-          style={isFullscreen ? undefined : panelStyle}
+          style={isFullscreen ? (isContentDragging ? { y: panelDragY } : undefined) : panelStyle}
           initial={isFullscreen ? { y: '-100%', opacity: 0 } : { y: -18, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           exit={shouldSlideUpOnExit ? { y: '-100%', opacity: 0 } : { y: -18, opacity: 0 }}
@@ -345,9 +409,13 @@ export default function NotificationModal({
         <div className={`${isFullscreen ? 'flex h-full max-h-full flex-col rounded-b-[2.5rem]' : 'rounded-[1.5rem]'} overflow-hidden border ${isDarkMode ? 'border-white/10 bg-[#0a0a0a]' : 'border-black/10 bg-white'}`}>
           <div
             ref={notificationListRef}
+            data-modal-scroll-container="notification"
             style={listStyle}
             onPointerDown={isFullscreen ? handleNotificationListPointerDown : undefined}
-            className={`${isFullscreen ? 'min-h-0 flex-1' : 'max-h-[min(68vh,560px)]'} overscroll-contain overflow-y-auto space-y-2 p-2 ${isFullscreen ? 'flex flex-col' : ''} ${isFullscreen && isNotificationListAtEnd ? 'touch-none' : ''}`}
+            onPointerMove={isFullscreen ? handleNotificationListPointerMove : undefined}
+            onPointerUp={isFullscreen ? finishNotificationListGesture : undefined}
+            onPointerCancel={isFullscreen ? finishNotificationListGesture : undefined}
+            className={`${isFullscreen ? 'min-h-0 flex-1' : 'max-h-[min(68vh,560px)]'} overscroll-contain overflow-y-auto space-y-2 p-2 ${isFullscreen ? 'flex flex-col touch-pan-y' : ''}`}
           >
             <div className="space-y-2">
               {notifications.length === 0 ? (
@@ -377,28 +445,16 @@ export default function NotificationModal({
                   transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
                   role="button"
                   tabIndex={0}
-                  drag={allowSwipeDismiss ? (isNotificationListAtEnd ? 'xy' : 'x') : false}
+                  drag={allowSwipeDismiss ? 'x' : false}
                   dragSnapToOrigin={allowSwipeDismiss}
                   dragDirectionLock
-                  dragConstraints={allowSwipeDismiss
-                    ? (isNotificationListAtEnd
-                      ? { left: 0, right: 240, top: -420, bottom: 0 }
-                      : { left: 0, right: 240 })
-                    : undefined}
-                  dragElastic={allowSwipeDismiss
-                    ? (isNotificationListAtEnd
-                      ? { left: 0, right: 0.2, top: 0.2, bottom: 0 }
-                      : { left: 0, right: 0.2 })
-                    : undefined}
+                  dragConstraints={allowSwipeDismiss ? { left: 0, right: 240 } : undefined}
+                  dragElastic={allowSwipeDismiss ? { left: 0, right: 0.2 } : undefined}
                   dragMomentum={false}
                   onDragStart={() => {
                     swipingNotificationRef.current = order.id;
                   }}
                   onDragEnd={(event, info) => {
-                    if (allowSwipeDismiss && isNotificationListAtEnd && (info.offset.y < -90 || info.velocity.y < -500)) {
-                      onClose?.();
-                      return;
-                    }
                     if (allowSwipeDismiss && (info.offset.x > swipeDismissOffset || info.velocity.x > 400)) {
                       onDismissNotification?.(order);
                     }

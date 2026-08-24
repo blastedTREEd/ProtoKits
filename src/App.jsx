@@ -96,16 +96,12 @@ const isRouteDataReady = (pathname, datasets, isAdmin) => {
 };
 
 const Layout = ({ children }) => {
-  const [isCompact, setIsCompact] = useState(false);
   const [isMdTextBoosted, setIsMdTextBoosted] = useState(false);
-  const [isProfileFullscreenOpen, setIsProfileFullscreenOpen] = useState(false);
-  const [isNotificationFullscreenOpen, setIsNotificationFullscreenOpen] = useState(false);
   const layoutRef = useRef(null);
   const boostedTextStylesRef = useRef(new Map());
   const location = useLocation();
   const { isAdmin, shippingSettings } = useStore();
   const isMaintenanceMode = shippingSettings?.paymentSettings?.maintenanceMode === true;
-  const isFullscreenNavOpen = isProfileFullscreenOpen || isNotificationFullscreenOpen;
 
   useEffect(() => {
     const root = layoutRef.current;
@@ -157,54 +153,12 @@ const Layout = ({ children }) => {
     };
   }, [isMdTextBoosted]);
 
-  useEffect(() => {
-    const handleScroll = () => {
-      if (isFullscreenNavOpen) return;
-      const isNotHome = location.pathname !== "/";
-      const isScrolled = window.scrollY > 5;
-      setIsCompact(isNotHome || isScrolled);
-    };
-
-    window.addEventListener('scroll', handleScroll);
-    handleScroll(); 
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, [location.pathname, isFullscreenNavOpen]);
-
-  useEffect(() => {
-    const handleProfileFullscreenOpen = () => {
-      setIsProfileFullscreenOpen(true);
-      setIsCompact(true);
-    };
-    const handleProfileFullscreenClose = () => {
-      setIsProfileFullscreenOpen(false);
-    };
-    const handleNotificationFullscreenOpen = () => {
-      setIsNotificationFullscreenOpen(true);
-      setIsCompact(true);
-    };
-    const handleNotificationFullscreenClose = () => {
-      setIsNotificationFullscreenOpen(false);
-    };
-
-    window.addEventListener('profileFullscreenOpen', handleProfileFullscreenOpen);
-    window.addEventListener('profileFullscreenClose', handleProfileFullscreenClose);
-    window.addEventListener('notificationFullscreenOpen', handleNotificationFullscreenOpen);
-    window.addEventListener('notificationFullscreenClose', handleNotificationFullscreenClose);
-
-    return () => {
-      window.removeEventListener('profileFullscreenOpen', handleProfileFullscreenOpen);
-      window.removeEventListener('profileFullscreenClose', handleProfileFullscreenClose);
-      window.removeEventListener('notificationFullscreenOpen', handleNotificationFullscreenOpen);
-      window.removeEventListener('notificationFullscreenClose', handleNotificationFullscreenClose);
-    };
-  }, []);
-
   return (
     <div ref={layoutRef} className="min-h-screen flex flex-col">
       {isKnownRoute(location.pathname) && (
         <>
-          <Stories isCompact={isCompact} hideImmediately={isFullscreenNavOpen} />
-          <Navbar isCompact={isCompact} />
+          <Stories isCompact={location.pathname !== "/"} />
+          <Navbar />
         </>
       )}
       <main className={`${isKnownRoute(location.pathname) ? 'container mx-auto max-w-7xl' : ''} flex-1`}>

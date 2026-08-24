@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { AnimatePresence, motion as Motion, useDragControls } from 'framer-motion';
+import { AnimatePresence, motion as Motion, useDragControls, useMotionValue } from 'framer-motion';
 import { 
   Sun, Moon, ShoppingBasket, Home, X, ShelvingUnit,
   CircleUserRound, Settings, LogOut, ContactRound,
@@ -141,8 +141,12 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   const profileBtnRef = useRef(null);
   const navbarRef = useRef(null);
   const profileDragControls = useDragControls();
+  const profileContentGestureRef = useRef(null);
+  const profilePanelDragY = useMotionValue(0);
+  const [isProfileContentDragging, setIsProfileContentDragging] = useState(false);
   const [isProfileListAtEnd, setIsProfileListAtEnd] = useState(false);
   const policyScrollCleanupRef = useRef(null);
+  const landingStickyScrollTopRef = useRef(null);
 
   const startProfileDrag = (event) => {
     event.stopPropagation();
@@ -150,19 +154,62 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   };
 
   const handleProfileSurfacePointerDown = (event) => {
-    // Keep menu controls interactive until the final menu item is visible.
-    // Once the profile list is at the bottom, the whole sheet becomes a
-    // larger upward-dismiss surface.
     if (!isProfileListAtEnd) return;
-    if (event.target.closest('input, textarea, select, [data-panel-interactive="true"]')) return;
-    startProfileDrag(event);
+    profileContentGestureRef.current = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      direction: null,
+      dragged: false
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+
+  const handleProfileSurfacePointerMove = (event) => {
+    const gesture = profileContentGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+
+    const deltaY = event.clientY - gesture.startY;
+    if (!gesture.direction) {
+      if (Math.abs(deltaY) < 6) return;
+      if (deltaY > 0) {
+        event.currentTarget.releasePointerCapture?.(event.pointerId);
+        profileContentGestureRef.current = null;
+        return;
+      }
+      gesture.direction = 'up';
+    }
+
+    if (gesture.direction === 'up') {
+      event.preventDefault();
+      gesture.dragged = true;
+      setIsProfileContentDragging(true);
+      profilePanelDragY.set(Math.max(-420, Math.min(0, deltaY)));
+    }
+  };
+
+  const finishProfileSurfaceGesture = (event) => {
+    const gesture = profileContentGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+
+    const deltaY = event.clientY - gesture.startY;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    profileContentGestureRef.current = null;
+    if (gesture.direction === 'up') {
+      if (deltaY < -90) {
+        setIsProfileContentDragging(false);
+        profilePanelDragY.set(0);
+        setIsProfileOpen(false);
+      } else {
+        setIsProfileContentDragging(false);
+        profilePanelDragY.set(0);
+      }
+    }
   };
 
   const isMobile = windowWidth < 640;
   const isSmallViewport = windowWidth >= 640 && windowWidth < 768;
   const isDesktop = windowWidth >= 1024;
-  const isLandscape = typeof window !== 'undefined' ? window.innerWidth > window.innerHeight : false;
-  const isProfileFullscreen = isMobile || (windowWidth >= 640 && windowWidth < 1024 && isLandscape);
+  const isProfileFullscreen = windowWidth < 1024;
   const profilePhotoURL = user?.photoURL || auth.currentUser?.photoURL || '';
   const adminRingClass = 'bg-gradient-to-br from-amber-300 via-yellow-400 to-orange-500 shadow-lg shadow-yellow-500/25';
   const customerRingClass = 'bg-gradient-to-br from-[#0866FF] to-[#00CFFF]';
@@ -293,6 +340,13 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   }, [unseenNotificationCount, isNotificationModalOpen]);
 
   useEffect(() => {
+    if (isProfileOpen) {
+      profilePanelDragY.set(0);
+      setIsProfileContentDragging(false);
+    }
+  }, [isProfileOpen, profilePanelDragY]);
+
+  useEffect(() => {
     if (!isProfileOpen) {
       setShowFacebook(false); // Reset to Google
       setAuthError(null);
@@ -355,10 +409,15 @@ export default function Navbar({ isCompact: scrolledCompact }) {
     updateProfileListPosition();
     list.addEventListener('scroll', updateProfileListPosition, { passive: true });
     const frame = window.requestAnimationFrame(updateProfileListPosition);
+    const resizeObserver = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(updateProfileListPosition)
+      : null;
+    resizeObserver?.observe(list);
 
     return () => {
       list.removeEventListener('scroll', updateProfileListPosition);
       window.cancelAnimationFrame(frame);
+      resizeObserver?.disconnect();
     };
   }, [isProfileFullscreen, isProfileOpen, isAdmin, isAdminView, user, showFacebook]);
 
@@ -369,13 +428,7 @@ export default function Navbar({ isCompact: scrolledCompact }) {
     }
 
     window.dispatchEvent(new Event('profileFullscreenOpen'));
-    const handlePageScroll = () => setIsProfileOpen(false);
-    window.addEventListener('scroll', handlePageScroll, { passive: true });
-
-    return () => {
-      window.removeEventListener('scroll', handlePageScroll);
-      window.dispatchEvent(new Event('profileFullscreenClose'));
-    };
+    return () => window.dispatchEvent(new Event('profileFullscreenClose'));
   }, [isProfileOpen, isProfileFullscreen]);
 
 useEffect(() => {
@@ -556,23 +609,91 @@ useEffect(() => {
     });
   };
 
+  const getLandingStickyOffset = () => {
+    const navbarTop = navbarRef.current?.getBoundingClientRect().top ?? 0;
+    const storiesBottom = document.querySelector('[aria-label="Garage highlights"]')
+      ?.getBoundingClientRect().bottom ?? 0;
+    return Math.max(navbarTop, storiesBottom);
+  };
+
   const openAfterLandingNavbarCompacts = (openPanel, fullscreenEventName = null) => {
     const prepareFullscreenPanel = () => {
       if (fullscreenEventName) {
         window.dispatchEvent(new Event(fullscreenEventName));
       }
     };
-    const needsCompactScroll = location.pathname === '/' && !isDesktop && window.scrollY <= 40;
-    if (!needsCompactScroll) {
+    const stickyOffset = getLandingStickyOffset();
+    const needsStickyNavbar = location.pathname === '/' && !isDesktop && stickyOffset > 1;
+    if (!needsStickyNavbar) {
       prepareFullscreenPanel();
       openPanel();
       return;
     }
 
-    window.scrollTo({ top: 48, left: 0, behavior: 'auto' });
+    const stickyScrollTop = Math.max(
+      window.scrollY,
+      Math.ceil(window.scrollY + stickyOffset)
+    );
+    landingStickyScrollTopRef.current = stickyScrollTop;
+    window.scrollTo({ top: stickyScrollTop, left: 0, behavior: 'auto' });
     prepareFullscreenPanel();
     window.requestAnimationFrame(openPanel);
   };
+
+  useEffect(() => {
+    const isFullscreenPanelOpen = isProfileOpen || isNotificationModalOpen;
+    if (!isFullscreenPanelOpen || location.pathname !== '/' || windowWidth >= 1024) return undefined;
+
+    const allowLandingScroll = windowWidth < 1024;
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    const previousBodyOverscrollBehavior = document.body.style.overscrollBehaviorY;
+    const previousHtmlOverscrollBehavior = document.documentElement.style.overscrollBehaviorY;
+    if (!allowLandingScroll) {
+      document.body.style.overflow = 'hidden';
+      document.documentElement.style.overflow = 'hidden';
+    } else {
+      document.body.style.overscrollBehaviorY = 'none';
+      document.documentElement.style.overscrollBehaviorY = 'none';
+    }
+
+    const currentNavbarTop = getLandingStickyOffset();
+    const minimumLandingScroll = landingStickyScrollTopRef.current ?? Math.max(
+      window.scrollY,
+      Math.ceil(window.scrollY + currentNavbarTop)
+    );
+    landingStickyScrollTopRef.current = minimumLandingScroll;
+    let previousLandingScroll = window.scrollY;
+    const handleLandingScroll = () => {
+      const currentLandingScroll = window.scrollY;
+      previousLandingScroll = currentLandingScroll;
+      if (currentLandingScroll < minimumLandingScroll) {
+        window.scrollTo({ top: minimumLandingScroll, left: 0, behavior: 'auto' });
+      }
+    };
+
+    handleLandingScroll();
+    window.addEventListener('scroll', handleLandingScroll, { passive: true });
+    const dismissOnUpwardWheel = (event) => {
+      if (!allowLandingScroll || event.deltaY >= 0) return;
+      if (event.target.closest?.('[data-modal-scroll-container]')) return;
+      setIsProfileOpen(false);
+      setIsNotificationModalOpen(false);
+    };
+    if (allowLandingScroll) {
+      window.addEventListener('wheel', dismissOnUpwardWheel, { capture: true, passive: true });
+    }
+    return () => {
+      window.removeEventListener('scroll', handleLandingScroll);
+      if (allowLandingScroll) {
+        window.removeEventListener('wheel', dismissOnUpwardWheel, true);
+      }
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+      document.body.style.overscrollBehaviorY = previousBodyOverscrollBehavior;
+      document.documentElement.style.overscrollBehaviorY = previousHtmlOverscrollBehavior;
+    };
+  }, [isNotificationModalOpen, isProfileOpen, location.pathname, windowWidth]);
 
   const handleOpenNotifications = () => {
     if (isNotificationModalOpen) {
@@ -758,10 +879,8 @@ const navbarAnchorTop = Number.isFinite(notificationAnchorTop)
 const fullscreenModalBottomInset = isMobile ? `calc(${specs.h} / 2)` : '0.75rem';
 const profilePanelStyle = isProfileFullscreen
   ? {
-      // Fullscreen sheets are fixed below the mobile navbar after the
-      // landing-page Stories strip collapses. Do not use the measured anchor
-      // here: it can still point below the expanded strip during the opening
-      // render.
+      // Non-desktop sheets are fixed directly below the navbar. The landing
+      // page is scrolled to the navbar before the sheet opens.
       top: specs.h,
       right: 0,
       bottom: fullscreenModalBottomInset,
@@ -790,13 +909,19 @@ return (
       </defs>
     </svg>
 
-    {isProfileOpen && isMobile && (
-      <div
-        className="fixed inset-0 z-[100] bg-black/30"
-        aria-hidden="true"
-        onClick={() => setIsProfileOpen(false)}
-      />
-    )}
+    <AnimatePresence>
+      {isProfileOpen && isProfileFullscreen && (
+        <Motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.25, ease: 'easeOut' }}
+          className="fixed inset-0 z-[100] bg-black/30"
+          aria-hidden="true"
+          onClick={() => setIsProfileOpen(false)}
+        />
+      )}
+    </AnimatePresence>
 
     <nav ref={navbarRef} style={{ height: specs.h }} className={`${isStoriesManagerOpen ? (isDesktop ? 'fixed left-0 right-0 top-0 z-[400]' : 'hidden') : 'sticky top-0 z-[110]'} w-full transition-all duration-500 border-b ${location.pathname === '/checkout' ? 'hidden lg:block' : ''} ${isDarkMode ? 'bg-[#0a0a0a] border-white/10' : 'bg-white border-black/10'}`}>
       <div className="h-full mx-auto flex items-center px-4 lg:px-10 relative max-w-[1440px]">
@@ -990,7 +1115,7 @@ return (
                   >
                   <Motion.div
                     ref={profileModalRef}
-                    style={isProfileFullscreen ? undefined : profilePanelStyle}
+                    style={isProfileFullscreen ? { y: profilePanelDragY } : profilePanelStyle}
                     initial={isProfileFullscreen ? { y: '-100%', opacity: 0 } : { y: -18, opacity: 0 }}
                     animate={{ y: 0, opacity: 1 }}
                     exit={isProfileFullscreen || !isDesktop ? { y: '-100%', opacity: 0 } : { y: -18, opacity: 0 }}
@@ -1012,9 +1137,16 @@ return (
                   <div className={`${isProfileFullscreen ? 'flex h-full max-h-full flex-col rounded-b-[2.5rem]' : 'max-h-[calc(100dvh-5rem)] rounded-[2rem]'} overflow-hidden border ${isDarkMode ? 'border-white/10 bg-[#0a0a0a]' : 'border-black/10 bg-white'}`}>
                     <div
                       ref={profileScrollRef}
+                      data-modal-scroll-container="profile"
                       onPointerDown={isProfileFullscreen ? handleProfileSurfacePointerDown : undefined}
+                      onPointerMove={isProfileFullscreen ? handleProfileSurfacePointerMove : undefined}
+                      onPointerUp={isProfileFullscreen ? finishProfileSurfaceGesture : undefined}
+                      onPointerCancel={isProfileFullscreen ? finishProfileSurfaceGesture : undefined}
+                      style={isProfileFullscreen
+                        ? { touchAction: 'pan-y' }
+                        : undefined}
                       className={isProfileFullscreen
-                        ? `min-h-0 flex-1 overflow-y-auto overscroll-contain ${isProfileListAtEnd ? 'touch-none select-none' : ''}`
+                        ? 'min-h-0 flex-1 overflow-y-auto overscroll-contain touch-pan-y'
                         : 'max-h-[calc(100dvh-5rem)] overflow-y-auto overscroll-contain'}
                     >
                     <div className={isProfileFullscreen ? 'flex min-h-full flex-col' : undefined}>
@@ -1294,7 +1426,7 @@ return (
       allowSwipeDismiss={!isDesktop}
       emptyLabel={isAdminNotificationView ? 'No admin updates yet' : 'No order updates yet'}
       isFullscreen={isProfileFullscreen}
-      dimBackdrop={isMobile}
+      dimBackdrop={!isDesktop}
       navbarHeight={specs.h}
       bottomInset={fullscreenModalBottomInset}
       anchorTop={notificationAnchorTop}
