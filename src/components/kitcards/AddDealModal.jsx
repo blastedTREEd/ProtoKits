@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { X, Plus, Trash2, Gift, Lock, Ban, Search, ChevronRight, ChevronLeft, Loader2, Edit3, Calendar, Clock3, RefreshCw, CheckSquare, Square, Image as ImageIcon } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
-import { getClearanceBundlePricing, getBundleDealPricing, getBundleDiscountCapacity, getDistributedFeeShare, getHighestCostStock } from '../../utils/bundlePricing';
+import { getClearanceBundlePricing, getClearanceCostCeiling, getBundleDealPricing, getBundleDiscountCapacity, getDistributedFeeShare, getHighestCostStock } from '../../utils/bundlePricing';
 
 /* ─── Image resolver ─── */
 function resolveImage(idOrUrl, imagesArray) {
@@ -394,7 +394,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       const currentClearanceDiscounts = mappedType === 'clearance'
         ? Object.fromEntries(kids.map(id => [
           id,
-          dealToEdit.clearanceDiscounts?.[id] ?? dealToEdit.kitDiscounts?.[id]?.discount ?? ''
+          dealToEdit.clearanceDiscounts?.[id] ?? ''
         ]))
         : {};
       setClearanceOriginalOverrides(originalClearanceOverrides);
@@ -463,7 +463,10 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
           costPrice: Number(stock.costPrice || 0)
         };
       });
-      return getClearanceBundlePricing(rows, clearanceKitIds, { ...clearanceOriginalOverrides, ...clearanceDiscounts });
+      return getClearanceBundlePricing(rows, clearanceKitIds, {
+        ...clearanceOriginalOverrides,
+        ...clearanceDiscounts
+      });
     }
     const rows = selectedKitsData.map(kit => {
       const stock = getHighestAvailableOnhandStock(kit);
@@ -653,7 +656,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     const currentClearanceDiscounts = mappedType === 'clearance'
       ? Object.fromEntries(kids.map(id => [
         id,
-        deal.clearanceDiscounts?.[id] ?? deal.kitDiscounts?.[id]?.discount ?? ''
+        deal.clearanceDiscounts?.[id] ?? ''
       ]))
       : {};
     setClearanceOriginalOverrides(originalClearanceOverrides);
@@ -1105,7 +1108,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
   const allSelected = visibleDeals.length > 0 && selectedDealIds.length === visibleDeals.length;
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-[300] flex items-start justify-center" role="dialog" aria-modal="true" aria-label="Deal entry">
+    <div className="pointer-events-none fixed inset-0 z-[500] flex items-start justify-center" role="dialog" aria-modal="true" aria-label="Deal entry">
       <div className="pointer-events-auto relative mt-[56px] flex h-[calc(100dvh-56px)] w-full max-w-7xl min-h-0 flex-col overflow-hidden border-x border-t bg-[var(--color-surface)] text-[var(--color-text-main)] shadow-2xl sm:mt-[60px] sm:h-[calc(100dvh-60px)]">
         
         {/* Mobile sticky close button (same pattern as ProductCard) */}
@@ -1279,7 +1282,16 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                               : 0;
                             const currentClearanceDiscount = getClearanceDiscountPlaceholder(
                               kit.id,
-                              discountRow?.discount ?? discountRow?.clearanceDiscount ?? 0
+                              dealType === 'clearance'
+                                ? Math.max(
+                                  0,
+                                  Number(stock.sellPrice || kit.sellPrice || 0)
+                                    - Math.min(
+                                      Number(stock.sellPrice || kit.sellPrice || 0),
+                                      getClearanceCostCeiling(Number(stock.costPrice || kit.costPrice || 0))
+                                    )
+                                )
+                                : (discountRow?.discount ?? discountRow?.clearanceDiscount ?? 0)
                             );
                             return (
                             <div
@@ -1314,7 +1326,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                   onChange={(event) => setClearanceDiscounts(prev => ({ ...prev, [kit.id]: event.target.value }))}
                                   placeholder={`₱${Number(currentClearanceDiscount || 0).toLocaleString()}`}
                                   title="Type a discount amount to override the current discount"
-                                  className="h-10 w-28 shrink-0 appearance-none rounded-lg border border-[var(--color-border)] bg-black/5 px-3 py-2 text-[12px] font-black uppercase tracking-wider text-black outline-none placeholder:text-[12px] placeholder:font-black placeholder:italic placeholder:text-black focus:border-amber-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                  className="h-10 w-28 shrink-0 appearance-none rounded-lg border border-[var(--color-border)] bg-black/5 px-3 py-2 text-[12px] font-black italic uppercase tracking-wider text-blue-500 outline-none placeholder:text-[12px] placeholder:font-black placeholder:italic placeholder:text-blue-500 focus:border-blue-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                                 />
                               )}
                               <button
@@ -1502,6 +1514,22 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                       ...dealEligibleKitIds.filter(id => !(deal.type === 'clearance' ? dealEligibleKitIds : (deal.previewKitIds || [])).includes(id))
                     ];
                     const includedKits = getOrderedKits(kits, orderedKitIds);
+                    const listedClearancePricing = deal.type === 'clearance'
+                      ? getClearanceBundlePricing(
+                        includedKits.map(kit => {
+                          const stock = getHighestOnhandStock(kit);
+                          return {
+                            kit,
+                            stock,
+                            kitId: kit.id,
+                            sellPrice: getBundleStandardSellPrice(stock, kit),
+                            costPrice: Number(stock.costPrice || 0)
+                          };
+                        }),
+                        dealEligibleKitIds,
+                        deal.clearanceDiscounts || {}
+                      )
+                      : null;
                     const isChecked = selectedDealIds.includes(deal.id);
                     const isExpired = !isMutualDeal && deal.type !== 'clearance'
                       && deal.validUntil
@@ -1585,13 +1613,9 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                   </div>
                                 );
                               }
-                            const configuredDiscount = deal.clearanceDiscounts?.[k.id];
+                            const listedClearanceRow = listedClearancePricing?.rows?.find(row => String(row.kitId) === String(k.id));
                             const clearanceDiscount = deal.type === 'clearance'
-                              ? Number(
-                                configuredDiscount !== '' && configuredDiscount !== null && configuredDiscount !== undefined
-                                  ? configuredDiscount
-                                  : deal.kitDiscounts?.[k.id]?.discount || 0
-                              )
+                              ? Number(listedClearanceRow?.clearanceDiscount ?? 0)
                               : 0;
                               return (
                               <div key={k.id} className="flex w-full min-w-0 items-center gap-2 rounded-xl border border-white/5 bg-black/5 px-3 py-2 dark:bg-white/5">

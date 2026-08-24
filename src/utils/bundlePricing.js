@@ -206,24 +206,62 @@ export function getBundleDiscountCapacity(rows = []) {
   )));
 }
 
-// Prices a clearance basket. The selected clearance kit's discount is the
-// difference between its sell price and clearance price. That discount pool
-// is distributed across the other selected on-hand kits according to each
-// kit's remaining cost-ceiling capacity, never below its cost ceiling.
+// Prices a clearance basket/deal one kit at a time. Every eligible kit gets
+// its own clearance capacity (sell price minus its cost ceiling), unless an
+// admin override is supplied for that kit. There is no shared discount pool:
+// this keeps Deal Architect, product cards, basket, and checkout aligned.
 export function getClearanceBundlePricing(rows = [], clearanceKitIds = [], discountOverrides = {}, options = {}) {
-  const clearanceIds = new Set(clearanceKitIds || []);
-  const initiallyNormalizedRows = rows.map((row, index) => {
+  const clearanceIds = new Set((clearanceKitIds || []).map(id => String(id)));
+  const shouldDistributeAcrossRows = options.distributeAcrossRows === true;
+  const distributionTotal = Math.max(0, Math.round(Number(options.distributionTotal) || 0));
+  const distributionRows = shouldDistributeAcrossRows
+    ? (rows || []).map((row, index) => ({ row, index }))
+      .filter(({ row }) => Number(row.sellPrice ?? row.sell ?? row.refPrice ?? 0) > 0)
+    : [];
+  const hasDistributionOverride = ({ row }) => {
+    const value = discountOverrides?.[row.kitId] ?? discountOverrides?.[String(row.kitId)];
+    return value !== '' && value !== null && value !== undefined;
+  };
+  const fixedDistributionTotal = distributionRows
+    .filter(hasDistributionOverride)
+    .reduce((total, { row }) => (
+      total + Math.max(0, Number(discountOverrides?.[row.kitId] ?? discountOverrides?.[String(row.kitId)]) || 0)
+    ), 0);
+  const openDistributionRows = distributionRows.filter(({ row }) => !hasDistributionOverride({ row }));
+  const openDistributionTotal = Math.max(0, distributionTotal - fixedDistributionTotal);
+  const distributionShares = new Map(
+    distributionRows.map(({ row, index }) => {
+      if (hasDistributionOverride({ row })) {
+        const override = discountOverrides?.[row.kitId] ?? discountOverrides?.[String(row.kitId)];
+        return [index, Math.max(0, Math.round(Number(override) || 0))];
+      }
+
+      const shareIndex = openDistributionRows.findIndex(({ index: openIndex }) => openIndex === index);
+      return [
+        index,
+        getDistributedFeeShare(openDistributionTotal, shareIndex, openDistributionRows.length)
+      ];
+    })
+  );
+
+  const pricedRows = (rows || []).map((row, index) => {
     const kitId = row.kitId ?? row.id;
+    const normalizedKitId = String(kitId);
     const sellPrice = Math.max(0, Number(row.sellPrice ?? row.sell ?? 0) || 0);
     const costPrice = Math.max(0, Number(row.costPrice ?? row.cost ?? 0) || 0);
-    const isClearance = clearanceIds.has(kitId);
-    const override = discountOverrides?.[kitId] ?? '';
-    const clearancePrice = isClearance ? getClearancePrice(costPrice, sellPrice, override) : sellPrice;
+    const isClearance = shouldDistributeAcrossRows
+      ? distributionShares.has(index)
+      : clearanceIds.has(normalizedKitId);
+    const override = discountOverrides?.[kitId] ?? discountOverrides?.[normalizedKitId] ?? '';
+    const distributedDiscount = distributionShares.get(index);
+    const appliedOverride = shouldDistributeAcrossRows && distributedDiscount !== undefined
+      ? distributedDiscount
+      : override;
+    const clearancePrice = isClearance ? getClearancePrice(costPrice, sellPrice, appliedOverride) : sellPrice;
     const clearanceDiscount = isClearance ? Math.max(0, sellPrice - clearancePrice) : 0;
-    const standardCostCeiling = costPrice > 0 ? Math.ceil(costPrice / 100) * 100 : 0;
-    const standardDiscountCapacity = isClearance
-      ? 0
-      : Math.max(0, sellPrice - Math.min(sellPrice, standardCostCeiling));
+    const costFloor = isClearance
+      ? Math.min(sellPrice, getClearanceCostCeiling(costPrice))
+      : sellPrice;
 
     return {
       ...row,
@@ -233,86 +271,33 @@ export function getClearanceBundlePricing(rows = [], clearanceKitIds = [], disco
       isClearance,
       clearancePrice,
       clearanceDiscount,
-      standardCostCeiling,
-      discountCapacity: standardDiscountCapacity,
+      costFloor,
+      appliedDiscount: clearanceDiscount,
+      standardDiscount: 0,
+      discountCapacity: isClearance ? Math.max(0, sellPrice - costFloor) : 0,
+      rawPrice: clearancePrice,
+      finalPrice: Math.max(0, Math.round(clearancePrice)),
       _clearanceIndex: index
     };
   });
 
-  // A checkout may contain more than one clearance kit (for example, items
-  // carried over from separate clearance deals). Only the kit with the
-  // highest actual clearance discount supplies the single discount pool.
-  // Every other selected row becomes a normal row eligible to receive a
-  // proportional share of that winning pool.
-  const winningClearanceRow = initiallyNormalizedRows
-    .filter(row => row.isClearance && row.clearanceDiscount > 0)
-    .sort((a, b) => (
-      b.clearanceDiscount - a.clearanceDiscount
-      || b.sellPrice - a.sellPrice
-      || a._clearanceIndex - b._clearanceIndex
-    ))[0];
-  const winningClearanceIds = winningClearanceRow
-    ? new Set([winningClearanceRow.kitId])
-    : new Set();
-  const normalizedRows = initiallyNormalizedRows.map(row => {
-    const isWinningClearance = winningClearanceIds.has(row.kitId);
-    const standardCostCeiling = row.costPrice > 0 ? Math.ceil(row.costPrice / 100) * 100 : 0;
-    return {
-      ...row,
-      isClearance: isWinningClearance,
-      clearancePrice: isWinningClearance ? row.clearancePrice : row.sellPrice,
-      clearanceDiscount: isWinningClearance ? row.clearanceDiscount : 0,
-      discountCapacity: isWinningClearance
-        ? 0
-        : Math.max(0, row.sellPrice - Math.min(row.sellPrice, standardCostCeiling))
-    };
-  });
-
-  const clearanceDiscountTotal = normalizedRows.reduce((sum, row) => sum + row.clearanceDiscount, 0);
-  // The winning clearance kit supplies one discount pool. Allocate that pool
-  // once across every selected row; do not apply the full pool to the
-  // clearance row and then distribute it again to the other rows.
-  const allocationRows = normalizedRows.map(row => {
-    const costFloor = row.isClearance
-      ? Math.min(row.sellPrice, getClearanceCostCeiling(row.costPrice))
-      : Math.min(row.sellPrice, row.standardCostCeiling);
-    return {
-      ...row,
-      costFloor,
-      discountCapacity: Math.max(0, row.sellPrice - costFloor)
-    };
-  });
-  const discountAllocations = distributeDiscountByCapacity(allocationRows, clearanceDiscountTotal);
-  const pricedRows = allocationRows.map(row => {
-    const appliedDiscount = Number(discountAllocations.get(row.kitId) || 0);
-    return {
-      ...row,
-      appliedDiscount,
-      standardDiscount: row.isClearance ? 0 : appliedDiscount,
-      rawPrice: Math.max(row.costFloor, row.sellPrice - appliedDiscount)
-    };
-  });
-
-  const targetTotal = pricedRows.reduce((sum, row) => sum + row.rawPrice, 0);
-  const distributedRows = distributeRoundedBundlePrices(pricedRows, targetTotal);
-  const bundlePrice = distributedRows.reduce((sum, row) => sum + row.finalPrice, 0);
-  const totalSell = normalizedRows.reduce((sum, row) => sum + row.sellPrice, 0);
-  const totalCost = normalizedRows.reduce((sum, row) => sum + row.costPrice, 0);
-  const standardDiscountTotal = pricedRows.reduce((sum, row) => sum + (row.standardDiscount || 0), 0);
-  const appliedDiscountTotal = Math.max(0, totalSell - bundlePrice);
+  const bundlePrice = pricedRows.reduce((sum, row) => sum + row.finalPrice, 0);
+  const totalSell = pricedRows.reduce((sum, row) => sum + row.sellPrice, 0);
+  const totalCost = pricedRows.reduce((sum, row) => sum + row.costPrice, 0);
+  const clearanceDiscountTotal = pricedRows.reduce((sum, row) => sum + row.clearanceDiscount, 0);
+  const unusedClearanceDiscount = shouldDistributeAcrossRows
+    ? Math.max(0, distributionTotal - clearanceDiscountTotal)
+    : 0;
 
   return {
-    rows: distributedRows.map(row => ({
-      ...row,
-      discount: Math.max(0, row.sellPrice - row.finalPrice)
-    })),
+    rows: pricedRows.map(row => ({ ...row, discount: row.clearanceDiscount })),
     totalSell,
     totalCost,
     bundlePrice,
     clearanceDiscountTotal,
-    standardDiscountTotal,
-    unusedClearanceDiscount: Math.max(0, clearanceDiscountTotal - appliedDiscountTotal),
-    discountAmount: appliedDiscountTotal,
+    standardDiscountTotal: 0,
+    unusedClearanceDiscount,
+    discountAmount: Math.max(0, totalSell - bundlePrice),
     projectedProfit: bundlePrice - totalCost
   };
 }

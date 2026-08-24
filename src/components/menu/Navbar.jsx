@@ -885,7 +885,7 @@ const profilePanelStyle = isProfileFullscreen
       right: 0,
       bottom: fullscreenModalBottomInset,
       left: 0,
-      zIndex: 105
+      zIndex: 1000
     }
   : {
       top: `calc(${navbarAnchorTop} + 8px)`,
@@ -916,7 +916,7 @@ return (
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.25, ease: 'easeOut' }}
-          className="fixed inset-0 z-[100] bg-black/30"
+          className="fixed inset-0 z-[900] bg-black/30"
           aria-hidden="true"
           onClick={() => setIsProfileOpen(false)}
         />
@@ -1111,7 +1111,7 @@ return (
                 <ProfileModalLayer enabled={isProfileFullscreen}>
                   <div
                     style={isProfileFullscreen ? profilePanelStyle : undefined}
-                    className={isProfileFullscreen ? 'fixed z-[105] overflow-hidden' : 'contents'}
+                    className={isProfileFullscreen ? 'fixed z-[1000] overflow-hidden' : 'contents'}
                   >
                   <Motion.div
                     ref={profileModalRef}

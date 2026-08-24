@@ -372,20 +372,19 @@ export default function NotificationModal({
     <AnimatePresence>
       {isOpen && (
       <>
-      {isFullscreen && (
-        <Motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.25, ease: 'easeOut' }}
-          className={`fixed inset-0 z-[100] ${dimBackdrop ? 'bg-black/30' : 'bg-transparent'}`}
-          onClick={onClose}
-        />
-      )}
+      <Motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.25, ease: 'easeOut' }}
+        className={`fixed inset-0 z-[900] ${isFullscreen && dimBackdrop ? 'bg-black/30' : 'bg-transparent'}`}
+        aria-hidden="true"
+        onClick={onClose}
+      />
 
       <div
         style={isFullscreen ? panelStyle : undefined}
-        className={isFullscreen ? 'fixed z-[105] overflow-hidden' : 'contents'}
+        className={isFullscreen ? 'fixed z-[1000] overflow-hidden' : 'contents'}
       >
         <Motion.div
           ref={panelRef}
@@ -404,7 +403,7 @@ export default function NotificationModal({
           onDragEnd={(event, info) => {
             if (isFullscreen && isNotificationListAtEnd && (info.offset.y < -90 || info.velocity.y < -500)) onClose?.();
           }}
-          className={`${isFullscreen ? 'absolute inset-0 w-full max-w-none sm:ml-auto sm:max-w-sm' : 'fixed z-[150] w-[390px] max-w-[calc(100vw-5rem)]'}`}
+          className={`${isFullscreen ? 'absolute inset-0 w-full max-w-none sm:ml-auto sm:max-w-sm' : 'fixed z-[1000] w-[390px] max-w-[calc(100vw-5rem)]'}`}
         >
         <div className={`${isFullscreen ? 'flex h-full max-h-full flex-col rounded-b-[2.5rem]' : 'rounded-[1.5rem]'} overflow-hidden border ${isDarkMode ? 'border-white/10 bg-[#0a0a0a]' : 'border-black/10 bg-white'}`}>
           <div

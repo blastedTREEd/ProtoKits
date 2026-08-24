@@ -2140,7 +2140,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
   } uppercase`;
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-[300] flex items-start justify-center" role="dialog" aria-modal="true" aria-label="Add kit inventory">
+    <div className="pointer-events-none fixed inset-0 z-[500] flex items-start justify-center" role="dialog" aria-modal="true" aria-label="Add kit inventory">
         <div data-add-kit-modal-root className={`pointer-events-auto relative mt-[56px] flex h-[calc(100dvh-56px)] w-full max-w-7xl min-h-0 flex-col overflow-hidden border-x border-t text-left shadow-2xl sm:mt-[60px] sm:h-[calc(100dvh-60px)] ${panelClass}`}>
             {/* Mobile sticky close button (same pattern as ProductCard and AddDealModal) */}
             <div className="sticky top-0 z-[220] w-full h-0 overflow-visible md:hidden">

@@ -748,14 +748,28 @@ export default function Orders() {
 
   const filteredLegacyStockChoices = useMemo(() => {
     const search = String(manualOrderData.search || '').trim().toLowerCase();
-    if (!search) return legacyStockChoices.slice(0, 24);
-    return legacyStockChoices.filter(({ kit, stock }) => (
-      [kit.name, kit.brand, kit.specs?.line, kit.specs?.scale, stock.status, getStockEta(stock)]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-        .includes(search)
-    )).slice(0, 24);
+    const matches = search
+      ? legacyStockChoices.filter(({ kit, stock }) => (
+        [kit.name, kit.brand, kit.specs?.line, kit.specs?.scale, stock.status, getStockEta(stock)]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+          .includes(search)
+      ))
+      : legacyStockChoices;
+
+    const orderedMatches = search
+      ? matches
+        .map((choice, index) => ({ choice, index }))
+        .sort((a, b) => {
+          const costDelta = Number(b.choice.stock?.costPrice || 0) - Number(a.choice.stock?.costPrice || 0);
+          if (costDelta !== 0) return costDelta;
+          return a.index - b.index;
+        })
+        .map(({ choice }) => choice)
+      : matches;
+
+    return orderedMatches.slice(0, 24);
   }, [legacyStockChoices, manualOrderData.search]);
 
   const legacyShippingOptions = useMemo(() => Object.entries(shippingSettings?.shippingMethods || {})

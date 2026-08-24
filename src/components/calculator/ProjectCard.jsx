@@ -877,7 +877,7 @@ export default function ProjectCard({
 
             {/* CONTENT AREA */}
             <div className="px-1 text-center flex-1 flex flex-col">
-              <div className="h-[2em] flex items-center justify-center min-w-0 mb-3">
+              <div className="h-[2em] flex items-center justify-center min-w-0">
                 <h3 className="text-[15px] font-bold uppercase tracking-tighter leading-tight line-clamp-2 w-full group-hover:text-blue-600 transition-colors">
                   {projectTitle}
                 </h3>
