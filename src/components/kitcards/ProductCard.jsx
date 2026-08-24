@@ -76,9 +76,9 @@ const Gallery = ({ galleryImages, galleryIndex, setGalleryIndex, handleTouchStar
                                     <button 
                                         key={img.id || idx}
                                         onClick={(e) => { e.stopPropagation(); setGalleryIndex(idx); }}
-                                        className={`relative w-12 h-12 md:w-[70px] md:h-[70px] lg:w-[70px] lg:h-[70px] rounded-lg border-2 transition-all shrink-0 overflow-hidden group/thumb ${galleryIndex === idx ? 'border-amber-400 scale-105 shadow-lg z-10 opacity-100' : 'border-white/10 opacity-40 hover:opacity-100 hover:border-white/30'}`}
+                                        className={`relative w-11 h-11 rounded-full border-2 transition-all shrink-0 overflow-hidden group/thumb ${galleryIndex === idx ? 'border-transparent bg-gradient-to-br from-blue-500 via-blue-600 to-cyan-400 bg-origin-border scale-105 shadow-lg z-10 opacity-100' : 'border-white/30 opacity-40 hover:opacity-100 hover:border-white/60'}`}
                                     >
-                                        <img src={img.url} className="w-full h-full object-cover" alt="" />
+                                        <img src={img.url} className="w-full h-full object-cover scale-[1.3]" alt="" />
                                     </button>
                                 ))}
                             </div>
@@ -1890,7 +1890,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                 }}
                                 className={`relative space-y-2 rounded-2xl border-2 px-4 py-3 transition-colors duration-300 cursor-pointer ${isSelectedBundlePanel
                                   ? 'border-blue-600 bg-white text-neutral-900 shadow-lg shadow-blue-600/20 dark:bg-white dark:text-neutral-900'
-                                  : 'border-white/60 bg-white/60 hover:border-blue-600/50 dark:border-white/10 dark:bg-white/5'}`}
+                                  : 'border-white/90 bg-white/60 shadow-md hover:border-blue-600/50 dark:border-white/20 dark:bg-white/10'}`}
                               >
                                 <div className="flex items-start justify-between gap-3 px-1">
                                   <div className="min-w-0 flex-1 text-left">
@@ -1983,7 +1983,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                         >
                                         <div className="flex shrink-0 items-center justify-center">
                                           <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-xl border border-neutral-100 bg-neutral-200 animate-pulse-blue dark:border-neutral-800 dark:bg-neutral-800 md:landscape:h-22 md:landscape:w-40">
-                                            <img src="/snorlaxgarage.png" alt="Loading..." className="h-full w-full object-contain opacity-20" />
+                                            <img src="/snorlaxgarage.png" alt="Loading..." className="h-[70%] w-[70%] object-contain opacity-20" />
                                           </div>
                                         </div>
                                         <div className="min-w-0 text-left">
@@ -2017,7 +2017,8 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                           return (
                                             <div
                                               key={includedKit.id}
-                                              className={`h-20 w-20 overflow-hidden rounded-full border-2 border-white bg-neutral-200 shadow-sm dark:bg-neutral-800 ${includedIndex > 0 ? '-ml-1.5' : ''}`}
+                                              style={deal.type !== 'clearance' ? { zIndex: includedIndex + 1 } : undefined}
+                                              className={`h-20 w-20 overflow-hidden rounded-full border-2 border-white bg-neutral-200 shadow-md dark:bg-neutral-800 ${includedIndex > 0 ? '-ml-2' : ''}`}
                                             >
                                               {includedKitImage ? (
                                                 <img
@@ -2037,12 +2038,12 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                       {deal.type === 'clearance' && Array.from({ length: 1 }, (_, placeholderIndex) => (
                                         <div
                                           key={`clearance-placeholder-${placeholderIndex}`}
-                                          className="relative -ml-1.5 flex h-20 w-20 cursor-default items-center justify-center overflow-hidden rounded-full border-2 border-neutral-100 bg-neutral-200 shadow-sm dark:border-neutral-800 dark:bg-neutral-800"
+                                          className="relative -ml-2 flex h-20 w-20 cursor-default items-center justify-center overflow-hidden rounded-full border-2 border-white bg-neutral-200 shadow-md dark:border-white/80 dark:bg-neutral-800"
                                           title="Add another kit to unlock the clearance discount"
                                           aria-label="Additional kit required for clearance discount"
                                         >
                                           <div className="absolute inset-0 animate-pulse-blue" />
-                                          <img src="/snorlaxgarage.png" alt="Loading..." className="relative z-10 h-full w-full object-contain opacity-20" />
+                                          <img src="/snorlaxgarage.png" alt="Loading..." className="relative z-10 h-[70%] w-[70%] object-contain opacity-20" />
                                         </div>
                                       ))}
                                     </div>
@@ -2117,8 +2118,8 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                               </button>
                             </div>
                           ) : activeBundleDeal && activeBundleItemPrice > 0 && !isAdminView ? (
-                            <div className={`flex w-full items-stretch justify-between gap-2 ${activeBundleDeal?.type === 'clearance' ? 'flex-row-reverse' : ''}`}>
-                              <div className="min-w-0 basis-0 flex-1 flex items-center justify-center px-2 py-4 rounded-full border border-black/5 dark:border-white/10">
+                            <div className="grid w-full grid-cols-2 items-stretch gap-2">
+                              <div className={`min-w-0 flex items-center justify-center px-2 py-4 rounded-full border border-black/5 dark:border-white/10 ${activeBundleDeal?.type === 'clearance' ? 'order-2' : 'order-1'}`}>
                                 <div className="flex items-center justify-center text-center">
                                   {activeBundleDeal?.type === 'clearance' ? (
                                     <span className="text-[16px] font-black italic uppercase leading-none text-emerald-600 whitespace-nowrap">
@@ -2131,7 +2132,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                   )}
                                 </div>
                               </div>
-                              <div className="min-w-0 basis-0 flex-1 flex items-stretch justify-center">
+                              <div className={`min-w-0 flex items-stretch justify-center ${activeBundleDeal?.type === 'clearance' ? 'order-1' : 'order-2'}`}>
                                 <button 
                                   onClick={() => handleDealCheckout(activeBundleDeal, kitId)} 
                                   className="w-full flex items-center justify-center gap-2 px-2 py-4 rounded-full text-white font-black italic uppercase text-[12px] tracking-widest shadow-lg transition-all active:scale-95 whitespace-nowrap bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-emerald-500/20"
@@ -2163,7 +2164,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                               </button>
                             </div>
                           ) : (
-                                 <div className="flex w-full items-stretch gap-2">
+                                 <div className="grid w-full grid-cols-2 items-stretch gap-2">
                                    {!isAdminView && (
                                      <button onClick={handleAddToCart} className="flex-1 flex items-center justify-center gap-2 px-2 py-4 rounded-full font-black italic uppercase text-[12px] tracking-widest transition-all active:scale-95 whitespace-nowrap border-t border-black/5 dark:border-white/10 group/basket bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg shadow-blue-500/20">{addToCartLabel}</button>
                                    )}
