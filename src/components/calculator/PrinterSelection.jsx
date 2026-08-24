@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useStore } from '../../store/useStore';
-import { Zap, Droplet, Layers2, CircleDot, RefreshCw } from 'lucide-react'; 
+import { Zap, Disc3, Layers2, CircleDot, RefreshCw } from 'lucide-react';
 import LoadingState from '../common/LoadingState';
 import { getPrinterFeeders } from '../../utils/printerCompatibility';
 
@@ -219,7 +219,7 @@ export default function PrinterSelection({ onSelect, selectedPrinter: initialSel
 
                   <div className={tileBaseStyle}>
                     <div className={headerContainerStyle}>
-                      <Droplet size={12} />
+                      <Disc3 size={12} />
                       <span className="text-[11px] font-black uppercase">SLOTS</span>
                     </div>
                     <div className={`${valueBorderStyle} ${dataValueColor}`}>

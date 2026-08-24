@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, Clock3, AlertCircle, Droplet, Magnet, Disc3 } from 'lucide-react';
+import { Calendar, Clock3, AlertCircle, Magnet, Disc3 } from 'lucide-react';
 
 const formatMinutes = (mins) => {
   const total = Math.round(Number(mins) || 0);
@@ -43,7 +43,7 @@ export default function ProductionPlan({ schedule = [], projectCase = 'STL' }) {
                   <h3 className="text-[14px] font-black uppercase tracking-tight">{dayLabel}</h3>
                 </div>
                 <div className="flex items-center gap-2 text-zinc-500 dark:text-zinc-400">
-                  <Droplet size={13} />
+                  <Disc3 size={13} />
                   <span className="text-[13px] font-black uppercase tracking-[0.18em]">
                     {[day.printerName, day.filament || day.plates?.[0]?.filament || 'Unknown Filament'].filter(Boolean).join(' • ')}
                   </span>

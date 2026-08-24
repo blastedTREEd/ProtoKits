@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import {
   Receipt, Wallet, ArrowLeft, RotateCcw,
-  Droplet, ListChecks, Clock, Coins, SlidersHorizontal,
+  ListChecks, Clock, Coins, SlidersHorizontal,
   Save, ShoppingBag, TrendingUp, TrendingDown, Undo2, X, Tag, RefreshCw, Check, Layers,
   Disc3
 } from 'lucide-react';
@@ -417,7 +417,7 @@ export default function ProjectCost({
           {checklist?.totalBuildPlates > 0 && (
             <div className="flex items-center justify-between w-full bg-[var(--color-surface)] px-4 py-2.5 rounded-2xl border border-[var(--color-border)]">
               <div className="flex items-center gap-2">
-                <Layers size={14} className="text-blue-500" />
+                <Layers size={18} strokeWidth={2} className="text-blue-500" />
                 <span className="text-[13px] font-black uppercase opacity-80">Build Plates Quantity</span>
               </div>
               <span className="text-[13px] font-black text-blue-600 italic uppercase">
@@ -428,7 +428,7 @@ export default function ProjectCost({
           {checklist?.materials?.map((material, index) => (
             <div key={`material-${material.label}-${index}`} className="flex items-center justify-between w-full bg-[var(--color-surface)] px-4 py-2.5 rounded-2xl border border-[var(--color-border)]">
               <div className="flex items-center gap-2 min-w-0">
-                <Disc3 size={14} className="text-emerald-500 flex-none" />
+                <Disc3 size={18} strokeWidth={2} className="text-emerald-500 flex-none" />
                 <span className="text-[13px] font-black uppercase opacity-80 truncate">{material.label} FILAMENT</span>
               </div>
               <span className="text-[13px] font-black text-emerald-600 italic uppercase whitespace-nowrap">

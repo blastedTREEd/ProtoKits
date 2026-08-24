@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { 
-  Plus, PackageMinus, PackagePlus, Box, Droplet, Copy, Trash2, X, Lock,
+  Plus, PackageMinus, PackagePlus, Box, Disc3, Copy, Trash2, X, Lock,
   VectorSquare, RefreshCw, Check, Scissors, Cpu,
   Scale, Clock, Search, Printer, UserRoundCog,
   Grid3X3
@@ -1211,7 +1211,7 @@ export default function ProjectPrepare({
 
               <div className="project-prepare-material-slots space-y-3 px-3">
                 <label className="text-[15px] font-bold uppercase mb-2 flex items-center justify-center gap-2 text-[var(--color-primary)]">
-                  <Droplet size={14} strokeWidth={3} /> Materials
+                  <Disc3 size={14} strokeWidth={3} /> Materials
                 </label>
                 {activeMaterialSlotsData.map((slot, idx) => {
                   const actualIdx = idx;

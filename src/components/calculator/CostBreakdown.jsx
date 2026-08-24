@@ -1,7 +1,9 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   Coins, User, Zap, PlusCircle, Box,
-  ChevronUp, Info, TrendingUp, Wallet
+  ChevronUp, Info, TrendingUp, Wallet,
+  Disc3,
+  Wrench
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { getPrinterFeeders } from '../../utils/printerCompatibility';
@@ -209,14 +211,6 @@ export default function CostBreakdown({
     const maintRates = storeRates['maintenance-cost'] || {};
     const extraRates = storeRates['extra-cost'] || {};
 
-    // Safely extract fees from centralized shippingSettings
-    const shippingSettings = useStore.getState().shippingSettings;
-    const handlingFee = Number(shippingSettings?.paymentSettings?.handlingFee || 0);
-    const installmentFee = Number(shippingSettings?.paymentSettings?.installmentFee || 0);
-    const transferFee = Number(shippingSettings?.paymentSettings?.transferFee || 0);
-    
-    console.log('CostBreakdown: Loaded Fees:', { handlingFee, installmentFee, transferFee });
-
     const markupPercent = (parseFloat(printRates.markupRate) || 20);
     const markupMultiplier = 1 + (markupPercent / 100);
     const filamentClientShare = (parseFloat(matRates.clientShareRate) || 0) / 100;
@@ -235,9 +229,6 @@ export default function CostBreakdown({
       maintRate: parseFloat(maintRates.maintenanceRate) || 5,
       maintFixed: parseFloat(maintRates.estimationCost ?? maintRates.estimationFixedCost) || 0,
       mSolderRate: parseFloat(maintRates.mSolderRate) || 2,
-      handlingFee: handlingFee,
-      installmentFee: installmentFee,
-      transferFee: transferFee,
       ironPower: parseFloat(elecRates.solderingIronPower) || 60,
       prepFee: parseFloat(laborRates.preparationRatePerFile) || 10,
       supportFee: parseFloat(laborRates.supportRemovalRatePerModel) || 5,
@@ -686,7 +677,6 @@ export default function CostBreakdown({
     const baseElecTotal = (kwhP + kwhI) * currentRates.electricityRate;
     const elecFinal = baseElecTotal * markupMultiplier;
 
-    const feesFinal = currentRates.handlingFee + currentRates.installmentFee + currentRates.transferFee;
     const maintFinal = ((runtimeForElec / 60) * currentRates.maintRate) + ((heatsetMins / 60) * currentRates.mSolderRate) + currentRates.maintFixed;
     
     const materialBaseSum = filamentSummary.reduce((s, f) => s + f.usageCost, 0);
@@ -695,7 +685,7 @@ export default function CostBreakdown({
     const extrasFinal = (extrasBaseSum * markupMultiplier) + extrasExcessSum;
     
     const basePrice = filamentFinal + laborFinal + elecFinal + extrasFinal + maintFinal;
-    const grandTotal = basePrice + feesFinal;
+    const grandTotal = basePrice;
 
     const profitFilament = materialBaseSum * (markupMultiplier - 1);
     const profitLabor = markupableLabor * (markupMultiplier - 1);
@@ -725,7 +715,6 @@ export default function CostBreakdown({
       electricityRate: Number(currentRates.elecRate),
       electricityMarkupMultiplier: Number(markupMultiplier),
       maintenance: formatCurrency(maintFinal),
-      fees: formatCurrency(feesFinal),
       extras: formatCurrency(extrasFinal),
       totalProfit: formatCurrency(totalProjectProfit),
       totalTakeHome: formatCurrency(totalTakeHome),
@@ -834,20 +823,6 @@ export default function CostBreakdown({
             items: [{ label: 'Maintenance Total', sub: 'No markup applied', calc: `₱${formatCurrency(maintFinal)}` }]
             }
         ],
-        fees: [
-          {
-            title: 'Discount Display Fees',
-            items: [
-              { label: 'Handling Fee', sub: 'Flat processing fee', calc: `₱${formatCurrency(currentRates.handlingFee)}` },
-              { label: 'Installment Fee', sub: 'Payment plan processing', calc: `₱${formatCurrency(currentRates.installmentFee)}` },
-              { label: 'Transfer Fee', sub: 'Gateway/Bank fee', calc: `₱${formatCurrency(currentRates.transferFee)}` }
-            ]
-          },
-          {
-            title: 'Discounts Total',
-            items: [{ label: 'Discount Display Total', sub: 'Added to crossed-out grand total', calc: `₱${formatCurrency(feesFinal)}` }]
-          }
-        ]
       }
     };
   }, [data, dbSettings, storeRates, activePrinter, filamentInventory, printers, isInventoryMode, getCompatibleFeeders]);
@@ -858,12 +833,11 @@ export default function CostBreakdown({
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 space-y-4">
       <div className="max-w-2xl mx-auto divide-y divide-[var(--color-border)] bg-[var(--color-surface)] rounded-[2.5rem] px-4 shadow-sm border border-[var(--color-border)]">
-        <CostItem icon={Coins} label="Filament" value={calculations.filament} colorClass="bg-amber-500 text-amber-600" details={calculations.details.filament} />
+        <CostItem icon={Disc3} label="Filament" value={calculations.filament} colorClass="bg-amber-500 text-amber-600" details={calculations.details.filament} />
         <CostItem icon={User} label="Labor" value={calculations.labor} colorClass="bg-green-500 text-green-600" details={calculations.details.labor} />
         {parseFloat(calculations.extras) > 0 && <CostItem icon={Box} label="Extras" value={calculations.extras} colorClass="bg-purple-500 text-purple-600" details={calculations.details.extras} />}
         <CostItem icon={Zap} label="Electricity" value={calculations.electricity} colorClass="bg-blue-500 text-blue-600" details={calculations.details.electricity} />
-        <CostItem icon={PlusCircle} label="Maintenance" value={calculations.maintenance} colorClass="bg-rose-500 text-rose-600" details={calculations.details.maintenance} />
-        <CostItem icon={Wallet} label="Discounts" value={calculations.fees} colorClass="bg-cyan-500 text-cyan-600" details={calculations.details.fees} />
+        <CostItem icon={Wrench} label="Maintenance" value={calculations.maintenance} colorClass="bg-rose-500 text-rose-600" details={calculations.details.maintenance} />
       </div>
 
       <div className="space-y-2">

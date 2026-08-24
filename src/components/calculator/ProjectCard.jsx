@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { 
   Box, CalendarDays, Clock, Zap, Plus, Lock, Edit3, Trash2, PackagePlus, PackageMinus,
-  X, Weight, Droplet, Layers, AlertTriangle, Link2, Unlink2, ExternalLink, ChevronRight, ChevronLeft,
+  X, Weight, Layers, AlertTriangle, Link2, Unlink2, ExternalLink, ChevronRight, ChevronLeft,
   ShoppingBasket, Play, Pause, FileText, ShieldCheck, CheckCircle2, XCircle, ImagePlus,
   Settings, Pencil, PencilSparkles
 } from 'lucide-react';
@@ -147,6 +147,40 @@ const getSpectralGradient = (id) => {
 
 const parsePrice = (value) => parseFloat(String(value || '0').replace(/,/g, '')) || 0;
 
+const getProjectMaterial = (item = {}, filamentInventory = []) => {
+  const material = item.normalizedMaterial || item.material?.material || item.material || {};
+  const materialId = material.id || item.materialId || item.material?.materialId;
+  const inventoryMatch = (filamentInventory || []).find((filament) => (
+    materialId && String(filament.id) === String(materialId)
+  ));
+
+  return { ...material, ...(inventoryMatch || {}) };
+};
+
+const getProjectMaterialColorName = (material = {}) => {
+  const colorValue = [
+    material.name,
+    material.colorName,
+    material.colorLabel,
+    material.colourName,
+    material.colour
+  ].find((value) => value && !/^#?[0-9a-f]{6,8}$/i.test(String(value).trim()));
+
+  return colorValue || '';
+};
+
+const getProjectMaterialLabel = (item, filamentInventory) => {
+  const material = getProjectMaterial(item, filamentInventory);
+  const label = [
+    material.brand,
+    material.type,
+    getProjectMaterialColorName(material),
+    'FILAMENT'
+  ].filter(Boolean).join(' ').trim();
+
+  return label || material.name || 'FILAMENT';
+};
+
 const getProjectImageUrl = (image) => (
   typeof image === 'string' ? image : image?.url || ''
 );
@@ -221,7 +255,7 @@ export default function ProjectCard({
   openOnMount = false
 }) {
   const { isDarkMode, isSpectralMode } = useTheme();
-  const { shippingSettings, shelf, orders, printers, isAdmin, isAdminView, updateBlueprint, updateProjectInVault, rates: storeRates } = useStore();
+  const { shippingSettings, shelf, orders, printers, filamentInventory, isAdmin, isAdminView, updateBlueprint, updateProjectInVault, rates: storeRates } = useStore();
   const navigate = useNavigate();
   const projectId = project?.id || null;
   const projectPath = projectId ? `/prints/${encodeURIComponent(projectId)}` : '/prints';
@@ -1148,7 +1182,7 @@ export default function ProjectCard({
                               <div className="min-w-0 text-left">
                                 <h4 className="text-[14px] font-black uppercase italic leading-none">{item.itemName || `Item ${idx+1}`}</h4>
                                 <div className="flex items-center gap-2 mt-1 opacity-40">
-                                  <span className="truncate text-[14px] font-bold uppercase">{item.normalizedMaterial?.name || item.material?.material?.name || 'Material'}</span>
+                                  <span className="text-[14px] font-bold uppercase leading-tight">{getProjectMaterialLabel(item, filamentInventory)}</span>
                                   {!isSTL && (
                                     <>
                                       <span className="h-1 w-1 shrink-0 rounded-full bg-current opacity-30" />

@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { 
-  Plus, Disc3, Box, Layers, ArrowRight, Magnet, Waypoints, Check, ArrowLeft, RotateCcw, X, Search, Shapes
+  Plus, Disc3, Box, Layers, ArrowRight, Magnet, Waypoints, Check, ArrowLeft, RotateCcw, X, Search, Shapes,
+  Bolt
 } from 'lucide-react';
 
 export default function ExtrasSelection({ 
@@ -176,7 +177,7 @@ export default function ExtrasSelection({
     <div className="flex items-center gap-4 min-w-0">
       {/* Icon: Muted gray kapag unselected, Blue kapag selected */}
       <div className={`p-3 rounded-[1rem] ${isCurrentlySelected ? 'bg-blue-600/10 text-blue-600' : 'bg-black/5 dark:bg-white/5 text-gray-500 dark:text-gray-500'}`}>
-        {isMagnet ? <Magnet size={20} /> : <Disc3 size={20} />}
+        {isMagnet ? <Magnet size={20} /> : <Bolt size={20} />}
       </div>
       
       <div className="text-left min-w-0 flex-1">

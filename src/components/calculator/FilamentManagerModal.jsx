@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { X, Plus, Trash2, Droplet, Coins, Weight, Edit3, Check, Undo2, Search, Eye, Clock, RefreshCw, Hash } from 'lucide-react';
+import { X, Plus, Trash2, Disc3, Coins, Weight, Edit3, Check, Undo2, Search, Eye, Clock, RefreshCw, Hash } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { deleteField } from 'firebase/firestore';
 
@@ -269,9 +269,9 @@ export default function FilamentManagerModal({ onClose }) {
         
         <div className="p-6 border-b border-[var(--color-border)] flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-blue-600 rounded-xl"><Droplet size={20} className="text-white" /></div>
+            <div className="p-2.5 bg-blue-600 rounded-xl"><Disc3 size={20} className="text-white" /></div>
             <div>
-              <h2 className="text-lg font-black uppercase italic leading-none">Inventory Manager</h2>
+              <h2 className="text-lg font-black uppercase italic leading-none">Filaments Inventory</h2>
               <span className="text-[10px] font-black uppercase tracking-widest text-blue-500 opacity-80 mt-1 block">Filament & Production Settings</span>
             </div>
           </div>
