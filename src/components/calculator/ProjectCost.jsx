@@ -1,8 +1,9 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import {
-  Receipt, Wallet, ArrowLeft, RotateCcw, Magnet, Disc3,
+  Receipt, Wallet, ArrowLeft, RotateCcw,
   Droplet, ListChecks, Clock, Coins, SlidersHorizontal,
-  Save, ShoppingBag, TrendingUp, TrendingDown, Undo2, X, Tag, RefreshCw, Check, Layers
+  Save, ShoppingBag, TrendingUp, TrendingDown, Undo2, X, Tag, RefreshCw, Check, Layers,
+  Disc3
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 // import { useTheme } from '../../context/ThemeContext';
@@ -128,7 +129,7 @@ export default function ProjectCost({
   }, []);
 
   const basePriceAmount = parseMoney(totals.basePrice || totals.total);
-  const grandTotalAmount = parseMoney(totals.total);
+  const isStlProject = String(data?.method?.name || '').trim().toUpperCase() === 'STL';
 
   const hasPendingRateChanges = useMemo(() => {
     return RATE_SECTIONS.some((section) => {
@@ -280,12 +281,32 @@ export default function ProjectCost({
       .filter((extra) => keys.some((key) => (extra?.name || '').toLowerCase().includes(key)))
       .reduce((sum, extra) => sum + Object.values(extra.assignments || {}).reduce((a, b) => a + Number(b), 0), 0);
 
+    const materials = (totals.details?.filament || [])
+      .filter((section) => section.title === 'Usage Details')
+      .flatMap((section) => section.items || [])
+      .filter((item) => Number(item.weight) > 0)
+      .map((item) => ({
+        label: [item.material?.brand, item.material?.type, item.material?.colorName || item.material?.color]
+          .filter(Boolean)
+          .join(' ') || item.label,
+        quantity: Number(item.weight)
+      }));
+
+    const extras = allExtras
+      .map((extra) => ({
+        label: extra?.name || 'Extra',
+        quantity: Object.values(extra?.assignments || {}).reduce((sum, value) => sum + Number(value || 0), 0)
+      }))
+      .filter((extra) => extra.quantity > 0);
+
     return {
       totalBuildPlates: uniquePlateIds.size,
+      materials,
+      extras,
       magnets: countHardware(['magnet']),
       heatsets: countHardware(['heatset'])
     };
-  }, [totals.timeline?.schedule, data?.extras]) || {};
+  }, [totals.timeline?.schedule, totals.details?.filament, data?.extras]) || {};
 
   const footerActions = (
     <div className="fixed left-1/2 bottom-0 md:bottom-[5dvh] z-[260] w-full max-w-[calc(100vw-2rem)] md:max-w-2xl lg:max-w-2xl -translate-x-1/2 px-3 pb-5 pt-8 lg:rounded-b-[2rem]">
@@ -347,7 +368,9 @@ export default function ProjectCost({
 
       <div className="w-full max-w-2xl mx-auto bg-blue-600 rounded-[2.5rem] p-8 text-white relative overflow-hidden shadow-2xl mt-4">
         <Receipt size={120} className="absolute -right-6 -bottom-6 opacity-20 rotate-12" />
-        <span className="text-[13px] font-black uppercase tracking-[0.3em] opacity-60">Lowest Price</span>
+        <span className="text-[13px] font-black uppercase tracking-[0.3em] opacity-60">
+          {isStlProject ? 'Project Estimated Cost' : 'Project Exact Cost'}
+        </span>
         <div className="flex items-baseline gap-1 mt-1">
           <span className="text-[20px] font-black opacity-40">₱</span>
           <span className="preserve-print-size text-[48px] font-black italic tracking-tighter leading-none" style={{ '--preserve-size': '48px' }}>{basePriceAmount.toLocaleString()}</span>
@@ -359,12 +382,11 @@ export default function ProjectCost({
             </div>
         )}
 
-        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 opacity-85">
-          <span className="text-[13px] font-black italic tracking-tighter line-through opacity-70">
-            ₱{grandTotalAmount.toLocaleString()}
-          </span>
-          <span className="text-[13px] font-black uppercase tracking-widest opacity-60">Grand Total</span>
-        </div>
+        {isStlProject && (
+          <div className="mt-2 text-[13px] font-black uppercase tracking-widest opacity-60">
+            This may change after project setup*
+          </div>
+        )}
       </div>
 
       <div className="w-full max-w-2xl mx-auto bg-neutral-900 dark:bg-[var(--color-surface)] rounded-[2.5rem] p-8 text-white relative overflow-hidden shadow-xl">
@@ -396,29 +418,35 @@ export default function ProjectCost({
             <div className="flex items-center justify-between w-full bg-[var(--color-surface)] px-4 py-2.5 rounded-2xl border border-[var(--color-border)]">
               <div className="flex items-center gap-2">
                 <Layers size={14} className="text-blue-500" />
-                <span className="text-[13px] font-black uppercase opacity-80">Build Plates Required</span>
+                <span className="text-[13px] font-black uppercase opacity-80">Build Plates Quantity</span>
               </div>
               <span className="text-[13px] font-black text-blue-600 italic uppercase">
                 {checklist.totalBuildPlates} {checklist.totalBuildPlates === 1 ? 'Build Plate' : 'Build Plates'}
               </span>
             </div>
           )}
-          {(checklist?.magnets > 0 || checklist?.heatsets > 0) && (
-            <div className="flex gap-2 w-full pt-1">
-              {checklist.magnets > 0 && (
-                <div className="flex-1 flex items-center gap-2 bg-[var(--color-surface)] px-4 py-3 rounded-2xl border border-[var(--color-border)] shadow-sm">
-                  <Magnet size={14} className="text-purple-500" />
-                  <span className="text-[13px] font-black uppercase opacity-80">{checklist.magnets} Magnets</span>
-                </div>
-              )}
-              {checklist.heatsets > 0 && (
-                <div className="flex-1 flex items-center gap-2 bg-[var(--color-surface)] px-4 py-3 rounded-2xl border border-[var(--color-border)] shadow-sm">
-                  <Disc3 size={14} className="text-orange-500" />
-                  <span className="text-[13px] font-black uppercase opacity-80">{checklist.heatsets} Heatsets</span>
-                </div>
-              )}
+          {checklist?.materials?.map((material, index) => (
+            <div key={`material-${material.label}-${index}`} className="flex items-center justify-between w-full bg-[var(--color-surface)] px-4 py-2.5 rounded-2xl border border-[var(--color-border)]">
+              <div className="flex items-center gap-2 min-w-0">
+                <Disc3 size={14} className="text-emerald-500 flex-none" />
+                <span className="text-[13px] font-black uppercase opacity-80 truncate">{material.label} FILAMENT</span>
+              </div>
+              <span className="text-[13px] font-black text-emerald-600 italic uppercase whitespace-nowrap">
+                {material.quantity.toLocaleString(undefined, { maximumFractionDigits: 2 })}G
+              </span>
             </div>
-          )}
+          ))}
+          {checklist?.extras?.map((extra, index) => (
+            <div key={`extra-${extra.label}-${index}`} className="flex items-center justify-between w-full bg-[var(--color-surface)] px-4 py-2.5 rounded-2xl border border-[var(--color-border)]">
+              <div className="flex items-center gap-2 min-w-0">
+                <Tag size={14} className="text-orange-500 flex-none" />
+                <span className="text-[13px] font-black uppercase opacity-80 truncate">{extra.label}</span>
+              </div>
+              <span className="text-[13px] font-black text-orange-600 italic uppercase whitespace-nowrap">
+                {extra.quantity} {extra.quantity === 1 ? 'PC' : 'PCS'}
+              </span>
+            </div>
+          ))}
         </div>
       </div>
 

@@ -43,9 +43,22 @@ const getItemMaterial = (item) => {
   };
 };
 
+const getMaterialColor = (material) => {
+  // `name` is the human-readable color (for example, WHITE); `color`/
+  // `colorName` may contain the hex value used only for the swatch.
+  const namedColor = [
+    material?.name,
+    material?.colorLabel,
+    material?.colorName,
+    material?.colourName,
+    material?.colour
+  ].find((value) => value && !/^#?[0-9a-f]{6,8}$/i.test(String(value).trim()));
+  if (namedColor) return namedColor;
+  return '';
+};
+
 const getMaterialLabel = (material) => {
-  if (material?.name) return material.name;
-  return [material?.brand, material?.type, material?.colorName]
+  return [material?.brand, material?.type, getMaterialColor(material)]
     .filter(Boolean)
     .join(' ')
     .trim() || 'Unknown Material';
@@ -723,7 +736,13 @@ export default function CostBreakdown({
             items: filamentSummary.map(f => ({
               label: f.name,
               sub: `${formatWeight(f.totalWeightUsed)} used • ₱${formatCurrency(f.pricePerGram)}/g`,
-              calc: `₱${formatCurrency(f.usageCost)}`
+              calc: `₱${formatCurrency(f.usageCost)}`,
+              weight: Number(f.totalWeightUsed.toFixed(2)),
+              material: {
+                brand: f.material?.brand || '',
+                type: f.material?.type || '',
+                colorName: getMaterialColor(f.material)
+              }
             }))
           },
           {
