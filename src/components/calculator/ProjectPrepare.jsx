@@ -6,7 +6,7 @@ import {
   Grid3X3
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
-import { getPrinterCompatibleFilamentTypes, getPrinterFeeders, isFilamentCompatibleWithPrinter } from '../../utils/printerCompatibility';
+import { getPrinterCompatibleFilamentTypes, getPrinterFeeders, isFilamentCompatibleWithPrinter, isPrinterAvailableForCostEstimation, normalizePrinterStatus } from '../../utils/printerCompatibility';
 import MaterialCard from './MaterialCard';
 
 export default function ProjectPrepare({ 
@@ -180,7 +180,7 @@ export default function ProjectPrepare({
 
   const activeModelId = internalActiveId || (prepareData?.[0]?.id || null);
   const activeModel = useMemo(() => prepareData?.find(m => m.id === activeModelId) || prepareData[0] || {}, [prepareData, activeModelId]);
-  const selectedPrinter = useMemo(() => printers.find(p => p.id === activeModel?.printerId), [printers, activeModel]);
+  const selectedPrinter = useMemo(() => printers.find((p) => p.id === activeModel?.printerId && isPrinterAvailableForCostEstimation(p)), [printers, activeModel]);
   const compatibleFilamentTypes = useMemo(() => getPrinterCompatibleFilamentTypes(selectedPrinter), [selectedPrinter]);
 
   const changeModel = (id) => {
@@ -264,14 +264,17 @@ export default function ProjectPrepare({
     const needsFeeder = requiredSlots > 1;
 
     // Filter printers that can accommodate the model dimensions
-    const fitsDimsPrinters = printers.filter(p => {
+    const estimationPrinters = printers.filter(isPrinterAvailableForCostEstimation);
+    if (estimationPrinters.length === 0) return null;
+
+    const fitsDimsPrinters = estimationPrinters.filter(p => {
         const cap = getPrinterBuildCapacity(p); // Use helper to ensure consistency
         return dims.l <= cap.x && dims.w <= cap.y && dims.h <= cap.z;
     });
 
     if (fitsDimsPrinters.length === 0) {
         // Fallback: Return the smallest printer overall if none fit
-        return printers.sort((a, b) => {
+        return estimationPrinters.sort((a, b) => {
             const volA = (a.buildCapacity?.x || 0) * (a.buildCapacity?.y || 0) * (a.buildCapacity?.z || 0);
             const volB = (b.buildCapacity?.x || 0) * (b.buildCapacity?.y || 0) * (b.buildCapacity?.z || 0);
             return volA - volB;
@@ -301,8 +304,8 @@ export default function ProjectPrepare({
   useEffect(() => {
     if (activeModel && activeModel.id && !activeModel.isManualPrinter) {
         const optimalPrinterId = optimizePrinterAssignment(activeModel);
-        if (optimalPrinterId && activeModel.printerId !== optimalPrinterId) {
-            updateModelPrinter(optimalPrinterId);
+        if ((optimalPrinterId || null) !== (activeModel.printerId || null)) {
+            updateModelPrinter(optimalPrinterId || null);
         }
     }
   }, [activeModel, updateModelPrinter, optimizePrinterAssignment]);
@@ -1085,8 +1088,8 @@ export default function ProjectPrepare({
                 {/* Right Column: Status (Online/Offline), Assignment Mode (Best Fit/Manual), and tap action label */}
                 <div className="flex flex-col items-end gap-0 shrink-0 justify-start">
                   {selectedPrinter && (
-                  <span className={`text-[13px] font-bold uppercase px-2 py-1 rounded-lg shrink-0 leading-none ${selectedPrinter?.status?.toLowerCase() === 'online' || selectedPrinter?.status?.toLowerCase() === 'virtual' ? 'text-green-600' : 'text-red-600'}`}>
-                      {selectedPrinter?.status || '---'}
+                  <span className={`text-[13px] font-bold uppercase px-2 py-1 rounded-lg shrink-0 leading-none ${normalizePrinterStatus(selectedPrinter?.status, selectedPrinter) === 'available' ? 'text-green-600' : normalizePrinterStatus(selectedPrinter?.status, selectedPrinter) === 'maintenance' ? 'text-amber-600' : 'text-red-600'}`}>
+                      {normalizePrinterStatus(selectedPrinter?.status, selectedPrinter)}
                     </span>
                   )}
 
@@ -1103,8 +1106,8 @@ export default function ProjectPrepare({
               </div>
               {isSelectingPrinter && activeModel?.isManualPrinter && (
                 <div className="mt-1 border-t border-black/10 dark:border-white/10">
-                  {printers.filter((p) => String(p.id) !== String(activeModel?.printerId)).map((p, index) => {
-                    const isOnline = p.status?.toLowerCase() === 'online' || p.status?.toLowerCase() === 'virtual';
+                  {printers.filter((p) => String(p.id) !== String(activeModel?.printerId) && isPrinterAvailableForCostEstimation(p)).map((p, index) => {
+                    const printerStatus = normalizePrinterStatus(p.status, p);
                     return (
                       <button
                         key={p.id}
@@ -1132,9 +1135,9 @@ export default function ProjectPrepare({
                           </span>
                         </div>
                         <span className={`text-[13px] font-bold uppercase px-2.5 py-1 rounded-lg shrink-0 ${
-                          isOnline ? 'text-green-600' : 'text-red-600'
+                          printerStatus === 'available' ? 'text-green-600' : 'text-amber-600'
                         }`}>
-                          {p.status}
+                          {printerStatus}
                         </span>
                       </button>
                     );

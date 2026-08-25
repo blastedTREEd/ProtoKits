@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  Box, CalendarDays, Clock, Zap, Plus, Lock, Edit3, Trash2, PackagePlus, PackageMinus,
+  Box, CalendarDays, Clock, Zap, Plus, Lock, Edit3, Trash2, Printer, PrinterCheck, PrinterX, PackageMinus,
   X, Weight, Layers, AlertTriangle, Link2, Unlink2, ExternalLink, ChevronRight, ChevronLeft,
   ShoppingBasket, Play, Pause, FileText, ShieldCheck, CheckCircle2, XCircle, ImagePlus,
   Settings, Pencil, PencilSparkles
@@ -11,6 +11,13 @@ import { useTheme } from '../../context/ThemeContext';
 import GarageCalendar, { findFirstAvailable, getOccupiedDates } from './GarageCalendar';
 import ProjectStatusGrid from './ProjectStatusGrid';
 import { getUnavailableDateSet, getUnavailableWeekdaySet, toDateKey } from '../../utils/availabilitySchedule';
+import {
+  getPrinterFeeders,
+  isFilamentCompatibleWithPrinter,
+  isPrinterAvailableForScheduling,
+  normalizePrinterRecord,
+  normalizePrinterStatus
+} from '../../utils/printerCompatibility';
 import { LiaGoogleDrive } from 'react-icons/lia';
 import { TbHexagon3D } from 'react-icons/tb';
 import { LuRotate3D } from 'react-icons/lu';
@@ -165,6 +172,148 @@ const getSpectralGradient = (id) => {
 
 const parsePrice = (value) => parseFloat(String(value || '0').replace(/,/g, '')) || 0;
 
+const toProjectMillimeters = (value, unit = 'mm') => {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return 0;
+  const normalizedUnit = String(unit || 'mm').trim().toLowerCase();
+  if (normalizedUnit === 'cm') return numericValue * 10;
+  if (normalizedUnit === 'in' || normalizedUnit === 'inch' || normalizedUnit === 'inches') return numericValue * 25.4;
+  return numericValue;
+};
+
+const getProjectDetailDimensions = (detail = {}) => {
+  const config = detail.config || {};
+  const dimensions = detail.dimensions || {};
+  const unit = detail.unit || config.unit || dimensions.unit || 'mm';
+  const values = [
+    detail.length ?? config.length ?? dimensions.length ?? dimensions.l ?? detail.baseMM_length,
+    detail.width ?? config.width ?? dimensions.width ?? dimensions.w ?? detail.baseMM_width,
+    detail.height ?? config.height ?? dimensions.height ?? dimensions.h ?? detail.baseMM_height
+  ].map((value) => toProjectMillimeters(value, unit));
+
+  return values.every((value) => value > 0) ? values : null;
+};
+
+const getProjectMaterialRecords = (detail = {}, filamentInventory = []) => {
+  const source = Array.isArray(detail.materials) && detail.materials.length > 0
+    ? detail.materials
+    : Array.isArray(detail.normalizedMaterials) && detail.normalizedMaterials.length > 0
+      ? detail.normalizedMaterials
+      : Array.isArray(detail.materialSlots) && detail.materialSlots.length > 0
+        ? detail.materialSlots
+        : [detail.material, detail.normalizedMaterial].filter(Boolean);
+
+  return source.map((entry) => {
+    const nestedMaterial = entry?.material || entry?.normalizedMaterial;
+    const materialId = String(
+      entry?.materialId
+        || nestedMaterial?.id
+        || entry?.id
+        || ''
+    ).trim();
+    const material = getProjectMaterial({
+      ...detail,
+      materialId,
+      material: nestedMaterial || entry,
+      normalizedMaterial: nestedMaterial || entry
+    }, filamentInventory);
+
+    return { material, materialId };
+  }).filter(({ material, materialId }) => material && (materialId || material.type || material.name));
+};
+
+const getProjectRequiredMaterialSlots = (detail = {}, materialRecords = []) => {
+  if (Array.isArray(detail.materialSlots) && detail.materialSlots.length > 0) return detail.materialSlots.length;
+  if (Array.isArray(detail.materials) && detail.materials.length > 0) return detail.materials.length;
+  if (Array.isArray(detail.normalizedMaterials) && detail.normalizedMaterials.length > 0) return detail.normalizedMaterials.length;
+
+  const jobMaterialIds = (detail.productionJobs || []).flatMap((job) => job?.materialIds || []);
+  if (jobMaterialIds.length > 0) return jobMaterialIds.length;
+  return Math.max(1, materialRecords.length);
+};
+
+const isProjectPrinterOperational = (printer = {}) => {
+  return isPrinterAvailableForScheduling(printer);
+};
+
+const printerFitsProjectDimensions = (printer, dimensions) => {
+  if (!dimensions) return true;
+  const capacity = normalizePrinterRecord(printer).buildCapacity;
+  return dimensions.every((value, index) => value <= [capacity.x, capacity.y, capacity.z][index]);
+};
+
+const printerCanAccommodateProjectDetail = (printer, detail, feeders, filamentInventory) => {
+  if (!printer || !isProjectPrinterOperational(printer)) return false;
+
+  const normalizedPrinter = normalizePrinterRecord(printer);
+  if (!printerFitsProjectDimensions(printer, getProjectDetailDimensions(detail))) return false;
+
+  const materialRecords = getProjectMaterialRecords(detail, filamentInventory);
+  if (materialRecords.some(({ material }) => !isFilamentCompatibleWithPrinter(normalizedPrinter, material))) return false;
+
+  const requiredSlots = getProjectRequiredMaterialSlots(detail, materialRecords);
+  const compatibleFeeders = getPrinterFeeders(normalizedPrinter, feeders);
+  if (requiredSlots > 1 && compatibleFeeders.length === 0) return false;
+
+  const feederSlots = compatibleFeeders.reduce((total, feeder) => total + (Number(feeder.filamentSlots) || 0), 0);
+  const availableSlots = Math.max(feederSlots || normalizedPrinter.filamentSlots || 1, 1);
+  return availableSlots >= requiredSlots;
+};
+
+const getProjectPrinterCandidates = (printers, project, details = [], targetDetail = null) => {
+  const availablePrinters = Array.isArray(printers) ? printers : [];
+  const detailsToCheck = details.length > 0 ? details : [project];
+  const allAssignedPrinterIds = [
+    project?.printerId,
+    ...detailsToCheck.flatMap((detail) => [
+      detail?.printerId,
+      ...(detail?.productionJobs || []).map((job) => job?.printerId)
+    ])
+  ].filter(Boolean).map(String);
+  const preferredPrinterIds = targetDetail
+    ? [
+      targetDetail?.printerId,
+      ...(targetDetail?.productionJobs || []).map((job) => job?.printerId),
+      project?.printerId
+    ].filter(Boolean).map(String)
+    : allAssignedPrinterIds;
+  const uniquePreferredIds = [...new Set(preferredPrinterIds)];
+  const uniqueOtherAssignedIds = [...new Set(allAssignedPrinterIds)]
+    .filter((id) => !uniquePreferredIds.includes(id));
+  const assignedCandidates = [...uniquePreferredIds, ...uniqueOtherAssignedIds]
+    .map((id) => availablePrinters.find((printer) => String(printer.id) === id))
+    .filter(Boolean);
+  const assignedCandidateIds = new Set(assignedCandidates.map((printer) => String(printer.id)));
+  const fallbackCandidates = availablePrinters.filter(
+    (printer) => !assignedCandidateIds.has(String(printer.id))
+  );
+
+  return {
+    detailsToCheck,
+    candidates: [...assignedCandidates, ...fallbackCandidates]
+  };
+};
+
+const getBestProjectPrinter = (printers, project, details, feeders, filamentInventory) => {
+  const { detailsToCheck } = getProjectPrinterCandidates(printers, project, details);
+  const detailSelections = detailsToCheck.map((detail) => {
+    const { candidates } = getProjectPrinterCandidates(printers, project, detailsToCheck, detail);
+    return {
+      candidates,
+      printer: candidates.find((printer) => (
+        printerCanAccommodateProjectDetail(printer, detail, feeders, filamentInventory)
+      )) || null
+    };
+  });
+
+  return {
+    detailsToCheck,
+    printer: detailSelections[0]?.printer || detailSelections[0]?.candidates?.[0] || null,
+    isCompatible: detailSelections.length > 0 && detailSelections.every((selection) => Boolean(selection.printer)),
+    detailSelections
+  };
+};
+
 const getProjectMaterial = (item = {}, filamentInventory = []) => {
   const material = item.normalizedMaterial || item.material?.material || item.material || {};
   const materialId = material.id || item.materialId || item.material?.materialId;
@@ -316,9 +465,10 @@ const GarageProjectSummary = ({
   methodLabel,
   details,
   filamentInventory,
+  feeders,
   lowestPrice,
   profit,
-  isProductionEnabled,
+  printers,
   isDarkMode
 }) => {
   const condition = project?.conditionDetails || project?.conditions || {};
@@ -338,6 +488,27 @@ const GarageProjectSummary = ({
     project?.series || project?.line
   ].filter(Boolean);
   const hasConditions = boxCondition || kitCondition;
+  const printerSelection = getBestProjectPrinter(
+    printers,
+    project,
+    details,
+    feeders,
+    filamentInventory
+  );
+  const assignedPrinter = printerSelection.printer;
+  const fallbackPrinterName = project?.printerName
+    || details.flatMap((detail) => detail?.productionJobs || []).map((job) => job?.printerName).find(Boolean);
+  const printerLabel = assignedPrinter
+    ? [assignedPrinter.brand || assignedPrinter.manufacturer, assignedPrinter.model || assignedPrinter.name].filter(Boolean).join(' ')
+    : fallbackPrinterName;
+  const normalizedPrinterStatus = assignedPrinter
+    ? normalizePrinterStatus(assignedPrinter.status, assignedPrinter)
+    : 'unavailable';
+  const printerStatus = assignedPrinter
+    ? (printerSelection.isCompatible
+      ? normalizedPrinterStatus.toUpperCase()
+      : 'UNAVAILABLE')
+    : 'UNAVAILABLE';
 
   return (
     <div className="p-6 sm:p-8 lg:p-10 space-y-7">
@@ -383,12 +554,21 @@ const GarageProjectSummary = ({
 
       <section className="space-y-2">
         <h3 className="flex items-center gap-2 text-[14px] font-black uppercase tracking-[0.14em]">
-          <PackagePlus size={17} strokeWidth={2.5} /> Availability
+          <Printer size={17} strokeWidth={2.5} /> 3D Printer
         </h3>
-        <div className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-[14px] font-black uppercase shadow-lg ${isProductionEnabled ? 'bg-blue-600 text-white shadow-blue-600/25' : 'bg-red-500/10 text-red-600 border-2 border-red-500'}`}>
-          <span>1</span>
-          <span className="h-4 w-px bg-current opacity-60" />
-          <span>{isProductionEnabled ? 'Onhand' : 'Unavailable'}</span>
+        <div className="flex items-center justify-between gap-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-4 py-3 text-[14px] font-black uppercase">
+          <span className="min-w-0 truncate">
+            {printerLabel || 'No printer assigned'}
+          </span>
+          <span className={`shrink-0 text-[12px] font-black uppercase ${
+            printerSelection.isCompatible && isProjectPrinterOperational(assignedPrinter)
+              ? 'text-emerald-600'
+              : normalizedPrinterStatus === 'maintenance' && printerSelection.isCompatible
+                ? 'text-amber-600'
+                : 'text-red-500'
+          }`}>
+            {printerStatus}
+          </span>
         </div>
       </section>
 
@@ -477,7 +657,7 @@ export default function ProjectCard({
   openOnMount = false
 }) {
   const { isDarkMode, isSpectralMode } = useTheme();
-  const { shippingSettings, shelf, orders, printers, filamentInventory, isAdmin, isAdminView, updateBlueprint, updateProjectInVault, rates: storeRates } = useStore();
+  const { shippingSettings, shelf, orders, printers, feeders, filamentInventory, isAdmin, isAdminView, updateBlueprint, updateProjectInVault, rates: storeRates } = useStore();
   const navigate = useNavigate();
   const projectId = project?.id || null;
   const projectPath = projectId ? `/prints/${encodeURIComponent(projectId)}` : '/prints';
@@ -891,33 +1071,62 @@ export default function ProjectCard({
   const details = project.projectDetails || [];
 
   const printerIsAvailable = useMemo(() => {
-    const printerIds = new Set([
-      project?.printerId,
-      ...details.map((detail) => detail?.printerId),
-      ...details.flatMap((detail) => (detail?.productionJobs || []).map((job) => job?.printerId))
-    ].filter(Boolean).map(String));
-    const projectPrinters = [...printerIds]
-      .map((id) => (printers || []).find((printer) => String(printer.id) === id))
-      .filter(Boolean);
+    return getBestProjectPrinter(
+      printers,
+      project,
+      details,
+      feeders,
+      filamentInventory
+    ).isCompatible;
+  }, [details, feeders, filamentInventory, printers, project]);
 
-    if (projectPrinters.length === 0) return false;
-    return projectPrinters.every((printer) => {
-      const status = String(printer.status || printer.availability || '').trim().toLowerCase();
-      if (['offline', 'maintenance', 'unavailable', 'disabled'].includes(status)) return false;
-      return printer.available === true
-        || printer.isAvailable === true
-        || ['online', 'available', 'ready'].includes(status);
-    });
-  }, [details, printers, project?.printerId]);
+  const projectPrinterSelection = useMemo(() => getBestProjectPrinter(
+      printers,
+      project,
+      details,
+      feeders,
+      filamentInventory
+    ), [details, feeders, filamentInventory, printers, project]);
+
+  const projectPrinter = projectPrinterSelection.printer;
+  const normalizedProjectPrinterStatus = projectPrinter
+    ? normalizePrinterStatus(projectPrinter.status, projectPrinter)
+    : 'unavailable';
+
+  const projectPrinterLabel = projectPrinter
+    ? [projectPrinter.brand || projectPrinter.manufacturer, projectPrinter.model || projectPrinter.name]
+      .filter(Boolean)
+      .join(' ')
+    : 'NO COMPATIBLE PRINTER';
+  const projectPrinterStatus = projectPrinter
+    ? projectPrinterSelection.isCompatible
+      ? normalizedProjectPrinterStatus.toUpperCase()
+      : normalizedProjectPrinterStatus === 'maintenance'
+        ? 'MAINTENANCE'
+        : 'UNAVAILABLE'
+    : 'UNAVAILABLE';
+  const ProjectPrinterStatusIcon = normalizedProjectPrinterStatus === 'maintenance'
+    ? PrinterCheck
+    : normalizedProjectPrinterStatus === 'available' && projectPrinterSelection.isCompatible
+      ? Printer
+      : PrinterX;
+  const projectPrinterStatusIconClass = normalizedProjectPrinterStatus === 'maintenance' && projectPrinter
+    ? 'text-amber-500'
+    : normalizedProjectPrinterStatus === 'available' && projectPrinterSelection.isCompatible
+      ? 'text-emerald-500'
+      : 'text-red-500';
 
   const materialStatus = useMemo(() => {
-    const materialEntries = details.flatMap((detail) => {
+    const detailsToCheck = details.length > 0 ? details : [project];
+    const materialEntries = detailsToCheck.flatMap((detail) => {
       if (Array.isArray(detail?.materials) && detail.materials.length > 0) return detail.materials;
-      return detail?.material ? [detail.material] : [];
+      if (Array.isArray(detail?.normalizedMaterials) && detail.normalizedMaterials.length > 0) return detail.normalizedMaterials;
+      if (Array.isArray(detail?.materialSlots) && detail.materialSlots.length > 0) return detail.materialSlots;
+      return detail?.material || detail?.normalizedMaterial ? [detail.material || detail.normalizedMaterial] : [];
     });
 
     const available = materialEntries.length > 0 && materialEntries.every((entry) => {
-      const material = entry?.material || entry?.normalizedMaterial || entry;
+      const material = getProjectMaterial(entry, filamentInventory);
       if (!material) return false;
       const status = String(material.status || '').trim().toLowerCase();
       const requiredWeight = Number(entry?.shareWeight ?? entry?.weight ?? 0);
@@ -929,7 +1138,7 @@ export default function ProjectCard({
         && (requiredWeight <= 0 || remainingWeight >= requiredWeight);
     });
     return { available };
-  }, [details]);
+  }, [details, filamentInventory, project]);
 
   const projectCanStartToday = useMemo(() => {
     const schedule = shippingSettings?.availabilitySchedule;
@@ -945,17 +1154,29 @@ export default function ProjectCard({
     return Boolean(firstAvailable && toDateKey(firstAvailable) === toDateKey(today));
   }, [orders, shippingSettings?.availabilitySchedule]);
 
-  // Garage Projects use the admin-controlled production flag as their public
-  // availability gate. Personal project vaults still require all of the
-  // printer, material, schedule, and design/file-link checks before ordering.
+  // Both project types require an operational printer that can fit the project,
+  // accept its materials, provide enough filament slots, and have an available
+  // production date. Garage Projects additionally respect the admin production
+  // flag; personal projects keep their file/design-service validation as well.
   const canUseProject = isBlueprint
     ? isProductionEnabled
+      && printerIsAvailable
+      && materialStatus.available
+      && projectCanStartToday
     : printerIsAvailable
       && materialStatus.available
       && projectCanStartToday
       && (Boolean(effectiveSelectedDesignService) || fileLinkIsValid);
-  const canAddToBasket = isProductionEnabled && canUseProject;
+  const canAddToBasket = canUseProject;
+  const printerIssue = !printerIsAvailable;
   const canModifyProject = isVault && !canUseProject;
+  const productionStatusTitle = isProductionEnabled
+    ? (isBlueprint && !canUseProject
+      ? printerIssue
+        ? 'Production blocked: printer issue'
+        : 'Production blocked: material or schedule unavailable'
+      : 'Stop Production')
+    : 'Allow Production';
 
   // Gallery management is intentionally limited to published Garage Projects.
   // Personal user-project cards keep their existing calendar-only behavior.
@@ -1039,22 +1260,33 @@ export default function ProjectCard({
     && licenseAcknowledged
   );
 
-  const getActionProjectData = () => ({
-    ...project,
-    ...(isVault ? { gdriveLink: fileLink, licenseAcknowledged } : {}),
-    selectedDesignService: effectiveSelectedDesignService,
-    projectStatusIndicators: {
-      printer: printerIsAvailable,
-      materials: materialStatus.available,
-      schedule: projectCanStartToday,
-      design: Boolean(effectiveSelectedDesignService) || fileLinkIsValid
-    },
-    totals: {
-      ...project.totals,
-      total: String(displayPrice),
-      dp: String(downpayment)
-    }
-  });
+  const getActionProjectData = () => {
+    const recomputedDetails = details.map((detail, index) => {
+      const recomputedPrinter = projectPrinterSelection.detailSelections?.[index]?.printer;
+      return recomputedPrinter
+        ? { ...detail, printerId: recomputedPrinter.id }
+        : detail;
+    });
+
+    return {
+      ...project,
+      ...(details.length > 0 ? { projectDetails: recomputedDetails } : {}),
+      ...(projectPrinter ? { printerId: projectPrinter.id } : {}),
+      ...(isVault ? { gdriveLink: fileLink, licenseAcknowledged } : {}),
+      selectedDesignService: effectiveSelectedDesignService,
+      projectStatusIndicators: {
+        printer: printerIsAvailable,
+        materials: materialStatus.available,
+        schedule: projectCanStartToday,
+        design: Boolean(effectiveSelectedDesignService) || fileLinkIsValid
+      },
+      totals: {
+        ...project.totals,
+        total: String(displayPrice),
+        dp: String(downpayment)
+      }
+    };
+  };
 
   const handleAddProjectToBasket = async (e, { closeModal = false } = {}) => {
     e.stopPropagation();
@@ -1238,7 +1470,7 @@ export default function ProjectCard({
                             ? 'bg-gradient-to-br from-red-500 to-red-600 shadow-red-500/40 text-white'
                             : 'bg-gradient-to-br from-blue-500 to-blue-600 shadow-blue-500/40 text-white'
                         }`}
-                        title={isProductionEnabled ? 'Stop Production' : 'Allow Production'}
+                        title={productionStatusTitle}
                       >
                         {isProductionEnabled ? <Pause size={14} fill="white" /> : <Play size={14} fill="white" />}
                       </button>
@@ -1270,14 +1502,20 @@ export default function ProjectCard({
                             ? 'bg-gradient-to-br from-amber-500 to-orange-500 shadow-amber-500/40 text-white hover:scale-110'
                             : 'bg-gradient-to-br from-blue-500 to-blue-600 shadow-blue-500/40 text-white hover:scale-110'
                         }`}
-                        title={!canAddToBasket ? (canModifyProject ? 'Modify project' : 'Public view only') : isVault && !vaultReadyForBasket ? (projectNameNeedsUpdate ? 'Custom project name required' : 'File link or 3D service required') : 'Add to Basket'}
+                        title={printerIssue
+                          ? 'Printer issue'
+                          : !canAddToBasket
+                            ? (canModifyProject ? 'Modify project' : 'Public view only')
+                            : isVault && !vaultReadyForBasket
+                              ? (projectNameNeedsUpdate ? 'Custom project name required' : 'File link or 3D service required')
+                              : 'Add to Basket'}
                     >
-                        {!canAddToBasket && canModifyProject ? (
+                        {isVault ? (
+                        <ProjectPrinterStatusIcon size={15} strokeWidth={2.5} className={projectPrinterStatusIconClass} />
+                        ) : !canAddToBasket && canModifyProject ? (
                         <PencilSparkles size={15} strokeWidth={2.5} />
                         ) : !canAddToBasket ? (
                         <Lock size={13} strokeWidth={3} />
-                        ) : isVault && !vaultReadyForBasket ? (
-                        projectNameNeedsUpdate ? <Pencil size={13} strokeWidth={3} /> : <FileText size={13} strokeWidth={3} />
                         ) : (
                         <Plus size={16} strokeWidth={3} />
                         )}
@@ -1397,9 +1635,10 @@ export default function ProjectCard({
                       methodLabel={methodLabel}
                       details={details}
                       filamentInventory={filamentInventory}
+                      feeders={feeders}
                       lowestPrice={lowestPrice}
                       profit={projectProfit}
-                      isProductionEnabled={isProductionEnabled}
+                      printers={printers}
                       isDarkMode={isDarkMode}
                     />
                   ) : (
@@ -1481,6 +1720,27 @@ export default function ProjectCard({
                         </div>
                       </div>
                     </div>
+
+                    <section className="space-y-2">
+                      <h3 className="flex items-center gap-2 text-[14px] font-black uppercase tracking-[0.14em]">
+                        <Printer size={17} strokeWidth={2.5} /> 3D Printer
+                      </h3>
+                      <div className="flex items-center justify-between gap-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-4 py-3 text-[14px] font-black uppercase">
+                        <span className="min-w-0 truncate">
+                          {projectPrinterLabel}
+                        </span>
+                        <span className={`shrink-0 text-[12px] font-black uppercase ${
+                          projectPrinter && isProjectPrinterOperational(projectPrinter)
+                            ? 'text-emerald-600'
+                            : normalizedProjectPrinterStatus === 'maintenance'
+                              ? 'text-amber-600'
+                            : 'text-red-500'
+                        }`}>
+                          {projectPrinterStatus}
+                        </span>
+                      </div>
+                    </section>
+
                     {/* Configuration Details */}
                     <div className="space-y-4">
                       <div className="flex items-center gap-4 px-2">
@@ -1783,7 +2043,7 @@ export default function ProjectCard({
                 ? 'bg-gradient-to-br from-red-500 to-red-600 shadow-red-500/30'
                 : 'bg-gradient-to-br from-blue-500 to-blue-600 shadow-blue-500/30'
             }`}
-            title={isProductionEnabled ? 'Stop Production' : 'Allow Production'}
+            title={productionStatusTitle}
           >
             {isProductionEnabled ? <Pause size={15} fill="white" /> : <Play size={15} fill="white" />}
             <span className="truncate">Production</span>
@@ -1837,7 +2097,7 @@ export default function ProjectCard({
               }`}
             >
               <ShoppingBasket size={14} strokeWidth={3} />
-              <span className="truncate">Add to Basket</span>
+              <span className="truncate">{printerIssue ? 'Printer Issue' : 'Add to Basket'}</span>
             </button>
           </div>
 

@@ -12,6 +12,12 @@ import { getIntegerFeeShare, getStockStandaloneSellPrice, isBundleOrClearanceIte
 import { getBundleDealPricing, getClearanceBundlePricing } from '../utils/bundlePricing';
 import { getUnavailableDateSet, getUnavailableWeekdaySet, toDateKey } from '../utils/availabilitySchedule';
 import { getStockEta } from '../utils/stockDates';
+import {
+  getPrinterFeeders,
+  isFilamentCompatibleWithPrinter,
+  isPrinterAvailableForScheduling,
+  normalizePrinterRecord
+} from '../utils/printerCompatibility';
 import { findFirstAvailable, getOccupiedDates } from '../components/calculator/GarageCalendar';
 import ProjectStatusGrid from '../components/calculator/ProjectStatusGrid';
 // Resolves an image ID to its URL from the images array.
@@ -55,23 +61,99 @@ function isValidProjectFileLink(value) {
   }
 }
 
-function getProjectStatusIndicators(project, { printers, orders, shippingSettings, rates }) {
+const toProjectMillimeters = (value, unit = 'mm') => {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return 0;
+  const normalizedUnit = String(unit || 'mm').trim().toLowerCase();
+  if (normalizedUnit === 'cm') return numericValue * 10;
+  if (normalizedUnit === 'in' || normalizedUnit === 'inch' || normalizedUnit === 'inches') return numericValue * 25.4;
+  return numericValue;
+};
+
+const getProjectDetailDimensions = (detail = {}) => {
+  const config = detail.config || {};
+  const dimensions = detail.dimensions || {};
+  const unit = detail.unit || config.unit || dimensions.unit || 'mm';
+  const values = [
+    detail.length ?? config.length ?? dimensions.length ?? dimensions.l ?? detail.baseMM_length,
+    detail.width ?? config.width ?? dimensions.width ?? dimensions.w ?? detail.baseMM_width,
+    detail.height ?? config.height ?? dimensions.height ?? dimensions.h ?? detail.baseMM_height
+  ].map((value) => toProjectMillimeters(value, unit));
+  return values.every((value) => value > 0) ? values : null;
+};
+
+const getProjectMaterialRecords = (detail = {}, filamentInventory = []) => {
+  const source = Array.isArray(detail.materials) && detail.materials.length > 0
+    ? detail.materials
+    : Array.isArray(detail.normalizedMaterials) && detail.normalizedMaterials.length > 0
+      ? detail.normalizedMaterials
+      : Array.isArray(detail.materialSlots) && detail.materialSlots.length > 0
+        ? detail.materialSlots
+        : [detail.material, detail.normalizedMaterial].filter(Boolean);
+  return source.map((entry) => {
+    const nestedMaterial = entry?.material || entry?.normalizedMaterial;
+    const materialId = String(entry?.materialId || nestedMaterial?.id || entry?.id || '').trim();
+    const inventoryMatch = (filamentInventory || []).find((filament) => materialId && String(filament.id) === materialId);
+    return { material: { ...(nestedMaterial || entry || {}), ...(inventoryMatch || {}) }, materialId };
+  }).filter(({ material, materialId }) => material && (materialId || material.type || material.name));
+};
+
+const getProjectRequiredMaterialSlots = (detail = {}, materialRecords = []) => {
+  if (Array.isArray(detail.materialSlots) && detail.materialSlots.length > 0) return detail.materialSlots.length;
+  if (Array.isArray(detail.materials) && detail.materials.length > 0) return detail.materials.length;
+  if (Array.isArray(detail.normalizedMaterials) && detail.normalizedMaterials.length > 0) return detail.normalizedMaterials.length;
+  const jobMaterialIds = (detail.productionJobs || []).flatMap((job) => job?.materialIds || []);
+  if (jobMaterialIds.length > 0) return jobMaterialIds.length;
+  return Math.max(1, materialRecords.length);
+};
+
+const isProjectPrinterOperational = (printer = {}) => {
+  return isPrinterAvailableForScheduling(printer);
+};
+
+const printerCanAccommodateProjectDetail = (printer, detail, feeders, filamentInventory) => {
+  if (!printer || !isProjectPrinterOperational(printer)) return false;
+  const normalizedPrinter = normalizePrinterRecord(printer);
+  const dimensions = getProjectDetailDimensions(detail);
+  const capacity = normalizedPrinter.buildCapacity;
+  if (dimensions && !dimensions.every((value, index) => value <= [capacity.x, capacity.y, capacity.z][index])) return false;
+  const materialRecords = getProjectMaterialRecords(detail, filamentInventory);
+  if (materialRecords.some(({ material }) => !isFilamentCompatibleWithPrinter(normalizedPrinter, material))) return false;
+  const requiredSlots = getProjectRequiredMaterialSlots(detail, materialRecords);
+  const compatibleFeeders = getPrinterFeeders(normalizedPrinter, feeders);
+  if (requiredSlots > 1 && compatibleFeeders.length === 0) return false;
+  const feederSlots = compatibleFeeders.reduce((total, feeder) => total + (Number(feeder.filamentSlots) || 0), 0);
+  return Math.max(feederSlots || normalizedPrinter.filamentSlots || 1, 1) >= requiredSlots;
+};
+
+const getBestProjectPrinter = (printers, project, feeders, filamentInventory) => {
   const details = Array.isArray(project?.projectDetails) ? project.projectDetails : [];
-  const printerIds = new Set([
+  const detailsToCheck = details.length > 0 ? details : [project];
+  const assignedIds = [
     project?.printerId,
-    ...details.map((detail) => detail?.printerId),
-    ...details.flatMap((detail) => (detail?.productionJobs || []).map((job) => job?.printerId))
-  ].filter(Boolean).map(String));
-  const projectPrinters = [...printerIds]
+    ...detailsToCheck.flatMap((detail) => [detail?.printerId, ...(detail?.productionJobs || []).map((job) => job?.printerId)])
+  ].filter(Boolean).map(String);
+  const assignedCandidates = [...new Set(assignedIds)]
     .map((id) => (printers || []).find((printer) => String(printer.id) === id))
     .filter(Boolean);
-  const printerAvailable = projectPrinters.length > 0 && projectPrinters.every((printer) => {
-    const status = String(printer.status || printer.availability || '').trim().toLowerCase();
-    if (['offline', 'maintenance', 'unavailable', 'disabled'].includes(status)) return false;
-    return printer.available === true
-      || printer.isAvailable === true
-      || ['online', 'available', 'ready'].includes(status);
-  });
+  const assignedCandidateIds = new Set(assignedCandidates.map((printer) => String(printer.id)));
+  const candidates = [
+    ...assignedCandidates,
+    ...(printers || []).filter((printer) => !assignedCandidateIds.has(String(printer.id)))
+  ];
+  const detailSelections = detailsToCheck.map((detail) => candidates.find((printer) => (
+    printerCanAccommodateProjectDetail(printer, detail, feeders, filamentInventory)
+  )) || null);
+  return {
+    printer: detailSelections[0] || assignedCandidates[0] || null,
+    isCompatible: detailSelections.length > 0 && detailSelections.every(Boolean),
+    detailSelections
+  };
+};
+
+function getProjectStatusIndicators(project, { printers, feeders, filamentInventory, orders, shippingSettings, rates }) {
+  const details = Array.isArray(project?.projectDetails) ? project.projectDetails : [];
+  const printerAvailable = getBestProjectPrinter(printers, project, feeders, filamentInventory).isCompatible;
 
   const materialEntries = details.flatMap((detail) => (
     Array.isArray(detail?.materials) && detail.materials.length > 0
@@ -166,7 +248,7 @@ export default function Basket() {
   const { 
     user, isAnonymousUser, basket, shelf, isAdmin, isAdminView, removeFromBasket, kits, userOffers, userOffersLoaded, addToBasket, addProjectToBasket, decrementProjectQuantity,
     guestBasket, isLoading, setLoginModalOpen, shippingSettings, loadMissingKits, refreshBasket, keepOneOfEachToShelf, deals, loadBlueprintProductionStatuses,
-    orders, printers, rates, projectVault, blueprints
+    orders, printers, feeders, filamentInventory, rates, projectVault, blueprints
   } = useStore();
   const [isKeepingOnes, setIsKeepingOnes] = useState(false);
   const [offerNow, setOfferNow] = useState(0);
@@ -281,114 +363,75 @@ export default function Basket() {
       .filter(Boolean)
   ), [activeBasket, projectProductionStatuses]);
 
-  const liveInvalidProjectBasketIds = useMemo(() => {
-    const schedule = shippingSettings?.availabilitySchedule;
-    const occupiedDates = getOccupiedDates(orders, schedule);
-    const unavailableDates = getUnavailableDateSet(schedule, 'printing');
-    const unavailableWeekdays = getUnavailableWeekdaySet(schedule, 'printing');
-    const firstAvailableDate = findFirstAvailable(occupiedDates, unavailableDates, unavailableWeekdays);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const canStartToday = Boolean(firstAvailableDate && toDateKey(firstAvailableDate) === toDateKey(today));
-    const activeDesignServices = rates?.['design-services'] || {};
+  const liveProjectIssueByBasketId = useMemo(() => {
+    const issueByBasketId = new Map();
 
-    const isValidGdriveLink = (value) => {
-      if (!value || !String(value).trim()) return false;
-      try {
-        const hostname = new URL(String(value).trim()).hostname;
-        return hostname === 'drive.google.com' || hostname === 'docs.google.com';
-      } catch {
-        return false;
-      }
-    };
-
-    const isPrinterAvailable = (project) => {
-      const details = Array.isArray(project?.projectDetails) ? project.projectDetails : [];
-      const printerIds = new Set([
-        project?.printerId,
-        ...details.map((detail) => detail?.printerId),
-        ...details.flatMap((detail) => (detail?.productionJobs || []).map((job) => job?.printerId))
-      ].filter(Boolean).map(String));
-      const projectPrinters = [...printerIds]
-        .map((id) => (printers || []).find((printer) => String(printer.id) === id))
-        .filter(Boolean);
-      if (projectPrinters.length === 0) return false;
-      return projectPrinters.every((printer) => {
-        const status = String(printer.status || printer.availability || '').trim().toLowerCase();
-        if (['offline', 'maintenance', 'unavailable', 'disabled'].includes(status)) return false;
-        return printer.available === true
-          || printer.isAvailable === true
-          || ['online', 'available', 'ready'].includes(status);
-      });
-    };
-
-    const areMaterialsAvailable = (project) => {
-      const details = Array.isArray(project?.projectDetails) ? project.projectDetails : [];
-      const entries = details.flatMap((detail) => (
-        Array.isArray(detail?.materials) && detail.materials.length > 0
-          ? detail.materials
-          : detail?.material ? [detail.material] : []
-      ));
-      if (entries.length === 0) return false;
-      return entries.every((entry) => {
-        const material = entry?.material || entry?.normalizedMaterial || entry;
-        if (!material) return false;
-        const status = String(material.status || '').trim().toLowerCase();
-        const requiredWeight = Number(entry?.shareWeight ?? entry?.weight ?? 0);
-        const remainingWeight = Number(material.remaining ?? material.weight ?? 0);
-        return entry?.isUpfront !== true
-          && material.isUpfront !== true
-          && status !== 'upfront'
-          && remainingWeight > 0
-          && (requiredWeight <= 0 || remainingWeight >= requiredWeight);
-      });
-    };
-
-    return activeBasket
+    activeBasket
       .filter((item) => item.type === 'project')
-      .filter((item) => {
+      .forEach((item) => {
         const storedProject = item.projectData || {};
         const liveProject = storedProject.vaultId
           ? (projectVault || []).find((project) => project.vaultId === storedProject.vaultId)
           : (blueprints || []).find((project) => String(project.id) === String(storedProject.id));
         const project = liveProject || storedProject;
-        const storedIndicators = storedProject.projectStatusIndicators;
         const isGarageProject = !storedProject.vaultId && Boolean(storedProject.id);
-
-        if (!liveProject && storedIndicators) {
-          // Garage Projects are governed by the persisted production switch;
-          // their printer/material/calendar readiness indicators are not a
-          // reason to remove an already-added public project from the basket.
-          if (!isGarageProject) {
-            return Object.values(storedIndicators).some((status) => status !== true);
-          }
-        }
 
         if (isGarageProject) {
           const blueprintId = String(project?.id || storedProject.id);
-          return project?.canAddToBasket === false
-            || projectProductionStatuses[blueprintId] === false;
+          if (project?.canAddToBasket === false || projectProductionStatuses[blueprintId] === false) {
+            issueByBasketId.set(item.basketId, 'Production Stopped');
+            return;
+          }
         }
 
-        const is3MF = project?.method?.name?.toUpperCase() === '3MF';
-        const selectedService = project?.selectedDesignService;
-        const hasActiveService = Boolean(
-          selectedService
-          && !is3MF
-          && activeDesignServices[selectedService]
-          && activeDesignServices[selectedService].status === true
-        );
-        const linkReady = isValidGdriveLink(project?.gdriveLink);
-        const designReady = hasActiveService || linkReady;
-        return project?.canAddToBasket === false
-          || !isPrinterAvailable(project)
-          || !areMaterialsAvailable(project)
-          || !canStartToday
-          || !designReady;
-      })
-      .map((item) => item.basketId)
-      .filter(Boolean);
-  }, [activeBasket, blueprints, orders, printers, projectProductionStatuses, projectVault, rates, shippingSettings?.availabilitySchedule]);
+        // Preserve readiness captured when this basket entry was created if
+        // the source project is no longer available in the live collections.
+        // This keeps older/stale basket records actionable without turning
+        // missing live data into a false printer issue.
+        if (!liveProject && storedProject.projectStatusIndicators) {
+          const storedIndicators = storedProject.projectStatusIndicators;
+          const storedIssue = storedIndicators.printer !== true
+            ? 'Printer Issue'
+            : storedIndicators.materials !== true
+              ? 'Material Issue'
+              : storedIndicators.schedule !== true
+                ? 'Schedule Issue'
+                : storedIndicators.design !== true && !isGarageProject
+                  ? 'File Link Issue'
+                  : null;
+
+          if (storedIssue) issueByBasketId.set(item.basketId, storedIssue);
+          return;
+        }
+
+        const indicators = getProjectStatusIndicators(project, {
+          printers,
+          feeders,
+          filamentInventory,
+          orders,
+          shippingSettings,
+          rates
+        });
+        const issue = !indicators.printerAvailable
+          ? 'Printer Issue'
+          : !indicators.materialsAvailable
+            ? 'Material Issue'
+            : !indicators.canStartToday
+              ? 'Schedule Issue'
+              : !indicators.hasDesignService && !indicators.fileLinkIsValid && !isGarageProject
+                ? 'File Link Issue'
+                : null;
+
+        if (issue) issueByBasketId.set(item.basketId, issue);
+      });
+
+    return issueByBasketId;
+  }, [activeBasket, blueprints, feeders, filamentInventory, orders, printers, projectProductionStatuses, projectVault, rates, shippingSettings]);
+
+  const liveInvalidProjectBasketIds = useMemo(
+    () => [...liveProjectIssueByBasketId.keys()].filter(Boolean),
+    [liveProjectIssueByBasketId]
+  );
 
   const activeSelection = useMemo(() => {
     // Restore the canonical live basket IDs. Basket IDs can arrive from
@@ -1048,32 +1091,40 @@ export default function Basket() {
     return [...new Set([...stoppedProjectBasketIds, ...liveInvalidProjectBasketIds, ...toRemoveIds])];
   }, [activeBasket, kits, liveInvalidProjectBasketIds, stoppedProjectBasketIds, validation.itemRules]);
 
+  const autoInvalidBasketItemIds = useMemo(
+    () => invalidBasketItemIds.filter((basketId) => (
+      !liveProjectIssueByBasketId.has(basketId)
+      || liveProjectIssueByBasketId.get(basketId) === 'Production Stopped'
+    )),
+    [invalidBasketItemIds, liveProjectIssueByBasketId]
+  );
+
   const autoUpdatedValidationRef = useRef('');
   useEffect(() => {
     if (
       location.pathname !== '/basket'
       || (isAdmin && isAdminView)
       || isBasketRowsLoading
-      || invalidBasketItemIds.length === 0
+      || autoInvalidBasketItemIds.length === 0
     ) return;
 
-    const updateSignature = invalidBasketItemIds.join('|');
+    const updateSignature = autoInvalidBasketItemIds.join('|');
     if (autoUpdatedValidationRef.current === updateSignature) return;
     autoUpdatedValidationRef.current = updateSignature;
 
     setManualSelectedIds((currentIds) => (
-      currentIds.filter((id) => !invalidBasketItemIds.includes(id))
+      currentIds.filter((id) => !autoInvalidBasketItemIds.includes(id))
     ));
 
     void (async () => {
-      for (const basketId of invalidBasketItemIds) {
+      for (const basketId of autoInvalidBasketItemIds) {
         await removeFromBasket(basketId);
       }
     })().catch((error) => {
       autoUpdatedValidationRef.current = '';
       console.error('SG LOG: Automatic basket update failed:', error);
     });
-  }, [invalidBasketItemIds, isAdmin, isAdminView, isBasketRowsLoading, location.pathname, removeFromBasket]);
+  }, [autoInvalidBasketItemIds, isAdmin, isAdminView, isBasketRowsLoading, location.pathname, removeFromBasket]);
 
   const shelfStats = useMemo(() => {
     if (!isAdmin || !isAdminView) return null;
@@ -1417,7 +1468,19 @@ export default function Basket() {
                     : (blueprints || []).find((project) => String(project.id) === String(item.projectData?.id)))
                   : null;
                 const projectStatus = isUserProject
-                  ? getProjectStatusIndicators(liveProject || item.projectData, { printers, orders, shippingSettings, rates })
+                  ? getProjectStatusIndicators(liveProject || item.projectData, {
+                    printers,
+                    feeders,
+                    filamentInventory,
+                    orders,
+                    shippingSettings,
+                    rates
+                  })
+                  : null;
+                const projectIssue = item.type === 'project'
+                  ? item.basketIds
+                    .map((basketId) => liveProjectIssueByBasketId.get(basketId))
+                    .find(Boolean)
                   : null;
 
                 const displayName = (item.name || '').replace(/\s*\(Pre-Order\)\s*$/i, '');
@@ -1545,6 +1608,9 @@ export default function Basket() {
                         </p>
                         {itemError && !(isAdmin && isAdminView) && (
                           <p className="text-red-500 text-[10px] font-black mt-0.5 uppercase tracking-widest">{itemError.message}</p>
+                        )}
+                        {projectIssue && !(isAdmin && isAdminView) && (
+                          <p className="text-red-500 text-[10px] font-black mt-0.5 uppercase tracking-widest">{projectIssue}</p>
                         )}
                       </div>
                       <div className="flex items-center gap-2">
@@ -1712,10 +1778,39 @@ export default function Basket() {
                         const hasSelectedIssues = selectedItems.some(i => flaggedKeys.includes(
                           getBasketValidationKey(i.id, i.batchKey, i.offerId)
                         ));
+                        const selectedProjectIssueItems = activeBasket.filter((item) => (
+                          item.type === 'project'
+                          && activeSelection.includes(item.basketId)
+                          && liveProjectIssueByBasketId.has(item.basketId)
+                        ));
+                        const selectedProjectIssue = selectedProjectIssueItems
+                          .map((item) => liveProjectIssueByBasketId.get(item.basketId))
+                          .find(Boolean);
                         const uniqueBatches = Array.from(new Set(selectedItems.map(i => i.batchKey)));
                         const hasBatchConflict = uniqueBatches.length > 1;
 
                         // 3. UPDATE BASKET STATE (Issues/Conflicts)
+                        if (selectedProjectIssue) {
+                            return (
+                              <>
+                                <div className="flex flex-col items-start md:items-end justify-center">
+                                  <span className="text-[10px] font-black uppercase opacity-40 leading-none mb-1">Status</span>
+                                  <span className="text-xl font-black italic leading-none text-red-500 uppercase tracking-tighter">{selectedProjectIssue}</span>
+                                </div>
+                                <button
+                                  onClick={() => {
+                                    const issueIds = selectedProjectIssueItems.map((item) => item.basketId).filter(Boolean);
+                                    issueIds.forEach((basketId) => removeFromBasket(basketId));
+                                    setManualSelectedIds((prev) => prev.filter((id) => !issueIds.includes(id)));
+                                  }}
+                                  className="px-10 py-3.5 rounded-full font-black uppercase tracking-widest text-xs bg-red-500 text-white shadow-lg shadow-red-500/20 hover:scale-105 transition-all"
+                                >
+                                  Update Basket
+                                </button>
+                              </>
+                            );
+                        }
+
                         if (hasSelectedIssues) {
                             return (
                               <>

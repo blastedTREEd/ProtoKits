@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import MaterialCard from './MaterialCard';
 import { useStore } from '../../store/useStore';
-import { getPrinterCompatibleFilamentTypes, getPrinterFeeders, isFilamentCompatibleWithPrinter } from '../../utils/printerCompatibility';
+import { getPrinterCompatibleFilamentTypes, getPrinterFeeders, isFilamentCompatibleWithPrinter, isPrinterAvailableForCostEstimation, normalizePrinterStatus } from '../../utils/printerCompatibility';
 
 export default function ProjectPreview({ 
   allFilaments = [], 
@@ -41,7 +41,7 @@ export default function ProjectPreview({
     [plates, effectiveActiveId]
   );
   
-  const selectedPrinter = useMemo(() => printers.find(p => p.id === activePlate.printerId), [printers, activePlate.printerId]);
+  const selectedPrinter = useMemo(() => printers.find((p) => p.id === activePlate.printerId && isPrinterAvailableForCostEstimation(p)), [printers, activePlate.printerId]);
   const compatibleFilamentTypes = useMemo(() => getPrinterCompatibleFilamentTypes(selectedPrinter), [selectedPrinter]);
 
   const getCompatibleFeeders = useCallback((printer) => {
@@ -92,13 +92,13 @@ export default function ProjectPreview({
             secs: '', 
             materialId: String(f.materialId || f.id),
             materialSlots: [{ materialId: String(f.materialId || f.id), weight: f.weight || '' }],
-            printerId: printers.length > 0 ? printers[0].id : null // Default to first printer
+            printerId: printers.find(isPrinterAvailableForCostEstimation)?.id || null // Default to an estimator-usable printer
           };
         });
         setPreviewData(initial);
     } else if ((!previewData || previewData.length === 0) && filaments.length > 0) {
       const defaultId = filaments.find(f => f.status?.toLowerCase() === 'upfront')?.id || filaments[0]?.id;
-      setPreviewData([{ id: Date.now(), no: 1, weight: '', days: '', hours: '', mins: '', secs: '', materialId: String(defaultId), materialSlots: [{ materialId: String(defaultId), weight: '' }], printerId: printers.length > 0 ? printers[0].id : null }]);
+      setPreviewData([{ id: Date.now(), no: 1, weight: '', days: '', hours: '', mins: '', secs: '', materialId: String(defaultId), materialSlots: [{ materialId: String(defaultId), weight: '' }], printerId: printers.find(isPrinterAvailableForCostEstimation)?.id || null }]);
     }
   }, [selectedFilaments, allFilaments, printers, previewData, setPreviewData]);
 
@@ -328,7 +328,9 @@ export default function ProjectPreview({
       const weightedSlots = getWeightedMaterialSlots(p);
       const primaryMaterialId = weightedSlots[0]?.materialId || p.materialId;
       const mat = filaments.find(f => String(f.id) === String(primaryMaterialId));
-      const printer = printers.find(pr => String(pr.id) === String(p.printerId));
+      const printer = printers.find(
+        pr => String(pr.id) === String(p.printerId) && isPrinterAvailableForCostEstimation(pr)
+      );
       const compatible = getCompatibleFeeders(printer);
       const usesFeeder = compatible.length > 0 && weightedSlots.length > 1 && p.useCfs !== false;
       const materials = weightedSlots.map((slot) => {
@@ -408,7 +410,7 @@ export default function ProjectPreview({
       secs: '',
       materialId,
       materialSlots: [{ materialId, weight: '' }],
-      printerId: activePlate.printerId || (printers || [])[0]?.id,
+      printerId: activePlate.printerId || (printers || []).find(isPrinterAvailableForCostEstimation)?.id || null,
       useCfs: activePlate.useCfs
     }]);
     setActivePlateId(newId);
@@ -560,8 +562,8 @@ export default function ProjectPreview({
                 </div>
                 <div className="flex flex-col items-end gap-0 shrink-0 justify-start">
                   {selectedPrinter && (
-                    <span className={`text-[13px] font-bold uppercase px-2 py-1 rounded-lg shrink-0 leading-none ${selectedPrinter?.status?.toLowerCase() === 'online' || selectedPrinter?.status?.toLowerCase() === 'virtual' ? 'text-green-600' : 'text-red-600'}`}>
-                      {selectedPrinter?.status || '---'}
+                    <span className={`text-[13px] font-bold uppercase px-2 py-1 rounded-lg shrink-0 leading-none ${normalizePrinterStatus(selectedPrinter?.status, selectedPrinter) === 'available' ? 'text-green-600' : normalizePrinterStatus(selectedPrinter?.status, selectedPrinter) === 'maintenance' ? 'text-amber-600' : 'text-red-600'}`}>
+                      {normalizePrinterStatus(selectedPrinter?.status, selectedPrinter)}
                     </span>
                   )}
                   <span className="text-[13px] font-bold uppercase px-2 py-0.5 rounded-full text-gray-500 shrink-0 leading-none">
@@ -571,8 +573,8 @@ export default function ProjectPreview({
               </div>
               {isSelectingPrinter && (
                 <div className="mt-1 border-t border-black/10 dark:border-white/10">
-                  {printers.filter((p) => String(p.id) !== String(activePlate?.printerId)).map((p, index) => {
-                    const isOnline = p.status?.toLowerCase() === 'online' || p.status?.toLowerCase() === 'virtual';
+                  {printers.filter((p) => String(p.id) !== String(activePlate?.printerId) && isPrinterAvailableForCostEstimation(p)).map((p, index) => {
+                    const printerStatus = normalizePrinterStatus(p.status, p);
                     return (
                       <button
                         key={p.id}
@@ -602,8 +604,8 @@ export default function ProjectPreview({
                             {getPrinterFilamentSlots(p)} Filament {getPrinterFilamentSlots(p) === 1 ? 'Slot' : 'Slots'}
                           </span>
                         </div>
-                        <span className={`text-[13px] font-bold uppercase px-2.5 py-1 rounded-lg shrink-0 ${isOnline ? 'text-green-600' : 'text-red-600'}`}>
-                          {p.status}
+                        <span className={`text-[13px] font-bold uppercase px-2.5 py-1 rounded-lg shrink-0 ${printerStatus === 'available' ? 'text-green-600' : 'text-amber-600'}`}>
+                          {printerStatus}
                         </span>
                       </button>
                     );

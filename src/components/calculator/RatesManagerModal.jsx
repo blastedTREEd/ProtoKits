@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Save, SlidersHorizontal } from 'lucide-react';
+import { X, SlidersHorizontal } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
 
@@ -96,6 +96,7 @@ export default function RatesManagerModal({ onClose }) {
   const updateSettings = useStore((state) => state.updateSettings);
   const [draftRates, setDraftRates] = useState({});
   const [savingSection, setSavingSection] = useState(null);
+  const hasDraftChanges = Object.keys(draftRates).length > 0;
 
   const handleRateChange = (sectionId, key, value, tierId = null, parentKey = null) => {
     setDraftRates(prev => {
@@ -120,45 +121,51 @@ export default function RatesManagerModal({ onClose }) {
     });
   };
 
-  const handleSave = async (sectionId) => {
-    const parentId = RATE_SECTIONS.find(s => s.id === sectionId)?.parentSection || sectionId;
-    const patch = { ...(rates[parentId] || {}), ...(draftRates[parentId] || {}) };
-    const savePatch = { ...patch };
+  const handleSaveAll = async () => {
+    const parentIds = [...new Set(
+      RATE_SECTIONS
+        .map((section) => section.parentSection || section.id)
+        .filter((parentId) => Object.keys(draftRates[parentId] || {}).length > 0)
+    )];
+    if (!parentIds.length) return;
 
-    if (parentId === 'electricity-cost' && Object.prototype.hasOwnProperty.call(savePatch, 'electricityRate')) {
-      const rawElectricityRate = String(savePatch.electricityRate ?? '').trim();
-      const numericElectricityRate = Number(rawElectricityRate);
-      if (!rawElectricityRate || !Number.isFinite(numericElectricityRate) || numericElectricityRate < 0) {
-        alert('Enter a valid non-negative electricity rate.');
-        return;
-      }
-      savePatch.electricityRate = numericElectricityRate;
-    }
+    setSavingSection('all');
+    const remainingDrafts = { ...draftRates };
 
-    // handleRateChange keeps a complete section draft for reliable nested
-    // updates. Do not let an unchanged electricity rate count as a renewal
-    // merely because another electricity setting was edited.
-    if (
-      parentId === 'electricity-cost'
-      && Number(draftRates[parentId]?.electricityRate) === Number(rates[parentId]?.electricityRate)
-    ) {
-      delete savePatch.electricityRate;
-    }
-    
-    if (Object.keys(draftRates[parentId] || {}).length > 0) {
-      setSavingSection(sectionId);
-      try {
+    try {
+      for (const parentId of parentIds) {
+        const savePatch = { ...(rates[parentId] || {}), ...(draftRates[parentId] || {}) };
+
+        if (parentId === 'electricity-cost' && Object.prototype.hasOwnProperty.call(savePatch, 'electricityRate')) {
+          const rawElectricityRate = String(savePatch.electricityRate ?? '').trim();
+          const numericElectricityRate = Number(rawElectricityRate);
+          if (!rawElectricityRate || !Number.isFinite(numericElectricityRate) || numericElectricityRate < 0) {
+            alert('Enter a valid non-negative electricity rate.');
+            return;
+          }
+          savePatch.electricityRate = numericElectricityRate;
+        }
+
+        // Do not renew electricity-rate maintenance when only another
+        // electricity setting changed and the rate itself is unchanged.
+        if (
+          parentId === 'electricity-cost'
+          && Number(draftRates[parentId]?.electricityRate) === Number(rates[parentId]?.electricityRate)
+        ) {
+          delete savePatch.electricityRate;
+        }
+
         console.log(`DEBUG: Saving rates to ${parentId}. Patch structure:`, JSON.stringify(savePatch, null, 2));
         await updateSettings(parentId, savePatch);
-        const newDrafts = { ...draftRates };
-        delete newDrafts[parentId];
-        setDraftRates(newDrafts);
-      } catch (error) {
-        console.error('FIREBASE SAVE ERROR for', sectionId, ':', error);
-        alert(`Failed to save rates: ${error?.message || 'Unknown error'}`);
-      } finally {
-        setSavingSection(null);
+        delete remainingDrafts[parentId];
       }
+      setDraftRates(remainingDrafts);
+    } catch (error) {
+      setDraftRates(remainingDrafts);
+      console.error('FIREBASE SAVE ERROR for all rate sections:', error);
+      alert(`Failed to save rates: ${error?.message || 'Unknown error'}`);
+    } finally {
+      setSavingSection(null);
     }
   };
 
@@ -182,15 +189,6 @@ export default function RatesManagerModal({ onClose }) {
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-0 md:p-4 bg-black/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
       <div className="bg-[var(--color-surface)] border-0 md:border border-[var(--color-border)] w-full h-full md:h-auto md:max-h-[85vh] md:max-w-2xl rounded-none md:rounded-[2.5rem] flex flex-col shadow-2xl overflow-hidden text-[var(--color-text-main)]">
-        {/* Mobile sticky close button (same pattern as ProductCard and AddDealModal) */}
-        <div className="sticky top-0 z-[220] w-full h-0 overflow-visible md:hidden shrink-0">
-          <div className="absolute top-4 right-4 flex justify-end items-center">
-            <button onClick={onClose} className="p-2 rounded-full backdrop-blur-md border transition-all shadow-lg bg-black/20 text-white border-white/10 hover:bg-black/40">
-              <X size={20} />
-            </button>
-          </div>
-        </div>
-        
         <div className="p-6 border-b border-[var(--color-border)] flex items-center justify-between">
           <div className="flex items-center gap-3 text-left">
             <div className="p-2.5 bg-emerald-600 rounded-xl">
@@ -201,9 +199,18 @@ export default function RatesManagerModal({ onClose }) {
               <span className="text-[14px] font-bold uppercase tracking-widest text-emerald-500 mt-1 block">Calculator Multipliers</span>
             </div>
           </div>
-          <button onClick={onClose} className="hidden md:block p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors opacity-40 hover:opacity-100">
-            <X size={24} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleSaveAll}
+              disabled={!hasDraftChanges || savingSection === 'all'}
+              className="px-4 py-2 rounded-full bg-emerald-600 text-white text-[14px] font-bold uppercase tracking-widest shadow-lg shadow-emerald-600/20 transition-all disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {savingSection === 'all' ? 'Saving...' : 'Save All'}
+            </button>
+            <button onClick={onClose} className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors opacity-40 hover:opacity-100">
+              <X size={24} />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-8">
@@ -211,7 +218,6 @@ export default function RatesManagerModal({ onClose }) {
             const parentId = section.parentSection || section.id;
             const currentSectionRates = rates[parentId] || {};
             const sectionDraft = draftRates[parentId] || {};
-            const hasChanges = Object.keys(sectionDraft).length > 0;
 
             if (section.isTiered) {
               const tiers = sectionDraft.printTierMap || currentSectionRates.printTierMap || {};
@@ -221,9 +227,6 @@ export default function RatesManagerModal({ onClose }) {
                     <span className="text-[15px] font-black uppercase tracking-[0.25em] text-current">{section.title}</span>
                     <div className="flex gap-2">
                       <button onClick={() => addTier(section.id)} className="px-3 py-1 bg-blue-600 text-white rounded-full text-[14px] font-bold uppercase tracking-widest hover:bg-blue-500">Add Tier</button>
-                      {hasChanges && (
-                        <button onClick={() => handleSave(section.id)} disabled={savingSection === section.id} className="px-4 py-1 rounded-full bg-emerald-600 text-white text-[14px] font-bold uppercase tracking-widest shadow-lg shadow-emerald-600/20">Save</button>
-                      )}
                     </div>
                   </div>
                   <div className="space-y-3">
@@ -245,16 +248,6 @@ export default function RatesManagerModal({ onClose }) {
               <div key={section.id} className="space-y-4">
                 <div className="flex items-center justify-between px-2">
                    <span className="text-[15px] font-black uppercase tracking-[0.25em] text-current">{section.title}</span>
-                   {hasChanges && (
-                     <button 
-                        onClick={() => handleSave(section.id)}
-                        disabled={savingSection === section.id}
-                        className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-600 text-white text-[14px] font-bold uppercase tracking-widest animate-in zoom-in duration-300 shadow-lg shadow-emerald-600/20 disabled:opacity-50"
-                     >
-                       <Save size={12} strokeWidth={3} />
-                       {savingSection === section.id ? 'Saving...' : 'Save Changes'}
-                     </button>
-                   )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 text-left">

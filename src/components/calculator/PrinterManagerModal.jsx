@@ -1,12 +1,12 @@
 import React, { useMemo, useState } from 'react';
-import { Check, Edit3, Gauge, Layers2, Plus, Printer, Search, Trash2, Undo2, X, Zap } from 'lucide-react';
+import { Check, Gauge, Layers2, Plus, Printer, PrinterCheck, PrinterX, Search, Trash2, Undo2, X, Zap } from 'lucide-react';
 import { useStore } from '../../store/useStore';
-import { COMMON_FILAMENT_TYPES, normalizeFeederRecord, normalizeFilamentType, normalizePrinterRecord } from '../../utils/printerCompatibility';
+import { COMMON_FILAMENT_TYPES, PRINTER_STATUSES, normalizeFeederRecord, normalizeFilamentType, normalizePrinterRecord, normalizePrinterStatus } from '../../utils/printerCompatibility';
 
 const EMPTY_FORM = {
   brand: '',
   model: '',
-  status: 'Online',
+  status: 'available',
   nozzleSize: 0.4,
   wattage: 120,
   filamentSlots: 1,
@@ -24,6 +24,7 @@ const EMPTY_FEEDER_FORM = {
   id: '',
   name: '',
   type: 'CFS',
+  status: 'available',
   filamentSlots: 4,
   swapTime: 1,
   wattage: 20
@@ -36,7 +37,8 @@ const getFeederFormData = (feeder = {}) => {
     ...normalizedFeeder,
     id: normalizedFeeder.id || '',
     name: normalizedFeeder.name || normalizedFeeder.id || '',
-    type: normalizedFeeder.type || normalizedFeeder.compatibility || 'CFS'
+    type: normalizedFeeder.type || normalizedFeeder.compatibility || 'CFS',
+    status: normalizePrinterStatus(normalizedFeeder.status, normalizedFeeder)
   };
 };
 
@@ -48,7 +50,7 @@ const getFormData = (printer = {}) => {
   ...normalizedPrinter,
   brand: normalizedPrinter.brand || '',
   model: normalizedPrinter.model || normalizedPrinter.name || '',
-  status: normalizedPrinter.status || (normalizedPrinter.isVirtual ? 'Virtual' : 'Offline'),
+  status: normalizePrinterStatus(normalizedPrinter.status, normalizedPrinter),
   nozzleSize: normalizedPrinter.nozzleSize,
   wattage: normalizedPrinter.wattage,
   filamentSlots: normalizedPrinter.filamentSlots,
@@ -72,6 +74,17 @@ const getFormData = (printer = {}) => {
 const numberValue = (value, fallback = 0) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const statusTone = (status) => status === 'available'
+  ? 'bg-emerald-500/10 text-emerald-600'
+  : status === 'maintenance'
+    ? 'bg-amber-500/10 text-amber-600'
+    : 'bg-red-500/10 text-red-600';
+
+const PrinterStatusIcon = ({ status, ...props }) => {
+  const Icon = status === 'maintenance' ? PrinterCheck : status === 'unavailable' ? PrinterX : Printer;
+  return <Icon {...props} />;
 };
 
 export default function PrinterManagerModal({ onClose }) {
@@ -117,13 +130,23 @@ export default function PrinterManagerModal({ onClose }) {
     const query = searchQuery.trim().toLowerCase();
     if (!query) return feeders || [];
     return (feeders || []).filter((feeder) => (
-      [feeder.id, feeder.name, feeder.type, feeder.compatibility]
+      [feeder.id, feeder.name, feeder.type, feeder.compatibility, feeder.status]
         .filter(Boolean)
         .join(' ')
         .toLowerCase()
         .includes(query)
     ));
   }, [feeders, searchQuery]);
+
+  const visiblePrinters = useMemo(() => {
+    if (!editingId) return filteredPrinters;
+    return (printers || []).filter((printer) => String(printer.id) === String(editingId));
+  }, [editingId, filteredPrinters, printers]);
+
+  const visibleFeeders = useMemo(() => {
+    if (!editingFeederId) return filteredFeeders;
+    return (feeders || []).filter((feeder) => String(feeder.id) === String(editingFeederId));
+  }, [editingFeederId, feeders, filteredFeeders]);
 
   const beginAdd = () => {
     setManagerMode('printers');
@@ -179,13 +202,12 @@ export default function PrinterManagerModal({ onClose }) {
       return;
     }
 
-    const status = formData.status || 'Offline';
+    const status = normalizePrinterStatus(formData.status);
     const normalized = {
       brand: formData.brand.trim().toUpperCase(),
       model: formData.model.trim().toUpperCase(),
       name: formData.model.trim().toUpperCase(),
       status,
-      isVirtual: String(status).toLowerCase() === 'virtual',
       nozzleSize: numberValue(formData.nozzleSize, 0.4),
       wattage: numberValue(formData.wattage, 120),
       filamentSlots: Math.max(1, Math.round(numberValue(formData.filamentSlots, 1))),
@@ -238,6 +260,7 @@ export default function PrinterManagerModal({ onClose }) {
     const normalized = {
       name: feederForm.name.trim() || feederForm.id.trim() || feederForm.type.trim().toUpperCase(),
       type: feederForm.type.trim().toLowerCase(),
+      status: normalizePrinterStatus(feederForm.status),
       filamentSlots: Math.max(1, Math.round(numberValue(feederForm.filamentSlots, 4))),
       swapTime: Math.max(0, numberValue(feederForm.swapTime, 0)),
       wattage: Math.max(0, numberValue(feederForm.wattage, 0))
@@ -316,10 +339,9 @@ export default function PrinterManagerModal({ onClose }) {
         <label className="space-y-1 text-left">
           <span className="ml-2 text-[13px] font-black uppercase tracking-widest opacity-40">Status</span>
           <select value={formData.status} onChange={(event) => updateField('status', event.target.value)} className="w-full appearance-none rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-[14px] font-bold text-[var(--color-text-main)] outline-none focus:border-blue-500">
-            <option>Online</option>
-            <option>Offline</option>
-            <option>Maintenance</option>
-            <option>Virtual</option>
+            {PRINTER_STATUSES.map((status) => (
+              <option key={status} value={status}>{status.toUpperCase()}</option>
+            ))}
           </select>
         </label>
         {renderInput('Nozzle (mm)', 'nozzleSize', 'number', { step: '0.1', min: '0' })}
@@ -421,6 +443,14 @@ export default function PrinterManagerModal({ onClose }) {
         {renderFeederInput('Type', 'type', 'text', { placeholder: 'CFS' })}
         {renderFeederInput('Filament slots', 'filamentSlots', 'number', { min: '1' })}
       </div>
+      <label className="block space-y-1 text-left">
+        <span className="ml-2 text-[13px] font-black uppercase tracking-widest opacity-40">Status</span>
+        <select value={feederForm.status} onChange={(event) => updateFeederField('status', event.target.value)} className="w-full appearance-none rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-[14px] font-bold text-[var(--color-text-main)] outline-none focus:border-blue-500">
+          {PRINTER_STATUSES.map((status) => (
+            <option key={status} value={status}>{status.toUpperCase()}</option>
+          ))}
+        </select>
+      </label>
       <div className="grid grid-cols-2 gap-3">
         {renderFeederInput('Swap time (min)', 'swapTime', 'number', { min: '0', step: '0.1' })}
         {renderFeederInput('Power (W)', 'wattage', 'number', { min: '0' })}
@@ -480,17 +510,18 @@ export default function PrinterManagerModal({ onClose }) {
           {isAdding && (managerMode === 'printers' ? renderEditor() : renderFeederEditor())}
 
           <div className="space-y-3">
-            {managerMode === 'printers' && filteredPrinters.length === 0 && <div className="rounded-3xl border border-dashed border-[var(--color-border)] px-6 py-12 text-center text-[13px] font-black uppercase tracking-widest opacity-40">No printers found</div>}
-            {managerMode === 'printers' && filteredPrinters.map((printer) => {
-              const isEditing = editingId === printer.id;
+            {managerMode === 'printers' && visiblePrinters.length === 0 && <div className="rounded-3xl border border-dashed border-[var(--color-border)] px-6 py-12 text-center text-[13px] font-black uppercase tracking-widest opacity-40">No printers found</div>}
+            {managerMode === 'printers' && visiblePrinters.map((printer) => {
+              const isEditing = String(editingId) === String(printer.id);
               const capacity = printer.buildCapacity || {};
-              const status = String(printer.status || (printer.isVirtual ? 'Virtual' : 'Offline'));
-              const statusTone = status.toLowerCase() === 'online' || status.toLowerCase() === 'virtual'
-                ? 'bg-emerald-500/10 text-emerald-600'
-                : 'bg-amber-500/10 text-amber-600';
+              const status = normalizePrinterStatus(printer.status, printer);
 
               return (
-                <div key={printer.id} className={`group rounded-3xl border p-4 transition-all ${isEditing ? 'border-blue-500 bg-blue-500/5 ring-4 ring-blue-500/10' : 'border-[var(--color-border)] bg-black/5 hover:border-blue-500/40 dark:bg-white/5'}`}>
+                <div
+                  key={printer.id}
+                  onClick={() => { if (!isEditing) beginEdit(printer); }}
+                  className={`group cursor-pointer rounded-3xl border p-4 transition-all ${isEditing ? 'border-blue-500 bg-blue-500/5 ring-4 ring-blue-500/10' : 'border-[var(--color-border)] bg-black/5 hover:border-blue-500/40 dark:bg-white/5'}`}
+                >
                   {isEditing ? renderEditor() : (
                     <div className="flex items-center justify-between gap-4">
                       <div className="flex min-w-0 items-center gap-4 text-left">
@@ -498,7 +529,7 @@ export default function PrinterManagerModal({ onClose }) {
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
                             <h4 className="truncate text-[15px] font-black uppercase italic leading-none">{printer.brand || 'UNKNOWN'} {printer.model || printer.name || 'PRINTER'}</h4>
-                            <span className={`rounded px-1.5 py-0.5 text-[13px] font-black uppercase tracking-widest ${statusTone}`}>{status}</span>
+                            <span className={`rounded px-1.5 py-0.5 text-[13px] font-black uppercase tracking-widest ${statusTone(status)}`}>{status}</span>
                           </div>
                           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] font-black uppercase tracking-widest opacity-50">
                             <span><Gauge size={10} className="mr-1 inline" />{capacity.x || 0} × {capacity.y || 0} × {capacity.z || 0} MM</span>
@@ -507,36 +538,59 @@ export default function PrinterManagerModal({ onClose }) {
                           </div>
                         </div>
                       </div>
-                      <div className="flex shrink-0 items-center gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
-                        <button type="button" onClick={() => beginEdit(printer)} className="rounded-xl p-2.5 text-blue-500 transition-all hover:bg-blue-600 hover:text-white" aria-label={`Edit ${printer.model || printer.name || 'printer'}`}><Edit3 size={18} /></button>
-                        <button type="button" onClick={() => handleDelete(printer)} className="rounded-xl p-2.5 text-red-500 transition-all hover:bg-red-600 hover:text-white" aria-label={`Delete ${printer.model || printer.name || 'printer'}`}><Trash2 size={18} /></button>
+                      <div className="flex shrink-0 items-center gap-1 opacity-100 transition-opacity">
+                        <button
+                          type="button"
+                          onClick={(event) => { event.stopPropagation(); beginEdit(printer); }}
+                          className="rounded-xl p-2.5 text-[var(--color-text-main)] transition-all hover:bg-blue-600 hover:text-white"
+                          aria-label={`Edit ${printer.model || printer.name || 'printer'} (${status})`}
+                        >
+                          <PrinterStatusIcon status={status} size={18} strokeWidth={2.5} />
+                        </button>
+                        <button type="button" onClick={(event) => { event.stopPropagation(); handleDelete(printer); }} className="rounded-xl p-2.5 text-red-500 transition-all hover:bg-red-600 hover:text-white" aria-label={`Delete ${printer.model || printer.name || 'printer'}`}><Trash2 size={18} /></button>
                       </div>
                     </div>
                   )}
                 </div>
               );
             })}
-            {managerMode === 'feeders' && filteredFeeders.length === 0 && <div className="rounded-3xl border border-dashed border-[var(--color-border)] px-6 py-12 text-center text-[13px] font-black uppercase tracking-widest opacity-40">No feeders found</div>}
-            {managerMode === 'feeders' && filteredFeeders.map((feeder) => {
-              const isEditing = editingFeederId === feeder.id;
+            {managerMode === 'feeders' && visibleFeeders.length === 0 && <div className="rounded-3xl border border-dashed border-[var(--color-border)] px-6 py-12 text-center text-[13px] font-black uppercase tracking-widest opacity-40">No feeders found</div>}
+            {managerMode === 'feeders' && visibleFeeders.map((feeder) => {
+              const isEditing = String(editingFeederId) === String(feeder.id);
+              const status = normalizePrinterStatus(feeder.status, feeder);
               return (
-                <div key={feeder.id} className={`group rounded-3xl border p-4 transition-all ${isEditing ? 'border-blue-500 bg-blue-500/5 ring-4 ring-blue-500/10' : 'border-[var(--color-border)] bg-black/5 hover:border-blue-500/40 dark:bg-white/5'}`}>
+                <div
+                  key={feeder.id}
+                  onClick={() => { if (!isEditing) beginEditFeeder(feeder); }}
+                  className={`group cursor-pointer rounded-3xl border p-4 transition-all ${isEditing ? 'border-blue-500 bg-blue-500/5 ring-4 ring-blue-500/10' : 'border-[var(--color-border)] bg-black/5 hover:border-blue-500/40 dark:bg-white/5'}`}
+                >
                   {isEditing ? renderFeederEditor() : (
                     <div className="flex items-center justify-between gap-4 text-left">
                       <div className="flex min-w-0 items-center gap-4">
                         <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-600"><Layers2 size={22} /></div>
                         <div className="min-w-0">
-                          <h4 className="truncate text-[15px] font-black uppercase italic leading-none">{feeder.name || feeder.id || 'FEEDER'}</h4>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h4 className="truncate text-[15px] font-black uppercase italic leading-none">{feeder.name || feeder.id || 'FEEDER'}</h4>
+                            <span className={`rounded px-1.5 py-0.5 text-[13px] font-black uppercase tracking-widest ${statusTone(status)}`}>{status}</span>
+                          </div>
                           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] font-black uppercase tracking-widest opacity-50">
                             <span>{String(feeder.type || feeder.compatibility || 'UNKNOWN').toUpperCase()}</span>
                             <span>{numberValue(feeder.filamentSlots)} SLOTS</span>
                             <span><Zap size={10} className="mr-1 inline" />{numberValue(feeder.wattage)}W</span>
+                            <span>{numberValue(feeder.swapTime)}M SWAP</span>
                           </div>
                         </div>
                       </div>
-                      <div className="flex shrink-0 items-center gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
-                        <button type="button" onClick={() => beginEditFeeder(feeder)} className="rounded-xl p-2.5 text-blue-500 transition-all hover:bg-blue-600 hover:text-white" aria-label={`Edit ${feeder.name || feeder.id || 'feeder'}`}><Edit3 size={18} /></button>
-                        <button type="button" onClick={() => handleDeleteFeeder(feeder)} className="rounded-xl p-2.5 text-red-500 transition-all hover:bg-red-600 hover:text-white" aria-label={`Delete ${feeder.name || feeder.id || 'feeder'}`}><Trash2 size={18} /></button>
+                      <div className="flex shrink-0 items-center gap-1 opacity-100 transition-opacity">
+                        <button
+                          type="button"
+                          onClick={(event) => { event.stopPropagation(); beginEditFeeder(feeder); }}
+                          className="rounded-xl p-2.5 text-[var(--color-text-main)] transition-all hover:bg-blue-600 hover:text-white"
+                          aria-label={`Edit ${feeder.name || feeder.id || 'feeder'} (${status})`}
+                        >
+                          <PrinterStatusIcon status={status} size={18} strokeWidth={2.5} />
+                        </button>
+                        <button type="button" onClick={(event) => { event.stopPropagation(); handleDeleteFeeder(feeder); }} className="rounded-xl p-2.5 text-red-500 transition-all hover:bg-red-600 hover:text-white" aria-label={`Delete ${feeder.name || feeder.id || 'feeder'}`}><Trash2 size={18} /></button>
                       </div>
                     </div>
                   )}

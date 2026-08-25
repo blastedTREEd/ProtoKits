@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useStore } from '../../store/useStore';
 import { Zap, Disc3, Layers2, CircleDot, RefreshCw } from 'lucide-react';
 import LoadingState from '../common/LoadingState';
-import { getPrinterFeeders } from '../../utils/printerCompatibility';
+import { getPrinterFeeders, isPrinterAvailableForCostEstimation, normalizePrinterStatus } from '../../utils/printerCompatibility';
 
 export default function PrinterSelection({ onSelect, selectedPrinter: initialSelection = null }) {
   const dbPrinters = useStore((state) => state.printers);
@@ -47,18 +47,14 @@ export default function PrinterSelection({ onSelect, selectedPrinter: initialSel
     setDisplayUnit(units[nextIndex]);
   };
 
-  const isOnline = (printer) => printer?.status?.toLowerCase() === 'online';
-  const isVirtual = (printer) => printer?.isVirtual === true || printer?.status?.toLowerCase() === 'virtual';
-  const isSelectable = (printer) => printer && (isOnline(printer) || isVirtual(printer));
+  const getStatus = (printer) => normalizePrinterStatus(printer?.status, printer);
+  const isSelectable = (printer) => printer && isPrinterAvailableForCostEstimation(printer);
 
   // FIX 2: Gumamit ng useMemo para laging up-to-date ang visibility ng Next button
   const isSelectedOnline = useMemo(() => {
     if (!selectedPrinter) return false;
     
-    const online = selectedPrinter?.status?.toLowerCase() === 'online';
-    const virtual = selectedPrinter?.isVirtual === true || selectedPrinter?.status?.toLowerCase() === 'virtual';
-    
-    return online || virtual;
+    return isSelectable(selectedPrinter);
   }, [selectedPrinter]);
 
   const { feeders } = useStore();
@@ -76,21 +72,6 @@ export default function PrinterSelection({ onSelect, selectedPrinter: initialSel
     
     // Default sa base slots ng printer
     return Math.max(1, Number(printer?.filamentSlots) || 1);
-  };
-
-  const getPrinterSpecs = (printer, includeFeeder = false) => {
-    if (!printer) return [];
-    const baseSlots = Number(printer?.filamentSlots) || 1;
-    const connectedFeeders = getCompatibleFeeders(printer);
-    const feederSlots = connectedFeeders.reduce((sum, unit) => sum + (Number(unit.filamentSlots) || 0), 0);
-    const connectedUnits = connectedFeeders.length;
-    
-    return [
-      `${parseFloat(printer.wattage) || 0}W`,
-      `${parseFloat(printer.nozzleSize) || 0.4}mm nozzle`,
-      `${baseSlots} base slot${baseSlots === 1 ? '' : 's'}`,
-      feederSlots > 0 ? `${connectedUnits}x ${printer.autoFeed?.compatibility?.toUpperCase() || 'AMS'} (${feederSlots} slots)` : 'No AMS'
-    ];
   };
 
   if (isLoading) {
@@ -123,13 +104,12 @@ export default function PrinterSelection({ onSelect, selectedPrinter: initialSel
       
       <div className="flex flex-col gap-3 mb-4">
         {printers.map((printer) => {
-          const online = isOnline(printer);
-          const virtual = isVirtual(printer);
+          const status = getStatus(printer);
           const isSelected = selectedPrinter?.id === printer.id;
           const selectable = isSelectable(printer);
           const slots = getPrinterSlots(printer);
 
-          const statusClass = (online || virtual)
+          const statusClass = status !== 'unavailable'
             ? (isSelected ? 'bg-[var(--color-primary)] text-white' : 'bg-green-500 text-white')
             : 'bg-red-500 text-white';
 
@@ -145,7 +125,7 @@ export default function PrinterSelection({ onSelect, selectedPrinter: initialSel
               <button
                 onClick={() => handleToggle(printer)}
                 className={`w-full p-6 pb-4 flex justify-between items-center outline-none group ${
-                  (!online && !virtual && !isSelected) ? 'opacity-40 grayscale' : 'opacity-100'
+                  (!selectable && !isSelected) ? 'opacity-40 grayscale' : 'opacity-100'
                 }`}
               >
                 <div className="flex flex-col text-left">
@@ -165,7 +145,7 @@ export default function PrinterSelection({ onSelect, selectedPrinter: initialSel
 
                 <div className="flex items-center gap-4">
                   <span className={`text-[9px] font-black uppercase tracking-widest px-2.5 py-1.5 rounded-lg shadow-sm ${statusClass}`}>
-                    {printer.status}
+                    {status}
                   </span>
                   <div className={`p-1.5 rounded-full transition-all duration-500 ${
                     isSelected ? 'bg-[var(--color-primary)] rotate-180 text-white shadow-lg' : 'bg-gray-200 dark:bg-white/10'

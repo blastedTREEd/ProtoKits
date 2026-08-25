@@ -10,7 +10,7 @@ import {
   ONHAND_KIT_CONDITION,
   withStockConditionDefaults
 } from '../utils/stockConditions';
-import { normalizeFeederRecord, normalizePrinterRecord } from '../utils/printerCompatibility';
+import { normalizeFeederRecord, normalizePrinterRecord, normalizePrinterStatus } from '../utils/printerCompatibility';
 import { getStockEta } from '../utils/stockDates';
 
 const getKitTimestamp = (kit) => {
@@ -2122,7 +2122,7 @@ export const useStore = create(
           ? doc(db, 'printers', id)
           : doc(collection(db, 'printers'));
         const previousPrinters = get().printers || [];
-        const nextPrinter = { ...data, id: ref.id };
+        const nextPrinter = { ...data, status: normalizePrinterStatus(data.status, data), id: ref.id };
 
         set((state) => ({
           printers: [nextPrinter, ...(state.printers || []).filter((printer) => String(printer.id) !== String(ref.id))]
@@ -2138,15 +2138,18 @@ export const useStore = create(
 
       updatePrinter: async (id, patch) => {
         if (!id || !patch) return;
+        const normalizedPatch = Object.prototype.hasOwnProperty.call(patch, 'status')
+          ? { ...patch, status: normalizePrinterStatus(patch.status, patch) }
+          : patch;
         const previousPrinters = get().printers || [];
         set((state) => ({
           printers: (state.printers || []).map((printer) => (
-            String(printer.id) === String(id) ? { ...printer, ...patch, id: printer.id } : printer
+            String(printer.id) === String(id) ? { ...printer, ...normalizedPatch, id: printer.id } : printer
           ))
         }));
 
         try {
-          await updateDoc(doc(db, 'printers', id), patch);
+          await updateDoc(doc(db, 'printers', id), normalizedPatch);
         } catch (error) {
           set({ printers: previousPrinters });
           throw error;
@@ -2170,19 +2173,23 @@ export const useStore = create(
 
       addFeeder: async (feederData) => {
         const { id, ...data } = feederData || {};
+        const normalizedData = {
+          ...data,
+          status: normalizePrinterStatus(data.status, data)
+        };
         const existingIds = new Set((get().feeders || []).map((feeder) => String(feeder.id)));
         const ref = id && !existingIds.has(String(id))
           ? doc(db, 'feeders', id)
           : doc(collection(db, 'feeders'));
         const previousFeeders = get().feeders || [];
-        const nextFeeder = { ...data, id: ref.id };
+        const nextFeeder = normalizeFeederRecord({ ...normalizedData, id: ref.id });
 
         set((state) => ({
           feeders: [nextFeeder, ...(state.feeders || []).filter((feeder) => String(feeder.id) !== String(ref.id))]
         }));
 
         try {
-          await setDoc(ref, nextFeeder);
+          await setDoc(ref, normalizedData);
         } catch (error) {
           set({ feeders: previousFeeders });
           throw error;
@@ -2191,15 +2198,18 @@ export const useStore = create(
 
       updateFeeder: async (id, patch) => {
         if (!id || !patch) return;
+        const normalizedPatch = Object.prototype.hasOwnProperty.call(patch, 'status')
+          ? { ...patch, status: normalizePrinterStatus(patch.status, patch) }
+          : patch;
         const previousFeeders = get().feeders || [];
         set((state) => ({
           feeders: (state.feeders || []).map((feeder) => (
-            String(feeder.id) === String(id) ? { ...feeder, ...patch, id: feeder.id } : feeder
+            String(feeder.id) === String(id) ? normalizeFeederRecord({ ...feeder, ...normalizedPatch, id: feeder.id }) : feeder
           ))
         }));
 
         try {
-          await updateDoc(doc(db, 'feeders', id), patch);
+          await updateDoc(doc(db, 'feeders', id), normalizedPatch);
         } catch (error) {
           set({ feeders: previousFeeders });
           throw error;

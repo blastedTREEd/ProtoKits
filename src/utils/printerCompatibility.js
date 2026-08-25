@@ -13,6 +13,30 @@ export const COMMON_FILAMENT_TYPES = [
 
 export const normalizeFilamentType = (type) => String(type || '').trim().toUpperCase();
 
+export const PRINTER_STATUSES = ['available', 'unavailable', 'maintenance'];
+
+export const normalizePrinterStatus = (value, printer = {}) => {
+  const raw = String(value ?? printer.status ?? printer.availability ?? '').trim().toLowerCase();
+  if (raw === 'maintenance' || printer.maintenance === true || printer.isMaintenance === true || printer.inMaintenance === true || printer.maintenanceMode === true) {
+    return 'maintenance';
+  }
+  if (raw === 'unavailable' || raw === 'offline' || raw === 'disabled' || raw === 'paused' || raw === 'error' || printer.available === false || printer.isAvailable === false) {
+    return 'unavailable';
+  }
+  // Legacy online/ready/virtual records remain usable after virtual is removed.
+  if (raw === 'available' || raw === 'online' || raw === 'ready' || raw === 'idle' || raw === 'standby' || raw === 'active' || raw === 'virtual' || printer.available === true || printer.isAvailable === true || printer.isVirtual === true) {
+    return 'available';
+  }
+  return 'available';
+};
+
+export const isPrinterAvailableForCostEstimation = (printer) => {
+  const status = normalizePrinterStatus(printer?.status, printer);
+  return status === 'available' || status === 'maintenance';
+};
+
+export const isPrinterAvailableForScheduling = (printer) => normalizePrinterStatus(printer?.status, printer) === 'available';
+
 const numberOrFallback = (value, fallback = 0) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -60,6 +84,7 @@ export const normalizePrinterRecord = (printer = {}) => {
 
   return {
     ...printer,
+    status: normalizePrinterStatus(printer.status, printer),
     buildCapacity: normalizeBuildCapacity(printer.buildCapacity ?? printer.build_capacity),
     nozzleSize: numberOrFallback(printer.nozzleSize ?? printer.nozzle_size, 0.4),
     wattage: numberOrFallback(printer.wattage ?? printer.power?.averageWatts ?? printer.power_watts, 120),
@@ -80,6 +105,7 @@ export const normalizePrinterRecord = (printer = {}) => {
 
 export const normalizeFeederRecord = (feeder = {}) => ({
   ...feeder,
+  status: normalizePrinterStatus(feeder.status, feeder),
   name: feeder.name ?? feeder.label ?? feeder.model ?? feeder.id ?? '',
   type: feeder.type ?? feeder.compatibility ?? feeder.feederType ?? feeder.feeder_type ?? '',
   compatibility: feeder.compatibility ?? feeder.type ?? feeder.feederType ?? feeder.feeder_type ?? '',
