@@ -27,11 +27,33 @@ const getProjectItemLabel = (projectCase, item) => {
   return `${prefix} ${item?.no || (item?.index + 1) || 1}`;
 };
 
-const getItemWeight = (item) => parseFloat(item?.weight || item?.sliced?.weight || item?.volume?.total?.weight || 0);
-const getItemTime = (item) => parseFloat(item?.time || item?.sliced?.time || item?.volume?.total?.time || 0);
+const firstPositiveNumber = (...values) => {
+  const value = values
+    .map((candidate) => Number(candidate))
+    .find((candidate) => Number.isFinite(candidate) && candidate > 0);
+  return value ?? 0;
+};
+
+const getItemWeight = (item) => firstPositiveNumber(
+  item?.weight,
+  item?.normalizedWeight,
+  item?.sliced?.weight,
+  item?.volume?.total?.weight
+);
+const getItemTime = (item) => firstPositiveNumber(
+  item?.time,
+  item?.normalizedTime,
+  item?.sliced?.time,
+  item?.volume?.total?.time
+);
 
 const getItemMaterial = (item) => {
-  const nested = item?.material?.material || item?.material || item?.selectedMaterial || item?.filament;
+  const nested = item?.material?.material
+    || item?.material
+    || item?.selectedMaterial
+    || item?.filament
+    || item?.materials?.[0]?.material
+    || item?.materialSlots?.[0]?.material;
   if (!nested) return null;
   return {
     ...nested,
@@ -137,7 +159,12 @@ export default function CostBreakdown({
       const baseMaterial = getItemMaterial(item);
       const inventoryMatch = (filamentInventory || []).find((f) => String(f.id) === String(baseMaterial?.id));
       const material = baseMaterial ? { ...baseMaterial, ...(inventoryMatch || {}) } : null;
-      const normalizedMaterials = (Array.isArray(item.materials) && item.materials.length > 0 ? item.materials : [{ materialId: material?.id, material }])
+      const materialEntries = Array.isArray(item.materials) && item.materials.length > 0
+        ? item.materials
+        : Array.isArray(item.materialSlots) && item.materialSlots.length > 0
+          ? item.materialSlots
+          : [{ materialId: material?.id, material }];
+      const normalizedMaterials = materialEntries
         .map((entry) => {
           const entryMaterial = entry?.material || entry;
           const inventory = (filamentInventory || []).find((f) => String(f.id) === String(entryMaterial?.id || entry?.materialId));
@@ -183,8 +210,8 @@ export default function CostBreakdown({
           parentIds: job.parentIds || [item.id],
           jobIndex,
           itemName: job.buildPlateNo ? `Build Plate ${job.buildPlateNo}` : `${item.itemName} Part ${job.no || jobIndex + 1}`,
-          normalizedWeight: Number(job.weight || 0),
-          normalizedTime: Number(job.time || 0),
+          normalizedWeight: firstPositiveNumber(job.weight, item.normalizedWeight),
+          normalizedTime: firstPositiveNumber(job.time, item.normalizedTime),
           swapMins: Number(job.swapMins || 0),
           sliced: {
             ...(item.sliced || {}),
@@ -219,7 +246,13 @@ export default function CostBreakdown({
     const finalElecRate = baseElecRate * (1 + ((parseFloat(elecRates.expectedIncrease) || 0) / 100));
 
     const currentRates = {
+      ...(dbSettings || {}),
       elecRate: finalElecRate,
+      // Keep the descriptive key available to the calculation and to saved
+      // edit payloads. Older code only exposed `elecRate` but later consumed
+      // `electricityRate`, which made electricity (and therefore the total)
+      // become NaN/zero after recalculation.
+      electricityRate: finalElecRate,
       laborRate: parseFloat(laborRates.laborRate) || 120,
       installationCost: parseFloat(laborRates.installationCost) || 2,
       filamentHandlingCost: parseFloat(laborRates.filamentHandlingCost) || 5,
@@ -232,8 +265,7 @@ export default function CostBreakdown({
       ironPower: parseFloat(elecRates.solderingIronPower) || 60,
       prepFee: parseFloat(laborRates.preparationRatePerFile) || 10,
       supportFee: parseFloat(laborRates.supportRemovalRatePerModel) || 5,
-      printStartTime: parseFloat(laborRates.printStartTime) || 9,
-      ...(dbSettings || {})
+      printStartTime: parseFloat(laborRates.printStartTime) || 9
     };
 
     const materialUsageRows = validItems.flatMap((item) => {

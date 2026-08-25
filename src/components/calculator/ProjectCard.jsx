@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  Box, CalendarDays, Clock, Zap, Plus, Lock, Edit3, Trash2, Printer, PrinterCheck, PrinterX, PackageMinus,
+  Box, CalendarDays, Clock, Zap, Plus, Lock, Edit3, Trash2, Printer, PackageMinus,
   X, Weight, Layers, AlertTriangle, Link2, Unlink2, ExternalLink, ChevronRight, ChevronLeft,
   ShoppingBasket, Play, Pause, FileText, ShieldCheck, CheckCircle2, XCircle, ImagePlus,
   Settings, Pencil, PencilSparkles
@@ -14,10 +14,12 @@ import { getUnavailableDateSet, getUnavailableWeekdaySet, toDateKey } from '../.
 import {
   getPrinterFeeders,
   isFilamentCompatibleWithPrinter,
+  isPrinterAvailableForCostEstimation,
   isPrinterAvailableForScheduling,
   normalizePrinterRecord,
   normalizePrinterStatus
 } from '../../utils/printerCompatibility';
+import CostBreakdown from './CostBreakdown';
 import { LiaGoogleDrive } from 'react-icons/lia';
 import { TbHexagon3D } from 'react-icons/tb';
 import { LuRotate3D } from 'react-icons/lu';
@@ -194,6 +196,17 @@ const getProjectDetailDimensions = (detail = {}) => {
   return values.every((value) => value > 0) ? values : null;
 };
 
+const getStlDimensionsLabel = (item = {}) => {
+  const unit = item.unit || item.config?.unit || 'mm';
+  const length = item.length ?? item.config?.length ?? item.dimensions?.length ?? item.dimensions?.l ?? item.baseMM_length;
+  const width = item.width ?? item.config?.width ?? item.dimensions?.width ?? item.dimensions?.w ?? item.baseMM_width;
+  const height = item.height ?? item.config?.height ?? item.dimensions?.height ?? item.dimensions?.h ?? item.baseMM_height;
+  const dimensions = [length, width, height].map((value) => Number(value) || 0);
+
+  if (dimensions.every((value) => value <= 0)) return 'No Dimensions';
+  return `${dimensions.map((value) => value.toLocaleString()).join(' x ')} ${unit}`;
+};
+
 const getProjectMaterialRecords = (detail = {}, filamentInventory = []) => {
   const source = Array.isArray(detail.materials) && detail.materials.length > 0
     ? detail.materials
@@ -236,14 +249,26 @@ const isProjectPrinterOperational = (printer = {}) => {
   return isPrinterAvailableForScheduling(printer);
 };
 
+const getProjectPrinterStatusTextClass = (printerSelection, printer) => (
+  printerSelection?.isCompatible && isProjectPrinterOperational(printer)
+    ? 'text-emerald-600'
+    : 'text-red-500'
+);
+
 const printerFitsProjectDimensions = (printer, dimensions) => {
   if (!dimensions) return true;
   const capacity = normalizePrinterRecord(printer).buildCapacity;
   return dimensions.every((value, index) => value <= [capacity.x, capacity.y, capacity.z][index]);
 };
 
-const printerCanAccommodateProjectDetail = (printer, detail, feeders, filamentInventory) => {
-  if (!printer || !isProjectPrinterOperational(printer)) return false;
+const printerCanAccommodateProjectDetail = (
+  printer,
+  detail,
+  feeders,
+  filamentInventory,
+  availabilityCheck = isProjectPrinterOperational
+) => {
+  if (!printer || !availabilityCheck(printer)) return false;
 
   const normalizedPrinter = normalizePrinterRecord(printer);
   if (!printerFitsProjectDimensions(printer, getProjectDetailDimensions(detail))) return false;
@@ -314,6 +339,48 @@ const getBestProjectPrinter = (printers, project, details, feeders, filamentInve
   };
 };
 
+// Production eligibility only accepts available printers. Pricing can still be
+// recalculated with a maintenance printer because maintenance stops scheduling
+// but does not invalidate the printer's cost parameters.
+const getBestCostProjectPrinter = (printers, project, details, feeders, filamentInventory) => {
+  const { detailsToCheck } = getProjectPrinterCandidates(printers, project, details);
+  const detailSelections = detailsToCheck.map((detail) => {
+    const { candidates } = getProjectPrinterCandidates(printers, project, detailsToCheck, detail);
+    const costCompatibleCandidates = candidates.filter((printer) => (
+      printerCanAccommodateProjectDetail(
+        printer,
+        detail,
+        feeders,
+        filamentInventory,
+        isPrinterAvailableForCostEstimation
+      )
+    ));
+    // Prefer a printer that can schedule now. A maintenance printer remains a
+    // valid cost fallback, but should not keep stale pricing when an available
+    // compatible printer can take over the project.
+    const printer = costCompatibleCandidates.find(isProjectPrinterOperational)
+      || costCompatibleCandidates[0]
+      || null;
+    return {
+      candidates,
+      printer
+    };
+  });
+
+  return {
+    detailsToCheck,
+    printer: detailSelections[0]?.printer || null,
+    isCompatible: detailSelections.length > 0 && detailSelections.every((selection) => Boolean(selection.printer)),
+    detailSelections
+  };
+};
+
+const getProjectPrinterLabel = (printer) => (
+  printer
+    ? [printer.brand || printer.manufacturer, printer.model || printer.name].filter(Boolean).join(' ')
+    : ''
+);
+
 const getProjectMaterial = (item = {}, filamentInventory = []) => {
   const material = item.normalizedMaterial || item.material?.material || item.material || {};
   const materialId = material.id || item.materialId || item.material?.materialId;
@@ -353,6 +420,8 @@ const getProjectMaterialEntries = (item = {}, filamentInventory = []) => {
     ? item.materials
     : Array.isArray(item.normalizedMaterials) && item.normalizedMaterials.length > 0
       ? item.normalizedMaterials
+      : Array.isArray(item.materialSlots) && item.materialSlots.length > 0
+        ? item.materialSlots
       : [item.material || item.normalizedMaterial].filter(Boolean);
 
   return source.map((entry) => {
@@ -488,6 +557,7 @@ const GarageProjectSummary = ({
     project?.series || project?.line
   ].filter(Boolean);
   const hasConditions = boxCondition || kitCondition;
+  const isSTLProject = String(project?.method?.name || methodLabel || '').toUpperCase() === 'STL';
   const printerSelection = getBestProjectPrinter(
     printers,
     project,
@@ -560,13 +630,10 @@ const GarageProjectSummary = ({
           <span className="min-w-0 truncate">
             {printerLabel || 'No printer assigned'}
           </span>
-          <span className={`shrink-0 text-[12px] font-black uppercase ${
-            printerSelection.isCompatible && isProjectPrinterOperational(assignedPrinter)
-              ? 'text-emerald-600'
-              : normalizedPrinterStatus === 'maintenance' && printerSelection.isCompatible
-                ? 'text-amber-600'
-                : 'text-red-500'
-          }`}>
+          <span className={`shrink-0 text-[12px] font-black uppercase ${getProjectPrinterStatusTextClass(
+            printerSelection,
+            assignedPrinter
+          )}`}>
             {printerStatus}
           </span>
         </div>
@@ -603,13 +670,13 @@ const GarageProjectSummary = ({
                     {(() => {
                       const materialEntries = getProjectMaterialEntries(item, filamentInventory);
                       const totalWeight = item?.normalizedWeight || item?.sliced?.weight || 0;
-                      if (materialEntries.length > 1) {
+                      if (isSTLProject || materialEntries.length > 1) {
                         return (
                           <div className="mt-1 space-y-0.5 text-[14px] font-bold uppercase text-[var(--color-text-muted)]">
                             {materialEntries.map((entry, materialIndex) => (
                               <div key={`${entry.label}-${materialIndex}`} className="flex min-w-0 items-center gap-2">
                                 <span className="truncate">{entry.label}</span>
-                                {entry.weight !== null && entry.weight !== undefined && (
+                                {!isSTLProject && entry.weight !== null && entry.weight !== undefined && (
                                   <>
                                     <span className="h-1 w-1 shrink-0 rounded-full bg-current" />
                                     <span className="shrink-0">{entry.weight}g</span>
@@ -620,7 +687,11 @@ const GarageProjectSummary = ({
                           </div>
                         );
                       }
-                      return (
+                      return isSTLProject ? (
+                        <div className="mt-1 text-[14px] font-bold uppercase text-[var(--color-text-muted)]">
+                          <span className="truncate">{materialEntries[0]?.label || getProjectMaterialLabel(item, filamentInventory)}</span>
+                        </div>
+                      ) : (
                         <div className="mt-1 flex min-w-0 items-center gap-2 text-[14px] font-bold uppercase text-[var(--color-text-muted)]">
                           <span className="truncate">{materialEntries[0]?.label || getProjectMaterialLabel(item, filamentInventory)}</span>
                           <span className="h-1 w-1 shrink-0 rounded-full bg-current" />
@@ -630,10 +701,16 @@ const GarageProjectSummary = ({
                     })()}
                   </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-1.5 text-right text-[14px] font-black italic text-blue-600">
-                  <Clock size={18} strokeWidth={3} />
-                  {getProjectDetailsTimeLabel(item)}
-                </div>
+                {isSTLProject ? (
+                  <div className="max-w-[150px] shrink-0 text-right text-[13px] font-black uppercase leading-tight text-blue-600 sm:max-w-none sm:text-[14px]">
+                    {getStlDimensionsLabel(item)}
+                  </div>
+                ) : (
+                  <div className="flex shrink-0 items-center gap-1.5 text-right text-[14px] font-black italic text-blue-600">
+                    <Clock size={18} strokeWidth={3} />
+                    {getProjectDetailsTimeLabel(item)}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -684,6 +761,7 @@ export default function ProjectCard({
   const isVault = type === 'vault';
   const isSTL = project?.method?.name?.toUpperCase() === 'STL';
   const is3MF = project?.method?.name?.toUpperCase() === '3MF';
+  const details = useMemo(() => project.projectDetails || [], [project.projectDetails]);
 
   // Keep track of prev project values to sync local state during render
   const [prevProject, setPrevProject] = useState(project);
@@ -696,6 +774,10 @@ export default function ProjectCard({
   const [selectedDesignService, setSelectedDesignService] = useState(project?.selectedDesignService || null);
   const [activeVaultPanel, setActiveVaultPanel] = useState('file');
   const [focusRequest, setFocusRequest] = useState(null);
+  const [automaticPricingState, setAutomaticPricingState] = useState(null);
+  const automaticPricing = automaticPricingState?.value || null;
+  const automaticRepriceKeyRef = useRef('');
+  const automaticRepricePersistedKeyRef = useRef('');
 
   const requestFieldFocus = (field) => {
     focusRequestIdRef.current += 1;
@@ -945,17 +1027,23 @@ export default function ProjectCard({
   }, [is3MF, effectiveSelectedDesignService, availableDesignServices]);
 
   const { displayPrice, lowestPrice, downpayment } = useMemo(() => {
-    const grandTotal = parsePrice(project?.totals?.total || project?.sellPrice || project?.price);
-    const estimatedBase = parsePrice(project?.totals?.basePrice);
+    const storedGrandTotal = project?.totals?.total || project?.sellPrice || project?.price;
+    const storedBasePrice = project?.totals?.basePrice;
+    const storedDownpayment = project?.totals?.dp || project?.minDownpayment;
+    const recalculatedGrandTotal = parsePrice(automaticPricing?.total);
+    const recalculatedBasePrice = parsePrice(automaticPricing?.basePrice);
+    const grandTotal = recalculatedGrandTotal > 0 ? recalculatedGrandTotal : parsePrice(storedGrandTotal);
+    const estimatedBase = recalculatedBasePrice > 0 ? recalculatedBasePrice : parsePrice(storedBasePrice);
     const fallbackBase = Math.max(0, grandTotal - handlingFee - installmentFee - transferFee);
-    const baseDp = parsePrice(project?.totals?.dp || project?.minDownpayment);
+    const recalculatedDownpayment = parsePrice(automaticPricing?.dp);
+    const baseDp = recalculatedDownpayment > 0 ? recalculatedDownpayment : parsePrice(storedDownpayment);
 
     return {
       displayPrice: grandTotal + serviceCost,
       lowestPrice: (estimatedBase > 0 ? estimatedBase : fallbackBase) + serviceCost,
       downpayment: baseDp + serviceCost
     };
-  }, [handlingFee, installmentFee, transferFee, serviceCost, project]);
+  }, [automaticPricing, handlingFee, installmentFee, transferFee, serviceCost, project]);
 
   const projectProfit = useMemo(() => {
     const explicitProfit = parsePrice(
@@ -1003,17 +1091,6 @@ export default function ProjectCard({
       : plateCount === 1
         ? 'Item'
         : 'Items';
-
-  const getStlDimensionsLabel = (item) => {
-    const unit = item.unit || item.config?.unit || 'mm';
-    const length = item.length ?? item.config?.length ?? item.dimensions?.length ?? item.dimensions?.l ?? item.baseMM_length;
-    const width = item.width ?? item.config?.width ?? item.dimensions?.width ?? item.dimensions?.w ?? item.baseMM_width;
-    const height = item.height ?? item.config?.height ?? item.dimensions?.height ?? item.dimensions?.h ?? item.baseMM_height;
-    const dims = [length, width, height].map(value => Number(value) || 0);
-
-    if (dims.every(value => value <= 0)) return 'No Dimensions';
-    return `${dims.map(value => value.toLocaleString()).join(' x ')} ${unit}`;
-  };
 
   const shelfItem = useMemo(() => (shelf || []).find(item => item.id === (project.id || project.vaultId)), [shelf, project.id, project.vaultId]);
   const isReserved = !!shelfItem;
@@ -1088,8 +1165,6 @@ export default function ProjectCard({
     setIsModalOpen(true);
   };
 
-  const details = project.projectDetails || [];
-
   const printerIsAvailable = useMemo(() => {
     return getBestProjectPrinter(
       printers,
@@ -1108,6 +1183,147 @@ export default function ProjectCard({
       filamentInventory
     ), [details, feeders, filamentInventory, printers, project]);
 
+  const projectCostPrinterSelection = useMemo(() => getBestCostProjectPrinter(
+    printers,
+    project,
+    details,
+    feeders,
+    filamentInventory
+  ), [details, feeders, filamentInventory, printers, project]);
+
+  // If the assigned printer becomes unavailable, resolve another cost-capable
+  // printer and recalculate from the existing project inputs. This intentionally
+  // does not reopen or overwrite the calculator's source fields.
+  const automaticRepriceData = useMemo(() => {
+    if (!projectCostPrinterSelection.isCompatible || !projectCostPrinterSelection.printer) return null;
+
+    const nextDetails = details.map((detail, index) => {
+      const nextPrinter = projectCostPrinterSelection.detailSelections?.[index]?.printer;
+      if (!nextPrinter) return detail;
+
+      const printerName = getProjectPrinterLabel(nextPrinter);
+      const nextJobs = Array.isArray(detail.productionJobs)
+        ? detail.productionJobs.map((job) => ({
+          ...job,
+          printerId: nextPrinter.id,
+          printerName,
+          printer: nextPrinter
+        }))
+        : detail.productionJobs;
+
+      return {
+        ...detail,
+        printerId: nextPrinter.id,
+        printerName,
+        printer: nextPrinter,
+        ...(Array.isArray(detail.productionJobs) ? { productionJobs: nextJobs } : {})
+      };
+    });
+
+    const currentProjectPrinterId = project?.printerId
+      || details[0]?.printerId
+      || details[0]?.productionJobs?.[0]?.printerId
+      || '';
+    const detailsChanged = nextDetails.some((detail, index) => {
+      const currentDetail = details[index] || {};
+      const currentPrinterId = currentDetail.printerId || currentDetail.productionJobs?.[0]?.printerId || '';
+      return String(currentPrinterId) !== String(detail.printerId || '');
+    });
+    const projectPrinterChanged = String(currentProjectPrinterId) !== String(projectCostPrinterSelection.printer.id || '');
+
+    if (!detailsChanged && !projectPrinterChanged) return null;
+
+    return {
+      ...project,
+      printerId: projectCostPrinterSelection.printer.id,
+      printerName: getProjectPrinterLabel(projectCostPrinterSelection.printer),
+      projectDetails: nextDetails
+    };
+  }, [details, project, projectCostPrinterSelection]);
+
+  const automaticRepriceKey = useMemo(() => {
+    if (!automaticRepriceData) return '';
+    return JSON.stringify({
+      project: automaticRepriceData.id || automaticRepriceData.vaultId || '',
+      printer: automaticRepriceData.printerId || '',
+      details: (automaticRepriceData.projectDetails || []).map((detail) => ({
+        printerId: detail.printerId || '',
+        jobs: (detail.productionJobs || []).map((job) => job.printerId || '')
+      }))
+    });
+  }, [automaticRepriceData]);
+
+  useEffect(() => {
+    if (!automaticRepriceKey) {
+      automaticRepriceKeyRef.current = '';
+      automaticRepricePersistedKeyRef.current = '';
+      return;
+    }
+
+    if (automaticRepriceKeyRef.current !== automaticRepriceKey) {
+      automaticRepriceKeyRef.current = automaticRepriceKey;
+      automaticRepricePersistedKeyRef.current = '';
+    }
+  }, [automaticRepriceKey]);
+
+  const handleAutomaticReprice = useCallback((calculated) => {
+    const calculatedTotal = parsePrice(calculated?.total);
+    const calculatedBasePrice = parsePrice(calculated?.basePrice);
+    if (
+      !calculated
+      || !automaticRepriceData
+      || !automaticRepriceKey
+      || automaticRepriceKeyRef.current !== automaticRepriceKey
+      || automaticRepricePersistedKeyRef.current === automaticRepriceKey
+      || calculatedTotal <= 0
+      || calculatedBasePrice <= 0
+      || !calculated.timeline
+    ) return;
+
+    automaticRepricePersistedKeyRef.current = automaticRepriceKey;
+    setAutomaticPricingState({ key: automaticRepriceKey, value: calculated });
+
+    const previousTotals = project?.totals || {};
+    const nextTotals = {
+      ...previousTotals,
+      total: calculated.total ?? previousTotals.total,
+      basePrice: calculated.basePrice ?? previousTotals.basePrice,
+      dp: calculated.dp ?? previousTotals.dp,
+      days: calculated.timeline?.days ?? previousTotals.days,
+      timeline: calculated.timeline ?? previousTotals.timeline,
+      totalProfit: calculated.totalProfit ?? previousTotals.totalProfit,
+      electricity: calculated.electricity ?? previousTotals.electricity,
+      electricityKwh: calculated.electricityKwh ?? previousTotals.electricityKwh,
+      electricityRate: calculated.electricityRate ?? previousTotals.electricityRate,
+      electricityMarkupMultiplier: calculated.electricityMarkupMultiplier ?? previousTotals.electricityMarkupMultiplier,
+      filament: calculated.filament ?? previousTotals.filament,
+      labor: calculated.labor ?? previousTotals.labor,
+      maintenance: calculated.maintenance ?? previousTotals.maintenance,
+      extras: calculated.extras ?? previousTotals.extras
+    };
+    const patch = {
+      printerId: automaticRepriceData.printerId,
+      printerName: automaticRepriceData.printerName,
+      projectDetails: automaticRepriceData.projectDetails,
+      totals: nextTotals,
+      sellPrice: calculated.basePrice ?? project?.sellPrice,
+      displayPrice: calculated.total ?? project?.displayPrice,
+      minDownpayment: calculated.dp ?? project?.minDownpayment,
+      updatedAt: new Date().toISOString()
+    };
+
+    const persist = isBlueprint && project?.id
+      ? updateBlueprint(project.id, patch)
+      : isVault && project?.vaultId
+        ? updateProjectInVault(project.vaultId, patch)
+        : Promise.resolve();
+
+    persist.catch((error) => {
+      automaticRepricePersistedKeyRef.current = '';
+      console.error('SG LOG: Failed to automatically reprice project for replacement printer:', error);
+    });
+  }, [automaticRepriceData, automaticRepriceKey, isBlueprint, isVault, project, updateBlueprint, updateProjectInVault]);
+
   const projectPrinter = projectPrinterSelection.printer;
   const normalizedProjectPrinterStatus = projectPrinter
     ? normalizePrinterStatus(projectPrinter.status, projectPrinter)
@@ -1125,17 +1341,6 @@ export default function ProjectCard({
         ? 'MAINTENANCE'
         : 'UNAVAILABLE'
     : 'UNAVAILABLE';
-  const ProjectPrinterStatusIcon = normalizedProjectPrinterStatus === 'maintenance'
-    ? PrinterCheck
-    : normalizedProjectPrinterStatus === 'available' && projectPrinterSelection.isCompatible
-      ? Printer
-      : PrinterX;
-  const projectPrinterStatusIconClass = normalizedProjectPrinterStatus === 'maintenance' && projectPrinter
-    ? 'text-amber-500'
-    : normalizedProjectPrinterStatus === 'available' && projectPrinterSelection.isCompatible
-      ? 'text-emerald-500'
-      : 'text-red-500';
-
   const materialStatus = useMemo(() => {
     const detailsToCheck = details.length > 0 ? details : [project];
     const materialEntries = detailsToCheck.flatMap((detail) => {
@@ -1287,11 +1492,14 @@ export default function ProjectCard({
         ? { ...detail, printerId: recomputedPrinter.id }
         : detail;
     });
+    const actionDetails = automaticRepriceData?.projectDetails || recomputedDetails;
+    const actionTotal = automaticPricing?.total ?? displayPrice;
+    const actionDownpayment = automaticPricing?.dp ?? downpayment;
 
     return {
       ...project,
-      ...(details.length > 0 ? { projectDetails: recomputedDetails } : {}),
-      ...(projectPrinter ? { printerId: projectPrinter.id } : {}),
+      ...(details.length > 0 ? { projectDetails: actionDetails } : {}),
+      ...((automaticRepriceData?.printerId || projectPrinter?.id) ? { printerId: automaticRepriceData?.printerId || projectPrinter.id } : {}),
       ...(isVault ? { gdriveLink: fileLink, licenseAcknowledged } : {}),
       selectedDesignService: effectiveSelectedDesignService,
       projectStatusIndicators: {
@@ -1302,8 +1510,22 @@ export default function ProjectCard({
       },
       totals: {
         ...project.totals,
-        total: String(displayPrice),
-        dp: String(downpayment)
+        ...(automaticPricing ? {
+          days: automaticPricing.timeline?.days ?? project?.totals?.days,
+          timeline: automaticPricing.timeline ?? project?.totals?.timeline,
+          totalProfit: automaticPricing.totalProfit ?? project?.totals?.totalProfit,
+          electricity: automaticPricing.electricity ?? project?.totals?.electricity,
+          electricityKwh: automaticPricing.electricityKwh ?? project?.totals?.electricityKwh,
+          electricityRate: automaticPricing.electricityRate ?? project?.totals?.electricityRate,
+          electricityMarkupMultiplier: automaticPricing.electricityMarkupMultiplier ?? project?.totals?.electricityMarkupMultiplier,
+          filament: automaticPricing.filament ?? project?.totals?.filament,
+          labor: automaticPricing.labor ?? project?.totals?.labor,
+          maintenance: automaticPricing.maintenance ?? project?.totals?.maintenance,
+          extras: automaticPricing.extras ?? project?.totals?.extras
+        } : {}),
+        total: String(actionTotal),
+        dp: String(actionDownpayment),
+        ...(automaticPricing?.basePrice != null ? { basePrice: String(automaticPricing.basePrice) } : {})
       }
     };
   };
@@ -1377,6 +1599,16 @@ export default function ProjectCard({
 
   return (
     <>
+      {automaticRepriceData && (
+        <div className="hidden" aria-hidden="true">
+          <CostBreakdown
+            data={automaticRepriceData}
+            activePrinter={projectCostPrinterSelection.printer}
+            dbSettings={{}}
+            onCalculate={handleAutomaticReprice}
+          />
+        </div>
+      )}
       <div 
         onClick={handleOpenModal} 
         className={`w-full group relative rounded-[2.2rem] p-[2px] ${isSpectralMode ? `bg-gradient-to-br ${spectralGradient}` : 'bg-black/5 dark:bg-white/5'} transition-all duration-500 lg:hover:-translate-y-1 cursor-pointer overflow-hidden`}
@@ -1531,7 +1763,7 @@ export default function ProjectCard({
                               : 'Add to Basket'}
                     >
                         {isVault ? (
-                        <ProjectPrinterStatusIcon size={15} strokeWidth={2.5} className={projectPrinterStatusIconClass} />
+                        <PencilSparkles size={15} strokeWidth={2.5} />
                         ) : !canAddToBasket && canModifyProject ? (
                         <PencilSparkles size={15} strokeWidth={2.5} />
                         ) : !canAddToBasket ? (
@@ -1749,13 +1981,10 @@ export default function ProjectCard({
                         <span className="min-w-0 truncate">
                           {projectPrinterLabel}
                         </span>
-                        <span className={`shrink-0 text-[12px] font-black uppercase ${
-                          projectPrinter && isProjectPrinterOperational(projectPrinter)
-                            ? 'text-emerald-600'
-                            : normalizedProjectPrinterStatus === 'maintenance'
-                              ? 'text-amber-600'
-                            : 'text-red-500'
-                        }`}>
+                        <span className={`shrink-0 text-[12px] font-black uppercase ${getProjectPrinterStatusTextClass(
+                          projectPrinterSelection,
+                          projectPrinter
+                        )}`}>
                           {projectPrinterStatus}
                         </span>
                       </div>
@@ -1782,27 +2011,20 @@ export default function ProjectCard({
                                 {(() => {
                                   const materialEntries = getProjectMaterialEntries(item, filamentInventory);
                                   const totalWeight = item.normalizedWeight || item.sliced?.weight || 0;
-                                  if (materialEntries.length > 1) {
+                                  if (isSTL || materialEntries.length > 1 || is3MF) {
                                     return (
                                       <div className="mt-1 space-y-0.5 text-[14px] font-bold uppercase leading-tight">
                                         {materialEntries.map((entry, materialIndex) => (
                                           <div key={`${entry.label}-${materialIndex}`} className="flex min-w-0 items-center gap-2">
                                             <span className="truncate">{entry.label}</span>
-                                            {!is3MF && entry.weight !== null && entry.weight !== undefined && (
+                                            {!isSTL && ((entry.weight !== null && entry.weight !== undefined) || (is3MF && materialEntries.length === 1 && totalWeight)) ? (
                                               <>
                                                 <span className="h-1 w-1 shrink-0 rounded-full bg-current" />
-                                                <span className="shrink-0">{entry.weight}g</span>
+                                                <span className="shrink-0">{entry.weight ?? totalWeight}g</span>
                                               </>
-                                            )}
+                                            ) : null}
                                           </div>
                                         ))}
-                                      </div>
-                                    );
-                                  }
-                                  if (is3MF) {
-                                    return (
-                                      <div className="mt-1 text-[14px] font-bold uppercase leading-tight">
-                                        <span className="truncate">{materialEntries[0]?.label || getProjectMaterialLabel(item, filamentInventory)}</span>
                                       </div>
                                     );
                                   }
@@ -1820,16 +2042,6 @@ export default function ProjectCard({
                               {isSTL ? (
                                 <div className="max-w-[150px] text-[13px] font-black uppercase leading-tight text-blue-600 sm:max-w-none sm:text-[14px]">
                                   {getStlDimensionsLabel(item)}
-                                </div>
-                              ) : is3MF ? (
-                                <div className="flex flex-col items-end gap-0.5 text-[14px] font-black italic text-blue-600">
-                                  {getProjectMaterialEntries(item, filamentInventory).map((entry, materialIndex) => (
-                                    <span key={`${entry.label}-${materialIndex}`}>
-                                      {entry.weight !== null && entry.weight !== undefined
-                                        ? `${entry.weight}g`
-                                        : `${item.normalizedWeight || item.sliced?.weight || 0}g`}
-                                    </span>
-                                  ))}
                                 </div>
                               ) : (
                                 <div className="flex items-center gap-1.5 text-[16px] font-black italic text-blue-600">

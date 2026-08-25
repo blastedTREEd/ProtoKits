@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { db, auth } from '../firebase/firebase';
 import { 
-  collection, onSnapshot, doc, query, orderBy, where, limit, getDocs, getDoc, setDoc, updateDoc, deleteDoc, deleteField, serverTimestamp, addDoc, writeBatch
+  collection, onSnapshot, doc, query, orderBy, where, limit, getDocs, getDoc, setDoc, updateDoc, deleteDoc, deleteField, serverTimestamp, addDoc, writeBatch, runTransaction
 } from 'firebase/firestore';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
 import {
@@ -2926,18 +2926,34 @@ export const useStore = create(
       updateProjectInVault: async (vId, pData) => {
         const { user, projectVault } = get();
         if (!vId) throw new Error('Missing vault project id.');
-        const newVault = (projectVault || []).map((project) => (
-          project.vaultId === vId
-            ? { ...project, ...pData, vaultId: vId, status: project.status || 'Draft', updatedAt: new Date().toISOString() }
-            : project
-        ));
         if (!user) {
+          const newVault = (projectVault || []).map((project) => (
+            project.vaultId === vId
+              ? { ...project, ...pData, vaultId: vId, status: project.status || 'Draft', updatedAt: new Date().toISOString() }
+              : project
+          ));
           localStorage.setItem('sg_guest_project_vault', JSON.stringify(newVault));
           set({ projectVault: newVault });
           return;
         }
-        // FIXED: I-update sa projectVaults/{uid} imbes na sa user doc
-        await setDoc(doc(db, 'projectVaults', user.uid), { items: newVault, uid: user.uid }, { merge: true });
+
+        // Read and write the vault in a transaction. Link blur and license
+        // checkbox updates can happen back-to-back; rewriting a stale local
+        // array allowed the second update to erase fields saved by the first.
+        const vaultRef = doc(db, 'projectVaults', user.uid);
+        const newVault = await runTransaction(db, async (transaction) => {
+          const snapshot = await transaction.get(vaultRef);
+          const storedItems = snapshot.exists() && Array.isArray(snapshot.data()?.items)
+            ? snapshot.data().items
+            : (projectVault || []);
+          const updatedVault = storedItems.map((project) => (
+            project.vaultId === vId
+              ? { ...project, ...pData, vaultId: vId, status: project.status || 'Draft', updatedAt: new Date().toISOString() }
+              : project
+          ));
+          transaction.set(vaultRef, { items: updatedVault, uid: user.uid }, { merge: true });
+          return updatedVault;
+        });
         set({ projectVault: newVault });
       },
 

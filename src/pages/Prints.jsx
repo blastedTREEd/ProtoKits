@@ -259,12 +259,13 @@ export default function Prints() {
     });
   }, [blueprints, searchTerm]);
 
-  // Stopped-for-production blueprints remain available to admins for status
-  // management, but must not be listed to public users.
+  // Keep garage projects visible to public users even when production is
+  // stopped. ProjectCard exposes the unavailable state and blocks basket
+  // actions, while admin-only estimate cards remain private.
   const garageProjects = useMemo(() => (
     (isAdmin && isAdminView)
       ? filteredBlueprints
-      : filteredBlueprints.filter(project => !isAdminEstimate(project) && project?.canAddToBasket !== false)
+      : filteredBlueprints.filter(project => !isAdminEstimate(project))
   ), [filteredBlueprints, isAdmin, isAdminView]);
 
   const vaultProjectTitles = useMemo(() => {

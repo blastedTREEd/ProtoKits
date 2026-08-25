@@ -98,6 +98,14 @@ const RateInput = ({ label, value, unit, type, onChange, trend }) => (
 
 const parseMoney = (value) => Number(String(value || 0).replace(/,/g, '')) || 0;
 
+// A recalculation can briefly emit formatted zero values while the saved
+// project is being normalized (especially when reopening STL/3MF projects).
+// Never let that transient state erase a previously valid estimate.
+const firstPositiveValue = (...values) => {
+  const positive = values.find((value) => parseMoney(value) > 0);
+  return positive ?? values.find((value) => value !== undefined && value !== null) ?? '0';
+};
+
 export default function ProjectCost({ 
   data, 
   onBack, 
@@ -221,22 +229,40 @@ export default function ProjectCost({
 
     setIsSaving(true);
     try {
+      const previousTotals = data?.totals || {};
+      const calculatedTotals = totals || {};
+      const hasCalculatedCost = parseMoney(calculatedTotals.total) > 0 || parseMoney(calculatedTotals.basePrice) > 0;
+      const hasPreviousCost = parseMoney(previousTotals.total) > 0 || parseMoney(previousTotals.basePrice) > 0;
+      if (!hasCalculatedCost && !hasPreviousCost) {
+        alert("Unable to calculate project cost. Please check the printer, materials, and project details.");
+        return;
+      }
+      const nextTotals = {
+        ...previousTotals,
+        ...calculatedTotals,
+        total: firstPositiveValue(calculatedTotals.total, calculatedTotals.basePrice, previousTotals.total, previousTotals.basePrice),
+        basePrice: firstPositiveValue(calculatedTotals.basePrice, calculatedTotals.total, previousTotals.basePrice, previousTotals.total),
+        dp: firstPositiveValue(calculatedTotals.dp, previousTotals.dp, '0'),
+        days: calculatedTotals.timeline?.days ?? calculatedTotals.days ?? previousTotals.days ?? 0,
+        timeline: calculatedTotals.timeline || previousTotals.timeline || { days: 0, schedule: [] },
+        totalProfit: calculatedTotals.totalProfit ?? previousTotals.totalProfit ?? '0',
+        electricity: calculatedTotals.electricity ?? previousTotals.electricity ?? '0',
+        electricityKwh: calculatedTotals.electricityKwh ?? previousTotals.electricityKwh ?? 0,
+        electricityRate: calculatedTotals.electricityRate ?? previousTotals.electricityRate ?? 0,
+        electricityMarkupMultiplier: calculatedTotals.electricityMarkupMultiplier
+          ?? previousTotals.electricityMarkupMultiplier
+          ?? 1,
+        filament: calculatedTotals.filament ?? previousTotals.filament,
+        labor: calculatedTotals.labor ?? previousTotals.labor,
+        maintenance: calculatedTotals.maintenance ?? previousTotals.maintenance,
+        extras: calculatedTotals.extras ?? previousTotals.extras
+      };
       const projectPayload = {
         ...data,
         source: isAdmin && isAdminView ? 'admin-estimate' : 'customer-estimate',
         listingType: 'estimate',
-        totals: {
-          total: totals.total || '0',
-          basePrice: totals.basePrice || totals.total || '0',
-          dp: totals.dp || '0',
-          days: totals.timeline?.days || 0,
-          totalProfit: totals.totalProfit || '0',
-          electricity: totals.electricity || '0',
-          electricityKwh: totals.electricityKwh || 0,
-          electricityRate: totals.electricityRate || 0,
-          electricityMarkupMultiplier: totals.electricityMarkupMultiplier || 1
-        },
-        rates: draftRates
+        totals: nextTotals,
+        rates: Object.keys(draftRates || {}).length > 0 ? draftRates : data?.rates
       };
 
       if (onFinalConfirm && (isEditMode || isInventoryMode)) {
