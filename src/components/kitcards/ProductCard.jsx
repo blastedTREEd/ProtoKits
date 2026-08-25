@@ -70,13 +70,13 @@ const Gallery = ({ galleryImages, galleryIndex, setGalleryIndex, handleTouchStar
                         {galleryImages.length > 1 && (
                             <div 
                                 ref={thumbnailsContainerRef} 
-                                className="flex-1 flex justify-start items-center gap-1.5 overflow-x-auto no-scrollbar py-1 scroll-smooth px-2"
+                                className="absolute left-1/2 h-11 w-[calc(100%-8rem)] -translate-x-1/2 flex justify-center items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth px-0"
                             >
                                 {galleryImages.map((img, idx) => (
                                     <button 
                                         key={img.id || idx}
                                         onClick={(e) => { e.stopPropagation(); setGalleryIndex(idx); }}
-                                        className={`relative w-11 h-11 rounded-full border-2 transition-all shrink-0 overflow-hidden group/thumb ${galleryIndex === idx ? 'border-transparent bg-gradient-to-br from-blue-500 via-blue-600 to-cyan-400 bg-origin-border scale-105 shadow-lg z-10 opacity-100' : 'border-white/30 opacity-40 hover:opacity-100 hover:border-white/60'}`}
+                                        className={`relative w-11 h-11 rounded-full border-2 transition-all shrink-0 overflow-hidden group/thumb ${galleryIndex === idx ? 'border-transparent bg-gradient-to-br from-blue-500 via-blue-600 to-cyan-400 bg-origin-border shadow-lg z-10 opacity-100' : 'border-white/30 opacity-40 hover:opacity-100 hover:border-white/60'}`}
                                     >
                                         <img src={img.url} className="w-full h-full object-cover scale-[1.3]" alt="" />
                                     </button>

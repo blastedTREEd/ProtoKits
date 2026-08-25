@@ -26,8 +26,12 @@ const Gallery = ({
   isAdminGallery = false,
   onAddPhoto,
   onDeletePhoto,
-  onToggleCalendar
+  onToggleCalendar,
+  placeholderSrc
 }) => {
+    const activeImage = galleryImages[galleryIndex];
+    const hasActiveImage = Boolean(activeImage?.url);
+
     useEffect(() => {
         if (thumbnailsContainerRef.current) {
             const container = thumbnailsContainerRef.current;
@@ -43,15 +47,25 @@ const Gallery = ({
 
     return (
         <div onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} className={`w-full overflow-hidden bg-neutral-100 dark:bg-neutral-900 border-b sm:landscape:border-b-0 sm:landscape:border-r border-black/5 dark:border-white/5 relative group/img flex flex-col items-center justify-center h-[420px] sm:h-[450px] md:h-[550px] md:min-h-[150px] sm:landscape:h-full sm:landscape:w-5/12 sm:landscape:flex-1 shrink-0 isolate ${className || ''}`}>
-            {galleryImages[galleryIndex] && (
+            {activeImage && (
                 <>
-                    <img src={galleryImages[galleryIndex].url} alt="" className="absolute inset-0 w-full h-full object-cover blur-2xl opacity-40 scale-110" />
+                    {hasActiveImage ? (
+                      <img src={activeImage.url} alt="" className="absolute inset-0 w-full h-full object-cover blur-2xl opacity-40 scale-110" />
+                    ) : placeholderSrc ? (
+                      <div className="absolute inset-0 bg-blue-600/10 dark:bg-blue-600/20" />
+                    ) : null}
                     <div className="relative z-10 w-full h-full flex flex-col items-center justify-center p-4 lg:p-6">
-                        <img 
-                            src={galleryImages[galleryIndex].url} 
-                            alt={galleryImages[galleryIndex].type} 
-                            className="max-w-full max-h-full object-contain transition-opacity duration-300 mx-auto" 
-                        />
+                        {hasActiveImage ? (
+                          <img
+                              src={activeImage.url}
+                              alt={activeImage.type}
+                              className="max-w-full max-h-full object-contain transition-opacity duration-300 mx-auto"
+                          />
+                        ) : placeholderSrc ? (
+                          <img src={placeholderSrc} alt="Garage placeholder" className="max-w-[38%] max-h-[38%] object-contain opacity-45" />
+                        ) : (
+                          <span className="text-[11px] font-black uppercase tracking-widest opacity-50">No image</span>
+                        )}
                     </div>
                     <div className="absolute bottom-4 z-20 flex items-center justify-between w-full px-4 gap-2">
                         <button 
@@ -65,15 +79,19 @@ const Gallery = ({
                         {galleryImages.length > 1 && (
                             <div 
                                 ref={thumbnailsContainerRef} 
-                                className="flex-1 flex justify-start items-center gap-1.5 overflow-x-auto no-scrollbar mt-2 py-1 scroll-smooth px-2"
+                                className="absolute left-1/2 h-11 w-[calc(100%-8rem)] -translate-x-1/2 flex justify-center items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth px-0"
                             >
                                 {galleryImages.map((img, idx) => (
                                     <button 
                                         key={img.id || idx}
                                         onClick={(e) => { e.stopPropagation(); setGalleryIndex(idx); }}
-                                        className={`relative w-12 h-12 md:w-[70px] md:h-[70px] lg:w-[70px] lg:h-[70px] rounded-lg border-2 transition-all shrink-0 overflow-hidden group/thumb ${galleryIndex === idx ? 'border-amber-400 scale-105 shadow-lg z-10 opacity-100' : 'border-white/10 opacity-40 hover:opacity-100 hover:border-white/30'}`}
+                                        className={`relative w-11 h-11 rounded-full border-2 transition-all shrink-0 overflow-hidden group/thumb ${galleryIndex === idx ? 'border-blue-500 shadow-lg shadow-blue-500/30 z-10 opacity-100' : 'border-white/20 opacity-40 hover:opacity-100 hover:border-white/50'}`}
                                     >
-                                        <img src={img.url} className="w-full h-full object-cover" alt="" />
+                                        {img.url ? (
+                                          <img src={img.url} className="w-full h-full object-cover" alt="" />
+                                        ) : placeholderSrc ? (
+                                          <img src={placeholderSrc} className="w-full h-full object-contain bg-blue-600/10 p-2 opacity-45" alt="Garage placeholder" />
+                                        ) : null}
                                     </button>
                                 ))}
                             </div>
@@ -87,7 +105,7 @@ const Gallery = ({
                             <ChevronRight size={16} />
                         </button>
                     </div>
-                    <div className="absolute top-4 left-4 z-20 px-3 py-1 rounded-full bg-black/50 text-[9px] font-black uppercase text-white backdrop-blur-md tracking-widest">{galleryImages[galleryIndex].type} ({galleryIndex + 1}/{galleryImages.length})</div>
+                    <div className="absolute top-4 left-4 z-20 px-3 py-1 rounded-full bg-black/50 text-[9px] font-black uppercase text-white backdrop-blur-md tracking-widest">{activeImage.type} ({galleryIndex + 1}/{galleryImages.length})</div>
                 </>
             )}
             {isAdminGallery && (
@@ -181,6 +199,48 @@ const getProjectMaterialLabel = (item, filamentInventory) => {
   return label || material.name || 'FILAMENT';
 };
 
+const getProjectMaterialEntries = (item = {}, filamentInventory = []) => {
+  const source = Array.isArray(item.materials) && item.materials.length > 0
+    ? item.materials
+    : Array.isArray(item.normalizedMaterials) && item.normalizedMaterials.length > 0
+      ? item.normalizedMaterials
+      : [item.material || item.normalizedMaterial].filter(Boolean);
+
+  return source.map((entry) => {
+    const rawMaterial = entry?.material || entry?.normalizedMaterial || entry;
+    if (!rawMaterial) return null;
+
+    const material = getProjectMaterial({
+      ...item,
+      materialId: entry?.materialId || rawMaterial.id || item.materialId,
+      material: rawMaterial,
+      normalizedMaterial: rawMaterial
+    }, filamentInventory);
+
+    return {
+      label: getProjectMaterialLabel({ ...item, material, normalizedMaterial: material }, filamentInventory),
+      weight: entry?.shareWeight ?? entry?.weight ?? null
+    };
+  }).filter(Boolean);
+};
+
+const getProjectDetailsTimeLabel = (item = {}) => {
+  const minutes = Number(item.normalizedTime ?? item.sliced?.time ?? item.printTime ?? item.time ?? 0) || 0;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+};
+
+const getProjectDetailItemLabel = (project, methodLabel, item = {}, index = 0) => {
+  const method = String(project?.method?.name || methodLabel || '').trim().toUpperCase();
+  const itemNumber = item?.no
+    ?? item?.buildPlateNo
+    ?? item?.modelNo
+    ?? (Number.isFinite(Number(item?.index)) ? Number(item.index) + 1 : index + 1);
+
+  if (method === '3MF') return `Build Plate ${itemNumber}`;
+  if (method === 'STL') return `Model ${itemNumber}`;
+  return item?.itemName || `Item ${itemNumber}`;
+};
+
 const getProjectImageUrl = (image) => (
   typeof image === 'string' ? image : image?.url || ''
 );
@@ -240,6 +300,168 @@ const GRADIENT_COLORS = {
 };
 
 const getShadowColor = (gradientClass) => GRADIENT_COLORS[gradientClass] || 'rgba(8,102,255,0.2)';
+
+const formatProjectEta = (value) => {
+  if (!value) return '';
+  const date = value?.toDate?.() || (value instanceof Date ? value : new Date(value));
+  if (!Number.isNaN(date.getTime())) {
+    return `ETA ${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase()}`;
+  }
+  return `ETA ${String(value).replace(/^ETA\s*/i, '').toUpperCase()}`;
+};
+
+const GarageProjectSummary = ({
+  project,
+  title,
+  methodLabel,
+  details,
+  filamentInventory,
+  lowestPrice,
+  profit,
+  isProductionEnabled,
+  isDarkMode
+}) => {
+  const condition = project?.conditionDetails || project?.conditions || {};
+  const boxCondition = project?.boxCondition || condition.box || project?.box;
+  const kitCondition = project?.kitCondition || condition.kit || project?.kit;
+  const eta = formatProjectEta(
+    project?.collectionEta
+      || project?.eta
+      || project?.etaMonth
+      || project?.deliveryMonth
+      || project?.collectionDate
+  );
+  const metadata = [
+    project?.brand || project?.manufacturer,
+    project?.grade || methodLabel,
+    project?.scale,
+    project?.series || project?.line
+  ].filter(Boolean);
+  const hasConditions = boxCondition || kitCondition;
+
+  return (
+    <div className="p-6 sm:p-8 lg:p-10 space-y-7">
+      <div className="space-y-2">
+        <h2 className="text-[24px] sm:text-[30px] font-black uppercase italic leading-[0.95] tracking-tight line-clamp-2 break-words">
+          {title}
+        </h2>
+        {metadata.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] sm:text-[14px] font-black uppercase tracking-[0.18em]">
+            {metadata.map((value, index) => (
+              <React.Fragment key={`${value}-${index}`}>
+                {index > 0 && <span className="text-blue-600">•</span>}
+                <span>{value}</span>
+              </React.Fragment>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-end gap-3">
+        <div className="text-blue-600 text-[38px] sm:text-[44px] font-black italic tracking-tighter leading-none">
+          ₱{lowestPrice.toLocaleString()}
+        </div>
+        {profit > 0 && (
+          <div className="pb-1 text-emerald-600 font-black italic uppercase leading-none">
+            <div className="text-[12px]">Profit</div>
+            <div className="text-[17px]">₱{profit.toLocaleString()}</div>
+          </div>
+        )}
+      </div>
+
+      {hasConditions && (
+        <section className="space-y-2">
+          <h3 className="flex items-center gap-2 text-[14px] font-black uppercase tracking-[0.14em]">
+            <Box size={17} strokeWidth={2.5} /> Condition Details
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            {boxCondition && <span className="rounded-lg border-2 border-blue-500 px-2.5 py-1 text-[13px] font-black uppercase text-blue-600">Box: {boxCondition}</span>}
+            {kitCondition && <span className="rounded-lg border-2 border-blue-500 px-2.5 py-1 text-[13px] font-black uppercase text-blue-600">Kit: {kitCondition}</span>}
+          </div>
+        </section>
+      )}
+
+      <section className="space-y-2">
+        <h3 className="flex items-center gap-2 text-[14px] font-black uppercase tracking-[0.14em]">
+          <PackagePlus size={17} strokeWidth={2.5} /> Availability
+        </h3>
+        <div className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-[14px] font-black uppercase shadow-lg ${isProductionEnabled ? 'bg-blue-600 text-white shadow-blue-600/25' : 'bg-red-500/10 text-red-600 border-2 border-red-500'}`}>
+          <span>1</span>
+          <span className="h-4 w-px bg-current opacity-60" />
+          <span>{isProductionEnabled ? 'Onhand' : 'Unavailable'}</span>
+        </div>
+      </section>
+
+      {eta && (
+        <section className="space-y-2">
+          <h3 className="flex items-center gap-2 text-[14px] font-black uppercase tracking-[0.14em]">
+            <CalendarDays size={17} strokeWidth={2.5} /> Collection
+          </h3>
+          <div className="inline-flex items-center gap-2 rounded-xl border-2 border-red-300 bg-red-50 px-4 py-2 text-[14px] font-black uppercase text-red-500 dark:bg-red-500/10">
+            <Zap size={16} strokeWidth={2.5} /> {eta}
+          </div>
+        </section>
+      )}
+
+      {details.length > 0 && (
+        <section className="space-y-3">
+          <div className="flex items-center gap-4">
+            <span className="text-[14px] font-black uppercase tracking-[0.35em] text-[var(--color-text-muted)]">Project Details</span>
+            <div className="h-px flex-1 bg-[var(--color-border)]" />
+          </div>
+          <div className="grid grid-cols-1 gap-2">
+            {details.map((item, index) => (
+              <div key={`${item?.itemName || 'item'}-${index}`} className={`${isDarkMode ? 'bg-white/5' : 'bg-black/5'} rounded-2xl border border-[var(--color-border)] px-5 py-5 flex items-center justify-between gap-4`}>
+                <div className="flex min-w-0 items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-blue-600/10 flex items-center justify-center text-blue-600 shrink-0">
+                    {String(project?.method?.name || methodLabel || '').toUpperCase() === 'STL'
+                      ? <Box size={18} strokeWidth={3} />
+                      : <Layers size={18} strokeWidth={3} />}
+                  </div>
+                  <div className="min-w-0 text-left">
+                    <div className="text-[14px] font-black uppercase italic leading-none truncate">{getProjectDetailItemLabel(project, methodLabel, item, index)}</div>
+                    {(() => {
+                      const materialEntries = getProjectMaterialEntries(item, filamentInventory);
+                      const totalWeight = item?.normalizedWeight || item?.sliced?.weight || 0;
+                      if (materialEntries.length > 1) {
+                        return (
+                          <div className="mt-1 space-y-0.5 text-[14px] font-bold uppercase text-[var(--color-text-muted)]">
+                            {materialEntries.map((entry, materialIndex) => (
+                              <div key={`${entry.label}-${materialIndex}`} className="flex min-w-0 items-center gap-2">
+                                <span className="truncate">{entry.label}</span>
+                                {entry.weight !== null && entry.weight !== undefined && (
+                                  <>
+                                    <span className="h-1 w-1 shrink-0 rounded-full bg-current" />
+                                    <span className="shrink-0">{entry.weight}g</span>
+                                  </>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="mt-1 flex min-w-0 items-center gap-2 text-[14px] font-bold uppercase text-[var(--color-text-muted)]">
+                          <span className="truncate">{materialEntries[0]?.label || getProjectMaterialLabel(item, filamentInventory)}</span>
+                          <span className="h-1 w-1 shrink-0 rounded-full bg-current" />
+                          <span className="shrink-0">{totalWeight}g</span>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-1.5 text-right text-[14px] font-black italic text-blue-600">
+                  <Clock size={18} strokeWidth={3} />
+                  {getProjectDetailsTimeLabel(item)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+};
 
 export default function ProjectCard({ 
   project, 
@@ -434,7 +656,7 @@ export default function ProjectCard({
     }
   };
 
-  const displayImage = isBlueprint ? project.image : null;
+  const displayImage = isBlueprint ? getProjectImageUrl(project.image) : null;
   const displayProjectTitle = isUnnamedProjectName(isVault ? projectNameLocal : project.projectName)
     ? (fallbackTitle || 'PROJECT #')
     : (isVault ? projectNameLocal : project.projectName);
@@ -502,6 +724,18 @@ export default function ProjectCard({
       downpayment: baseDp + serviceCost
     };
   }, [handlingFee, installmentFee, transferFee, serviceCost, project]);
+
+  const projectProfit = useMemo(() => {
+    const explicitProfit = parsePrice(
+      project?.totals?.totalProfit
+        ?? project?.totalProfit
+        ?? project?.profit
+        ?? project?.profitProjection
+    );
+    if (explicitProfit > 0) return explicitProfit;
+    const cost = parsePrice(project?.totals?.cost || project?.cost || project?.costPrice);
+    return Math.max(0, lowestPrice - cost);
+  }, [lowestPrice, project]);
   
   const methodLabel = isBlueprint ? (project.method?.name || 'Blueprint') : project.method?.name;
   const fileTypeLabel = is3MF ? '3MF' : isSTL ? 'STL' : (methodLabel || 'FILE').toUpperCase();
@@ -871,7 +1105,9 @@ export default function ProjectCard({
                   fileLinkIsValid={fileLinkIsValid}
                 />
               ) : (
-                <Box size={40} className="opacity-10 text-[var(--color-text-main)]" strokeWidth={1} />
+                <div className="w-full h-full flex items-center justify-center bg-blue-600/10 dark:bg-blue-600/20">
+                  <img src="/snorlaxgarage.png" alt="Garage placeholder" className="w-1/2 h-1/2 object-contain opacity-45" />
+                </div>
               )}
               
               {showManagementActions && isAdmin && isAdminView && !isBlueprint && (
@@ -1045,6 +1281,7 @@ export default function ProjectCard({
                     onAddPhoto={openGalleryUpload}
                     onDeletePhoto={handleDeleteGalleryPhoto}
                     onToggleCalendar={() => setIsCalendarMode(true)}
+                    placeholderSrc={isBlueprint ? '/snorlaxgarage.png' : undefined}
                     className="hidden sm:landscape:flex sm:landscape:h-full"
                 />
               )}
@@ -1084,10 +1321,24 @@ export default function ProjectCard({
                           onAddPhoto={openGalleryUpload}
                           onDeletePhoto={handleDeleteGalleryPhoto}
                           onToggleCalendar={() => setIsCalendarMode(true)}
+                          placeholderSrc={isBlueprint ? '/snorlaxgarage.png' : undefined}
                       />
                     )}
                   </div>
 
+                  {isBlueprint ? (
+                    <GarageProjectSummary
+                      project={project}
+                      title={displayProjectTitle}
+                      methodLabel={methodLabel}
+                      details={details}
+                      filamentInventory={filamentInventory}
+                      lowestPrice={lowestPrice}
+                      profit={projectProfit}
+                      isProductionEnabled={isProductionEnabled}
+                      isDarkMode={isDarkMode}
+                    />
+                  ) : (
                   <div className="p-6 sm:p-8 lg:p-10 space-y-8">
                     {/* Header */}
                     <div className="flex items-center justify-between gap-4 w-full">
@@ -1177,19 +1428,40 @@ export default function ProjectCard({
                           <div key={idx} className="bg-black/5 dark:bg-white/5 p-5 rounded-2xl border border-[var(--color-border)] flex items-center justify-between gap-4 group hover:border-blue-500/30 transition-colors">
                             <div className="flex min-w-0 items-center gap-4">
                               <div className="w-12 h-12 rounded-xl bg-blue-600/10 flex items-center justify-center text-blue-600 group-hover:scale-110 transition-transform">
-                                <Layers size={18} strokeWidth={3} />
+                                {String(project?.method?.name || methodLabel || '').toUpperCase() === 'STL'
+                                  ? <Box size={18} strokeWidth={3} />
+                                  : <Layers size={18} strokeWidth={3} />}
                               </div>
                               <div className="min-w-0 text-left">
-                                <h4 className="text-[14px] font-black uppercase italic leading-none">{item.itemName || `Item ${idx+1}`}</h4>
-                                <div className="flex items-center gap-2 mt-1 opacity-40">
-                                  <span className="text-[14px] font-bold uppercase leading-tight">{getProjectMaterialLabel(item, filamentInventory)}</span>
-                                  {!isSTL && (
-                                    <>
-                                      <span className="h-1 w-1 shrink-0 rounded-full bg-current opacity-30" />
-                                      <span className="shrink-0 text-[14px] font-bold uppercase">{item.normalizedWeight || item.sliced?.weight || 0}g</span>
-                                    </>
-                                  )}
-                                </div>
+                                <h4 className="text-[14px] font-black uppercase italic leading-none">{getProjectDetailItemLabel(project, methodLabel, item, idx)}</h4>
+                                {(() => {
+                                  const materialEntries = getProjectMaterialEntries(item, filamentInventory);
+                                  const totalWeight = item.normalizedWeight || item.sliced?.weight || 0;
+                                  if (materialEntries.length > 1) {
+                                    return (
+                                      <div className="mt-1 space-y-0.5 text-[14px] font-bold uppercase leading-tight">
+                                        {materialEntries.map((entry, materialIndex) => (
+                                          <div key={`${entry.label}-${materialIndex}`} className="flex min-w-0 items-center gap-2">
+                                            <span className="truncate">{entry.label}</span>
+                                            {entry.weight !== null && entry.weight !== undefined && (
+                                              <>
+                                                <span className="h-1 w-1 shrink-0 rounded-full bg-current" />
+                                                <span className="shrink-0">{entry.weight}g</span>
+                                              </>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    );
+                                  }
+                                  return !isSTL ? (
+                                    <div className="mt-1 flex min-w-0 items-center gap-2 text-[14px] font-bold uppercase leading-tight">
+                                      <span className="truncate">{materialEntries[0]?.label || getProjectMaterialLabel(item, filamentInventory)}</span>
+                                      <span className="h-1 w-1 shrink-0 rounded-full bg-current" />
+                                      <span className="shrink-0">{totalWeight}g</span>
+                                    </div>
+                                  ) : null;
+                                })()}
                               </div>
                             </div>
                             <div className="shrink-0 text-right">
@@ -1390,6 +1662,7 @@ export default function ProjectCard({
                       )}
                     </div>
                   </div>
+                  )}
                 </div>
 
 {/* Footer Actions */}
