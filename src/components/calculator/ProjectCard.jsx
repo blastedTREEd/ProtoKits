@@ -654,7 +654,8 @@ export default function ProjectCard({
   onModify,
   onDelete,
   isReadOnly = false,
-  openOnMount = false
+  openOnMount = false,
+  reopenRequestToken = null
 }) {
   const { isDarkMode, isSpectralMode } = useTheme();
   const { shippingSettings, shelf, orders, printers, feeders, filamentInventory, isAdmin, isAdminView, updateBlueprint, updateProjectInVault, rates: storeRates } = useStore();
@@ -676,6 +677,7 @@ export default function ProjectCard({
   const fileLinkInputRef = useRef(null);
   const focusRequestIdRef = useRef(0);
   const hasAutoOpenedRef = useRef(false);
+  const lastReopenRequestTokenRef = useRef(null);
   const modalHistoryOwnerRef = useRef(false);
 
   // Vault file link + license state (naka-sync sa project data)
@@ -819,6 +821,24 @@ export default function ProjectCard({
     }, 0);
     return () => window.clearTimeout(timer);
   }, [isModalOpen, openOnMount]);
+
+  useEffect(() => {
+    if (reopenRequestToken == null || reopenRequestToken === lastReopenRequestTokenRef.current) return;
+    lastReopenRequestTokenRef.current = reopenRequestToken;
+
+    if (projectId && window.location.pathname !== projectPath) {
+      window.history.pushState({ modal: 'project', projectId }, '', projectPath);
+      modalHistoryOwnerRef.current = true;
+    }
+
+    const timer = window.setTimeout(() => {
+      setGalleryIndex(0);
+      if (!isVault) setIsCalendarMode(false);
+      setIsModalOpen(true);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [isVault, projectId, projectPath, reopenRequestToken]);
 
   useEffect(() => {
     if (!isModalOpen || galleryImages.length <= 1) return;

@@ -82,6 +82,14 @@ const statusTone = (status) => status === 'available'
     ? 'bg-amber-500/10 text-amber-600'
     : 'bg-red-500/10 text-red-600';
 
+const STATUS_CYCLE = ['available', 'unavailable', 'maintenance'];
+
+const getNextStatus = (status) => {
+  const currentStatus = normalizePrinterStatus(status);
+  const currentIndex = STATUS_CYCLE.indexOf(currentStatus);
+  return STATUS_CYCLE[(currentIndex + 1) % STATUS_CYCLE.length];
+};
+
 const PrinterStatusIcon = ({ status, ...props }) => {
   const Icon = status === 'maintenance' ? PrinterCheck : status === 'unavailable' ? PrinterX : Printer;
   return <Icon {...props} />;
@@ -106,6 +114,7 @@ export default function PrinterManagerModal({ onClose }) {
   const [formData, setFormData] = useState(EMPTY_FORM);
   const [feederForm, setFeederForm] = useState(EMPTY_FEEDER_FORM);
   const [isSaving, setIsSaving] = useState(false);
+  const [statusUpdatingId, setStatusUpdatingId] = useState(null);
 
   const filamentTypes = useMemo(() => (
     [...new Set([
@@ -278,6 +287,32 @@ export default function PrinterManagerModal({ onClose }) {
       alert(error?.message || 'Unable to save feeder details.');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const togglePrinterStatus = async (printer) => {
+    const nextStatus = getNextStatus(printer.status);
+    const updateKey = `printer:${printer.id}`;
+    setStatusUpdatingId(updateKey);
+    try {
+      await updatePrinter(printer.id, { status: nextStatus });
+    } catch (error) {
+      alert(error?.message || 'Unable to update printer status.');
+    } finally {
+      setStatusUpdatingId(null);
+    }
+  };
+
+  const toggleFeederStatus = async (feeder) => {
+    const nextStatus = getNextStatus(feeder.status);
+    const updateKey = `feeder:${feeder.id}`;
+    setStatusUpdatingId(updateKey);
+    try {
+      await updateFeeder(feeder.id, { status: nextStatus });
+    } catch (error) {
+      alert(error?.message || 'Unable to update feeder status.');
+    } finally {
+      setStatusUpdatingId(null);
     }
   };
 
@@ -541,9 +576,10 @@ export default function PrinterManagerModal({ onClose }) {
                       <div className="flex shrink-0 items-center gap-1 opacity-100 transition-opacity">
                         <button
                           type="button"
-                          onClick={(event) => { event.stopPropagation(); beginEdit(printer); }}
-                          className="rounded-xl p-2.5 text-[var(--color-text-main)] transition-all hover:bg-blue-600 hover:text-white"
-                          aria-label={`Edit ${printer.model || printer.name || 'printer'} (${status})`}
+                          onClick={(event) => { event.stopPropagation(); togglePrinterStatus(printer); }}
+                          disabled={statusUpdatingId === `printer:${printer.id}`}
+                          className="rounded-xl p-2.5 text-[var(--color-text-main)] transition-all hover:bg-blue-600 hover:text-white disabled:cursor-wait disabled:opacity-50"
+                          aria-label={`Set ${printer.model || printer.name || 'printer'} status to ${getNextStatus(status)}`}
                         >
                           <PrinterStatusIcon status={status} size={18} strokeWidth={2.5} />
                         </button>
@@ -584,9 +620,10 @@ export default function PrinterManagerModal({ onClose }) {
                       <div className="flex shrink-0 items-center gap-1 opacity-100 transition-opacity">
                         <button
                           type="button"
-                          onClick={(event) => { event.stopPropagation(); beginEditFeeder(feeder); }}
-                          className="rounded-xl p-2.5 text-[var(--color-text-main)] transition-all hover:bg-blue-600 hover:text-white"
-                          aria-label={`Edit ${feeder.name || feeder.id || 'feeder'} (${status})`}
+                          onClick={(event) => { event.stopPropagation(); toggleFeederStatus(feeder); }}
+                          disabled={statusUpdatingId === `feeder:${feeder.id}`}
+                          className="rounded-xl p-2.5 text-[var(--color-text-main)] transition-all hover:bg-blue-600 hover:text-white disabled:cursor-wait disabled:opacity-50"
+                          aria-label={`Set ${feeder.name || feeder.id || 'feeder'} status to ${getNextStatus(status)}`}
                         >
                           <PrinterStatusIcon status={status} size={18} strokeWidth={2.5} />
                         </button>

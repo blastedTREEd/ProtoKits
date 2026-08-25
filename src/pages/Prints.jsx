@@ -106,6 +106,7 @@ export default function Prints() {
   const { projectId: routeProjectId } = useParams();
   const [viewMode, setViewMode] = useState('idle');
   const [modifyingProject, setModifyingProject] = useState(null);
+  const [reopenProjectRequest, setReopenProjectRequest] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [sortType, setSortType] = useState('latest');
   const [isSortOpen, setIsSortOpen] = useState(false);
@@ -204,6 +205,7 @@ export default function Prints() {
 
   const removeFromVault = useStore((state) => state.removeFromVault);
   const updateProjectInVault = useStore((state) => state.updateProjectInVault);
+  const updateBlueprint = useStore((state) => state.updateBlueprint);
   const addProjectToBasket = useStore((state) => state.addProjectToBasket);
   const deleteBlueprint = useStore((state) => state.deleteBlueprint);
   const isLoading = useStore((state) => state.isLoading);
@@ -329,12 +331,6 @@ export default function Prints() {
   };
 
   const handleModify = (project) => {
-    if (isPrintListing(project) && isAdmin && isAdminView) {
-      // Garage Project editing now lives in ProjectCard so the admin can
-      // manage the gallery and switch to the Garage Calendar in one place.
-      navigate(`/prints/${encodeURIComponent(project.id)}`);
-      return;
-    }
     setModifyingProject(project);
     setViewMode('estimating');
     window.history.pushState({ mode: 'estimating' }, '');
@@ -358,11 +354,23 @@ export default function Prints() {
   };
 
   const handleEstimateUpdate = (payload) => {
-    if (!modifyingProject?.vaultId) return;
-    updateProjectInVault(modifyingProject.vaultId, payload)
+    const projectKey = modifyingProject?.vaultId || modifyingProject?.id;
+    const update = modifyingProject?.vaultId
+      ? updateProjectInVault(modifyingProject.vaultId, payload)
+      : modifyingProject?.id
+        ? updateBlueprint(modifyingProject.id, payload)
+        : Promise.reject(new Error('Missing project id.'));
+
+    update
       .then(() => {
         setViewMode('idle');
         setModifyingProject(null);
+        if (projectKey) {
+          setReopenProjectRequest({
+            key: projectKey,
+            token: Date.now()
+          });
+        }
         window.dispatchEvent(new Event('showNavbar'));
       })
       .catch((error) => alert(error?.message || 'Unable to update estimate.'));
@@ -603,6 +611,7 @@ export default function Prints() {
                     showManagementActions={true}
                     onModify={handleModify}
                     onDelete={handleDeleteVaultProject}
+                    reopenRequestToken={reopenProjectRequest?.key === project.vaultId ? reopenProjectRequest.token : null}
                   />
                 );
               })}
@@ -632,6 +641,7 @@ export default function Prints() {
                     onModify={isAdmin && isAdminView ? handleModify : undefined}
                     onDelete={isAdmin && isAdminView ? handleDeletePrintProject : undefined}
                     openOnMount={routeProjectId === project.id}
+                    reopenRequestToken={reopenProjectRequest?.key === project.id ? reopenProjectRequest.token : null}
                   />
                 );
               })}
