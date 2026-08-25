@@ -95,25 +95,6 @@ export default function Home() {
         {/* HERO CONTENT */}
         <div className="relative z-10 max-w-5xl mx-auto text-center">
 
-          <span
-            className="
-              inline-flex
-              px-5
-              py-2
-              rounded-full
-              border
-              border-garage-blue/30
-              bg-garage-blue/10
-              text-garage-blue
-              text-[12px]
-              font-black
-              tracking-[0.35em]
-              uppercase
-            "
-          >
-            EST. 2025 • HOBBYIST HUB
-          </span>
-
           <h1
             className="
               mt-8

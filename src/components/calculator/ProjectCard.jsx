@@ -492,6 +492,9 @@ export default function ProjectCard({
   const lastManualActionTime = useRef(null);
   const thumbnailsContainerRef = useRef(null);
   const galleryFileInputRef = useRef(null);
+  const projectNameInputRef = useRef(null);
+  const fileLinkInputRef = useRef(null);
+  const focusRequestIdRef = useRef(0);
   const hasAutoOpenedRef = useRef(false);
   const modalHistoryOwnerRef = useRef(false);
 
@@ -510,6 +513,12 @@ export default function ProjectCard({
   const [isEditingName, setIsEditingName] = useState(false);
   const [selectedDesignService, setSelectedDesignService] = useState(project?.selectedDesignService || null);
   const [activeVaultPanel, setActiveVaultPanel] = useState('file');
+  const [focusRequest, setFocusRequest] = useState(null);
+
+  const requestFieldFocus = (field) => {
+    focusRequestIdRef.current += 1;
+    setFocusRequest({ field, id: focusRequestIdRef.current });
+  };
 
   // Sync props to state during render (prevents cascading renders via useEffect)
   if (project !== prevProject) {
@@ -560,6 +569,29 @@ export default function ProjectCard({
       || /^project\s*#\s*\d+$/.test(normalized);
   };
   const projectNameNeedsUpdate = isVault && isUnnamedProjectName(projectNameLocal, fallbackTitle);
+
+  useEffect(() => {
+    if (!isModalOpen || !focusRequest) return undefined;
+
+    const timer = window.setTimeout(() => {
+      const focusInput = () => {
+        const input = focusRequest.field === 'projectName'
+          ? projectNameInputRef.current
+          : fileLinkInputRef.current;
+        if (!input) return;
+        input.focus({ preventScroll: true });
+        input.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        setFocusRequest(null);
+      };
+
+      // The panel may have just switched, so wait until its input is mounted.
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(focusInput);
+      });
+    }, 50);
+
+    return () => window.clearTimeout(timer);
+  }, [activeVaultPanel, focusRequest, isEditingName, isModalOpen]);
 
   const handleFileLinkSave = async (newLink) => {
     setFileLink(newLink);
@@ -1049,6 +1081,24 @@ export default function ProjectCard({
     closeProjectModal();
   };
 
+  const handleVaultPrimaryAction = (e) => {
+    e.stopPropagation();
+
+    if (projectNameNeedsUpdate) {
+      requestFieldFocus('projectName');
+      setIsEditingName(true);
+      return;
+    }
+
+    if (!fileLinkIsValid && !effectiveSelectedDesignService) {
+      requestFieldFocus('fileLink');
+      setActiveVaultPanel('file');
+      return;
+    }
+
+    handleAddProjectToBasket(e, { closeModal: true });
+  };
+
   const handleDeleteProject = (e) => {
     e.stopPropagation();
     if (!onDelete) return;
@@ -1058,6 +1108,20 @@ export default function ProjectCard({
 
   const isAdminBlueprintView = isBlueprint && isAdmin && isAdminView && showManagementActions;
   const isPublicVaultView = isVault && !(isAdmin && isAdminView);
+  const vaultNeedsProjectName = isPublicVaultView && projectNameNeedsUpdate;
+  const vaultNeedsFileLink = isPublicVaultView
+    && !projectNameNeedsUpdate
+    && !fileLinkIsValid
+    && !effectiveSelectedDesignService;
+  const vaultPrimaryActionLabel = vaultNeedsProjectName
+    ? 'Rename Project'
+    : vaultNeedsFileLink
+      ? 'Enter Valid Link'
+      : 'Add to Basket';
+  const vaultPrimaryActionDisabled = isPublicVaultView
+    && !vaultNeedsProjectName
+    && !vaultNeedsFileLink
+    && (!canAddToBasket || !vaultReadyForBasket);
 
   return (
     <>
@@ -1359,6 +1423,7 @@ export default function ProjectCard({
                             isEditingName ? (
                               <input
                                 type="text"
+                                ref={projectNameInputRef}
                                 value={projectNameLocal}
                                 onChange={(e) => setProjectNameLocal(e.target.value)}
                                 onBlur={handleProjectNameBlur}
@@ -1443,7 +1508,7 @@ export default function ProjectCard({
                                         {materialEntries.map((entry, materialIndex) => (
                                           <div key={`${entry.label}-${materialIndex}`} className="flex min-w-0 items-center gap-2">
                                             <span className="truncate">{entry.label}</span>
-                                            {entry.weight !== null && entry.weight !== undefined && (
+                                            {!is3MF && entry.weight !== null && entry.weight !== undefined && (
                                               <>
                                                 <span className="h-1 w-1 shrink-0 rounded-full bg-current" />
                                                 <span className="shrink-0">{entry.weight}g</span>
@@ -1451,6 +1516,13 @@ export default function ProjectCard({
                                             )}
                                           </div>
                                         ))}
+                                      </div>
+                                    );
+                                  }
+                                  if (is3MF) {
+                                    return (
+                                      <div className="mt-1 text-[14px] font-bold uppercase leading-tight">
+                                        <span className="truncate">{materialEntries[0]?.label || getProjectMaterialLabel(item, filamentInventory)}</span>
                                       </div>
                                     );
                                   }
@@ -1468,6 +1540,16 @@ export default function ProjectCard({
                               {isSTL ? (
                                 <div className="max-w-[150px] text-[13px] font-black uppercase leading-tight text-blue-600 sm:max-w-none sm:text-[14px]">
                                   {getStlDimensionsLabel(item)}
+                                </div>
+                              ) : is3MF ? (
+                                <div className="flex flex-col items-end gap-0.5 text-[14px] font-black italic text-blue-600">
+                                  {getProjectMaterialEntries(item, filamentInventory).map((entry, materialIndex) => (
+                                    <span key={`${entry.label}-${materialIndex}`}>
+                                      {entry.weight !== null && entry.weight !== undefined
+                                        ? `${entry.weight}g`
+                                        : `${item.normalizedWeight || item.sliced?.weight || 0}g`}
+                                    </span>
+                                  ))}
                                 </div>
                               ) : (
                                 <div className="flex items-center gap-1.5 text-[16px] font-black italic text-blue-600">
@@ -1512,6 +1594,7 @@ export default function ProjectCard({
                               </label>
                               <input
                                 type="url"
+                                ref={fileLinkInputRef}
                                 value={fileLink}
                                 onChange={(e) => setFileLink(e.target.value)}
                                 onBlur={(e) => handleFileLinkSave(e.target.value)}
@@ -1531,7 +1614,7 @@ export default function ProjectCard({
                                 </p>
                               ) : (
                                 <p className="text-[14px] font-bold leading-tight">
-                                  Upload your STL / 3MF files to Google Drive and paste the share link here.
+                                  Upload the STL/3MF file to your Google Drive, share and paste the link here.
                                 </p>
                               )}
                             </div>
@@ -1686,10 +1769,10 @@ export default function ProjectCard({
               type="button"
               onClick={handleModifyProject}
               className="h-12 flex-1 min-w-0 px-5 rounded-full bg-neutral-900 dark:bg-white/10 text-white font-black italic uppercase text-[11px] tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"
-              title="Modify project"
+              title="Edit project"
             >
               <Settings size={15} strokeWidth={3} />
-              <span className="truncate">Modify</span>
+              <span className="truncate">Edit Project</span>
             </button>
           )}
           <button
@@ -1722,25 +1805,23 @@ export default function ProjectCard({
             <button
               type="button"
               onClick={handleModifyProject}
-              className="h-12 flex-1 min-w-0 px-4 rounded-full bg-neutral-900 dark:bg-white/10 text-white font-black italic uppercase text-[11px] tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"
-              title="Modify estimate"
+              className="h-12 flex-1 min-w-0 px-4 rounded-full bg-neutral-900 dark:bg-white/10 text-white font-black italic uppercase text-[11px] tracking-widest flex items-center justify-center shadow-lg active:scale-95 transition-all"
+              title="Edit project"
             >
-              <Settings size={15} strokeWidth={3} />
-              <span className="truncate">Modify</span>
+              <span className="truncate">Edit Project</span>
             </button>
           )}
           <button
             type="button"
-            onClick={(e) => handleAddProjectToBasket(e, { closeModal: true })}
-            disabled={!canAddToBasket || !vaultReadyForBasket}
-            className={`h-12 flex-1 min-w-0 px-4 rounded-full text-white font-black italic uppercase text-[11px] tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all ${
-              !canAddToBasket || !vaultReadyForBasket
+            onClick={handleVaultPrimaryAction}
+            disabled={vaultPrimaryActionDisabled}
+            className={`h-12 flex-1 min-w-0 px-4 rounded-full text-white font-black italic uppercase text-[11px] tracking-widest flex items-center justify-center shadow-lg active:scale-95 transition-all ${
+              vaultPrimaryActionDisabled
                 ? 'bg-neutral-400 cursor-not-allowed opacity-50'
                 : 'bg-gradient-to-br from-blue-500 to-blue-600'
             }`}
           >
-            <ShoppingBasket size={15} strokeWidth={3} />
-            <span className="truncate">Add to Basket</span>
+            <span className="truncate">{vaultPrimaryActionLabel}</span>
           </button>
         </>
       ) : (
