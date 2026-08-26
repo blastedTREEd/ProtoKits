@@ -31,6 +31,7 @@ service cloud.firestore {
     // --- PUBLIC COLLECTIONS ---
     match /settings/garage {
       allow read: if true;
+      allow write: if isAdmin();
     }
 
     match /settings/checkout {

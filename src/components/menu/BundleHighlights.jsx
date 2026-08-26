@@ -172,14 +172,16 @@ export default function BundleHighlights() {
     blueprints,
     isLoading,
     loadAllDeals,
+    garageInfo,
     isAdmin,
-    isAdminView
+    isAdminView,
+    updateGarageSettings
   } = useStore();
   const navigate = useNavigate();
   const { isDarkMode, isSpectralMode } = useTheme();
   const [now, setNow] = useState(() => Date.now());
   const [selectedDeal, setSelectedDeal] = useState(null);
-  const [isAnimatedHighlightsRowHidden, setIsAnimatedHighlightsRowHidden] = useState(false);
+  const isAnimatedHighlightsRowHidden = garageInfo?.hideHighlightsRow === true;
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
@@ -470,10 +472,9 @@ export default function BundleHighlights() {
 
   const handleToggleStoriesStrip = () => {
     const nextHiddenState = !isAnimatedHighlightsRowHidden;
-    setIsAnimatedHighlightsRowHidden(nextHiddenState);
-    window.dispatchEvent(new CustomEvent('toggleGarageStoriesStrip', {
-      detail: { hidden: nextHiddenState }
-    }));
+    updateGarageSettings({ hideHighlightsRow: nextHiddenState }).catch((error) => {
+      console.error('Failed to save highlights row visibility:', error);
+    });
   };
 
   return (

@@ -1654,6 +1654,20 @@ export const useStore = create(
         await setDoc(doc(db, 'admins', uid), data, { merge: true });
       },
 
+      updateGarageSettings: async (data) => {
+        if (!data || typeof data !== 'object') return;
+        const previousGarageInfo = get().garageInfo;
+        set((state) => ({
+          garageInfo: { ...(state.garageInfo || {}), ...data }
+        }));
+        try {
+          await setDoc(doc(db, 'settings', 'garage'), data, { merge: true });
+        } catch (error) {
+          set({ garageInfo: previousGarageInfo });
+          throw error;
+        }
+      },
+
       updateShippingSettings: async (uid, data) => {
         const docRef = doc(db, 'settings', 'checkout');
         
