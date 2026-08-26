@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Eye, GalleryHorizontal, Gift, Image as ImageIcon, Settings, Sparkles, Zap } from 'lucide-react';
+import { Gift, Image as ImageIcon, Settings, Sparkles, Zap } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
@@ -172,16 +172,13 @@ export default function BundleHighlights() {
     blueprints,
     isLoading,
     loadAllDeals,
-    garageInfo,
     isAdmin,
-    isAdminView,
-    updateGarageSettings
+    isAdminView
   } = useStore();
   const navigate = useNavigate();
   const { isDarkMode, isSpectralMode } = useTheme();
   const [now, setNow] = useState(() => Date.now());
   const [selectedDeal, setSelectedDeal] = useState(null);
-  const isAnimatedHighlightsRowHidden = garageInfo?.hideHighlightsRow === true;
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
@@ -470,13 +467,6 @@ export default function BundleHighlights() {
     );
   };
 
-  const handleToggleStoriesStrip = () => {
-    const nextHiddenState = !isAnimatedHighlightsRowHidden;
-    updateGarageSettings({ hideHighlightsRow: nextHiddenState }).catch((error) => {
-      console.error('Failed to save highlights row visibility:', error);
-    });
-  };
-
   return (
     <section className="relative overflow-visible border-t border-black/[0.06] bg-neutral-50 px-5 pb-10 dark:border-white/[0.08] dark:bg-[#111111] sm:px-8 lg:px-12">
       <div className="mx-auto max-w-7xl">
@@ -487,18 +477,6 @@ export default function BundleHighlights() {
             <Sparkles className="shrink-0 text-black dark:text-white" size={16} strokeWidth={2.5} aria-hidden="true" />
           </h2>
 
-          {isAdmin && isAdminView && (
-            <button
-              type="button"
-              onClick={handleToggleStoriesStrip}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-black/10 bg-white text-neutral-800 shadow-sm transition-colors hover:border-garage-blue hover:text-garage-blue dark:border-white/10 dark:bg-white/5 dark:text-white"
-              title={isAnimatedHighlightsRowHidden ? 'Show animated highlights row' : 'Hide animated highlights row'}
-              aria-label={isAnimatedHighlightsRowHidden ? 'Show animated highlights row' : 'Hide animated highlights row'}
-              aria-pressed={isAnimatedHighlightsRowHidden}
-            >
-              <GalleryHorizontal size={16} />
-            </button>
-          )}
         </div>
 
         {isLoadingBundles ? (

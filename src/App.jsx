@@ -97,7 +97,7 @@ const isRouteDataReady = (pathname, datasets, isAdmin) => {
 
 const Layout = ({ children }) => {
   const location = useLocation();
-  const { isAdmin, garageInfo, shippingSettings } = useStore();
+  const { isAdmin, shippingSettings } = useStore();
   const isMaintenanceMode = shippingSettings?.paymentSettings?.maintenanceMode === true;
   const showViewportTag = shippingSettings?.paymentSettings?.showViewportTag !== false;
 
@@ -105,7 +105,7 @@ const Layout = ({ children }) => {
     <div className="min-h-screen flex flex-col">
       {isKnownRoute(location.pathname) && (
         <>
-          <Stories isCompact={location.pathname !== "/"} hideAnimatedCards={garageInfo?.hideHighlightsRow === true} />
+          <Stories isCompact={location.pathname !== "/"} />
           <Navbar isCompact />
         </>
       )}

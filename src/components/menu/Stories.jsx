@@ -8,7 +8,7 @@ const SYNC_GLOW_COLORS = ['#0066ff', '#ff3b30', '#34c759', '#ffcc00', '#af52de',
 const STORY_CARD_WIDTH = 112;
 const STORY_CARD_GAP = 12;
 // Stories strip above the navbar.
-const SHOW_STORIES_STRIP = true;
+const SHOW_STORIES_STRIP = false;
 
 function isNamedProjectWithDisplayImage(project) {
   const name = String(project?.projectName || '').trim().toLowerCase();
