@@ -3010,13 +3010,19 @@ export default function Orders() {
         })()}
 
         {showManualOrderModal && (
-          <div className="fixed inset-x-0 bottom-0 top-[56px] z-[500] mx-auto flex max-w-7xl flex-col overflow-hidden bg-white text-neutral-950 dark:bg-[#0a0a0a] dark:text-white">
-            <header className="flex h-[72px] shrink-0 items-center justify-between border-b border-black/5 px-5 shadow-sm dark:border-white/5 sm:h-20 sm:px-8 lg:px-12">
+          <div className="fixed inset-0 z-[500] flex items-start justify-center bg-black/60 p-0 font-sans text-neutral-900 dark:text-white lg:items-center lg:p-4">
+            <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-white/95 text-left shadow-2xl backdrop-blur-xl dark:bg-[#0a0a0a]/95 lg:h-auto lg:max-h-[95vh] lg:max-w-5xl lg:rounded-[2.5rem] lg:border lg:border-black/5 lg:p-5 dark:border-white/10">
+            <div className="sticky top-0 z-[220] w-full h-0 overflow-visible lg:hidden">
+              <div className="absolute top-4 right-4 flex justify-end items-center">
+                <button type="button" onClick={() => setShowManualOrderModal(false)} className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-black/20 text-white shadow-lg backdrop-blur-md transition-all hover:bg-black/40" aria-label="Close legacy order"><X size={20} /></button>
+              </div>
+            </div>
+            <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-black/5 px-5 py-4 pr-16 shadow-sm dark:border-white/5 sm:px-6 sm:pr-16 lg:pr-6">
               <div className="flex items-center gap-3">
                 <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-600/25"><ClipboardList size={20} /></span>
                 <div><h2 className="text-[19px] font-black italic uppercase tracking-tight sm:text-[22px]">Legacy <span className="text-blue-600">Order</span></h2><p className="text-[10px] font-black uppercase tracking-[0.16em] opacity-40">Record paid orders and assign stock</p></div>
               </div>
-              <button type="button" onClick={() => setShowManualOrderModal(false)} className="flex h-10 w-10 items-center justify-center rounded-full bg-black/5 transition hover:bg-black/10 dark:bg-white/10" aria-label="Close legacy order"><X size={20} /></button>
+              <button type="button" onClick={() => setShowManualOrderModal(false)} className="hidden h-10 w-10 items-center justify-center rounded-full bg-black/5 transition hover:bg-black/10 dark:bg-white/10 lg:flex" aria-label="Close legacy order"><X size={20} /></button>
             </header>
 
             <form onSubmit={handleCreateManualOrder} className="min-h-0 flex-1 overflow-y-auto">
@@ -3052,6 +3058,7 @@ export default function Orders() {
               </div>
               <footer className="absolute inset-x-0 bottom-0 z-10 border-t border-black/5 bg-white/95 px-5 py-3 backdrop-blur dark:border-white/5 dark:bg-[#0a0a0a]/95 sm:px-8 lg:px-12"><div className="mx-auto flex max-w-7xl items-center justify-between gap-4"><button type="button" onClick={() => setShowManualOrderModal(false)} className="text-[11px] font-black uppercase tracking-widest opacity-50">Cancel</button><button type="submit" className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-[11px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-700 active:scale-95"><ArrowRight size={16} /> Create legacy order</button></div></footer>
             </form>
+            </div>
           </div>
         )}
 

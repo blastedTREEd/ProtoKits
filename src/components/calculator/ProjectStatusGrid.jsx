@@ -21,22 +21,22 @@ export default function ProjectStatusGrid({
     <>
       <div className={tileClassName} title={printerAvailable ? 'Printer available' : 'Printer unavailable'}>
         {printerAvailable ? (
-          <PrinterCheck size={24} className="text-emerald-500" strokeWidth={2.5} />
+          <PrinterCheck size={24} className="text-blue-500" strokeWidth={2.5} />
         ) : (
           <PrinterX size={24} className="text-red-500" strokeWidth={2.5} />
         )}
       </div>
       <div className={tileClassName} title={materialsAvailable ? 'Materials available' : 'Materials unavailable'}>
-        <Disc3 size={24} className={materialsAvailable ? 'text-emerald-500' : 'text-red-500'} strokeWidth={2.5} />
+        <Disc3 size={24} className={materialsAvailable ? 'text-blue-500' : 'text-red-500'} strokeWidth={2.5} />
       </div>
       <div className={tileClassName} title={canStartToday ? 'Available today' : 'Not available today'}>
         <CalendarDays size={24} className={canStartToday ? 'text-blue-500' : 'text-red-500'} strokeWidth={2.5} />
       </div>
       <div className={tileClassName} title={hasDesignService ? '3D service selected' : fileLinkIsValid ? 'File link available' : 'File link missing'}>
         {hasDesignService ? (
-          <LuRotate3D size={24} className="text-violet-500" strokeWidth={2.5} />
+          <LuRotate3D size={24} className="text-blue-500" strokeWidth={2.5} />
         ) : fileLinkIsValid ? (
-          <Link2 size={24} className="text-emerald-500" strokeWidth={2.5} />
+          <Link2 size={24} className="text-blue-500" strokeWidth={2.5} />
         ) : (
           <Unlink2 size={24} className="text-red-500" strokeWidth={2.5} />
         )}

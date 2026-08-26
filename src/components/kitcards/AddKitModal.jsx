@@ -2112,6 +2112,9 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
   const panelClass = isDarkMode
     ? 'bg-[#0b0b0c] border-white/10 text-white'
     : 'bg-white border-black/10 text-neutral-900';
+  const modalPanelClass = isDarkMode
+    ? 'bg-[#0a0a0a]/90 border-white/10 text-white'
+    : 'bg-white/90 border-black/5 text-neutral-900';
   const inputClass = `${textInputClass} ${
     isDarkMode
       ? 'bg-white/5 border-white/10 focus:border-blue-500'
@@ -2140,17 +2143,17 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
   } uppercase`;
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-[500] flex items-start justify-center" role="dialog" aria-modal="true" aria-label="Add kit inventory">
-        <div data-add-kit-modal-root className={`pointer-events-auto relative mt-[56px] flex h-[calc(100dvh-56px)] w-full max-w-7xl min-h-0 flex-col overflow-hidden border-x border-t text-left shadow-2xl sm:mt-[60px] sm:h-[calc(100dvh-60px)] ${panelClass}`}>
+    <div className="fixed inset-0 z-[500] flex items-start justify-center bg-black/60 p-0 font-sans text-neutral-900 dark:text-white lg:items-center lg:p-4" role="dialog" aria-modal="true" aria-label="Add kit inventory">
+        <div data-add-kit-modal-root className={`relative flex h-full min-h-0 w-full flex-col overflow-hidden text-left shadow-2xl backdrop-blur-xl lg:h-auto lg:max-h-[95vh] lg:max-w-5xl lg:rounded-[2.5rem] lg:border lg:p-5 ${modalPanelClass}`}>
             {/* Mobile sticky close button (same pattern as ProductCard and AddDealModal) */}
-            <div className="sticky top-0 z-[220] w-full h-0 overflow-visible md:hidden">
+            <div className="sticky top-0 z-[220] w-full h-0 overflow-visible lg:hidden">
               <div className="absolute top-4 right-4 flex justify-end items-center">
                 <button onClick={handleClose} className="p-2 rounded-full backdrop-blur-md border transition-all shadow-lg bg-black/20 text-white border-white/10 hover:bg-black/40">
                   <X size={20} />
                 </button>
               </div>
             </div>
-            <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-white/10 px-5 py-4 sm:px-6">
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-white/10 px-5 py-4 pr-16 sm:px-6 sm:pr-16 lg:pr-6">
             <div className="flex min-w-0 flex-1 items-center gap-4">
                 <div className="rounded-2xl bg-blue-600 p-3 text-white shadow-lg shadow-blue-600/20">
                 <PackagePlus size={20} />
@@ -2235,7 +2238,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
             <button
                 type="button"
                 onClick={handleClose}
-                className="hidden md:block rounded-full p-2 transition-all hover:bg-white/10"
+                className="hidden lg:block rounded-full p-2 transition-all hover:bg-white/10"
             >
                 <X size={22} />
             </button>
@@ -2499,7 +2502,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                 </section>
                             )}
                             {batchPreviewRows.length === 0 && (
-                                <div className="grid items-start gap-6 2xl:gap-8 xl:grid-cols-2">
+                                <div className="grid items-start gap-6 2xl:gap-8 lg:grid-cols-2">
                                     {/* Existing Manual Form UI... */}
                             <div className={`${cardClass} self-start space-y-6`}>
                                 <h3 className="text-sm font-black uppercase tracking-[0.2em] text-blue-600">
@@ -2553,7 +2556,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                         </div>
                                     </div>
 
-                                    <div className="grid gap-4 md:grid-cols-2">
+                                    <div className="grid gap-4 lg:grid-cols-2">
                                         <div>
                                         <label className={labelClass}>JP Price (Yen)</label>
                                         <div className={`${inputClass} opacity-80`}>
@@ -2571,9 +2574,9 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                     </>
                                 ) : (
                                   <>
-                                    <div className="grid gap-4 md:grid-cols-2">
+                                    <div className="grid gap-4 lg:grid-cols-2">
                                         
-                                        <div className="relative md:col-span-2">
+                                        <div className="relative lg:col-span-2">
                                         <label className={labelClass}>Kit Name</label>
                                         <Search
                                             size={16}
@@ -2686,19 +2689,9 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                         </datalist>
                                         </div>
 
-                                        <div className="md:col-span-2">
-                                        <label className={labelClass}>Description</label>
-                                        <textarea
-                                            rows={4}
-                                            value={masterForm.description}
-                                            onChange={(event) => updateMaster('description', event.target.value)}
-                                            placeholder="Key features, notes, or master kit details"
-                                            className={`${inputClass} resize-none py-4`}
-                                        />
-                                        </div>
                                     </div>
 
-                                    <div className="grid gap-4 md:grid-cols-2">
+                                    <div className="grid gap-4 lg:grid-cols-2">
                                         <div>
                                         <label className={labelClass}>JP Price (Yen)</label>
                                         <input
@@ -2910,7 +2903,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                     </div>
 
                                     {stockHistory.length > 0 ? (
-                                        <div className="grid gap-3 md:grid-cols-2">
+                                        <div className="grid gap-3">
                                             {stockHistory.map((stockItem, index) => {
                                                 const normalizedStatus = normalizeStockStatus(stockItem.status);
                                                 const legacyConditions = extractLegacyConditions(stockItem);
@@ -2919,7 +2912,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                 return (
                                                     <article
                                                         key={stockItem.key || `${stockItem.status}-${stockItem.eta}-${index}`}
-                                                        className={`rounded-[1.25rem] border p-4 transition-all ${
+                                                        className={`space-y-3 rounded-[1.25rem] border p-4 transition-all ${
                                                             isActive
                                                                 ? 'border-amber-500 bg-amber-500/10'
                                                                 : isDarkMode
@@ -2927,65 +2920,64 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                                     : 'border-black/10 bg-neutral-50'
                                                         }`}
                                                     >
-                                                        <div className="flex items-start justify-between gap-3">
-                                                            <div className="min-w-0">
-                                                                <div className="flex flex-wrap items-center gap-2">
-                                                                    <span
-                                                                        className={`rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest ${
-                                                                            normalizedStatus === 'Onhand'
-                                                                                ? 'bg-blue-600 text-white'
-                                                                                : 'bg-emerald-600 text-white'
-                                                                        }`}
-                                                                    >
-                                                                        {normalizedStatus}
-                                                                    </span>
-                                                                    <span className="text-[10px] font-black uppercase tracking-[0.18em] opacity-55">
-                                                                        {stockItem.isReserved || stockItem.order?.orderId 
-                                                                            ? 'RESERVED' 
-                                                                            : (normalizedStatus === 'Onhand' ? 'Available' : stockItem.eta || 'TBA')
-                                                                        }
-                                                                    </span>
-                                                                </div>
-                                                                <p className="mt-3 text-lg font-black italic text-emerald-600">
-                                                                    PHP {Number(stockItem.sellPrice || 0).toLocaleString()}
-                                                                </p>
+                                                        <div className="flex items-center justify-between gap-3">
+                                                            <div className="flex min-w-0 items-center gap-1.5 whitespace-nowrap">
+                                                                <span
+                                                                    className={`shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest ${
+                                                                        normalizedStatus === 'Onhand'
+                                                                            ? 'bg-blue-600 text-white'
+                                                                            : 'bg-emerald-600 text-white'
+                                                                    }`}
+                                                                >
+                                                                    {normalizedStatus}
+                                                                </span>
+                                                                <span className="shrink-0 text-[9px] font-black uppercase tracking-[0.14em] opacity-55">
+                                                                    {stockItem.isReserved || stockItem.order?.orderId
+                                                                        ? 'Reserved'
+                                                                        : (normalizedStatus === 'Onhand' ? 'Available' : stockItem.eta || 'TBA')}
+                                                                </span>
                                                             </div>
-                                                            <div className="flex shrink-0 gap-1">
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => handleEditStock(stockItem)}
-                                                                    className="rounded-xl border border-white/10 p-2 opacity-70 transition-all hover:border-amber-500 hover:text-amber-500 hover:opacity-100"
-                                                                    title="Edit variant"
-                                                                >
-                                                                    <Tag size={14} />
-                                                                </button>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => handleDuplicateStock(stockItem)}
-                                                                    className="rounded-xl border border-white/10 p-2 opacity-70 transition-all hover:border-blue-500 hover:text-blue-500 hover:opacity-100"
-                                                                    title="Duplicate variant"
-                                                                >
-                                                                    <Copy size={14} />
-                                                                </button>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => onDeleteStock(stockItem)}
-                                                                    className="rounded-xl border border-white/10 p-2 opacity-70 transition-all hover:border-red-500 hover:text-red-500 hover:opacity-100"
-                                                                    title="Delete variant"
-                                                                >
-                                                                    <Trash2 size={14} />
-                                                                </button>
+                                                            <div className="flex shrink-0 items-center gap-1">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleEditStock(stockItem)}
+                                                                className="rounded-xl border border-white/10 p-2 opacity-70 transition-all hover:border-amber-500 hover:text-amber-500 hover:opacity-100"
+                                                                title="Edit variant"
+                                                            >
+                                                                <Tag size={14} />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleDuplicateStock(stockItem)}
+                                                                className="rounded-xl border border-white/10 p-2 opacity-70 transition-all hover:border-blue-500 hover:text-blue-500 hover:opacity-100"
+                                                                title="Duplicate variant"
+                                                            >
+                                                                <Copy size={14} />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => onDeleteStock(stockItem)}
+                                                                className="rounded-xl border border-white/10 p-2 opacity-70 transition-all hover:border-red-500 hover:text-red-500 hover:opacity-100"
+                                                                title="Delete variant"
+                                                            >
+                                                                <Trash2 size={14} />
+                                                            </button>
                                                             </div>
                                                         </div>
 
-                                                        <div className="mt-4 grid grid-cols-2 gap-3 text-left text-[10px] font-bold uppercase tracking-widest opacity-65">
-                                                            <p>Cost: PHP {Number(stockItem.costPrice || 0).toLocaleString()}</p>
-                                                            <p>DP: PHP {Number(stockItem.minDownpayment || 0).toLocaleString()}</p>
-                                                            <p className="col-span-2">
-                                                                Box: {stockItem.boxCondition || legacyConditions.boxCondition || 'N/A'}
-                                                            </p>
-                                                            <p className="col-span-2">
-                                                                Kit: {stockItem.kitCondition || legacyConditions.kitCondition || 'N/A'}
+                                                        <div className="grid grid-cols-2 gap-2 text-left text-[10px] font-bold uppercase tracking-widest opacity-65">
+                                                            <p className="min-w-0 truncate">Cost: PHP {Number(stockItem.costPrice || 0).toLocaleString()}</p>
+                                                            <p className="min-w-0 truncate">DP: PHP {Number(stockItem.minDownpayment || 0).toLocaleString()}</p>
+                                                        </div>
+
+                                                        <div className="grid grid-cols-2 gap-2 text-left text-[10px] font-bold uppercase tracking-widest opacity-65">
+                                                            <p className="min-w-0 truncate">Box: {stockItem.boxCondition || legacyConditions.boxCondition || 'N/A'}</p>
+                                                            <p className="min-w-0 truncate">Kit: {stockItem.kitCondition || legacyConditions.kitCondition || 'N/A'}</p>
+                                                        </div>
+
+                                                        <div className="flex items-center gap-3">
+                                                            <p className="text-lg font-black italic text-emerald-600">
+                                                                PHP {Number(stockItem.sellPrice || 0).toLocaleString()}
                                                             </p>
                                                         </div>
                                                     </article>
@@ -3037,7 +3029,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                         </div>
 
                                         <>
-                                            <div className="grid gap-4 md:grid-cols-2">
+                                            <div className="grid gap-4 lg:grid-cols-2">
                                             <div>
                                                 <label className={labelClass}>Availability</label>
                                                 <div className="grid grid-cols-2 gap-2">
@@ -3138,14 +3130,14 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                 placeholder="BRAND NEW"
                                                 />
                                             </div>
-                                            <div className="md:col-span-2">
+                                            <div className="lg:col-span-2">
                                                 <label className={labelClass}>Issue Description</label>
                                                 <textarea
-                                                  rows={1}
+                                                  rows={2}
                                                   value={stockForm.issueDescription}
                                                   onChange={(event) => updateStock('issueDescription', event.target.value)}
                                                   placeholder="Describe issues like: Dented corner, torn plastic seal, missing runner part..."
-                                                  className={`${inputClass} resize-none py-2`}
+                                                  className={`${inputClass} resize-none overflow-hidden py-2`}
                                                 />
                                               </div>
                                             </div>
@@ -3188,7 +3180,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
     </div>
 
     {/* Main Controls Row */}
-    <div className="grid w-full gap-4 md:grid-cols-2">
+    <div className="grid w-full gap-4 lg:grid-cols-2">
         <button
             type="button"
             onClick={() =>

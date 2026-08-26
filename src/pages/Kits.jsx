@@ -12,6 +12,7 @@ import AddDealModal from '../components/kitcards/AddDealModal';
 import DealDetailsModal from '../components/kitcards/DealDetailsModal';
 import SupplierBalancesModal from '../components/kitcards/SupplierBalancesModal';
 import SalesDashboardModal from '../components/kitcards/SalesDashboardModal';
+import KitDataQualityModal from '../components/kitcards/KitDataQualityModal';
 import LoginPromptModal from '../components/menu/LoginPromptModal';
 import LoadingState from '../components/common/LoadingState';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
@@ -154,7 +155,7 @@ export default function Kits({ isActive = true }) {
   const { 
     isAdmin, isAdminView, kits: storeKits, deals, 
     isLoading, addKit,
-    user, isAnonymousUser, userOffers, notifyList, subscribeNotifyList, subscribeOrders, setLoginModalOpen, addToBasket, setToastMessage, priceBuiltOnhandKits,
+    user, isAnonymousUser, userOffers, notifyList, subscribeNotifyList, subscribeOrders, setLoginModalOpen, addToBasket,
     shippingSettings
   } = useStore();
 
@@ -176,7 +177,7 @@ export default function Kits({ isActive = true }) {
   const [kitToEdit, setKitToEdit] = useState(null);
   const [isSupplierBalancesModalOpen, setIsSupplierBalancesModalOpen] = useState(false);
   const [isSalesDashboardModalOpen, setIsSalesDashboardModalOpen] = useState(false);
-  const [isPricingBuiltKits, setIsPricingBuiltKits] = useState(false);
+  const [isKitDataQualityModalOpen, setIsKitDataQualityModalOpen] = useState(false);
   const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
   const [itemsForCheckout, setItemsForCheckout] = useState([]); 
   const [isAdminToolsOpen, setIsAdminToolsOpen] = useState(false);
@@ -218,6 +219,7 @@ export default function Kits({ isActive = true }) {
       setKitToEdit(null);
       setIsSupplierBalancesModalOpen(false);
       setIsSalesDashboardModalOpen(false);
+      setIsKitDataQualityModalOpen(false);
       setIsLoginPromptOpen(false);
       setItemsForCheckout([]);
       setIsAdminToolsOpen(false);
@@ -1017,32 +1019,12 @@ export default function Kits({ isActive = true }) {
   };
   
   const { isDarkMode, isSpectralMode } = useTheme();
-  const handlePriceBuiltOnhandKits = async () => {
-    if (isPricingBuiltKits) return;
-    if (!window.confirm('Update sell prices for all built on-hand kits using their cost prices?')) return;
-
-    setIsPricingBuiltKits(true);
-    try {
-      const result = await priceBuiltOnhandKits();
-      setToastMessage(
-        result.updatedStocks > 0
-          ? `Updated ${result.updatedStocks} built on-hand stock price${result.updatedStocks === 1 ? '' : 's'}.`
-          : 'No built on-hand stock prices needed updating.'
-      );
-    } catch (error) {
-      console.error('SG LOG: Failed to price built on-hand kits:', error);
-      setToastMessage('Unable to update built on-hand kit prices.');
-    } finally {
-      setIsPricingBuiltKits(false);
-    }
-  };
-
   const adminToolActions = [
     { id: 'add-kit', label: 'Add Kit', icon: Plus, tone: 'border-blue-500/20 bg-blue-500/10 text-blue-600 hover:bg-blue-500/20', onClick: () => setIsAddKitModalOpen(true) },
     { id: 'new-deal', label: 'New Deal', icon: Gift, tone: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20', onClick: () => setIsAddDealModalOpen(true) },
     { id: 'balances', label: 'Balances', icon: Wallet, tone: 'border-amber-500/20 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20', onClick: () => setIsSupplierBalancesModalOpen(true) },
     { id: 'sales', label: 'Sales', icon: TrendingUp, tone: 'border-indigo-500/20 bg-indigo-500/10 text-indigo-600 hover:bg-indigo-500/20', onClick: () => setIsSalesDashboardModalOpen(true) },
-    { id: 'price-built-onhand', label: 'Price Built Onhand', icon: Sparkles, tone: 'border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-600 hover:bg-fuchsia-500/20', onClick: handlePriceBuiltOnhandKits },
+    { id: 'kit-data-quality', label: 'Fix Missing Kit Data', icon: Sparkles, tone: 'border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-600 hover:bg-fuchsia-500/20', onClick: () => setIsKitDataQualityModalOpen(true) },
   ];
 
   const renderAdminToolButtons = () => adminToolActions.map(({ id, label, icon, tone, onClick }) => (
@@ -1053,16 +1035,15 @@ export default function Kits({ isActive = true }) {
         setIsAdminToolsOpen(false);
         onClick();
       }}
-      disabled={id === 'price-built-onhand' && isPricingBuiltKits}
       className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border shadow-sm transition-all hover:scale-110 active:scale-95 disabled:cursor-wait disabled:opacity-60 disabled:hover:scale-100 ${tone}`}
       aria-label={label}
       title={label}
-      aria-busy={id === 'price-built-onhand' && isPricingBuiltKits}
+      aria-busy="false"
     >
-      {React.createElement(id === 'price-built-onhand' && isPricingBuiltKits ? Loader2 : icon, {
+      {React.createElement(icon, {
         size: 20,
         strokeWidth: 2.5,
-        className: id === 'price-built-onhand' && isPricingBuiltKits ? 'animate-spin' : undefined
+        className: undefined
       })}
     </button>
   ));
@@ -1589,6 +1570,12 @@ export default function Kits({ isActive = true }) {
           />
           <SupplierBalancesModal isOpen={isSupplierBalancesModalOpen} onClose={() => setIsSupplierBalancesModalOpen(false)} />
           <SalesDashboardModal isOpen={isSalesDashboardModalOpen} onClose={() => setIsSalesDashboardModalOpen(false)} />
+          <KitDataQualityModal
+            isOpen={isKitDataQualityModalOpen}
+            onClose={() => setIsKitDataQualityModalOpen(false)}
+            kits={storeKits}
+            onSave={handleSaveNewKit}
+          />
           <LoginPromptModal isOpen={isLoginPromptOpen} onClose={() => setIsLoginPromptOpen(false)} onLogin={() => { setLoginModalOpen(true); setIsLoginPromptOpen(false); }} onContinue={() => { setIsLoginPromptOpen(false); openCheckoutPage(itemsForCheckout, true); }} continueLabel="Check Price & Shipping" />
 
       </div>

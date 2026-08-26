@@ -15,7 +15,7 @@ export default function Toast() {
   
   return (
     <div className="fixed inset-x-0 bottom-20 z-[999999] flex justify-center pointer-events-none px-4">
-      <div className="px-8 py-3 bg-amber-500 dark:bg-white text-white dark:text-neutral-900 rounded-2xl font-black uppercase text-[12px] shadow-2xl shadow-blue-500/20 text-center whitespace-nowrap pointer-events-auto border border-white/10 dark:border-black/10">
+      <div className="rounded-2xl border border-white/15 bg-black/80 px-8 py-3 text-center text-[12px] font-black uppercase whitespace-nowrap text-white shadow-2xl shadow-black/35 backdrop-blur-xl pointer-events-auto">
         {toastMessage}
       </div>
     </div>

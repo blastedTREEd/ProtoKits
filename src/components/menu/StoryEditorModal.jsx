@@ -1161,13 +1161,13 @@ const renderEditorFormButtons = () => (
   return (
     <AnimatePresence>
       {isOpen && (
-<div className="pointer-events-none fixed inset-0 z-[500] flex items-start justify-center bg-black/20 backdrop-blur-[1px] dark:bg-black/50" role="dialog" aria-modal="true" aria-label="Story editor">
+<div className="pointer-events-none fixed inset-0 z-[500] flex items-start justify-center bg-black/20 backdrop-blur-[1px] dark:bg-black/50 lg:items-center lg:p-4" role="dialog" aria-modal="true" aria-label="Story editor">
   <Motion.div 
     initial={{ x: 40, opacity: 0 }} 
     animate={{ x: 0, opacity: 1 }} 
     exit={{ x: 40, opacity: 0 }}
     transition={{ type: "spring", damping: 30, stiffness: 420 }}
-    className="pointer-events-auto relative flex h-dvh w-full max-w-7xl min-h-0 flex-col overflow-hidden border-x border-t bg-white text-neutral-900 shadow-2xl dark:border-white/5 dark:bg-neutral-900 dark:text-white"
+    className="pointer-events-auto relative flex h-full min-h-0 w-full flex-col overflow-hidden border-x border-t bg-white text-neutral-900 shadow-2xl dark:border-white/5 dark:bg-neutral-900 dark:text-white lg:h-auto lg:max-h-[95vh] lg:max-w-5xl lg:rounded-[2.5rem] lg:border lg:p-5"
   >
 
             {/* MOBILE STICKY/ABSOLUTE HEADER */}
@@ -1218,13 +1218,13 @@ const renderEditorFormButtons = () => (
             </div>
 
             {/* MAIN CONTENT AREA */}
-            <div className={`${isSplitLayout ? 'p-6 overflow-y-auto overscroll-contain [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden' : 'p-0 overflow-hidden'} flex-1 min-h-0`}>
+            <div className={`${isSplitLayout ? 'p-6 overflow-hidden overscroll-contain [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden' : 'p-0 overflow-hidden'} flex-1 min-h-0`}>
                 <div className={`w-full flex ${isSplitLayout ? 'flex-row gap-6' : 'flex-col gap-0'} text-left items-stretch h-full`}>
                   <div className={`${editorView === 'canvas' || isSplitLayout ? 'flex' : 'hidden'} w-full ${isSplitLayout ? 'h-auto w-[45%] justify-start bg-transparent' : 'h-full justify-center bg-black'} flex-col items-center relative`}>
                     <div 
                       ref={canvasRef} onClick={(e) => e.stopPropagation()} onWheel={handleImageWheel}
                       onPointerDown={handleBgPointerDown} onPointerMove={handleBgPointerMove} onPointerUp={handleBgPointerUp} onPointerCancel={handleBgPointerUp} onPointerLeave={handleBgPointerUp}
-                      className={`border-2 ${isSplitLayout ? 'rounded-3xl h-auto w-full max-w-md' : 'rounded-none h-full w-auto max-w-full'} aspect-[9/16] mx-auto overflow-hidden relative cursor-pointer transition-all duration-200 ${isBgSelected ? 'border-garage-blue ring-2 ring-garage-blue shadow-2xl z-50' : 'border-dashed border-neutral-200 dark:border-white/10'}`}
+                      className={`border-2 ${isSplitLayout ? 'rounded-3xl h-auto w-full max-w-md lg:h-[calc(95vh-160px)] lg:w-auto lg:max-w-full' : 'rounded-none h-full w-auto max-w-full'} aspect-[9/16] mx-auto overflow-hidden relative cursor-pointer transition-all duration-200 ${isBgSelected ? 'border-garage-blue ring-2 ring-garage-blue shadow-2xl z-50' : 'border-dashed border-neutral-200 dark:border-white/10'}`}
                       style={{ touchAction: 'none' }}
                     >
                       <div className="absolute top-16 md:top-4 right-4 z-[140] flex flex-col gap-2" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>

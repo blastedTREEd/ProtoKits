@@ -32,6 +32,44 @@ const getAvailableStockCount = (kit) => {
   return Object.values(kit?.stocks || {}).filter((stock) => !stock?.order?.orderId && !stock?.isReserved).length;
 };
 
+const reconcileAdminShelfSnapshot = async (shelfSnap) => {
+  const kitsSnap = await getDocs(collection(db, 'kits'));
+  const kitsById = new Map(kitsSnap.docs.map((kitDoc) => [kitDoc.id, kitDoc.data()]));
+  const staleShelfDocs = [];
+  const validItems = [];
+
+  shelfSnap.docs.forEach((shelfDoc) => {
+    const item = shelfDoc.data();
+
+    // Project entries do not reference a kit stock key and should not be
+    // removed by stock reconciliation.
+    if (item?.type === 'project' || !item?.stockKey) {
+      validItems.push({ ...item, basketId: shelfDoc.id });
+      return;
+    }
+
+    const stock = kitsById.get(item.id)?.stocks?.[item.stockKey];
+    if (!stock) {
+      staleShelfDocs.push(shelfDoc);
+      return;
+    }
+
+    validItems.push({ ...item, basketId: shelfDoc.id });
+  });
+
+  for (let index = 0; index < staleShelfDocs.length; index += 450) {
+    const batch = writeBatch(db);
+    staleShelfDocs.slice(index, index + 450).forEach((shelfDoc) => batch.delete(shelfDoc.ref));
+    await batch.commit();
+  }
+
+  if (staleShelfDocs.length > 0) {
+    console.info(`SG LOG: Removed ${staleShelfDocs.length} orphaned admin shelf stock entr${staleShelfDocs.length === 1 ? 'y' : 'ies'}.`);
+  }
+
+  return validItems;
+};
+
 const getStockCostPrice = (stock) => {
   const value = Number(stock?.costPrice);
   return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
@@ -724,9 +762,15 @@ export const useStore = create(
 
         // 4. Shelf (if not already prioritized)
         if (req.shelf && !ds.shelf && get().isAdmin && !listenerKeys.shelf) {
-          const unsub = onSnapshot(collection(db, "shelf"), (snap) => {
-            const items = snap.docs.map(doc => ({ ...doc.data(), basketId: doc.id }));
-            set({ shelf: items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()) });
+          const unsub = onSnapshot(collection(db, "shelf"), async (snap) => {
+            try {
+              const items = await reconcileAdminShelfSnapshot(snap);
+              set({ shelf: items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()) });
+            } catch (error) {
+              console.error("SG LOG: Shelf reconciliation failed:", error);
+              const items = snap.docs.map(doc => ({ ...doc.data(), basketId: doc.id }));
+              set({ shelf: items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()) });
+            }
             get().markLoaded('shelf');
           }, (err) => {
             console.error("SG LOG: Shelf subscription error:", err);
@@ -899,9 +943,15 @@ export const useStore = create(
 
             // 4. Shelf priority -> Shelf collection (requires admin check)
             if (currentReq.shelf) {
-              const unsub = onSnapshot(collection(db, "shelf"), (snap) => {
-                const items = snap.docs.map(doc => ({ ...doc.data(), basketId: doc.id }));
-                set({ shelf: items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()) });
+              const unsub = onSnapshot(collection(db, "shelf"), async (snap) => {
+                try {
+                  const items = await reconcileAdminShelfSnapshot(snap);
+                  set({ shelf: items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()) });
+                } catch (error) {
+                  console.error("SG LOG: Shelf reconciliation failed:", error);
+                  const items = snap.docs.map(doc => ({ ...doc.data(), basketId: doc.id }));
+                  set({ shelf: items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()) });
+                }
                 get().markLoaded('shelf');
               }, (err) => {
                 console.error("SG LOG: Shelf subscription error:", err);
@@ -1223,9 +1273,10 @@ export const useStore = create(
           ? collection(db, 'shelf')
           : collection(db, 'users', user.uid, 'basket');
         const basketSnap = await getDocs(basketRef);
-        const refreshedItems = basketSnap.docs
-          .map((basketDoc) => ({ ...basketDoc.data(), basketId: basketDoc.id }))
-          .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+        const refreshedItems = isShelf
+          ? await reconcileAdminShelfSnapshot(basketSnap)
+          : basketSnap.docs.map((basketDoc) => ({ ...basketDoc.data(), basketId: basketDoc.id }));
+        refreshedItems.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
 
         set(isShelf ? { shelf: refreshedItems } : { basket: refreshedItems });
       },
@@ -1522,17 +1573,30 @@ export const useStore = create(
       deleteStock: async (kitId, stockKey) => {
         const kitRef = doc(db, 'kits', kitId);
         const kitSnap = await getDoc(kitRef);
+        const shelfSnap = await getDocs(query(
+          collection(db, 'shelf'),
+          where('id', '==', kitId)
+        ));
+        const matchingShelfDocs = shelfSnap.docs.filter((shelfDoc) => (
+          shelfDoc.data()?.stockKey === stockKey
+        ));
+
         if (kitSnap.exists()) {
           const kit = kitSnap.data();
           const stocks = { ...kit.stocks };
           delete stocks[stockKey];
           const hasAvailable = Object.values(stocks).some(s => !s.order?.orderId && !s.isReserved);
-          await updateDoc(kitRef, { 
+          const batch = writeBatch(db);
+          matchingShelfDocs.forEach((shelfDoc) => batch.delete(shelfDoc.ref));
+          batch.update(kitRef, {
             [`stocks.${stockKey}`]: deleteField(),
             hasAvailableStock: hasAvailable
           });
+          await batch.commit();
         } else {
-          await updateDoc(kitRef, { [`stocks.${stockKey}`]: deleteField() });
+          const batch = writeBatch(db);
+          matchingShelfDocs.forEach((shelfDoc) => batch.delete(shelfDoc.ref));
+          await batch.commit();
         }
       },
 

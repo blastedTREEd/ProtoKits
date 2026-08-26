@@ -40,6 +40,7 @@ const PaymentSettingsModal = forwardRef(function PaymentSettingsModal({ isOpen, 
       reservationSettleDays: Number(savedSettings.reservationSettleDays ?? 10),
       projectSettleDays: Number(savedSettings.projectSettleDays ?? 10),
       maintenanceMode: savedSettings.maintenanceMode ?? (savedSettings.showPayNow === false),
+      showViewportTag: savedSettings.showViewportTag !== false,
       maintenanceInvalidTypes: {
         kit: savedSettings.maintenanceInvalidTypes?.kit ?? true,
         prints: savedSettings.maintenanceInvalidTypes?.prints ?? true
@@ -141,9 +142,9 @@ const PaymentSettingsModal = forwardRef(function PaymentSettingsModal({ isOpen, 
   };
 
   const persistPaymentSetting = async (category, option, value) => {
-    if (!category || !option || !updatePaymentSetting) return false;
+    if (!option || !updatePaymentSetting) return false;
     try {
-      await updatePaymentSetting(`${category}.${option}`, value);
+      await updatePaymentSetting(category ? `${category}.${option}` : option, value);
       return true;
     } catch (error) {
       console.error('SG LOG: Payment setting blur save failed:', error);
@@ -165,6 +166,7 @@ const PaymentSettingsModal = forwardRef(function PaymentSettingsModal({ isOpen, 
     reservationSettleDays: Number(settings.reservationSettleDays ?? 10),
     projectSettleDays: Number(settings.projectSettleDays ?? 10),
     maintenanceMode: settings.maintenanceMode === true,
+    showViewportTag: settings.showViewportTag !== false,
     maintenanceInvalidTypes: {
       kit: settings.maintenanceInvalidTypes?.kit !== false,
       prints: settings.maintenanceInvalidTypes?.prints !== false
@@ -207,6 +209,7 @@ const PaymentSettingsModal = forwardRef(function PaymentSettingsModal({ isOpen, 
         preOrderSettleDays: Math.max(1, Number(paymentSettings.preOrderSettleDays) || 10),
         reservationSettleDays: Math.max(1, Number(paymentSettings.reservationSettleDays) || 10),
         projectSettleDays: Math.max(1, Number(paymentSettings.projectSettleDays) || 10),
+        showViewportTag: paymentSettings.showViewportTag !== false,
         maintenanceInvalidTypes: {
           kit: paymentSettings.maintenanceInvalidTypes?.kit !== false,
           prints: paymentSettings.maintenanceInvalidTypes?.prints !== false

@@ -398,26 +398,22 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
       const persistedDiscount = storedPriceDiscount || Number(storedDiscount || 0);
       if (persistedDiscount > 0) clearanceDiscountOverrides[kitId] = persistedDiscount;
     });
-    // Use the strongest selected kit's configured clearance amount as the
-    // order-level pool, then distribute it across the selected checkout rows.
+    // Sum the selected items' discount ceilings into the order-level pool,
+    // then distribute that pool across the selected checkout rows.
     const selectedClearancePricing = getClearanceBundlePricing(
       rows,
       selectedClearanceKitIds,
       clearanceDiscountOverrides
     );
-    const clearanceDistributionTotal = Math.max(
-      0,
-      ...selectedClearancePricing.rows
-        .filter(row => row.isClearance)
-        .map(row => Number(row.clearanceDiscount || 0)),
-      0
-    );
+    const clearanceDistributionTotal = selectedClearancePricing.rows
+      .filter(row => row.isClearance)
+      .reduce((sum, row) => sum + Math.max(0, Math.round(Number(row.clearanceDiscount || 0))), 0);
     const clearancePricing = getClearanceBundlePricing(
       rows,
       selectedClearanceKitIds,
-      // The selected kit's configured amount is already captured in the
-      // distribution total above. Clear row overrides so the pool is split
-      // across all checkout rows.
+      // The summed ceilings are already captured in the distribution total
+      // above. Clear row overrides so the pool is split across all checkout
+      // rows.
       {},
       clearanceDistributionTotal > 0
         ? {
@@ -3430,7 +3426,7 @@ const handleFinalizeOrder = async () => {
                     {row.dealTag && (
                       <span className={`absolute left-0 bottom-5 z-10 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm ${
                         row.isClearanceDealItem
-                          ? 'bg-red-500'
+                          ? 'bg-emerald-600'
                           : row.isPreOrder
                             ? 'bg-blue-600'
                             : 'bg-emerald-600'
@@ -3487,7 +3483,7 @@ const handleFinalizeOrder = async () => {
                   <div className="flex justify-between text-emerald-200"><span>Clearance Discount</span><span>-₱{clearanceDiscount.toLocaleString()}</span></div>
                 )}
                 {unusedClearanceDiscount > 0 && (
-                  <div className="flex justify-between text-amber-200"><span>Unused Discount (Cost Cap)</span><span>₱{unusedClearanceDiscount.toLocaleString()}</span></div>
+                  <div className="flex justify-between text-amber-200"><span>ADD MORE TO USE</span><span>₱{unusedClearanceDiscount.toLocaleString()}</span></div>
                 )}
                 {isReservationPlan && totalAppliedInstallmentFee > 0 && (
                   <div className="flex justify-between text-amber-200"><span>{planFeeLabel}</span><span>₱{totalAppliedInstallmentFee.toLocaleString()}</span></div>
@@ -4360,7 +4356,7 @@ const handleFinalizeOrder = async () => {
                       )}
                       {unusedClearanceDiscount > 0 && (
                         <div className="flex justify-between uppercase font-black text-amber-200">
-                          <span>Unused Discount (Cost Cap)</span>
+                          <span>ADD MORE TO USE</span>
                           <span>₱{unusedClearanceDiscount.toLocaleString()}</span>
                         </div>
                       )}

@@ -158,28 +158,49 @@ export default function PaymentOptions({
           </button>
         </div>
         {paymentSettings?.maintenanceMode && (
-          <div className="grid grid-cols-2 gap-2">
-            {[
-              { id: 'kit', label: 'Kit' },
-              { id: 'prints', label: 'Prints' }
-            ].map(({ id, label }) => {
-              const isActive = paymentSettings?.maintenanceInvalidTypes?.[id] !== false;
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => updatePaymentData('maintenanceInvalidTypes', id, !isActive)}
-                  className={`flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-[13px] font-black uppercase tracking-widest transition-all border ${
-                    isActive
-                      ? 'bg-red-500/10 text-red-500 border-red-500/20 shadow-lg shadow-red-500/5'
-                      : 'bg-black/5 dark:bg-white/5 text-neutral-400 border-transparent'
-                  }`}
-                >
-                  {id === 'kit' ? <Package size={14} /> : <Printer size={14} />}
-                  {label}
-                </button>
-              );
-            })}
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { id: 'kit', label: 'Kit' },
+                { id: 'prints', label: 'Prints' }
+              ].map(({ id, label }) => {
+                const isActive = paymentSettings?.maintenanceInvalidTypes?.[id] !== false;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => updatePaymentData('maintenanceInvalidTypes', id, !isActive)}
+                    className={`flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-[13px] font-black uppercase tracking-widest transition-all border ${
+                      isActive
+                        ? 'bg-red-500/10 text-red-500 border-red-500/20 shadow-lg shadow-red-500/5'
+                        : 'bg-black/5 dark:bg-white/5 text-neutral-400 border-transparent'
+                    }`}
+                  >
+                    {id === 'kit' ? <Package size={14} /> : <Printer size={14} />}
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="bg-black/5 dark:bg-white/5 rounded-2xl border border-transparent p-4 flex justify-between items-center">
+              <div className="flex flex-col text-left">
+                <span className="text-[14px] font-black uppercase italic text-garage-blue">Viewport Orientation Tag</span>
+                <span className="text-[13px] font-bold opacity-40 uppercase">Show the viewport size and orientation badge</span>
+              </div>
+              <button
+                type="button"
+                aria-label="Toggle viewport orientation tag"
+                aria-pressed={paymentSettings?.showViewportTag !== false}
+                onClick={() => {
+                  const nextValue = paymentSettings?.showViewportTag === false;
+                  updatePaymentData(null, 'showViewportTag', nextValue);
+                  persistPaymentSetting?.(null, 'showViewportTag', nextValue);
+                }}
+                className={`w-14 h-7 rounded-full transition-all duration-300 flex items-center p-1 shrink-0 ${paymentSettings?.showViewportTag !== false ? 'bg-garage-blue shadow-lg shadow-blue-500/20' : 'bg-neutral-300 dark:bg-white/10'}`}
+              >
+                <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-300 ${paymentSettings?.showViewportTag !== false ? 'translate-x-7' : 'translate-x-0'}`} />
+              </button>
+            </div>
           </div>
         )}
       </div>

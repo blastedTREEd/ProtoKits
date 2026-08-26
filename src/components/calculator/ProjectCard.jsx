@@ -536,7 +536,6 @@ const GarageProjectSummary = ({
   filamentInventory,
   feeders,
   lowestPrice,
-  profit,
   printers,
   isDarkMode
 }) => {
@@ -602,12 +601,6 @@ const GarageProjectSummary = ({
         <div className="text-blue-600 text-[38px] sm:text-[44px] font-black italic tracking-tighter leading-none">
           ₱{lowestPrice.toLocaleString()}
         </div>
-        {profit > 0 && (
-          <div className="pb-1 text-emerald-600 font-black italic uppercase leading-none">
-            <div className="text-[12px]">Profit</div>
-            <div className="text-[17px]">₱{profit.toLocaleString()}</div>
-          </div>
-        )}
       </div>
 
       {hasConditions && (
@@ -1050,18 +1043,6 @@ export default function ProjectCard({
     };
   }, [automaticPricing, handlingFee, installmentFee, transferFee, serviceCost, project]);
 
-  const projectProfit = useMemo(() => {
-    const explicitProfit = parsePrice(
-      project?.totals?.totalProfit
-        ?? project?.totalProfit
-        ?? project?.profit
-        ?? project?.profitProjection
-    );
-    if (explicitProfit > 0) return explicitProfit;
-    const cost = parsePrice(project?.totals?.cost || project?.cost || project?.costPrice);
-    return Math.max(0, lowestPrice - cost);
-  }, [lowestPrice, project]);
-  
   const methodLabel = isBlueprint ? (project.method?.name || 'Blueprint') : project.method?.name;
   const fileTypeLabel = is3MF ? '3MF' : isSTL ? 'STL' : (methodLabel || 'FILE').toUpperCase();
   const costLabel = is3MF ? 'Project Cost' : isSTL ? 'Estimated Cost' : 'Project Cost';
@@ -1864,7 +1845,6 @@ export default function ProjectCard({
                       filamentInventory={filamentInventory}
                       feeders={feeders}
                       lowestPrice={lowestPrice}
-                      profit={projectProfit}
                       printers={printers}
                       isDarkMode={isDarkMode}
                     />

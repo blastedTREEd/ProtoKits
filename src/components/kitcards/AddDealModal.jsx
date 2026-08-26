@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { X, Plus, Trash2, Gift, Lock, Ban, Search, ChevronRight, ChevronLeft, Loader2, Edit3, Calendar, Clock3, RefreshCw, CheckSquare, Square, Image as ImageIcon } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
-import { getClearanceBundlePricing, getClearanceCostCeiling, getBundleDealPricing, getBundleDiscountCapacity, getDistributedFeeShare, getHighestCostStock } from '../../utils/bundlePricing';
+import { getClearanceBundlePricing, getClearanceCostCeiling, getBundleDealPricing, getBundleDiscountCapacity, getHighestCostStock } from '../../utils/bundlePricing';
 
 /* ─── Image resolver ─── */
 function resolveImage(idOrUrl, imagesArray) {
@@ -1108,11 +1108,11 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
   const allSelected = visibleDeals.length > 0 && selectedDealIds.length === visibleDeals.length;
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-[500] flex items-start justify-center" role="dialog" aria-modal="true" aria-label="Deal entry">
-      <div className="pointer-events-auto relative mt-[56px] flex h-[calc(100dvh-56px)] w-full max-w-7xl min-h-0 flex-col overflow-hidden border-x border-t bg-[var(--color-surface)] text-[var(--color-text-main)] shadow-2xl sm:mt-[60px] sm:h-[calc(100dvh-60px)]">
+    <div className="fixed inset-0 z-[500] flex items-start justify-center bg-black/60 p-0 font-sans text-neutral-900 dark:text-white lg:items-center lg:p-4" role="dialog" aria-modal="true" aria-label="Deal entry">
+      <div className={`relative flex h-full min-h-0 w-full flex-col overflow-hidden text-left shadow-2xl backdrop-blur-xl lg:h-auto lg:max-h-[95vh] lg:max-w-5xl lg:rounded-[2.5rem] lg:border lg:p-5 ${isDarkMode ? 'border-white/10 bg-[#0a0a0a]/90 text-white' : 'border-black/5 bg-white/90 text-neutral-900'}`}>
         
         {/* Mobile sticky close button (same pattern as ProductCard) */}
-        <div className="sticky top-0 z-[220] w-full h-0 overflow-visible md:hidden">
+        <div className="sticky top-0 z-[220] w-full h-0 overflow-visible lg:hidden">
           <div className="absolute top-4 right-4 flex justify-end items-center">
             <button onClick={onClose} className="p-2 rounded-full backdrop-blur-md border transition-all shadow-lg bg-black/20 text-white border-white/10 hover:bg-black/40">
               <X size={20} />
@@ -1121,7 +1121,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
         </div>
 
         {/* Header */}
-        <div className="p-4 md:p-6 border-b border-[var(--color-border)] flex items-center justify-between">
+        <div className="p-4 pr-16 lg:p-6 lg:pr-6 border-b border-[var(--color-border)] flex items-center justify-between">
           <div className="flex items-center gap-3 text-left">
             <div className={`p-2.5 rounded-xl ${activeEditId ? 'bg-amber-500' : 'bg-blue-600'}`}>
               <Gift size={20} className="text-white" />
@@ -1132,11 +1132,11 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
             </div>
           </div>
           {/* Desktop close button */}
-          <button onClick={onClose} className="hidden md:block p-2 hover:bg-black/5 rounded-full transition-colors opacity-40"><X size={24} /></button>
+          <button onClick={onClose} className="hidden lg:block p-2 hover:bg-black/5 rounded-full transition-colors opacity-40"><X size={24} /></button>
         </div>
 
         {/* Mobile Tab Toggle */}
-        <div className="flex md:hidden border-b border-[var(--color-border)] bg-black/5 dark:bg-white/[0.02] shrink-0">
+        <div className="flex lg:hidden border-b border-[var(--color-border)] bg-black/5 dark:bg-white/[0.02] shrink-0">
           <button 
             type="button"
             onClick={() => setMobileTab('creator')} 
@@ -1153,10 +1153,10 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
           </button>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-hidden flex flex-col md:flex-row">
+        <div className="flex-1 min-h-0 overflow-hidden flex flex-col lg:flex-row">
           
           {/* ══ Left Column - Creator Panel ══ */}
-          <div className={`w-full md:w-6/12 min-h-0 p-4 md:p-6 md:border-r border-[var(--color-border)] space-y-5 overflow-y-auto custom-scrollbar ${mobileTab === 'creator' ? 'block' : 'hidden md:block'}`}>
+          <div className={`w-full lg:w-6/12 min-h-0 p-4 lg:p-6 lg:border-r border-[var(--color-border)] space-y-5 overflow-y-auto custom-scrollbar ${mobileTab === 'creator' ? 'block' : 'hidden lg:block'}`}>
              <div className="space-y-2 text-left">
                 <label className="text-[12px] font-black uppercase tracking-widest opacity-40 ml-2">Select Strategy</label>
                 <div className="grid grid-cols-3 gap-2">
@@ -1274,11 +1274,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                               : getHighestOnhandStock(kit);
                             const discountRow = financialSummary.rows.find(row => row.kit.id === kit.id);
                             const individualBundleDiscount = dealType === 'bundle_only'
-                              ? getDistributedFeeShare(
-                                financialSummary.requestedDiscount || 0,
-                                index,
-                                selectedKitsData.length
-                              )
+                              ? Math.max(0, Math.round(Number(discountRow?.discount || 0)))
                               : 0;
                             const currentClearanceDiscount = getClearanceDiscountPlaceholder(
                               kit.id,
@@ -1425,6 +1421,10 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                              ₱{financialSummary.projectedProfit.toLocaleString()}
                           </span>
                        </div>
+                       <div className="flex justify-between items-center text-blue-500">
+                          <span className="text-[12px] font-black uppercase tracking-[0.2em]">Discounted Total</span>
+                          <span className="text-[12px] font-black italic">₱{Number(financialSummary.bundlePrice || 0).toLocaleString()}</span>
+                       </div>
                     </div>}
                   </div>
                 )}
@@ -1457,8 +1457,8 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
           </div>
 
           {/* ══ Right Column - Saved Deals List ══ */}
-          <div className={`flex-1 min-h-0 flex flex-col bg-black/5 dark:bg-white/[0.02] border-t md:border-t-0 border-[var(--color-border)] ${mobileTab === 'list' ? 'flex' : 'hidden md:flex'}`}>
-             <div className="p-4 md:p-6 border-b border-[var(--color-border)] text-left">
+          <div className={`flex-1 min-h-0 flex flex-col bg-black/5 dark:bg-white/[0.02] border-t lg:border-t-0 border-[var(--color-border)] ${mobileTab === 'list' ? 'flex' : 'hidden lg:flex'}`}>
+             <div className="p-4 lg:p-6 border-b border-[var(--color-border)] text-left">
                 <div className="flex justify-between items-center mb-3">
                    <div>
                       <h3 className="text-xs font-black uppercase tracking-widest">Active Deals & Bundles</h3>
@@ -1491,7 +1491,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                 </div>
              </div>
 
-             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y p-4 md:p-6 space-y-3 custom-scrollbar">
+             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y p-4 lg:p-6 space-y-3 custom-scrollbar">
                 {visibleDeals.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center opacity-30 p-10">
                     <Gift size={40} className="stroke-[1.5]" />
@@ -1549,6 +1549,79 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                           return stocks.some(s => isBundlePurchasableStock(s, deal.stockSource || 'onhand'));
                         })
                       : true; // mutually_exclusive deals are always considered fulfillable
+
+                    if (isMutualDeal) {
+                      const pairRows = getMutuallyExclusivePairRows(deal, kits);
+                      const getMutualKitPrice = (kit) => {
+                        const stock = getHighestOnhandStock(kit);
+                        return {
+                          sellPrice: Number(stock?.sellPrice || kit?.sellPrice || 0),
+                          costPrice: Number(stock?.costPrice || kit?.costPrice || 0)
+                        };
+                      };
+
+                      return (
+                        <div key={deal.id} className={`rounded-3xl border p-3 text-left transition-all ${activeEditId === deal.id ? 'border-blue-500 bg-blue-500/5' : isChecked ? 'border-blue-400/40 bg-blue-500/5' : 'border-neutral-500/10 bg-[var(--color-surface)]'} ${isInactive ? 'opacity-50' : ''}`}>
+                          <div className="mb-3 flex items-center justify-between gap-2 px-1">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <button type="button" onClick={() => toggleDealSelection(deal.id)} className="shrink-0" aria-label={isChecked ? 'Deselect mutual-exclusive deal' : 'Select mutual-exclusive deal'}>
+                                {isChecked
+                                  ? <CheckSquare size={15} className="text-blue-500" />
+                                  : <Square size={15} className="opacity-30 transition-opacity hover:opacity-60" />}
+                              </button>
+                              <span className="truncate text-[11px] font-black uppercase tracking-widest text-neutral-900 dark:text-white">BANDAI VS BOOTLEG</span>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-1">
+                              <button type="button" onClick={() => handleEditSavedDeal(deal)} className="rounded-full p-2 text-neutral-400 transition-colors hover:bg-blue-500/10 hover:text-blue-500" title="Edit Deal" aria-label="Edit mutual-exclusive deal">
+                                <Edit3 size={14} />
+                              </button>
+                              <button type="button" onClick={() => handleDelete(deal.id)} className="rounded-full p-2 text-neutral-400 transition-colors hover:bg-red-500/10 hover:text-red-500" title="Delete Deal" aria-label="Delete mutual-exclusive deal">
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="space-y-3">
+                            {pairRows.map((pair, index) => {
+                              const pairKits = [
+                                includedKits.find(kit => kit.id === pair.bandaiId),
+                                includedKits.find(kit => kit.id === pair.bootlegId)
+                              ];
+
+                              return (
+                                <div key={`mutual-pair-${index}`} className="space-y-2">
+                                  <div className="flex items-center justify-between px-1 text-[10px] font-black uppercase tracking-[0.16em] text-neutral-900 dark:text-white">
+                                    <span>Pair {index + 1}</span>
+                                    <span>Cannot Be Sold Together</span>
+                                  </div>
+                                  {pairKits.map((kit, kitIndex) => {
+                                    const pricing = getMutualKitPrice(kit);
+                                    const image = kit ? (resolveImage(kit.image, kit.images) || '/snorlaxgarage.png') : '/snorlaxgarage.png';
+
+                                    return (
+                                      <div key={`${deal.id}-pair-${index}-${kitIndex}`} className="flex min-w-0 items-center gap-2 rounded-xl border border-blue-500/35 bg-blue-500/[0.06] px-2 py-2 dark:bg-blue-500/[0.1]">
+                                        <img src={image} className="h-8 w-8 shrink-0 rounded-lg bg-white object-cover" alt="" />
+                                        <div className="min-w-0 flex-1">
+                                          <span className="block truncate text-[12px] font-black uppercase text-neutral-900 dark:text-white">{kit?.name || 'Kit unavailable'}</span>
+                                          <span className="block truncate text-[11px] font-bold uppercase text-neutral-900/60 dark:text-white/60">{kit ? [kit.brand, kit.specs?.line, kit.specs?.scale].filter(Boolean).join(' / ') || 'No brand or line' : 'Missing catalog record'}</span>
+                                        </div>
+                                        {kit ? (
+                                          <div className="shrink-0 text-right leading-tight">
+                                            <span className="block text-[12px] font-black uppercase text-emerald-500">SELL ₱{pricing.sellPrice.toLocaleString()}</span>
+                                            <span className="block text-[11px] font-black uppercase text-neutral-900 dark:text-white">COST ₱{pricing.costPrice.toLocaleString()}</span>
+                                          </div>
+                                        ) : null}
+                                        <span className="shrink-0 px-1 text-neutral-900/50 dark:text-white/50" aria-hidden="true"><X size={12} /></span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    }
 
                     return (
                       <div key={deal.id} className={`p-4 rounded-3xl border text-left flex flex-col justify-between gap-3 transition-all ${activeEditId === deal.id ? 'border-blue-500 bg-blue-500/5' : isChecked ? 'border-blue-400/40 bg-blue-500/5' : 'border-neutral-500/10 bg-[var(--color-surface)] hover:border-neutral-500/20'} ${(isInactive || isExpired || !isFulfillable) ? 'opacity-50' : ''}`}>

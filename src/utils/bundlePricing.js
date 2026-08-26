@@ -91,54 +91,37 @@ export function getClearancePrice(costPrice = 0, sellPrice = 0, discountOverride
   return Math.min(sell, getClearanceCostCeiling(cost));
 }
 
-function distributeDiscountByCapacity(rows = [], discountTotal = 0) {
-  const allocations = new Map(rows.map(row => [row.kitId, 0]));
-  let remaining = Math.max(0, Number(discountTotal) || 0);
-  const eligibleRows = rows
-    .filter(row => Number(row.discountCapacity || 0) > 0)
-    .sort((a, b) => {
-      const capacityDelta = Number(a.discountCapacity || 0) - Number(b.discountCapacity || 0);
-      return capacityDelta || Number(a._clearanceIndex || 0) - Number(b._clearanceIndex || 0);
+// Distribute a clearance pool in whole pesos while respecting each item's
+// cost-ceiling capacity. If an item reaches its ceiling, its remaining share
+// is redistributed to the other eligible items instead of becoming unused.
+function distributeIntegerDiscountByCapacity(entries = [], discountTotal = 0) {
+  const allocations = new Map(entries.map(({ index }) => [index, 0]));
+  let remaining = Math.max(0, Math.round(Number(discountTotal) || 0));
+  let activeEntries = entries.filter(({ capacity }) => Number(capacity || 0) > 0);
+  let guard = 0;
+
+  while (remaining > 0 && activeEntries.length > 0 && guard < 10000) {
+    const nextAllocations = activeEntries.map(({ index }, position) => ({
+      index,
+      share: getDistributedFeeShare(remaining, position, activeEntries.length)
+    }));
+    let appliedThisRound = 0;
+
+    nextAllocations.forEach(({ index, share }) => {
+      const entry = entries.find(candidate => candidate.index === index);
+      const capacity = Math.max(0, Number(entry?.capacity || 0));
+      const allocated = Number(allocations.get(index) || 0);
+      const applied = Math.min(Math.max(0, capacity - allocated), share);
+      allocations.set(index, allocated + applied);
+      appliedThisRound += applied;
     });
 
-  // Fill the most capacity-constrained item first. Once it reaches its
-  // ceiling, only the remaining clearance discount is shared proportionally
-  // by the other selected on-hand items.
-  const firstRow = eligibleRows[0];
-  if (firstRow) {
-    const firstCapacity = Math.max(0, Number(firstRow.discountCapacity || 0));
-    const firstAllocation = Math.min(remaining, firstCapacity);
-    allocations.set(firstRow.kitId, firstAllocation);
-    remaining -= firstAllocation;
-  }
-
-  let distributableRows = eligibleRows.slice(1);
-
-  while (remaining > 0 && distributableRows.length > 0) {
-    const capacityTotal = distributableRows.reduce((sum, row) => {
-      const capacity = Number(row.discountCapacity || 0);
-      return sum + Math.max(0, capacity - Number(allocations.get(row.kitId) || 0));
-    }, 0);
-    if (capacityTotal <= 0) break;
-
-    let cappedAny = false;
-    distributableRows.forEach(row => {
-      const capacity = Number(row.discountCapacity || 0);
-      const allocated = Number(allocations.get(row.kitId) || 0);
-      const remainingCapacity = Math.max(0, capacity - allocated);
-      const share = remaining * (remainingCapacity / capacityTotal);
-      const applied = Math.min(remainingCapacity, share);
-      allocations.set(row.kitId, allocated + applied);
-      if (applied >= remainingCapacity) {
-        cappedAny = true;
-      }
-    });
-
-    const allocated = distributableRows.reduce((sum, row) => sum + Number(allocations.get(row.kitId) || 0), 0);
-    const firstAllocation = firstRow ? Number(allocations.get(firstRow.kitId) || 0) : 0;
-    remaining = Math.max(0, Number(discountTotal) - firstAllocation - allocated);
-    if (!cappedAny) break;
-    distributableRows = distributableRows.filter(row => Number(allocations.get(row.kitId) || 0) < Number(row.discountCapacity || 0));
+    if (appliedThisRound <= 0) break;
+    remaining -= appliedThisRound;
+    activeEntries = activeEntries.filter(({ index, capacity }) => (
+      Number(allocations.get(index) || 0) < Number(capacity || 0)
+    ));
+    guard += 1;
   }
 
   return allocations;
@@ -168,12 +151,26 @@ export function getBundleDealPricing(rows = [], discountAmount = 0) {
 
   const totalSell = normalizedRows.reduce((sum, row) => sum + row.sellPrice, 0);
   const totalCost = normalizedRows.reduce((sum, row) => sum + row.costPrice, 0);
-  const requestedDiscount = Math.min(Math.max(Number(discountAmount) || 0, 0), totalSell);
-  const allocations = distributeDiscountByCapacity(normalizedRows, requestedDiscount);
-  const pricedRows = normalizedRows.map(row => ({
+  const totalDiscountCapacity = normalizedRows.reduce(
+    (sum, row) => sum + Math.max(0, Math.round(Number(row.discountCapacity || 0))),
+    0
+  );
+  const requestedDiscount = Math.min(
+    Math.max(0, Math.round(Number(discountAmount) || 0)),
+    totalDiscountCapacity,
+    Math.round(totalSell)
+  );
+  const allocations = distributeIntegerDiscountByCapacity(
+    normalizedRows.map((row, index) => ({
+      index,
+      capacity: Math.max(0, Math.round(Number(row.discountCapacity || 0)))
+    })),
+    requestedDiscount
+  );
+  const pricedRows = normalizedRows.map((row, index) => ({
     ...row,
-    discount: Number(allocations.get(row.kitId) || 0),
-    rawPrice: Math.max(row.costCeiling, row.sellPrice - Number(allocations.get(row.kitId) || 0))
+    discount: Number(allocations.get(index) || 0),
+    rawPrice: Math.max(row.costCeiling, row.sellPrice - Number(allocations.get(index) || 0))
   }));
   const targetTotal = pricedRows.reduce((sum, row) => sum + row.rawPrice, 0);
   const distributedRows = distributeRoundedBundlePrices(pricedRows, targetTotal);
@@ -194,14 +191,13 @@ export function getBundleDealPricing(rows = [], discountAmount = 0) {
   };
 }
 
-// A new bundle starts with the largest single-kit clearance capacity as its
-// suggested discount. This keeps the default discount within the same cost
-// protection rule used by clearance pricing while still letting an admin
-// type a larger override in the Deal Architect.
+// A new bundle starts with the total discount ceiling of all included kits.
+// This keeps the default discount within the same cost protection rule used by
+// clearance pricing while still letting an admin type a smaller override.
 export function getBundleDiscountCapacity(rows = []) {
   const pricedRows = getBundleDealPricing(rows, 0).rows;
   return Math.max(0, Math.round(pricedRows.reduce(
-    (largestCapacity, row) => Math.max(largestCapacity, Number(row.discountCapacity || 0)),
+    (totalCapacity, row) => totalCapacity + Number(row.discountCapacity || 0),
     0
   )));
 }
@@ -222,26 +218,37 @@ export function getClearanceBundlePricing(rows = [], clearanceKitIds = [], disco
     const value = discountOverrides?.[row.kitId] ?? discountOverrides?.[String(row.kitId)];
     return value !== '' && value !== null && value !== undefined;
   };
-  const fixedDistributionTotal = distributionRows
-    .filter(hasDistributionOverride)
-    .reduce((total, { row }) => (
-      total + Math.max(0, Number(discountOverrides?.[row.kitId] ?? discountOverrides?.[String(row.kitId)]) || 0)
-    ), 0);
-  const openDistributionRows = distributionRows.filter(({ row }) => !hasDistributionOverride({ row }));
-  const openDistributionTotal = Math.max(0, distributionTotal - fixedDistributionTotal);
-  const distributionShares = new Map(
-    distributionRows.map(({ row, index }) => {
-      if (hasDistributionOverride({ row })) {
+  const distributionEntries = distributionRows.map(({ row, index }) => {
+    const sellPrice = Math.max(0, Number(row.sellPrice ?? row.sell ?? row.refPrice ?? 0) || 0);
+    const costPrice = Math.max(0, Number(row.costPrice ?? row.cost ?? 0) || 0);
+    const costFloor = Math.min(sellPrice, getClearanceCostCeiling(costPrice));
+    return {
+      row,
+      index,
+      capacity: Math.max(0, sellPrice - costFloor)
+    };
+  });
+  const fixedDistributionAllocations = new Map(
+    distributionEntries
+      .filter(hasDistributionOverride)
+      .map(({ row, index, capacity }) => {
         const override = discountOverrides?.[row.kitId] ?? discountOverrides?.[String(row.kitId)];
-        return [index, Math.max(0, Math.round(Number(override) || 0))];
-      }
-
-      const shareIndex = openDistributionRows.findIndex(({ index: openIndex }) => openIndex === index);
-      return [
-        index,
-        getDistributedFeeShare(openDistributionTotal, shareIndex, openDistributionRows.length)
-      ];
-    })
+        return [index, Math.min(capacity, Math.max(0, Math.round(Number(override) || 0)))];
+      })
+  );
+  const fixedDistributionTotal = [...fixedDistributionAllocations.values()]
+    .reduce((total, allocation) => total + allocation, 0);
+  const openDistributionRows = distributionEntries.filter(({ row }) => !hasDistributionOverride({ row }));
+  const openDistributionTotal = Math.max(0, distributionTotal - fixedDistributionTotal);
+  const openDistributionAllocations = distributeIntegerDiscountByCapacity(
+    openDistributionRows,
+    openDistributionTotal
+  );
+  const distributionShares = new Map(
+    distributionEntries.map(({ index }) => [
+      index,
+      fixedDistributionAllocations.get(index) ?? openDistributionAllocations.get(index) ?? 0
+    ])
   );
 
   const pricedRows = (rows || []).map((row, index) => {

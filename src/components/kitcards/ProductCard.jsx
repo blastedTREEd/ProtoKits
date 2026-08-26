@@ -1465,7 +1465,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     gridStatusBadges.push({
       label: 'CLEARANCE',
       isActiveDeal: true,
-      className: 'bg-red-500 text-white border-red-400 shadow-lg'
+      className: 'bg-emerald-500 text-white border-emerald-400 shadow-lg'
     });
   } else if (isIncludedInBundleDeal) {
     gridStatusBadges.push({
@@ -1552,7 +1552,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
             ? isCollectionGroup
               ? 'bg-red-500 border-red-500 text-white shadow-lg shadow-red-500/20'
               : isClearanceDealGroup
-                ? 'bg-amber-500 border-amber-500 text-white shadow-lg shadow-amber-500/20'
+                ? 'bg-emerald-500 border-emerald-500 text-white shadow-lg shadow-emerald-500/20'
               : isBundleDealGroup
                 ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-600/20'
               : 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-600/20' 

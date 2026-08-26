@@ -790,27 +790,23 @@ export default function Cart() {
           const persistedDiscount = storedPriceDiscount || Number(storedDiscount || 0);
           if (persistedDiscount > 0) clearanceDiscountOverrides[kitId] = persistedDiscount;
         });
-        // The clearance pool is the strongest configured discount among the
-        // selected eligible kits. It is then distributed across every selected
-        // row, including the additional "+1 or more" kit.
+        // Sum the selected kits' discount ceilings into the clearance pool,
+        // then distribute it across every selected row, including the
+        // additional "+1 or more" kit.
         const selectedClearancePricing = getClearanceBundlePricing(
           rows,
           selectedClearanceKitIds,
           clearanceDiscountOverrides
         );
-        const clearanceDistributionTotal = Math.max(
-          0,
-          ...selectedClearancePricing.rows
-            .filter(row => row.isClearance)
-            .map(row => Number(row.clearanceDiscount || 0)),
-          0
-        );
+        const clearanceDistributionTotal = selectedClearancePricing.rows
+          .filter(row => row.isClearance)
+          .reduce((sum, row) => sum + Math.max(0, Math.round(Number(row.clearanceDiscount || 0))), 0);
         const clearancePricing = getClearanceBundlePricing(
           rows,
           selectedClearanceKitIds,
-          // The selected kit's configured amount is already captured in the
-          // distribution total above. Clear row overrides here so the pool is
-          // actually split across all selected kits instead of fixing one row.
+          // The summed ceilings are already captured in the distribution total
+          // above. Clear row overrides here so the pool is split across all
+          // selected kits instead of fixing one row.
           {},
           clearanceDistributionTotal > 0
             ? {
@@ -1201,18 +1197,50 @@ export default function Cart() {
 
   const shelfStats = useMemo(() => {
     if (!isAdmin || !isAdminView) return null;
-    const totalKits = activeBasket.filter(item => item.type !== 'project').reduce((sum, item) => sum + (item.quantity || 1), 0);
-    const totalCostPrice = activeBasket.reduce((sum, item) => {
+    const shelfItems = activeBasket.filter(item => item.type !== 'project');
+    const shelfStockIds = new Set(
+      shelfItems
+        .filter(item => item.id && item.stockKey)
+        .map(item => `${item.id}:${item.stockKey}`)
+    );
+
+    const summarize = (items, getCost, getSell) => {
+      const totalKits = items.reduce((sum, item) => sum + (Number(item.quantity) || 1), 0);
+      const totalCostPrice = items.reduce((sum, item) => {
       const qty = item.quantity || 1;
-      const cost = item.type === 'project'
-        ? Math.max(0, Number(item.projectData?.sellPrice || 0) - (parseFloat(String(item.projectData?.totals?.totalProfit || 0).replace(/,/g, '')) || 0))
-        : Number(item.costPrice || 0);
+      const cost = Number(getCost(item)) || 0;
       return sum + (cost * qty);
-    }, 0);
-    const totalSellPrice = activeBasket.reduce((sum, item) => sum + (getBasketStandalonePrice(item) * (item.quantity || 1)), 0);
-    const possibleProfit = Math.max(0, totalSellPrice - totalCostPrice);
-    return { totalKits, totalCostPrice, totalSellPrice, possibleProfit };
-  }, [isAdmin, isAdminView, activeBasket, getBasketStandalonePrice]);
+      }, 0);
+      const totalSellPrice = items.reduce((sum, item) => sum + ((Number(getSell(item)) || 0) * (Number(item.quantity) || 1)), 0);
+      const possibleProfit = Math.max(0, totalSellPrice - totalCostPrice);
+      return { totalKits, totalCostPrice, totalSellPrice, possibleProfit };
+    };
+
+    const onShelf = summarize(
+      shelfItems,
+      item => item.costPrice,
+      item => getBasketStandalonePrice(item)
+    );
+
+    const notOnShelfUnsold = [];
+    (kits || []).forEach(kit => {
+      Object.entries(kit?.stocks || {}).forEach(([stockKey, stock]) => {
+        const stockId = `${kit.id}:${stockKey}`;
+        const status = String(stock?.status || '').trim().toLowerCase();
+        const isSold = stock?.isSold === true || ['sold', 'out of stock', 'out-of-stock'].includes(status);
+        if (shelfStockIds.has(stockId) || stock?.order?.orderId || isSold) return;
+        notOnShelfUnsold.push({ ...stock, quantity: 1 });
+      });
+    });
+
+    const offShelf = summarize(
+      notOnShelfUnsold,
+      item => item.costPrice,
+      item => item.sellPrice
+    );
+
+    return { onShelf, offShelf };
+  }, [isAdmin, isAdminView, activeBasket, getBasketStandalonePrice, kits]);
 
   const toggleSelectionGroup = useCallback((basketIds = []) => {
     const ids = [...new Set(basketIds.filter(Boolean))];
@@ -1406,6 +1434,52 @@ export default function Cart() {
 
   const hasVisibleBasketItems = !isBasketRowsLoading && groupedItems.length > 0;
 
+  const canIncreaseKitQuantity = useCallback((item) => {
+    if (!item || item.type === 'project') return true;
+
+    const kit = kits.find((candidate) => String(candidate.id) === String(item.id));
+    const stocks = kit?.stocks && typeof kit.stocks === 'object' ? kit.stocks : {};
+    const sameKitItems = activeBasket.filter((candidate) => (
+      candidate.type !== 'project'
+      && String(candidate.id) === String(item.id)
+    ));
+
+    // Offer-backed items are limited to the single stock released for the offer.
+    if (item.offerId) return sameKitItems
+      .filter((candidate) => String(candidate.offerId || '') === String(item.offerId))
+      .reduce((sum, candidate) => sum + Math.max(1, Number(candidate.quantity) || 1), 0) < 1;
+
+    if (isAdmin && isAdminView) {
+      // Shelf entries reserve their allocated stock. The plus button should only
+      // remain active while another unreserved, unallocated stock exists.
+      const occupiedStockKeys = new Set(sameKitItems.map((candidate) => String(candidate.stockKey || '')));
+      return Object.entries(stocks).some(([stockKey, stock]) => (
+        !stock?.isReserved
+        && !stock?.order?.orderId
+        && !occupiedStockKeys.has(String(stockKey))
+      ));
+    }
+
+    const getBatchIdentifier = (stock) => {
+      const status = stock?.status?.toLowerCase() || 'default';
+      const eta = getStockEta(stock);
+      return `${status}${eta ? `-${eta.toLowerCase().replace(/\s+/g, '-')}` : ''}`;
+    };
+    const itemBatchIdentifier = getBatchIdentifier(
+      stocks[item.stockKey] || item
+    );
+    const basketQuantityInBatch = sameKitItems
+      .filter((candidate) => getBatchIdentifier(stocks[candidate.stockKey] || candidate) === itemBatchIdentifier)
+      .reduce((sum, candidate) => sum + Math.max(1, Number(candidate.quantity) || 1), 0);
+    const availableInBatch = Object.values(stocks).filter((stock) => (
+      getBatchIdentifier(stock) === itemBatchIdentifier
+      && !stock?.isReserved
+      && !stock?.order?.orderId
+    )).length;
+
+    return basketQuantityInBatch < availableInBatch;
+  }, [activeBasket, isAdmin, isAdminView, kits]);
+
   const basketRows = useMemo(() => {
     const projects = [];
     const preOrders = [];
@@ -1558,6 +1632,7 @@ export default function Cart() {
 
                 const displayName = (item.name || '').replace(/\s*\(Pre-Order\)\s*$/i, '');
                 const stock = kit?.stocks?.[item.stockKey];
+                const canIncreaseQuantity = canIncreaseKitQuantity(item);
 
                 const brand = kit?.brand || item.brand;
                 const line = kit?.specs?.line || item.specs?.line;
@@ -1633,7 +1708,7 @@ export default function Cart() {
                     className={`${cardClasses} relative`}
                   >
                     {item.type !== 'project' && offerHoursLeft > 0 ? (
-                      <span className="absolute left-0 bottom-5 z-10 bg-red-500 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm">
+                      <span className="absolute left-0 bottom-5 z-10 bg-emerald-600 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm">
                         {offerHoursLeft} HRS LEFT
                       </span>
                     ) : isBundleDealSelection ? (
@@ -1641,7 +1716,7 @@ export default function Cart() {
                         BUNDLE DEAL
                       </span>
                     ) : isClearanceKit ? (
-                      <span className="absolute left-0 bottom-5 z-10 bg-red-500 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm">
+                      <span className="absolute left-0 bottom-5 z-10 bg-emerald-600 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm">
                         CLEARANCE
                       </span>
                     ) : item.type !== 'project' && isPreOrder && etaLabel ? (
@@ -1721,12 +1796,13 @@ export default function Cart() {
                             </button>
                             <span className="font-black text-[11px] w-4 text-center">{item.qty}</span>
                             <button
+                                disabled={!canIncreaseQuantity}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   addProjectToBasket(item.projectData);
                                 }}
-                                className="w-6 h-6 flex items-center justify-center rounded-full bg-white dark:bg-neutral-700 transition-colors hover:text-blue-500"
-                                title="Increase quantity"
+                                className="w-6 h-6 flex items-center justify-center rounded-full bg-white dark:bg-neutral-700 transition-colors hover:text-blue-500 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-inherit"
+                                title={canIncreaseQuantity ? 'Increase quantity' : 'No more stock available'}
                             >
                               <Plus size={15} strokeWidth={3} />
                             </button>
@@ -1743,9 +1819,10 @@ export default function Cart() {
                             </button>
                             <span className="font-black text-[14px] w-4 text-center">{item.qty}</span>
                             <button
+                                disabled={!canIncreaseQuantity}
                                 onClick={(e) => { e.stopPropagation(); addToBasket(item); }}
-                                className="w-6 h-6 flex items-center justify-center rounded-full bg-white dark:bg-neutral-700 transition-colors hover:text-blue-500"
-                                title="Increase quantity"
+                                className="w-6 h-6 flex items-center justify-center rounded-full bg-white dark:bg-neutral-700 transition-colors hover:text-blue-500 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-inherit"
+                                title={canIncreaseQuantity ? 'Increase quantity' : 'No more stock available'}
                             >
                               <Plus size={15} strokeWidth={3} />
                             </button>
@@ -1764,7 +1841,7 @@ export default function Cart() {
           <div 
             className={`sticky z-[95] bg-white dark:bg-[#121212] border-t border-black/5 dark:border-white/5 transition-all duration-300 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] dark:shadow-[0_-4px_6px_-1px_rgba(255,255,255,0.05)] ${
               isMiniNavVisible ? 'bottom-[56px] sm:bottom-0' : 'bottom-0'
-            } ${(isAdmin && isAdminView) ? 'min-h-[85px] py-4' : (activeSelection.length === 0 ? 'h-[40px]' : 'min-h-[85px] py-4')}`}
+              } ${(isAdmin && isAdminView) ? 'min-h-[100px] py-3 sm:h-[60px] sm:min-h-0 sm:py-0' : (activeSelection.length === 0 ? 'h-[40px]' : 'min-h-[85px] py-4 sm:h-[60px] sm:min-h-0 sm:py-0')}`}
           >
             <div className="max-w-7xl mx-auto h-full px-4 md:px-8 flex items-center justify-between">
               {isAdmin && isAdminView ? (
@@ -1790,22 +1867,18 @@ export default function Cart() {
                   </div>
                 ) : (
                   /* Admin Shelf Dashboard panel */
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 w-full text-left">
+                  <div className="grid grid-cols-1 justify-items-center gap-y-3 w-full text-center sm:grid-cols-2 sm:justify-items-start sm:gap-x-6 sm:text-left">
                     <div className="flex flex-col justify-center">
-                      <span className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40 leading-none mb-1">Kits on Shelf</span>
-                      <span className="text-lg md:text-xl font-black italic leading-none">{shelfStats?.totalKits || 0}</span>
+                      <span className="text-[9px] font-black uppercase tracking-[0.2em] leading-none mb-1">Shelf / Public - Sell</span>
+                      <span className="whitespace-nowrap text-lg font-black italic leading-none md:text-xl">
+                        {shelfStats?.onShelf?.totalKits || 0} <span>/</span> <span className="text-blue-500">{shelfStats?.offShelf?.totalKits || 0} - ₱{(shelfStats?.offShelf?.totalSellPrice || 0).toLocaleString()}</span>
+                      </span>
                     </div>
                     <div className="flex flex-col justify-center">
-                      <span className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40 leading-none mb-1">Total Cost</span>
-                      <span className="text-lg md:text-xl font-black italic leading-none text-red-500">₱{(shelfStats?.totalCostPrice || 0).toLocaleString()}</span>
-                    </div>
-                    <div className="flex flex-col justify-center">
-                      <span className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40 leading-none mb-1">Possible Profit</span>
-                      <span className="text-lg md:text-xl font-black italic leading-none text-emerald-500">₱{(shelfStats?.possibleProfit || 0).toLocaleString()}</span>
-                    </div>
-                    <div className="flex flex-col justify-center">
-                      <span className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40 leading-none mb-1">Total Sell Price</span>
-                      <span className="text-lg md:text-xl font-black italic leading-none text-blue-500">₱{(shelfStats?.totalSellPrice || 0).toLocaleString()}</span>
+                      <span className="text-[9px] font-black uppercase tracking-[0.2em] leading-none mb-1">Total Cost Prices</span>
+                      <span className="whitespace-nowrap text-lg font-black italic leading-none md:text-xl">
+                        ₱{(shelfStats?.onShelf?.totalCostPrice || 0).toLocaleString()} <span>/</span> <span className="text-blue-500">₱{(shelfStats?.offShelf?.totalCostPrice || 0).toLocaleString()}</span>
+                      </span>
                     </div>
                   </div>
                 )

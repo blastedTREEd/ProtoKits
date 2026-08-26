@@ -14,7 +14,7 @@ import { db } from '../../firebase/firebase';
 
 export default function SupplierBalancesModal({ isOpen, onClose }) {
   const { isDarkMode } = useTheme();
-  const { kits: storeKits } = useStore();
+  const { kits: storeKits, deleteStock } = useStore();
   const [allKits, setAllKits] = useState([]);
   const [isSyncing, setIsSyncing] = useState(false);
 
@@ -294,11 +294,7 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
     if (!window.confirm("Are you sure you want to cancel this stock item? This will permanently remove it.")) return;
 
     try {
-      const firestore = await import('firebase/firestore');
-      const { deleteField } = firestore;
-      await updateDoc(doc(db, 'kits', item.kitId), {
-        [`stocks.${item.key}`]: deleteField()
-      });
+      await deleteStock(item.kitId, item.key);
       alert("Stock item removed!");
       await refreshKits();
     } catch (e) {
