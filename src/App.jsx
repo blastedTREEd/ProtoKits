@@ -79,12 +79,12 @@ const isRouteDataReady = (pathname, datasets, isAdmin) => {
   const needsStories = pathname === '/' || pathname === '';
   // Stories uses kit availability to fill missing/unavailable project slots
   // in the landing-page highlights.
-  const needsKits = pathname === '/' || pathname === '' || pathname.startsWith('/kits');
+  const needsKits = pathname === '/' || pathname === '' || pathname.startsWith('/kits') || pathname === '/cart' || pathname === '/basket' || pathname === '/shelf';
   const needsDeals = pathname.startsWith('/kits');
   const needsOrders = pathname === '/orders' || pathname.startsWith('/orders/');
   const needsBasket = pathname === '/cart' || pathname === '/basket' || pathname === '/shelf';
   const needsShelf = isAdmin;
-  const needsPrints = pathname === '/' || pathname === '/prints' || pathname.startsWith('/prints/') || pathname === '/blueprints';
+  const needsPrints = pathname === '/' || pathname === '/prints' || pathname.startsWith('/prints/') || pathname === '/blueprints' || pathname === '/cart' || pathname === '/basket' || pathname === '/shelf';
 
   return (!needsStories || datasets.stories)
     && (!needsKits || datasets.kits)

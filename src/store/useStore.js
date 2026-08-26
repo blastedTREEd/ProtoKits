@@ -498,6 +498,7 @@ export const useStore = create(
       authRetry: null,
       storiesHeight: 0,
       unsubPrintResources: null,
+      unsubProjectVault: null,
       unsubOffers: null,
       _syncAllDealsPromise: null,
       setStoriesHeight: (height) => set({ storiesHeight: height }),
@@ -590,7 +591,7 @@ export const useStore = create(
           // The landing-page highlights can use available kits to replace
           // missing or unavailable project slots, so kits must be ready before
           // the home route is released from its loading state.
-          kits: pathname === '/' || pathname === '' || pathname.startsWith('/kits'),
+          kits: pathname === '/' || pathname === '' || pathname.startsWith('/kits') || pathname === '/cart' || pathname === '/basket' || pathname === '/shelf',
           deals: pathname.startsWith('/kits'),
           orders: pathname === '/orders' || pathname.startsWith('/orders/'),
           basket: pathname === '/cart' || pathname === '/basket' || pathname === '/shelf',
@@ -598,7 +599,7 @@ export const useStore = create(
           // Keep its live listener active on every admin route so collection
           // badges/counts do not depend on opening the shelf page first.
           shelf: isAdmin,
-          prints: pathname === '/' || pathname === '/prints' || pathname.startsWith('/prints/') || pathname === '/blueprints'
+          prints: pathname === '/' || pathname === '/prints' || pathname.startsWith('/prints/') || pathname === '/blueprints' || pathname === '/cart' || pathname === '/basket' || pathname === '/shelf'
         };
       },
 
@@ -944,6 +945,7 @@ export const useStore = create(
           if (get().unsubShelf) get().unsubShelf();
           if (get().unsubAdmin) get().unsubAdmin();
           if (get().unsubBasket) get().unsubBasket();
+          if (get().unsubProjectVault) get().unsubProjectVault();
           if (get().unsubOffers) get().unsubOffers();
 
           const unsubPrint = get().unsubPrintResources;
@@ -1908,12 +1910,14 @@ export const useStore = create(
         if (get().unsubShelf) get().unsubShelf();
         if (get().unsubAdmin) get().unsubAdmin();
         if (get().unsubBasket) get().unsubBasket();
+        if (get().unsubProjectVault) get().unsubProjectVault();
         if (get().unsubOffers) get().unsubOffers();
         set((state) => ({
           unsubUser: null,
           unsubShelf: null,
           unsubAdmin: null,
           unsubBasket: null,
+          unsubProjectVault: null,
           unsubOffers: null,
           _datasetListenerKeys: { ...state._datasetListenerKeys, shelf: false }
         }));
@@ -1922,7 +1926,7 @@ export const useStore = create(
           console.log("DEBUG: No sgUser found, switching to guest mode.");
           const guestProjectVault = JSON.parse(localStorage.getItem('sg_guest_project_vault') || '[]');
           const guestBasket = JSON.parse(localStorage.getItem('sg_guest_basket') || '[]');
-          set({ user: null, isAnonymousUser: false, isAdmin: false, isAdminView: false, usersList: [], projectVault: guestProjectVault, guestBasket, shelf: [], userOffers: [], userOffersLoaded: true, unsubUser: null, unsubShelf: null, unsubAdmin: null, unsubBasket: null, unsubOffers: null, syncStatus: 'Restoring local basket' });
+          set({ user: null, isAnonymousUser: false, isAdmin: false, isAdminView: false, usersList: [], projectVault: guestProjectVault, guestBasket, shelf: [], userOffers: [], userOffersLoaded: true, unsubUser: null, unsubShelf: null, unsubAdmin: null, unsubBasket: null, unsubProjectVault: null, unsubOffers: null, syncStatus: 'Restoring local basket' });
           
           get().markLoaded('userProfile');
           get().markLoaded('basket');
@@ -2098,6 +2102,15 @@ export const useStore = create(
             get().markLoaded('basket');
         });
 
+        const unsubProjectVault = onSnapshot(vaultRef, (vaultSnapshot) => {
+          const items = vaultSnapshot.exists() && Array.isArray(vaultSnapshot.data()?.items)
+            ? vaultSnapshot.data().items
+            : [];
+          set({ projectVault: items });
+        }, (error) => {
+          console.error('SG LOG: Project vault subscription error:', error);
+        });
+
         const unsubOffers = onSnapshot(query(collection(db, 'hunts'), where('uid', '==', sgUser.uid)), (offersSnap) => {
           set({ userOffers: docsToArray(offersSnap), userOffersLoaded: true });
         }, (err) => {
@@ -2111,7 +2124,7 @@ export const useStore = create(
             set({ adminData: snap.exists() ? snap.data() : null });
           });
         }
-        set({ unsubUser, unsubAdmin, unsubBasket, unsubOffers });
+        set({ unsubUser, unsubAdmin, unsubBasket, unsubProjectVault, unsubOffers });
       },
 
       updateUserProfile: async (uid, data) => { await updateDoc(doc(db, 'users', uid), data); },

@@ -29,6 +29,21 @@ function resolveImage(idOrUrl, imagesArray) {
   return match?.url || imagesArray?.[0]?.url || '';
 }
 
+function getProjectBasketName(project = {}) {
+  const projectLabel = project.projectName || project.method?.name || 'Project';
+  let name = `Custom Print: ${projectLabel}`;
+  if (project.selectedDesignService) {
+    const serviceId = project.selectedDesignService;
+    const label = serviceId.split('-').map((word) => (
+      word.toLowerCase() === 'cad'
+        ? 'CAD'
+        : word.charAt(0).toUpperCase() + word.slice(1)
+    )).join(' ');
+    name += ` (w/ ${label})`;
+  }
+  return name;
+}
+
 function getBasketItemTime(item) {
   const createdAtTime = new Date(item?.createdAt || 0).getTime();
   if (Number.isFinite(createdAtTime) && createdAtTime > 0) return createdAtTime;
@@ -269,7 +284,64 @@ export default function Cart() {
     return () => window.clearInterval(timer);
   }, []);
 
-  const activeBasket = user && !isAnonymousUser ? ((isAdmin && isAdminView) ? shelf : basket) : guestBasket;
+  const storedActiveBasket = user && !isAnonymousUser
+    ? ((isAdmin && isAdminView) ? shelf : basket)
+    : guestBasket;
+
+  // Cart rows are persisted snapshots, but the source kit/project records can
+  // change after an item was added. Overlay the latest source data so names,
+  // media, stock details, project totals, and printer assignments stay live.
+  const activeBasket = useMemo(() => (
+    (storedActiveBasket || []).map((item) => {
+      if (item.type === 'project') {
+        const storedProject = item.projectData || {};
+        const liveProject = storedProject.vaultId
+          ? (projectVault || []).find((project) => project.vaultId === storedProject.vaultId)
+          : (blueprints || []).find((project) => String(project.id) === String(storedProject.id));
+
+        if (!liveProject) return item;
+
+        const projectData = { ...storedProject, ...liveProject };
+        const liveTotal = projectData.totals?.total ?? projectData.displayPrice ?? projectData.price;
+        const liveDownpayment = projectData.totals?.dp ?? projectData.minDownpayment;
+
+        return {
+          ...item,
+          name: getProjectBasketName(projectData),
+          projectData,
+          ...(liveTotal != null ? { price: liveTotal } : {}),
+          ...(liveDownpayment != null ? { minDownpayment: liveDownpayment } : {})
+        };
+      }
+
+      const kit = (kits || []).find((candidate) => String(candidate.id) === String(item.id));
+      const stock = kit?.stocks?.[item.stockKey];
+      const isDealItem = isBundleOrClearanceItem(item);
+      const liveSellPrice = Number(stock?.sellPrice);
+      const shouldRefreshStandalonePrice = !isDealItem && !item.offerId && liveSellPrice > 0;
+
+      return {
+        ...item,
+        ...(kit?.name ? { name: kit.name } : {}),
+        ...(kit?.image ? { image: kit.image } : {}),
+        ...(kit?.images ? { images: kit.images } : {}),
+        ...(kit?.brand ? { brand: kit.brand } : {}),
+        ...(kit?.specs ? { specs: kit.specs } : {}),
+        ...(stock ? {
+          status: stock.status || item.status,
+          eta: getStockEta(stock) || item.eta,
+          ...(stock.costPrice != null ? { costPrice: stock.costPrice } : {}),
+          ...(shouldRefreshStandalonePrice ? {
+            sellPrice: liveSellPrice,
+            price: liveSellPrice
+              + Number(item.appliedHandlingFee || 0)
+              + Number(item.appliedInstallmentFee || 0)
+              + Number(item.appliedTransferFee || 0)
+          } : {})
+        } : {})
+      };
+    })
+  ), [blueprints, kits, projectVault, storedActiveBasket]);
 
   const restoreSelectionIdsFromLocation = location.state?.restoreSelectionIds;
   const scrollToBasketIdFromLocation = location.state?.scrollToBasketId;

@@ -81,7 +81,9 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
   const scrollRef = useRef(null);
   const [isOverMap, setIsOverMap] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
-  const [areShippingMethodsExpanded, setAreShippingMethodsExpanded] = useState(false);
+  const [expandedSection, setExpandedSection] = useState('pickup-point');
+  const [isAddingShippingMethod, setIsAddingShippingMethod] = useState(false);
+  const areShippingMethodsExpanded = expandedSection === 'methods';
   const canDrag = !isOverMap && !isScrolled;
 
   const initialFormData = useMemo(() => {
@@ -509,6 +511,7 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
   const handleAddNewPlace = (type) => {
     if (type === 'pickup-point' && (formData?.pickupPlaces || []).length >= 3) return;
     setPlaceEditSnapshot(capturePlaceEditSnapshot());
+    setExpandedSection(type);
     setSelectedPickupCategory(type);
     setFormData(prev => ({
       ...prev,
@@ -530,6 +533,7 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
 
   const handleSelectPlace = (type, place, index) => {
     setPlaceEditSnapshot(capturePlaceEditSnapshot());
+    setExpandedSection(type);
     setSelectedPickupCategory(type);
     setFormData(prev => ({
       ...prev,
@@ -672,89 +676,114 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
     const places = formData[listKey] || [];
     const isPickupPointLimitReached = type === 'pickup-point' && places.length >= 3;
     const isEditingPlace = selectedCategory === type && activeIndex !== null;
+    const isExpanded = expandedSection === type;
 
     return (
       <section className="space-y-4 rounded-3xl border border-black/5 bg-black/[0.02] p-4 dark:border-white/5 dark:bg-white/[0.02] md:p-6">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            {React.createElement(sectionIcon, { size: 18, className: 'text-garage-blue' })}
-            <h3 className="text-[14px] font-black uppercase italic text-garage-blue">{title}</h3>
-          </div>
+        <div className={`flex items-center gap-2 ${isExpanded ? 'border-b border-black/5 pb-3 dark:border-white/5' : ''}`}>
           <button
             type="button"
-            onClick={() => handleAddNewPlace(type)}
-            disabled={isPickupPointLimitReached}
-            title={isPickupPointLimitReached ? 'Maximum of 3 pickup points reached' : undefined}
-            className="flex items-center gap-1 rounded-xl bg-garage-blue px-3 py-2 text-[13px] font-black uppercase text-white shadow-lg shadow-blue-500/20 transition-all disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
+            onClick={() => setExpandedSection(prev => (prev === type ? null : type))}
+            aria-expanded={isExpanded}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left"
           >
-            <Plus size={13} /> Add New
+            {React.createElement(sectionIcon, { size: 18, className: 'shrink-0 text-garage-blue' })}
+            <span className="min-w-0 flex-1 text-[14px] font-black uppercase italic text-garage-blue">{title}</span>
           </button>
+          <div className="flex shrink-0 items-center gap-1">
+            {isExpanded && (
+              <button
+                type="button"
+                onClick={() => handleAddNewPlace(type)}
+                disabled={isPickupPointLimitReached}
+                aria-label={`Add ${title.toLowerCase()}`}
+                title={isPickupPointLimitReached ? 'Maximum of 3 pickup points reached' : `Add ${title.toLowerCase()}`}
+                className="flex h-8 w-8 items-center justify-center rounded-xl border border-transparent text-garage-blue transition-all hover:border-garage-blue/30 hover:bg-garage-blue/10 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Plus size={18} />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setExpandedSection(prev => (prev === type ? null : type))}
+              aria-expanded={isExpanded}
+              aria-label={isExpanded ? `Collapse ${title.toLowerCase()}` : `Expand ${title.toLowerCase()}`}
+              title={isExpanded ? `Collapse ${title.toLowerCase()}` : `Expand ${title.toLowerCase()}`}
+              className="flex h-8 w-8 items-center justify-center rounded-xl border border-transparent text-garage-blue transition-all hover:border-garage-blue/30 hover:bg-garage-blue/10"
+            >
+              {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+            </button>
+          </div>
         </div>
 
-        {!isEditingPlace && places.length > 0 ? (
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            {places.map((place, index) => {
-              const isSelected = activeIndex === index && selectedCategory === type;
-              const isPlaceActive = place.isActive !== false;
-              const placeLabel = place.landmark || `${title} ${index + 1}`;
-              const pickupAddressMode = place.pickupAddressMode === 'actual-pin' ? 'actual-pin' : 'rate-checking';
-              return (
-                <div
-                  key={`${type}-${index}`}
-                  role="switch"
-                  tabIndex={0}
-                  aria-checked={isPlaceActive}
-                  onClick={(event) => {
-                    if (event.target.closest('button, a, input, textarea, select, [role="button"]')) return;
-                    handleTogglePlaceAvailability(type, index);
-                  }}
-                  onKeyDown={(event) => {
-                    if ((event.key === 'Enter' || event.key === ' ') && event.target === event.currentTarget) {
-                      event.preventDefault();
-                      handleTogglePlaceAvailability(type, index);
-                    }
-                  }}
-                  className={`flex h-full cursor-pointer flex-col rounded-2xl border p-3 transition-all ${isPlaceActive
-                    ? 'border-2 border-garage-blue bg-white shadow-md shadow-blue-500/20 dark:bg-neutral-900'
-                    : isSelected
-                      ? 'border-garage-blue bg-garage-blue/5 shadow-md'
-                      : 'border-black/5 bg-white dark:border-white/5 dark:bg-neutral-900'}`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <button type="button" onClick={() => handleSelectPlace(type, place, index)} className="min-w-0 flex-1 text-left">
-                      <span className="block truncate text-[13px] font-black uppercase">{placeLabel}</span>
-                      <span className="mt-1 block line-clamp-2 text-[13px] font-bold opacity-55">{getPlaceCardAddress(place)}</span>
-                    </button>
-                  </div>
-                  <div className="mt-auto flex items-center justify-between gap-3 pt-3">
-                    {type === 'pickup-point' ? (
-                      <button
-                        type="button"
-                        onClick={() => handleTogglePickupAddressMode(index)}
-                        className="flex items-center gap-1.5 rounded-xl border border-garage-blue/30 bg-garage-blue/10 px-3 py-2 text-[11px] font-black uppercase tracking-wide text-garage-blue transition-all"
-                      >
-                        {pickupAddressMode === 'actual-pin' ? <MapPinCheck size={14} strokeWidth={2.5} /> : <MapPinSearch size={14} strokeWidth={2.5} />}
-                        {pickupAddressMode === 'actual-pin' ? 'Actual Pin' : 'Rate Checking'}
-                      </button>
-                    ) : <span />}
-                    <button
-                      type="button"
-                      onClick={() => handleDeletePlace(type, index)}
-                      className="ml-auto flex h-8 w-8 items-center justify-center rounded-full bg-red-500 text-white shadow-md shadow-red-500/20 transition-all hover:bg-red-600 active:scale-95"
-                      aria-label={`Delete ${placeLabel}`}
+        {isExpanded && (
+          <>
+            {!isEditingPlace && places.length > 0 ? (
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                {places.map((place, index) => {
+                  const isSelected = activeIndex === index && selectedCategory === type;
+                  const isPlaceActive = place.isActive !== false;
+                  const placeLabel = place.landmark || `${title} ${index + 1}`;
+                  const pickupAddressMode = place.pickupAddressMode === 'actual-pin' ? 'actual-pin' : 'rate-checking';
+                  return (
+                    <div
+                      key={`${type}-${index}`}
+                      role="switch"
+                      tabIndex={0}
+                      aria-checked={isPlaceActive}
+                      onClick={(event) => {
+                        if (event.target.closest('button, a, input, textarea, select, [role="button"]')) return;
+                        handleTogglePlaceAvailability(type, index);
+                      }}
+                      onKeyDown={(event) => {
+                        if ((event.key === 'Enter' || event.key === ' ') && event.target === event.currentTarget) {
+                          event.preventDefault();
+                          handleTogglePlaceAvailability(type, index);
+                        }
+                      }}
+                      className={`flex h-full cursor-pointer flex-col rounded-2xl border p-3 transition-all ${isPlaceActive
+                        ? 'border-2 border-garage-blue bg-white shadow-md shadow-blue-500/20 dark:bg-neutral-900'
+                        : isSelected
+                          ? 'border-garage-blue bg-garage-blue/5 shadow-md'
+                          : 'border-black/5 bg-white dark:border-white/5 dark:bg-neutral-900'}`}
                     >
-                      <Trash2 size={15} strokeWidth={2.5} />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : !isEditingPlace ? (
-          <div className="rounded-2xl border border-dashed border-garage-blue/20 px-4 py-6 text-center text-[13px] font-bold uppercase opacity-50">No {title.toLowerCase()} configured yet.</div>
-        ) : null}
+                      <div className="flex items-start justify-between gap-2">
+                        <button type="button" onClick={() => handleSelectPlace(type, place, index)} className="min-w-0 flex-1 text-left">
+                          <span className="block truncate text-[13px] font-black uppercase">{placeLabel}</span>
+                          <span className="mt-1 block line-clamp-2 text-[13px] font-bold opacity-55">{getPlaceCardAddress(place)}</span>
+                        </button>
+                      </div>
+                      <div className="mt-auto flex items-center justify-between gap-3 pt-3">
+                        {type === 'pickup-point' ? (
+                          <button
+                            type="button"
+                            onClick={() => handleTogglePickupAddressMode(index)}
+                            className="flex items-center gap-1.5 rounded-xl border border-garage-blue/30 bg-garage-blue/10 px-3 py-2 text-[11px] font-black uppercase tracking-wide text-garage-blue transition-all"
+                          >
+                            {pickupAddressMode === 'actual-pin' ? <MapPinCheck size={14} strokeWidth={2.5} /> : <MapPinSearch size={14} strokeWidth={2.5} />}
+                            {pickupAddressMode === 'actual-pin' ? 'Actual Pin' : 'Rate Checking'}
+                          </button>
+                        ) : <span />}
+                        <button
+                          type="button"
+                          onClick={() => handleDeletePlace(type, index)}
+                          className="ml-auto flex h-8 w-8 items-center justify-center rounded-full bg-red-500 text-white shadow-md shadow-red-500/20 transition-all hover:bg-red-600 active:scale-95"
+                          aria-label={`Delete ${placeLabel}`}
+                        >
+                          <Trash2 size={15} strokeWidth={2.5} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : !isEditingPlace ? (
+              <div className="rounded-2xl border border-dashed border-garage-blue/20 px-4 py-6 text-center text-[13px] font-bold uppercase opacity-50">No {title.toLowerCase()} configured yet.</div>
+            ) : null}
 
-        {selectedCategory === type && renderPlaceEditor(type)}
+            {selectedCategory === type && renderPlaceEditor(type)}
+          </>
+        )}
       </section>
     );
   };
@@ -803,25 +832,47 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
               className="min-h-0 flex-1 overflow-y-auto p-4 custom-scrollbar md:p-8"
             >
               <div className="mx-auto max-w-5xl space-y-8 text-left">
+                {renderPlaceSection('pickup-point', 'Pickup Points', Bike)}
+                {renderPlaceSection('meetup', 'Meetup Places', Users)}
+
                 <section className="space-y-4 rounded-3xl border border-black/5 bg-black/[0.02] p-4 dark:border-white/5 dark:bg-white/[0.02] md:p-6">
-                  <div className="flex items-center gap-2 border-b border-black/5 pb-3 dark:border-white/5">
+                  <div className={`flex items-center gap-2 ${areShippingMethodsExpanded ? 'border-b border-black/5 pb-3 dark:border-white/5' : ''}`}>
                     <Settings size={18} className="text-garage-blue" />
-                    <button
-                      type="button"
-                      onClick={() => setAreShippingMethodsExpanded(prev => !prev)}
-                      aria-expanded={areShippingMethodsExpanded}
-                      className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left"
-                    >
+                    <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
                       <div>
                         <h3 className="text-[14px] font-black uppercase italic text-garage-blue">Shipping Methods</h3>
                         <p className="text-[13px] font-bold uppercase opacity-50">Configure couriers, suboptions, discounts, and required fields</p>
                       </div>
-                      {areShippingMethodsExpanded ? <ChevronUp size={18} className="shrink-0 text-garage-blue" /> : <ChevronDown size={18} className="shrink-0 text-garage-blue" />}
-                    </button>
+                      <div className="flex shrink-0 items-center gap-1">
+                        {areShippingMethodsExpanded && (
+                          <button
+                            type="button"
+                            onClick={() => setIsAddingShippingMethod(true)}
+                            aria-label="Add shipping method"
+                            title="Add shipping method"
+                            className="flex h-8 w-8 items-center justify-center rounded-xl border border-transparent text-garage-blue transition-all hover:border-garage-blue/30 hover:bg-garage-blue/10"
+                          >
+                            <Plus size={18} />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setExpandedSection(prev => (prev === 'methods' ? null : 'methods'))}
+                          aria-expanded={areShippingMethodsExpanded}
+                          aria-label={areShippingMethodsExpanded ? 'Collapse shipping methods' : 'Expand shipping methods'}
+                          title={areShippingMethodsExpanded ? 'Collapse shipping methods' : 'Expand shipping methods'}
+                          className="flex h-8 w-8 items-center justify-center rounded-xl border border-transparent text-garage-blue transition-all hover:border-garage-blue/30 hover:bg-garage-blue/10"
+                        >
+                          {areShippingMethodsExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                   {areShippingMethodsExpanded && (
                     <ShippingOptions
                       shippingMethods={formData.shippingMethods}
+                      isAddingMethod={isAddingShippingMethod}
+                      setIsAddingMethod={setIsAddingShippingMethod}
                       handleToggleMethod={handleToggleMethod}
                       handleSave={handleSave}
                       showSave={!embedded}
@@ -831,9 +882,6 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
                     />
                   )}
                 </section>
-
-                {renderPlaceSection('pickup-point', 'Pickup Points', Bike)}
-                {renderPlaceSection('meetup', 'Meetup Places', Users)}
               </div>
             </div>
           </Motion.div>

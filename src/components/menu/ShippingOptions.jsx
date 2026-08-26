@@ -11,6 +11,8 @@ const BRANCH_DROPOFF_REQUIRED_FIELDS = [1, 2, 5, 6, 7, 8, 9, 10, 11, 13];
 
 export default function ShippingOptions({ 
   shippingMethods, 
+  isAddingMethod = false,
+  setIsAddingMethod = () => {},
   handleToggleMethod, 
   handleSave,
   setShippingMethods, // Direkta mula sa FulfillmentModal para sa mas simpleng state updates
@@ -128,6 +130,7 @@ export default function ShippingOptions({
     };
     setShippingMethods(updated);
     setNewMethodName('');
+    setIsAddingMethod(false);
   };
 
   const handleDeleteCustomMethod = (m) => {
@@ -367,6 +370,8 @@ export default function ShippingOptions({
 
   return (
     <div className="space-y-4 text-left">
+      {!isAddingMethod && (
+        <>
         {Object.keys(shippingMethods)
           .filter(m => m !== 'Free Shipping')
           .sort((a, b) => {
@@ -628,9 +633,20 @@ export default function ShippingOptions({
           </div>
           );
         })}
-      {/* Add New Shipping Method */}
-      <div className="p-6 rounded-3xl border-2 border-dashed border-garage-blue/20 bg-black/5 dark:bg-white/5 space-y-4 text-left">
-        <h4 className="text-[14px] font-black uppercase italic text-garage-blue">Add New Shipping Method</h4>
+        </>
+      )}
+      {isAddingMethod && (
+      <div className="space-y-4 rounded-3xl border-2 border-dashed border-garage-blue/20 bg-black/5 p-6 text-left dark:bg-white/5">
+        <div className="flex items-center justify-between gap-3">
+          <h4 className="text-[14px] font-black uppercase italic text-garage-blue">Add New Shipping Method</h4>
+          <button
+            type="button"
+            onClick={() => setIsAddingMethod(false)}
+            className="rounded-xl border border-garage-blue/30 bg-garage-blue/10 px-3 py-2 text-[11px] font-black uppercase text-garage-blue transition-all hover:bg-garage-blue hover:text-white"
+          >
+            Existing Couriers
+          </button>
+        </div>
         <div className="flex flex-wrap gap-2">
           <input
             type="text"
@@ -647,6 +663,7 @@ export default function ShippingOptions({
           </button>
         </div>
       </div>
+      )}
 
       {showSave && (
         <div className="sticky bottom-0 pt-4 pb-1">
