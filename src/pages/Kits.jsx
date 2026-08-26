@@ -99,6 +99,42 @@ function isBundlePurchasableStock(stock, source = 'onhand') {
   return !stock.isReserved || stock.reservationType === 'admin';
 }
 
+function getClearanceKitIds(deal) {
+  return deal?.clearanceKitIds?.length
+    ? deal.clearanceKitIds
+    : (deal?.kitIds || []);
+}
+
+function getAvailableClearanceKitIds(deal, kits) {
+  const kitIds = getClearanceKitIds(deal);
+  if (!kitIds.length) return [];
+
+  return kitIds.filter((kitId) => {
+    const kit = (kits || []).find((candidate) => String(candidate.id) === String(kitId));
+    if (!kit) return false;
+    return Object.values(kit.stocks || {}).some((stock) => {
+      // Clearance cards represent stock customers can purchase. Admin-held
+      // shelf stock is not allocatable for that purpose, even in admin view.
+      return !stock?.order?.orderId && !stock.isReserved && stockMatchesDealSource(stock, 'onhand');
+    });
+  });
+}
+
+function isClearanceDealFulfillable(deal, kits) {
+  return getAvailableClearanceKitIds(deal, kits).length > 0;
+}
+
+function getFulfillableClearanceKitIds(deals, kits) {
+  const ids = new Set();
+  (deals || []).forEach((deal) => {
+    if (deal?.type !== 'clearance') return;
+    if (isClearanceDealFulfillable(deal, kits)) {
+      getAvailableClearanceKitIds(deal, kits).forEach((kitId) => ids.add(String(kitId)));
+    }
+  });
+  return ids;
+}
+
 function getRouteKitStatus(kit, isAdmin, isAdminView) {
   const nowStr = new Date().toISOString().slice(0, 16);
   const stocks = Object.values(kit?.stocks || {});
@@ -118,7 +154,7 @@ export default function Kits({ isActive = true }) {
   const { 
     isAdmin, isAdminView, kits: storeKits, deals, 
     isLoading, addKit,
-    user, isAnonymousUser, userOffers, notifyList, subscribeNotifyList, setLoginModalOpen, addToBasket, setToastMessage, priceBuiltOnhandKits,
+    user, isAnonymousUser, userOffers, notifyList, subscribeNotifyList, subscribeOrders, setLoginModalOpen, addToBasket, setToastMessage, priceBuiltOnhandKits,
     shippingSettings
   } = useStore();
 
@@ -296,6 +332,12 @@ export default function Kits({ isActive = true }) {
   const userId = user?.uid;
 
   useEffect(() => {
+    if (!isAdmin || !isAdminView) return undefined;
+    const unsubscribe = subscribeOrders({ isAdminMode: true });
+    return () => unsubscribe && unsubscribe();
+  }, [isAdmin, isAdminView, subscribeOrders]);
+
+  useEffect(() => {
     if (!isAdminView) return undefined;
     const unsubscribe = subscribeNotifyList({ isAdminMode: true });
     return () => unsubscribe && unsubscribe();
@@ -341,7 +383,7 @@ export default function Kits({ isActive = true }) {
 
     const clearanceSearchTextByKitId = new Map();
     (deals || []).forEach(deal => {
-      if (deal?.type !== 'clearance' || deal.isActive === false) return;
+      if (deal?.type !== 'clearance') return;
 
       const dealSearchText = `clearance clearance deal ${deal.name || ''}`;
       (deal.clearanceKitIds?.length ? deal.clearanceKitIds : deal.kitIds || []).forEach(kitId => {
@@ -351,6 +393,11 @@ export default function Kits({ isActive = true }) {
         );
       });
     });
+
+    // Clearance kits are a public deal entry point, so they must remain
+    // visible even when their normal status would otherwise be hidden from
+    // the initial (no-search) public kit list.
+    const publicClearanceKitIds = getFulfillableClearanceKitIds(deals, storeKits);
 
     const getAvail = (k) => {
       const stocks = k?.stocks || {};
@@ -553,7 +600,7 @@ export default function Kits({ isActive = true }) {
     // Public users start with sellable kits only. Collection and out-of-stock
     // kits remain searchable once a deliberate search term is entered.
     const displayableKits = (!isAdminView && !searchTerm.trim())
-      ? processedKits.filter(kit => kit._statusOrder === 2)
+      ? processedKits.filter(kit => kit._statusOrder === 2 || publicClearanceKitIds.has(String(kit.id)))
       : processedKits;
 
     // Latest view follows public availability events. Newly stocked kits and
@@ -673,37 +720,29 @@ export default function Kits({ isActive = true }) {
   // --- Grupo-grupo ang kits ayon sa status para sa section dividers ---
   const activeClearanceDeals = useMemo(() => {
     const clearanceDeals = (deals || []).filter((deal) => (
-      deal?.type === 'clearance' && deal.isActive !== false
+      deal?.type === 'clearance'
     ));
     const fulfillable = clearanceDeals.filter((deal) => (
-      (deal.kitIds?.length ? deal.kitIds : (deal.clearanceKitIds || [])).every((kitId) => {
-        const kit = (storeKits || []).find((candidate) => candidate.id === kitId);
-        if (!kit) return false;
-        return Object.values(kit.stocks || {}).some((stock) => (
-          isBundlePurchasableStock(stock, 'onhand')
-        ));
-      })
+      isClearanceDealFulfillable(deal, storeKits)
     ));
 
-    return (isAdmin && isAdminView)
-      ? fulfillable
-      : fulfillable.filter((deal) => getDealCountdownLabel(deal.validUntil) !== 'EXPIRED');
-  }, [deals, isAdmin, isAdminView, storeKits]);
+    return fulfillable;
+  }, [deals, storeKits]);
 
   const clearanceKitIds = useMemo(() => {
     const ids = new Set();
     activeClearanceDeals.forEach((deal) => {
-      const kitIds = deal.kitIds?.length ? deal.kitIds : (deal.clearanceKitIds || []);
-      kitIds.forEach((kitId) => ids.add(kitId));
+      const kitIds = getAvailableClearanceKitIds(deal, storeKits);
+      kitIds.forEach((kitId) => ids.add(String(kitId)));
     });
     return ids;
-  }, [activeClearanceDeals]);
+  }, [activeClearanceDeals, storeKits]);
 
   const kitGroups = useMemo(() => {
     const clearance = visibleKitsWithRouteSelection.filter((kit) => (
-      clearanceKitIds.has(kit.id) && !activeOfferKitIds.has(kit.id)
+      clearanceKitIds.has(String(kit.id)) && !activeOfferKitIds.has(kit.id)
     ));
-    const regularKits = visibleKitsWithRouteSelection.filter((kit) => !clearanceKitIds.has(kit.id));
+    const regularKits = visibleKitsWithRouteSelection.filter((kit) => !clearanceKitIds.has(String(kit.id)));
     const available = regularKits.filter(k => k._statusOrder === 2);
     const collection = regularKits.filter(k => k._statusOrder === 1);
     const outOfStock = regularKits.filter(k => k._statusOrder === 0);
@@ -760,7 +799,11 @@ export default function Kits({ isActive = true }) {
         const kit = (storeKits || []).find(k => k.id === kitId);
         if (!kit) return false;
         const stocks = Object.values(kit.stocks || {});
-        return stocks.some(s => isBundlePurchasableStock(s, d.stockSource || 'onhand'));
+        return stocks.some(s => (
+          !s?.order?.orderId
+          && !s.isReserved
+          && stockMatchesDealSource(s, d.stockSource || 'onhand')
+        ));
       });
     });
     // Hide expired deals from public users — admins can still see them
@@ -1206,7 +1249,7 @@ export default function Kits({ isActive = true }) {
                     <button
                       type="button"
                       onClick={() => setIsAdminToolsOpen((isOpen) => !isOpen)}
-                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-black/10 bg-black/5 text-neutral-700 shadow-sm transition-all hover:scale-105 hover:bg-black/10 active:scale-95 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10"
+                      className="inline-flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-xl border border-black/10 bg-black/5 text-neutral-700 shadow-sm transition-all hover:scale-105 hover:bg-black/10 active:scale-95 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10"
                       aria-label={isAdminToolsOpen ? 'Hide admin tools' : 'Show admin tools'}
                       aria-expanded={isAdminToolsOpen}
                       title={isAdminToolsOpen ? 'Hide admin tools' : 'Show admin tools'}

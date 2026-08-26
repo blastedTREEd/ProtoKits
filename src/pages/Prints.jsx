@@ -562,7 +562,7 @@ export default function Prints() {
                   <button
                     type="button"
                     onClick={() => setIsToolsOpen((isOpen) => !isOpen)}
-                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-black/10 bg-black/5 text-neutral-700 shadow-sm transition-all hover:scale-105 hover:bg-black/10 active:scale-95 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10"
+                    className="inline-flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-xl border border-black/10 bg-black/5 text-neutral-700 shadow-sm transition-all hover:scale-105 hover:bg-black/10 active:scale-95 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10"
                     aria-label={isToolsOpen ? 'Hide print admin tools' : 'Show print admin tools'}
                     aria-expanded={isToolsOpen}
                     title={isToolsOpen ? 'Hide print admin tools' : 'Show print admin tools'}

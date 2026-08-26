@@ -13,7 +13,15 @@ function resolveImage(idOrUrl, imagesArray) {
 
 function getOrderedKits(kits, kitIds) {
   const kitMap = new Map((kits || []).map(kit => [kit.id, kit]));
-  return (kitIds || []).map(id => kitMap.get(id)).filter(Boolean);
+  return (kitIds || []).map(id => (
+    kitMap.get(id) || (kits || []).find(kit => String(kit.id) === String(id))
+  )).filter(Boolean);
+}
+
+function getDealKitIds(deal) {
+  return deal?.type === 'clearance' && deal.clearanceKitIds?.length
+    ? deal.clearanceKitIds
+    : (deal?.kitIds || []);
 }
 
 function stockMatchesDealSource(stock, source = 'onhand') {
@@ -55,10 +63,11 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onAd
   }, [onClose]);
 
   const includedKits = useMemo(() => {
-    if (!deal || !deal.kitIds) return [];
+    if (!deal) return [];
+    const dealKitIds = getDealKitIds(deal);
     const orderedKitIds = [
       ...(deal.previewKitIds || []),
-      ...(deal.kitIds || []).filter(id => !(deal.previewKitIds || []).includes(id))
+      ...dealKitIds.filter(id => !(deal.previewKitIds || []).some(previewId => String(previewId) === String(id)))
     ];
     return getOrderedKits(kits, orderedKitIds);
   }, [deal, kits]);

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion as Motion, useDragControls, useMotionValue } from 'framer-motion';
 import { 
-  Sun, Moon, ShoppingBasket, Home, X, ShelvingUnit,
+  Sun, Moon, ShoppingCart, Home, X, ShelvingUnit,
   CircleUserRound, Settings, LogOut, ContactRound,
   Shield, ShieldCheck, Box, Printer, ClipboardList, UserPlus, Truck, Bell, FileText
 } from 'lucide-react';
@@ -863,13 +863,15 @@ const getPageTitle = () => {
     case '/kits': return { line1: 'GARAGE', line2: 'KITS' };
     case '/prints': return { line1: 'PRINTS', line2: 'HUB' };
     case '/orders': return { line1: 'MY', line2: 'ORDERS' };
-    case '/basket': return isAdminView ? { line1: 'ADMIN', line2: 'SHELF' } : { line1: 'YOUR', line2: 'BASKET' };
+    case '/cart':
+    case '/basket': return isAdminView ? { line1: 'ADMIN', line2: 'SHELF' } : { line1: 'YOUR', line2: 'CART' };
     case '/notify-list': return { line1: 'MY', line2: 'OFFERS' };
     default: return { line1: 'SNORLAX', line2: 'GARAGE' };
   }
 };
 
 const pageTitle = getPageTitle();
+const isCartPath = location.pathname === '/cart' || location.pathname === '/basket';
 const isCurrentPageMaintenanceInvalid = isMaintenanceInvalidPath(location.pathname);
 const navbarAnchorTop = Number.isFinite(notificationAnchorTop)
   ? `${notificationAnchorTop}px`
@@ -916,7 +918,8 @@ return (
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.25, ease: 'easeOut' }}
-          className="fixed inset-0 z-[900] bg-black/30"
+          style={{ top: specs.h }}
+          className="fixed inset-x-0 bottom-0 z-[900] bg-black/30"
           aria-hidden="true"
           onClick={() => setIsProfileOpen(false)}
         />
@@ -1041,24 +1044,24 @@ return (
             </button>
 
             <button key={user?.uid || 'guest'} onClick={() => { 
-                if (location.pathname === '/basket') {
+                if (isCartPath) {
                     window.dispatchEvent(new CustomEvent('toggleBasketView'));
                 } else {
-                    navigate('/basket');
+                    navigate('/cart');
                 }
             }} className="p-2 relative group">
               {isAdmin && isAdminView ? (
                 <ShelvingUnit
                   size={24} 
-                  className={`${location.pathname === '/basket' ? 'text-garage-blue' : (isDarkMode ? 'text-white' : 'text-neutral-900')} group-hover:text-garage-blue transition-all duration-300`} 
+                  className={`${isCartPath ? 'text-garage-blue' : (isDarkMode ? 'text-white' : 'text-neutral-900')} group-hover:text-garage-blue transition-all duration-300`}
                 />
               ) : (
-                <ShoppingBasket 
+                <ShoppingCart
                   size={specs.utilIcon} 
-                  className={`${location.pathname === '/basket' ? 'text-garage-blue' : (isDarkMode ? 'text-white' : 'text-neutral-900')} group-hover:text-garage-blue transition-all duration-300`} 
+                  className={`${isCartPath ? 'text-garage-blue' : (isDarkMode ? 'text-white' : 'text-neutral-900')} group-hover:text-garage-blue transition-all duration-300`}
                 />
               )}
-              {activeBasket?.length > 0 && location.pathname !== '/basket' && <span className="absolute -top-1 -right-1 bg-gradient-to-br from-[#0866FF] to-[#00CFFF] text-white text-[10px]
+              {activeBasket?.length > 0 && !isCartPath && <span className="absolute -top-1 -right-1 bg-gradient-to-br from-[#0866FF] to-[#00CFFF] text-white text-[10px]
     w-5 h-5 rounded-full flex items-center justify-center font-bold border border-white dark:border-neutral-900 group-hover:scale-110
     transition-transform">{activeBasket.length}</span>}
             </button>
@@ -1115,10 +1118,12 @@ return (
                   >
                   <Motion.div
                     ref={profileModalRef}
-                    style={isProfileFullscreen ? { y: profilePanelDragY } : profilePanelStyle}
-                    initial={isProfileFullscreen ? { y: '-100%', opacity: 0 } : { y: -18, opacity: 0 }}
-                    animate={{ y: 0, opacity: 1 }}
-                    exit={isProfileFullscreen || !isDesktop ? { y: '-100%', opacity: 0 } : { y: -18, opacity: 0 }}
+                    style={isProfileFullscreen
+                      ? (isProfileContentDragging ? { y: profilePanelDragY } : undefined)
+                      : profilePanelStyle}
+                    initial={isProfileFullscreen ? { y: '-100%' } : { y: -18, opacity: 0 }}
+                    animate={isProfileFullscreen ? { y: 0 } : { y: 0, opacity: 1 }}
+                    exit={isProfileFullscreen || !isDesktop ? { y: '-100%' } : { y: -18, opacity: 0 }}
                     transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
                     drag={isProfileFullscreen ? 'y' : false}
                     dragListener={false}

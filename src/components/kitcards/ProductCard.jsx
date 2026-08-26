@@ -164,6 +164,52 @@ function isPreOrderStock(stock) {
   return status.includes('pre') || status.includes('batch');
 }
 
+function hasValidatedFirstReceipt(order) {
+  if (!order?.receipt) return false;
+
+  const isReservationOrPartial = ['reservation', 'partial'].includes(String(order.paymentPlan || '').toLowerCase())
+    || order.isReservation
+    || order.isPartial;
+
+  if (!isReservationOrPartial) return order.status !== 'Validating';
+
+  return order.status !== 'Validating'
+    || Boolean(order.balanceReceipt)
+    || Number(order.buyerPaid || 0) > 0;
+}
+
+function findOrderForStock(stock, kitId, orders = []) {
+  const linkedOrder = orders.find((candidate) => (
+    String(candidate?.id || '') === String(stock?.order?.orderDocId || '')
+    || String(candidate?.orderId || '') === String(stock?.order?.orderId || '')
+  ));
+  if (linkedOrder) return linkedOrder;
+  if (!stock?.isReserved) return null;
+
+  const matchingOrders = orders.filter((candidate) => {
+    const items = Array.isArray(candidate?.items) ? candidate.items : [];
+    return items.some((item) => (
+      String(item?.id || item?.kitId || item?.productId || '') === String(kitId || '')
+      && String(item?.stockKey || item?.selectedStockKey || '') === String(stock?.key || '')
+    ));
+  });
+
+  // Prefer an unvalidated matching order if stale/duplicate order data exists.
+  return matchingOrders.find(order => !hasValidatedFirstReceipt(order)) || matchingOrders[0] || null;
+}
+
+function isCountableOnhandStock(stock, kitId, orders = []) {
+  if (!isOnHandStock(stock)) return false;
+
+  const order = findOrderForStock(stock, kitId, orders);
+  if (order) return hasValidatedFirstReceipt(order);
+  if (!stock?.isReserved || !stock.order?.orderId) return true;
+
+  // An order-linked reservation is excluded until its receipt can be
+  // confirmed. If the order is not loaded yet, fail closed for this count.
+  return false;
+}
+
 function getStockCostPrice(stock) {
   const value = Number(stock?.costPrice);
   return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
@@ -186,6 +232,10 @@ function isBundlePurchasableStock(stock, source = 'onhand') {
   return !stock.isReserved || stock.reservationType === 'admin';
 }
 
+function includesKitId(ids, kitId) {
+  return (ids || []).some(id => String(id) === String(kitId));
+}
+
 function getPreferredDealStock(stocks = [], source = 'onhand') {
   const matchingStocks = stocks.filter(stock => stockMatchesDealSource(stock, source));
   const purchasableStocks = matchingStocks.filter(stock => isBundlePurchasableStock(stock, source));
@@ -194,7 +244,12 @@ function getPreferredDealStock(stocks = [], source = 'onhand') {
 
 function getClearanceDealPricing(deal, allKits = []) {
   if (!deal || deal.type !== 'clearance') return null;
-  const includedKits = (deal.kitIds || [])
+  // Clearance deals store their canonical eligible-kit list in
+  // `clearanceKitIds`; `kitIds` is only the legacy fallback.
+  const clearanceKitIds = deal.clearanceKitIds?.length
+    ? deal.clearanceKitIds
+    : (deal.kitIds || []);
+  const includedKits = clearanceKitIds
     .map(id => allKits.find(kit => String(kit.id) === String(id)))
     .filter(Boolean);
   const rows = includedKits.map(kit => {
@@ -209,7 +264,7 @@ function getClearanceDealPricing(deal, allKits = []) {
   });
   return getClearanceBundlePricing(
     rows,
-    deal.clearanceKitIds?.length ? deal.clearanceKitIds : deal.kitIds || [],
+    clearanceKitIds,
     deal.clearanceDiscounts || {}
   );
 }
@@ -369,7 +424,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   const { 
     addToBasket, removeFromBasket, isAdmin, 
     isAdminView, shelf, deals, kits: allKits, userOffers,
-    setPendingBasketItem, setLoginModalOpen, user,
+    orders, setPendingBasketItem, setLoginModalOpen, user,
     huntKit,
     shippingSettings,
     setToastMessage
@@ -447,6 +502,16 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     });
   }, [stockList, shelf, kitId, isAdmin, isAdminView]);
 
+  const pendingOrderReservationCount = useMemo(() => {
+    if (!isAdmin || !isAdminView) return 0;
+
+    return stockList.filter((stock) => {
+      if (!stock?.isReserved && !stock?.order?.orderId) return false;
+      const order = findOrderForStock(stock, kitId, orders);
+      return Boolean(order && !hasValidatedFirstReceipt(order));
+    }).length;
+  }, [isAdmin, isAdminView, kitId, orders, stockList]);
+
   const acceptedOffer = useMemo(() => {
     if (isAdminView || !user?.uid || !kitId) return null;
     return (userOffers || []).find((offer) => (
@@ -522,9 +587,9 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   const availabilityCounts = useMemo(() => ({
     // Count all releasable stock, not just the currently public subset. This
     // keeps pre-order totals independent of ETA/release timing and free-shipping flags.
-    onhand: publicReleasableStocks.filter(isOnHandStock).length,
+    onhand: publicReleasableStocks.filter(stock => isCountableOnhandStock(stock, kitId, orders)).length,
     preorder: publicReleasableStocks.filter(isPreOrderStock).length
-  }), [publicReleasableStocks]);
+  }), [kitId, orders, publicReleasableStocks]);
   
   const sellPrice = useMemo(() => {
     const available = visibleStocks.filter(s => !s.isReserved && !s.order?.orderId);
@@ -612,33 +677,34 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       const dealKitIds = deal.type === 'clearance' && deal.clearanceKitIds?.length
         ? deal.clearanceKitIds
         : (deal.kitIds || []);
-      if (!isBundleDeal || deal.isActive === false || !dealKitIds.includes(kitId)) return false;
+      if (!isBundleDeal || !includesKitId(dealKitIds, kitId)) return false;
       if (deal.type !== 'clearance') {
         const validUntil = parseDealDate(deal.validUntil);
         if (validUntil && validUntil.getTime() <= now) return false;
         return dealKitIds.every(dealKitId => {
-          const dealKit = dealKitId === kitId ? kit : (allKits || []).find(k => k.id === dealKitId);
+          const dealKit = String(dealKitId) === String(kitId) ? kit : (allKits || []).find(k => String(k.id) === String(dealKitId));
           const stockSource = deal.stockSource || 'onhand';
           const stocks = Object.values(dealKit?.stocks || {});
-          return stocks.some(stock => isBundlePurchasableStock(stock, stockSource));
+          return stocks.some(stock => (
+            !stock?.order?.orderId
+            && !stock.isReserved
+            && stockMatchesDealSource(stock, stockSource)
+          ));
         });
       }
       // Clearance is a master list: the discount is only valid while every
       // eligible kit can still be fulfilled, not merely the card being viewed.
       const canUseClearanceStock = (stock, source) => (
-        isBundlePurchasableStock(stock, source)
-        && (isAdminView || !stock.isReserved)
+        !stock?.order?.orderId
+        && !stock.isReserved
+        && stockMatchesDealSource(stock, source)
       );
       // Clearance is on-hand only. Pre-order clearance would reserve stock
       // against a deal while still requiring future logistics fulfillment.
       const stockSource = 'onhand';
-      return dealKitIds.every(dealKitId => {
-        const dealKit = dealKitId === kitId ? kit : (allKits || []).find(k => k.id === dealKitId);
-        const stocks = Object.values(dealKit?.stocks || {});
-        return stocks.some(stock => canUseClearanceStock(stock, stockSource));
-      });
+      return Object.values(kit?.stocks || {}).some(stock => canUseClearanceStock(stock, stockSource));
     });
-  }, [allKits, deals, isAdminView, kitId, kit, now]);
+  }, [allKits, deals, kitId, kit, now]);
 
   const bundleDealDetails = useMemo(() => {
     return bundleOnlyDeals.map(deal => {
@@ -1280,7 +1346,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
         freeShippingMethod: finalStock.freeShippingMethod || 'All',
         freeShippingSuboption: finalStock.freeShippingSuboption || 'All'
       });
-      if (isAdmin && isAdminView) closeProductModal(); else navigate('/basket');
+      if (isAdmin && isAdminView) closeProductModal(); else navigate('/cart');
     }
   };
 
@@ -1371,6 +1437,12 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       label: 'Limited Time',
       isActiveDeal: true,
       className: 'bg-red-400/20 text-white border-red-400 shadow-lg'
+    });
+  }
+  if (pendingOrderReservationCount > 0) {
+    gridStatusBadges.push({
+      label: `${pendingOrderReservationCount} PENDING`,
+      className: 'bg-amber-500 text-white border-amber-400 shadow-lg'
     });
   }
   if (availabilityCounts.onhand > 0 || availabilityCounts.preorder > 0) {

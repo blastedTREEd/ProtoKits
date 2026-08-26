@@ -997,13 +997,18 @@ export default function ProjectCard({
     && availableDesignServices.some((service) => service.id === selectedDesignService)
     ? selectedDesignService
     : null;
+  const hasStaleSelectedDesignService = Boolean(
+    isVault
+    && project?.vaultId
+    && selectedDesignService
+    && !effectiveSelectedDesignService
+  );
 
   useEffect(() => {
-    if (!isVault || !project?.vaultId || !selectedDesignService || effectiveSelectedDesignService) return;
-    setSelectedDesignService(null);
+    if (!hasStaleSelectedDesignService) return;
     updateProjectInVault(project.vaultId, { selectedDesignService: null })
       .catch((error) => console.error('SG LOG: Failed to reset disabled design service:', error));
-  }, [effectiveSelectedDesignService, isVault, project?.vaultId, selectedDesignService, updateProjectInVault]);
+  }, [hasStaleSelectedDesignService, project?.vaultId, updateProjectInVault]);
 
   const showDesignServicesPanel = (e) => {
     e.stopPropagation();
@@ -1061,36 +1066,6 @@ export default function ProjectCard({
   const fileTypeLabel = is3MF ? '3MF' : isSTL ? 'STL' : (methodLabel || 'FILE').toUpperCase();
   const costLabel = is3MF ? 'Project Cost' : isSTL ? 'Estimated Cost' : 'Project Cost';
   const showDisclaimer = !project.isFinalized && isSTL;
-
-  const days = project.totals?.days || 0;
-
-  const plateCount = (project.projectDetails || []).length;
-
-  const spoolCount = useMemo(() => {
-    const mats = new Set();
-
-    (project.projectDetails || []).forEach(item => {
-      const name =
-        item.normalizedMaterial?.name ||
-        item.material?.material?.name;
-
-      if (name) mats.add(name);
-    });
-
-    return mats.size;
-  }, [project.projectDetails]);
-
-  const itemLabel = is3MF
-    ? plateCount === 1
-      ? 'Plate'
-      : 'Plates'
-    : isSTL
-      ? plateCount === 1
-        ? 'Model'
-        : 'Parts'
-      : plateCount === 1
-        ? 'Item'
-        : 'Items';
 
   const shelfItem = useMemo(() => (shelf || []).find(item => item.id === (project.id || project.vaultId)), [shelf, project.id, project.vaultId]);
   const isReserved = !!shelfItem;

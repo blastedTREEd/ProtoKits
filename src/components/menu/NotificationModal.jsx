@@ -377,7 +377,8 @@ export default function NotificationModal({
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         transition={{ duration: 0.25, ease: 'easeOut' }}
-        className={`fixed inset-0 z-[900] ${isFullscreen && dimBackdrop ? 'bg-black/30' : 'bg-transparent'}`}
+        style={isFullscreen && dimBackdrop ? { top: navbarHeight } : undefined}
+        className={`fixed z-[900] ${isFullscreen ? 'inset-x-0 bottom-0' : 'inset-0'} ${isFullscreen && dimBackdrop ? 'bg-black/30' : 'bg-transparent'}`}
         aria-hidden="true"
         onClick={onClose}
       />

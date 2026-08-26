@@ -92,7 +92,7 @@ function getHighestOnhandStock(kit) {
 
 function isBundlePurchasableStock(stock, source = 'onhand') {
   if (!stock || stock.order?.orderId || !stockMatchesSource(stock, source)) return false;
-  return !stock.isReserved || stock.reservationType === 'admin';
+  return !stock.isReserved;
 }
 
 function getHighestAvailableOnhandStock(kit) {
@@ -1153,10 +1153,10 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
           </button>
         </div>
 
-        <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
+        <div className="flex-1 min-h-0 overflow-hidden flex flex-col md:flex-row">
           
           {/* ══ Left Column - Creator Panel ══ */}
-          <div className={`w-full md:w-6/12 p-4 md:p-6 md:border-r border-[var(--color-border)] space-y-5 overflow-y-auto custom-scrollbar ${mobileTab === 'creator' ? 'block' : 'hidden md:block'}`}>
+          <div className={`w-full md:w-6/12 min-h-0 p-4 md:p-6 md:border-r border-[var(--color-border)] space-y-5 overflow-y-auto custom-scrollbar ${mobileTab === 'creator' ? 'block' : 'hidden md:block'}`}>
              <div className="space-y-2 text-left">
                 <label className="text-[12px] font-black uppercase tracking-widest opacity-40 ml-2">Select Strategy</label>
                 <div className="grid grid-cols-3 gap-2">
@@ -1457,7 +1457,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
           </div>
 
           {/* ══ Right Column - Saved Deals List ══ */}
-          <div className={`flex-1 flex flex-col bg-black/5 dark:bg-white/[0.02] border-t md:border-t-0 border-[var(--color-border)] ${mobileTab === 'list' ? 'flex' : 'hidden md:flex'}`}>
+          <div className={`flex-1 min-h-0 flex flex-col bg-black/5 dark:bg-white/[0.02] border-t md:border-t-0 border-[var(--color-border)] ${mobileTab === 'list' ? 'flex' : 'hidden md:flex'}`}>
              <div className="p-4 md:p-6 border-b border-[var(--color-border)] text-left">
                 <div className="flex justify-between items-center mb-3">
                    <div>
@@ -1491,7 +1491,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                 </div>
              </div>
 
-             <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-3 custom-scrollbar">
+             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y p-4 md:p-6 space-y-3 custom-scrollbar">
                 {visibleDeals.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center opacity-30 p-10">
                     <Gift size={40} className="stroke-[1.5]" />

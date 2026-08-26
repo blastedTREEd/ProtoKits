@@ -593,7 +593,7 @@ export const useStore = create(
           kits: pathname === '/' || pathname === '' || pathname.startsWith('/kits'),
           deals: pathname.startsWith('/kits'),
           orders: pathname === '/orders' || pathname.startsWith('/orders/'),
-          basket: pathname === '/basket' || pathname === '/shelf',
+          basket: pathname === '/cart' || pathname === '/basket' || pathname === '/shelf',
           // Admin shelf state is also consumed by the navbar and the kit cards.
           // Keep its live listener active on every admin route so collection
           // badges/counts do not depend on opening the shelf page first.
@@ -3273,7 +3273,7 @@ export const useStore = create(
 
         const isBundlePurchasableStock = (stock, source = 'onhand') => {
           if (!stock || stock.order?.orderId || !stockMatchesDealSource(stock, source)) return false;
-          return !stock.isReserved || stock.reservationType === 'admin';
+          return !stock.isReserved;
         };
 
         const bundleDeals = deals.filter(d => (

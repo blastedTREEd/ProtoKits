@@ -303,7 +303,6 @@ export default function Highlights() {
 
             {visibleStories.map((story, index) => {
               const image = getStoryImage(story);
-              const storyDate = getStoryTime(story.storyDate || story.createdAt || story.lastUpdated);
               const isSelected = selectedStoryIds.has(story.id);
 
               return (
@@ -345,18 +344,6 @@ export default function Highlights() {
                       />
                     )}
 
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-black/15 opacity-80 transition-opacity duration-300 group-hover:opacity-100" />
-
-                    <div className="absolute inset-x-0 bottom-0 p-3 text-left sm:p-4">
-                      <h3 className="line-clamp-2 text-sm font-black uppercase leading-tight tracking-tight text-white sm:text-base">
-                        {story.label || 'Untitled highlight'}
-                      </h3>
-                      {storyDate > 0 && (
-                        <time className="block text-[11px] font-bold uppercase tracking-[0.18em] text-white">
-                          {new Date(storyDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                        </time>
-                      )}
-                    </div>
                   </button>
 
                   {canManageStories && (isSelectionMode ? (

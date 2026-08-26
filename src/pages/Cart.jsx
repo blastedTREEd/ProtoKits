@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Trash2, ShoppingBag, ShelvingUnit, ShoppingBasket, PackageOpen, PackagePlus, Plus, Minus } from 'lucide-react';
+import { Trash2, ShoppingBag, ShelvingUnit, ShoppingCart, PackageOpen, PackagePlus, Plus, Minus } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
@@ -241,10 +241,11 @@ function isPreOrderStock(stock = {}) {
 const BASKET_SELECTION_STORAGE_KEY = 'snorlaxgarage:basket-selection-restore';
 const BASKET_SCROLL_TARGET_STORAGE_KEY = 'snorlaxgarage:basket-scroll-target';
 
-export default function Basket() {
+export default function Cart() {
   const { isDarkMode } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
+  const isCartPath = location.pathname === '/cart' || location.pathname === '/basket';
   const { 
     user, isAnonymousUser, basket, shelf, isAdmin, isAdminView, removeFromBasket, kits, userOffers, userOffersLoaded, addToBasket, addProjectToBasket, decrementProjectQuantity,
     guestBasket, isLoading, setLoginModalOpen, shippingSettings, loadMissingKits, refreshBasket, keepOneOfEachToShelf, deals, loadBlueprintProductionStatuses,
@@ -570,22 +571,22 @@ export default function Basket() {
   }, [activeBasket, loadMissingKits]);
 
   useEffect(() => {
-    if (location.pathname !== '/basket' && location.pathname !== '/shelf') return;
+    if (!isCartPath && location.pathname !== '/shelf') return;
 
     void refreshBasket().catch((error) => {
       console.error('SG LOG: Basket refresh on return failed:', error);
     });
-  }, [isAdmin, isAdminView, isAnonymousUser, location.pathname, refreshBasket, user?.uid]);
+  }, [isAdmin, isAdminView, isAnonymousUser, isCartPath, location.pathname, refreshBasket, user?.uid]);
 
   useEffect(() => {
     if (isAdmin) {
       if (isAdminView && location.pathname !== '/shelf') {
         navigate('/shelf', { replace: true });
-      } else if (!isAdminView && location.pathname !== '/basket') {
-        navigate('/basket', { replace: true });
+      } else if (!isAdminView && !isCartPath) {
+        navigate('/cart', { replace: true });
       }
     }
-  }, [isAdminView, isAdmin, navigate, location.pathname]);
+  }, [isAdminView, isAdmin, isCartPath, navigate, location.pathname]);
   
   const isOfferStateLoading = Boolean(user && !isAnonymousUser && !isAdminView && !userOffersLoaded);
   const isBasketRowsLoading = isLoading || missingKitIds.length > 0 || isOfferStateLoading || isProjectStatusLoading;
@@ -1102,7 +1103,7 @@ export default function Basket() {
   const autoUpdatedValidationRef = useRef('');
   useEffect(() => {
     if (
-      location.pathname !== '/basket'
+      !isCartPath
       || (isAdmin && isAdminView)
       || isBasketRowsLoading
       || autoInvalidBasketItemIds.length === 0
@@ -1124,7 +1125,7 @@ export default function Basket() {
       autoUpdatedValidationRef.current = '';
       console.error('SG LOG: Automatic basket update failed:', error);
     });
-  }, [autoInvalidBasketItemIds, isAdmin, isAdminView, isBasketRowsLoading, location.pathname, removeFromBasket]);
+  }, [autoInvalidBasketItemIds, isAdmin, isAdminView, isBasketRowsLoading, isCartPath, location.pathname, removeFromBasket]);
 
   const shelfStats = useMemo(() => {
     if (!isAdmin || !isAdminView) return null;
@@ -1422,9 +1423,9 @@ export default function Basket() {
               {isAdmin && isAdminView ? (
                 <ShelvingUnit size={68} className="mx-auto mb-4" />
               ) : (
-                <ShoppingBasket size={68} className="mx-auto mb-4" />
+                <ShoppingCart size={68} className="mx-auto mb-4" />
               )}
-              <p className="font-bold mb-6">{isAdmin && isAdminView ? "The shelf is empty.." : "Your basket is empty.."}</p>
+              <p className="font-bold mb-6">{isAdmin && isAdminView ? "The shelf is empty.." : "Your cart is empty.."}</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -1805,7 +1806,7 @@ export default function Basket() {
                                   }}
                                   className="px-10 py-3.5 rounded-full font-black uppercase tracking-widest text-xs bg-red-500 text-white shadow-lg shadow-red-500/20 hover:scale-105 transition-all"
                                 >
-                                  Update Basket
+                                  Update Cart
                                 </button>
                               </>
                             );
@@ -1845,7 +1846,7 @@ export default function Basket() {
                                   }}
                                   className="px-10 py-3.5 rounded-full font-black uppercase tracking-widest text-xs bg-amber-500 text-white shadow-lg shadow-amber-500/20 hover:scale-105 transition-all"
                                 >
-                                  Update Basket
+                                  Update Cart
                                 </button>
                               </>
                             );
