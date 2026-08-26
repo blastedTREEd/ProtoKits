@@ -10,6 +10,16 @@ const STORY_CARD_GAP = 12;
 // Stories strip above the navbar.
 const SHOW_STORIES_STRIP = true;
 
+function isNamedProjectWithDisplayImage(project) {
+  const name = String(project?.projectName || '').trim().toLowerCase();
+  const image = typeof project?.image === 'string' ? project.image.trim() : project?.image?.url;
+  const hasName = name
+    && name !== 'unnamed project'
+    && !/^project\s*#(?:\s*\d+)?$/.test(name);
+
+  return Boolean(hasName && image);
+}
+
 function getStoryCardCount(viewportWidth) {
   return Math.max(1, Math.floor((viewportWidth + STORY_CARD_GAP) / (STORY_CARD_WIDTH + STORY_CARD_GAP)));
 }
@@ -36,7 +46,7 @@ function formatStoryDate(value) {
   });
 }
 
-export default function Stories({ isCompact, hideImmediately = false }) {
+export default function Stories({ isCompact, hideImmediately = false, hideAnimatedCards = false }) {
   // Kunin ang actual data mula sa Zustand store (DB)
   const { stories, kits, blueprints, isLoading, isAdmin, isAdminView, setStoriesHeight } = useStore();
   const navigate = useNavigate();
@@ -222,7 +232,11 @@ export default function Stories({ isCompact, hideImmediately = false }) {
       }));
 
     const projectCandidates = (blueprints || [])
-      .filter((project) => project?.isPublished !== false && project?.status !== 'Draft')
+      .filter((project) => (
+        project?.isPublished !== false
+        && project?.status !== 'Draft'
+        && isNamedProjectWithDisplayImage(project)
+      ))
       .sort((a, b) => (
         getTimestamp(b.createdAt || b.updatedAt) - getTimestamp(a.createdAt || a.updatedAt)
       ))
@@ -255,14 +269,22 @@ export default function Stories({ isCompact, hideImmediately = false }) {
         label: kit.name || 'Available Kit'
       }));
 
+    // Mirror the lead Garage Highlights kit as the first item in the animated
+    // strip, then keep the remaining stories/content unique after it.
+    const leadHighlightItem = preOrderItems[0] || onhandItems[0] || recentlyBackInStockItems[0] || replacementKits[0] || null;
+    const leadHighlightTargetId = leadHighlightItem?.targetId || null;
+    const firstHighlightCard = leadHighlightItem
+      ? { ...leadHighlightItem, id: `highlight:${leadHighlightItem.targetId}` }
+      : null;
     const mixedItems = [
+      firstHighlightCard,
       ...recentStories,
-      ...preOrderItems,
-      ...onhandItems,
-      ...recentlyBackInStockItems,
+      ...preOrderItems.filter((item) => item.targetId !== leadHighlightTargetId),
+      ...onhandItems.filter((item) => item.targetId !== leadHighlightTargetId),
+      ...recentlyBackInStockItems.filter((item) => item.targetId !== leadHighlightTargetId),
       ...recentProjects,
-      ...replacementKits
-    ];
+      ...replacementKits.filter((item) => item.targetId !== leadHighlightTargetId)
+    ].filter(Boolean);
 
     // Keep categories visually interleaved without reshuffling on every render.
     // The item IDs provide a stable, random-looking order until the data changes.
@@ -275,7 +297,9 @@ export default function Stories({ isCompact, hideImmediately = false }) {
       return hash >>> 0;
     };
 
-    const randomizedItems = mixedItems.sort((a, b) => stableHash(a.id) - stableHash(b.id));
+    const randomizedItems = mixedItems.slice(1).sort((a, b) => stableHash(a.id) - stableHash(b.id));
+    if (!firstHighlightCard) return randomizedItems;
+
     const storyItems = randomizedItems.filter((item) => item.type === 'story');
     const nonStoryItems = randomizedItems.filter((item) => item.type !== 'story');
 
@@ -283,7 +307,7 @@ export default function Stories({ isCompact, hideImmediately = false }) {
     // each other. Non-story cards are reused only when there are more stories
     // than separators, and the result always ends with a non-story card so
     // the repeated marquee also joins without a story/story pair.
-    if (storyItems.length === 0 || nonStoryItems.length === 0) return randomizedItems;
+    if (storyItems.length === 0 || nonStoryItems.length === 0) return [firstHighlightCard, ...randomizedItems];
 
     const separatedItems = [];
     const itemCount = Math.max(storyItems.length, nonStoryItems.length);
@@ -296,7 +320,7 @@ export default function Stories({ isCompact, hideImmediately = false }) {
       }
     }
 
-    return separatedItems;
+    return [firstHighlightCard, ...separatedItems];
   }, [activeStories, blueprints, getKitImage, getKitStocks, getTimestamp, isAdmin, isAdminView, isAvailableStock, isOnhandStock, isPreOrderStock, kits]);
 
   // Open a story directly when a highlight tile is selected in the homepage grid.
@@ -365,6 +389,7 @@ export default function Stories({ isCompact, hideImmediately = false }) {
         ? [...filledHighlightItems, ...filledHighlightItems, ...filledHighlightItems]
         : filledHighlightItems)
       : syncingStories;
+  const isStoriesStripHidden = isCompact || hideAnimatedCards;
 
   const handleHighlightClick = (item) => {
     if (!item || item.type === 'loading') return;
@@ -393,7 +418,7 @@ export default function Stories({ isCompact, hideImmediately = false }) {
         className={`
         relative z-40 border-b border-white/10 overflow-hidden w-full
         ${hideImmediately ? 'transition-none' : 'transition-all duration-700 ease-in-out'}
-        ${isCompact ? 'max-h-0 opacity-0 pointer-events-none' : 'max-h-[500px] opacity-100'}
+         ${isStoriesStripHidden ? 'max-h-0 opacity-0 pointer-events-none' : 'max-h-[500px] opacity-100'}
         bg-neutral-50/50 dark:bg-black/40
       `}>
         <div className="w-full py-6 relative">
@@ -401,8 +426,9 @@ export default function Stories({ isCompact, hideImmediately = false }) {
           <div className="hidden lg:block absolute left-0 top-0 bottom-0 w-24 bg-gradient-to-r from-white dark:from-neutral-900 via-white/80 dark:via-neutral-900/80 to-transparent z-50 pointer-events-none" />
           <div className="hidden lg:block absolute right-0 top-0 bottom-0 w-24 bg-gradient-to-l from-white dark:from-neutral-900 via-white/80 dark:via-neutral-900/80 to-transparent z-50 pointer-events-none" />
 
-          <div 
-            className={`flex w-max gap-3 ${shouldAnimateStories ? 'animate-infinite-scroll' : ''}`}
+          <div
+            aria-hidden={hideAnimatedCards}
+            className={`flex w-max gap-3 ${shouldAnimateStories ? 'animate-infinite-scroll' : ''} ${hideAnimatedCards ? 'invisible' : ''}`}
             style={{ '--scroll-speed': '50s' }}
           >
             {displayStories.map((highlight, index) => (
@@ -412,36 +438,40 @@ export default function Stories({ isCompact, hideImmediately = false }) {
                 return (
                   <div
                     key={`${highlight.id}-${index}`}
-                    onClick={() => handleHighlightClick(highlight)}
-                    className={`story-card w-28 aspect-[3/4] rounded-[1.5rem] flex-shrink-0 relative overflow-hidden group p-1 shadow-xl ${isLoadingCard
+                    className={`story-card glass-card w-40 sm:w-44 md:w-48 lg:w-56 aspect-[3/4] flex-shrink-0 self-start relative overflow-hidden rounded-[1.5rem] p-1 shadow-xl transition-all duration-500 lg:hover:-translate-y-1 ${isLoadingCard
                       ? 'cursor-default bg-gradient-to-br from-[#0866FF] to-[#00CFFF]'
-                      : 'cursor-pointer glass-card'
+                      : 'cursor-pointer'
                     }`}
                   >
-                <div 
-                  className={`story-card-media w-full h-full rounded-[1.3rem] relative overflow-hidden ${isLoadingCard ? 'bg-gradient-to-br from-[#0866FF] to-[#00CFFF]' : ''}`}
-                  style={isLoadingCard ? undefined : { backgroundColor: `${highlight.value || '#0866ff'}20` }}
-                >
-                  {/* Story Image — kung meron sa DB, i-render as background */}
-                  {highlight.image && (
-                    <img 
-                      src={highlight.image}
-                      alt={highlight.label}
-                      className={`story-card-image absolute z-[1] ${isLoadingCard
-                        ? 'inset-0 m-auto h-[68%] w-[68%] max-h-full max-w-full object-contain'
-                        : 'inset-0 h-full w-full object-cover'
-                      }`}
-                    />
-                  )}
-
-                  {/* Visual Glow Layer - Ito na yung actual color from DB */}
-                  {!isLoadingCard && (
-                    <div
-                      className="absolute -inset-4 opacity-80 blur-2xl transition-opacity group-hover:opacity-50 dark:opacity-30"
-                      style={{ backgroundColor: highlight.value || '#0866ff' }}
-                    />
-                  )}
-                </div>
+                    <div className={`story-card-media relative h-full w-full overflow-hidden rounded-[1.3rem] ${isLoadingCard ? 'bg-gradient-to-br from-[#0866FF] to-[#00CFFF]' : ''}`}>
+                      <button
+                        type="button"
+                        onClick={() => handleHighlightClick(highlight)}
+                        disabled={isLoadingCard}
+                        className="absolute inset-0 w-full text-left disabled:cursor-default"
+                        aria-label={isLoadingCard ? 'Loading garage highlight' : `View highlight: ${highlight.label || 'Garage highlight'}`}
+                      >
+                        <div className="relative h-full w-full overflow-hidden rounded-[1.3rem] bg-[var(--color-bg)]">
+                          {highlight.image ? (
+                            <img
+                              src={highlight.image}
+                              alt={highlight.label || 'Garage highlight'}
+                              className={`absolute z-[1] ${isLoadingCard
+                                ? 'inset-0 m-auto h-[68%] w-[68%] max-h-full max-w-full object-contain'
+                                : 'inset-0 h-full w-full object-cover transition-transform duration-700 lg:group-hover:scale-110'
+                              }`}
+                            />
+                          ) : (
+                            <div
+                              className="absolute inset-0"
+                              style={{
+                                background: `linear-gradient(135deg, ${highlight.value || '#0866ff'} 0%, #111827 100%)`,
+                              }}
+                            />
+                          )}
+                        </div>
+                      </button>
+                    </div>
                   </div>
                 );
               })()

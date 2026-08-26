@@ -4,6 +4,7 @@ import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
 import { useStore } from '../store/useStore';
 import Highlights from '../components/menu/Highlights';
+import BundleHighlights from '../components/menu/BundleHighlights';
 // eslint-disable-next-line no-unused-vars
 import { motion, useScroll, useTransform } from 'framer-motion';
 
@@ -137,7 +138,10 @@ export default function Home() {
         </div>
       </section>
 
-      {/* SECTION 2: GARAGE STORIES */}
+      {/* SECTION 2: BUNDLE DEALS */}
+      <BundleHighlights />
+
+      {/* SECTION 3: GARAGE STORIES */}
       <Highlights />
       </div>
     </PageTemplate>

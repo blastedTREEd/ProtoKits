@@ -338,7 +338,7 @@ const GRADIENT_COLORS = {
 
 const getShadowColor = (gradientClass) => GRADIENT_COLORS[gradientClass] || 'rgba(8,102,255,0.2)';
 
-export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckout, onEdit, onClick, routeKitId, onEditDeal, isAdminLimitedTimeOffer = false }) {
+export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckout, onEdit, onClick, routeKitId, onEditDeal, isAdminLimitedTimeOffer = false, homeZapAction, homePreview = false }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { isDarkMode, isSpectralMode } = useTheme();
@@ -880,6 +880,20 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     };
   }, [isModalOpen]);
 
+  useEffect(() => {
+    if (!homePreview) return undefined;
+
+    window.dispatchEvent(new CustomEvent('highlightModalStateChange', {
+      detail: { open: isModalOpen }
+    }));
+
+    return () => {
+      window.dispatchEvent(new CustomEvent('highlightModalStateChange', {
+        detail: { open: false }
+      }));
+    };
+  }, [homePreview, isModalOpen]);
+
   const galleryImages = useMemo(() => {
     // Resolve master grid image (may be an ID or legacy base64 URL)
     const resolvedGridUrl = resolveImage(kit?.image, kit?.images);
@@ -1155,7 +1169,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     return hasPreorder ? "PRE-ORDER" : "BUY NOW";
   }, [acceptedOffer, acceptedOfferStock, isAdmin, isAdminView, shelfItem, selectedAvailabilityGroup, selectedStock, visibleStocks, availableCount]);
 
-  const getAddtoCartLabel = useCallback(() => "ADD TO BASKET", []);
+  const getAddtoCartLabel = useCallback(() => "ADD TO CART", []);
   const addToCartLabel = getAddtoCartLabel();
 
   const getDefaultCartStock = useCallback(() => {
@@ -1227,7 +1241,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       freeShippingMethod: stockForBasket.freeShippingMethod || 'All',
       freeShippingSuboption: stockForBasket.freeShippingSuboption || 'All'
     });
-    if (!isAdminView) setToastMessage("Added to basket!");
+    if (!isAdminView) setToastMessage("Added to cart!");
     closeProductModal();
   };
 
@@ -1602,20 +1616,25 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     <>
       <div 
         onClick={onClick || handleOpenModal} 
-        className={`w-full group relative rounded-[2.2rem] p-[2px] ${isSpectralMode ? `bg-gradient-to-br ${spectralGradient}` : 'bg-black/5 dark:bg-white/5'} transition-all duration-500 lg:hover:-translate-y-1 cursor-pointer overflow-hidden`}
+        className={homePreview
+          ? 'story-card glass-card w-full aspect-[3/4] rounded-[1.5rem] p-1 shadow-xl transition-all duration-500 lg:hover:-translate-y-1 cursor-pointer overflow-hidden group'
+          : `w-full group relative rounded-[2.2rem] p-[2px] ${isSpectralMode ? `bg-gradient-to-br ${spectralGradient}` : 'bg-black/5 dark:bg-white/5'} transition-all duration-500 lg:hover:-translate-y-1 cursor-pointer overflow-hidden`}
         style={{
-          boxShadow: isDarkMode 
+          boxShadow: homePreview ? undefined : isDarkMode
             ? isSpectralMode 
               ? `0 20px 25px -5px ${shadowColor}, 0 8px 10px -6px ${shadowColor}`
               : `0 20px 25px -5px rgba(0,0,0,0.5), 0 8px 10px -6px rgba(0,0,0,0.5)`
             : `0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1)`
         }}
       >
-        <div className={`relative rounded-[2.1rem] flex flex-col h-full overflow-hidden ${
-          isDarkMode ? 'bg-[var(--color-surface)]' : 'bg-white'
-        }`}>
+        <div className={homePreview
+          ? 'story-card-media relative h-full w-full overflow-hidden rounded-[1.3rem]'
+          : `relative rounded-[2.1rem] flex flex-col h-full overflow-hidden ${
+            isDarkMode ? 'bg-[var(--color-surface)]' : 'bg-white'
+          }`}
+        >
           {/* Status Badges Container (Moved here to appear above inner border) */}
-          <div className="absolute top-4 left-0 z-50 flex flex-col items-start">
+          {!homePreview && <div className="absolute top-4 left-0 z-50 flex flex-col items-start">
                   {sortedGridStatusBadges.map((badge, index) => (
                     <div
                       key={`${badge.label}-${index}`}
@@ -1624,13 +1643,19 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                       {badge.label}
                     </div>
                   ))}
-               </div>
-          <div className="p-3 flex flex-col h-full">
-            <div className="relative aspect-square rounded-2xl overflow-hidden mb-3 bg-[var(--color-bg)] shrink-0 z-0">
-              <div className="absolute inset-0 w-full h-full bg-white dark:bg-[var(--color-surface)] overflow-hidden rounded-2xl">
+               </div>}
+          <div className={homePreview ? 'relative h-full w-full' : 'p-3 flex flex-col h-full'}>
+            <div className={homePreview
+              ? 'relative h-full w-full overflow-hidden rounded-[1.3rem] bg-[var(--color-bg)]'
+              : 'relative aspect-square rounded-2xl overflow-hidden mb-3 bg-[var(--color-bg)] shrink-0 z-0'}
+            >
+              <div className={homePreview
+                ? 'absolute inset-0 h-full w-full overflow-hidden rounded-[1.3rem]'
+                : 'absolute inset-0 w-full h-full bg-white dark:bg-[var(--color-surface)] overflow-hidden rounded-2xl'}
+              >
                  <img src={resolveImage(kit.image, kit?.images) || null} alt={kit.name} loading="lazy" className="w-full h-full object-cover transition-transform duration-700 lg:group-hover:scale-110 transform-gpu" />
                  <div className="absolute top-2 right-2 z-20">
-                    {isAdmin && isAdminView && (
+                    {!homePreview && isAdmin && isAdminView && (
                       <button onClick={(e) => { e.stopPropagation(); onEdit(kit); }} className="px-2 py-1 rounded-full transition-all border bg-gradient-to-br from-amber-500 to-amber-600 border-white/20 shadow-lg text-white font-bold uppercase text-[12px] tracking-widest hover:scale-110">
                         EDIT
                       </button>
@@ -1640,10 +1665,10 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
             </div>
 
             <div className="px-1 text-center flex-1 flex flex-col min-w-0">
-                <div className="h-[2em] flex items-center justify-center min-w-0">
+                {!homePreview && <div className="h-[2em] flex items-center justify-center min-w-0">
                   <h3 className="text-[15px] font-bold uppercase tracking-tighter leading-tight line-clamp-2 w-full group-hover:text-blue-600 transition-colors">{kit.name}</h3>
-                </div>
-            <div className="mt-auto min-w-0 min-h-[50px] flex flex-col justify-end">
+                </div>}
+            {!homePreview && <div className="mt-auto min-w-0 min-h-[50px] flex flex-col justify-end">
                 <div className="flex items-center justify-between gap-2 min-w-0 w-full">
                   <div className="flex items-center justify-between gap-2 min-w-0 w-full">
                   <div className="flex flex-col items-start pb-1 min-w-0 flex-1 text-left">
@@ -1716,17 +1741,29 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                       </button>
                   ) : (
                     <button 
-                      onClick={(e) => { e.stopPropagation(); (availableCount > 0 || canAddLimitedTimeOfferToBasket) ? handleAddToCart() : handleOpenModal(); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (homePreview) {
+                          handleOpenModal();
+                          return;
+                        }
+                        if (typeof homeZapAction === 'function') {
+                          homeZapAction(e, kit);
+                          return;
+                        }
+                        (availableCount > 0 || canAddLimitedTimeOfferToBasket) ? handleAddToCart() : handleOpenModal();
+                      }}
                       className="flex items-center justify-center w-8 h-8 rounded-full transition-all shadow-lg active:scale-95 bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-blue-500/40 lg:hover:scale-110 shrink-0"
+                      title={typeof homeZapAction === 'function' ? 'Open kit' : undefined}
                     >
-                      {(availableCount > 0 || canAddLimitedTimeOfferToBasket)
+                      {typeof homeZapAction === 'function' ? <Zap size={16} fill="currentColor" /> : (availableCount > 0 || canAddLimitedTimeOfferToBasket)
                         ? <Plus size={16} strokeWidth={3} />
                         : (isIncludedInBundleDeal ? <Gift size={14} className="text-white" /> : <Bell size={14} className="text-white fill-white" />)}
                     </button>
                   )}
                 </div>
                 </div>
-              </div>
+              </div>}
             </div>
           </div>
         </div>
@@ -2222,7 +2259,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                   onClick={() => handleDealCheckout(activeBundleDeal, kitId)} 
                                   className="w-full flex items-center justify-center gap-2 px-2 py-4 rounded-full text-white font-black italic uppercase text-[12px] tracking-widest shadow-lg transition-all active:scale-95 whitespace-nowrap bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-emerald-500/20"
                                 >
-                                  <Zap size={14} fill="currentColor" /> {activeBundleDeal?.type === 'clearance' ? 'ADD TO BASKET' : 'GRAB DEAL'}
+                                  <Zap size={14} fill="currentColor" /> {activeBundleDeal?.type === 'clearance' ? 'ADD TO CART' : 'GRAB DEAL'}
                                 </button>
                               </div>
                             </div>

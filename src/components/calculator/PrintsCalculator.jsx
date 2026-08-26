@@ -176,7 +176,9 @@ export default function PrintsCalculator({
   });
   const isUnnamedProjectName = (value) => {
     const normalized = String(value || '').trim().toLowerCase();
-    return !normalized || normalized === 'unnamed project';
+    return !normalized
+      || normalized === 'unnamed project'
+      || /^project\s*#(?:\s*\d+)?$/.test(normalized);
   };
   const rawModifyingProjectName = calculatorData?.projectName || initialData?.projectName || '';
   const modifyingProjectName = isUnnamedProjectName(rawModifyingProjectName)

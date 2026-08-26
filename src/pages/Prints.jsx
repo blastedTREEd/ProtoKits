@@ -20,7 +20,12 @@ const isPrintListing = (project) => (
   || (!!project?.production && (!!project?.image || (Array.isArray(project?.images) && project.images.length > 0)))
 );
 
-const isAdminEstimate = (project) => project?.source === 'admin-estimate';
+const isUnnamedGarageProject = (project) => {
+  const name = String(project?.projectName || '').trim().toLowerCase();
+  return !name
+    || name === 'unnamed project'
+    || /^project\s*#(?:\s*\d+)?$/.test(name);
+};
 
 const getProjectSortTime = (project) => {
   const value = project?.updatedAt || project?.createdAt || project?.dateCreated || project?.date || 0;
@@ -250,23 +255,31 @@ export default function Prints() {
 
   const filteredBlueprints = useMemo(() => {
     if (!blueprints) return [];
-    const printableBlueprints = blueprints.filter(isPrintListing);
+    const printableBlueprints = blueprints
+      .filter(isPrintListing)
+      .filter((project) => (isAdmin && isAdminView) || !isUnnamedGarageProject(project));
     if (!searchTerm) return printableBlueprints;
     const searchWords = searchTerm.toLowerCase().replace(/[-]/g, ' ').split(/\s+/).filter(Boolean);
     return printableBlueprints.filter(b => {
         const targetString = `${b.projectName || ''}`.toLowerCase().replace(/[-]/g, ' ');
         return searchWords.every(word => targetString.includes(word));
     });
-  }, [blueprints, searchTerm]);
+  }, [blueprints, isAdmin, isAdminView, searchTerm]);
 
-  // Keep garage projects visible to public users even when production is
-  // stopped. ProjectCard exposes the unavailable state and blocks basket
-  // actions, while admin-only estimate cards remain private.
-  const garageProjects = useMemo(() => (
-    (isAdmin && isAdminView)
-      ? filteredBlueprints
-      : filteredBlueprints.filter(project => !isAdminEstimate(project))
-  ), [filteredBlueprints, isAdmin, isAdminView]);
+  // Public Garage Projects must have a real name. Admin view retains unnamed
+  // projects so they can be renamed or otherwise managed.
+  const garageProjects = useMemo(() => filteredBlueprints, [filteredBlueprints]);
+
+  const garageProjectTitles = useMemo(() => {
+    const titles = new Map();
+    const publishedProjects = (blueprints || []).filter(isPrintListing);
+    publishedProjects.forEach((project, index) => {
+      if (isUnnamedGarageProject(project) && project?.id) {
+        titles.set(String(project.id), `PROJECT #${index + 1}`);
+      }
+    });
+    return titles;
+  }, [blueprints]);
 
   const vaultProjectTitles = useMemo(() => {
     const map = new Map();
@@ -382,7 +395,7 @@ export default function Prints() {
     if (project?.canAddToBasket === false) return;
     try {
       await addProjectToBasket(project);
-      setToastMessage(isAdmin && isAdminView ? 'Added to shelf!' : 'Added to basket!');
+      setToastMessage(isAdmin && isAdminView ? 'Added to shelf!' : 'Added to cart!');
     } catch (error) {
       console.error("SG DEBUG: Error adding to basket:", error);
       alert(error?.message || 'Unable to add project to basket.');
@@ -636,6 +649,7 @@ export default function Prints() {
                     key={project.id}
                     project={project}
                     type="blueprint"
+                    fallbackTitle={garageProjectTitles.get(String(project.id))}
                     onBasketAction={handleBasketAction}
                     onOrderNow={handleOrderNow}
                     showManagementActions={isAdmin && isAdminView}

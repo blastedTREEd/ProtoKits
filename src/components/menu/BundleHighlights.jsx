@@ -1,0 +1,542 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { Eye, GalleryHorizontal, Gift, Image as ImageIcon, Settings, Sparkles, Zap } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { useStore } from '../../store/useStore';
+import { useTheme } from '../../context/ThemeContext';
+import DealDetailsModal from '../kitcards/DealDetailsModal';
+import ProductCard from '../kitcards/ProductCard';
+import ProjectCard from '../calculator/ProjectCard';
+import { getDealGrabLabel } from '../../utils/dealSavings';
+
+const BUNDLE_TYPES = new Set(['bundle_only', 'bundle_discount']);
+
+function getDealEndDate(value) {
+  if (!value) return null;
+  if (typeof value?.toDate === 'function') return value.toDate();
+  if (typeof value?.toMillis === 'function') return new Date(value.toMillis());
+  if (typeof value?.seconds === 'number') return new Date(value.seconds * 1000);
+  if (value instanceof Date) return value;
+
+  const [datePart, timePart = '00:00'] = String(value).split('T');
+  const [year, month, day] = datePart.split('-').map(Number);
+  const [hours, minutes] = timePart.split(':').map(Number);
+  if (![year, month, day, hours, minutes].every(Number.isFinite)) return null;
+  return new Date(year, month - 1, day, hours, minutes);
+}
+
+function isPurchasableStock(stock, source = 'onhand') {
+  if (!stock || stock.order?.orderId || stock.isReserved) return false;
+  const status = String(stock.status || '').toLowerCase().trim();
+  const isPreOrder = status.includes('pre') || status.includes('batch') || status.includes('eta');
+  const isOnhand = status === 'onhand' || status === 'on hand';
+  return source === 'preorder' ? isPreOrder : isOnhand;
+}
+
+function getGridImageMeta(kit) {
+  const images = Array.isArray(kit?.images) ? kit.images : [];
+  const gridImage = kit?.image;
+  const imageId = typeof gridImage === 'string' ? gridImage : gridImage?.id;
+  const imageUrl = typeof gridImage === 'string' ? gridImage : gridImage?.url;
+
+  return images.find((image) => image?.id === imageId || image?.url === imageUrl)
+    || (typeof gridImage === 'object' ? gridImage : null);
+}
+
+function resolveKitImage(kit) {
+  const gridImage = kit?.image;
+  if (typeof gridImage === 'string' && gridImage) return gridImage;
+  if (gridImage?.url) return gridImage.url;
+
+  return (Array.isArray(kit?.images) ? kit.images : [])
+    .map((image) => typeof image === 'string' ? image : image?.url)
+    .find(Boolean)
+    || '/snorlaxgarage.png';
+}
+
+function isBoxArtKitCard(card) {
+  return card?.type === 'kit'
+    && String(getGridImageMeta(card.kit)?.type || '').trim().toUpperCase() === 'BOX ART';
+}
+
+function isNamedProjectWithDisplayImage(project) {
+  const name = String(project?.projectName || '').trim().toLowerCase();
+  const image = typeof project?.image === 'string' ? project.image.trim() : project?.image?.url;
+  const hasName = name
+    && name !== 'unnamed project'
+    && !/^project\s*#(?:\s*\d+)?$/.test(name);
+
+  return Boolean(hasName && image);
+}
+
+function getBundleKitIds(deal) {
+  return Array.isArray(deal?.kitIds) ? deal.kitIds : [];
+}
+
+function getClearanceKitIds(deal) {
+  return Array.isArray(deal?.clearanceKitIds) && deal.clearanceKitIds.length > 0
+    ? deal.clearanceKitIds
+    : getBundleKitIds(deal);
+}
+
+function getTimestamp(value) {
+  if (!value) return 0;
+  if (typeof value?.toMillis === 'function') return value.toMillis();
+  if (typeof value?.toDate === 'function') return value.toDate().getTime();
+  if (typeof value?.seconds === 'number') return value.seconds * 1000;
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function getPreviewTileClass(total, index) {
+  if (total === 1) return 'col-span-2 row-span-2';
+  if (total === 2) return 'col-span-2';
+  if (total === 3 && index === 0) return 'col-span-2';
+  return '';
+}
+
+function getSpectralGradient(id) {
+  const gradients = [
+    'from-rose-500 to-orange-500',
+    'from-orange-500 to-amber-500',
+    'from-emerald-500 to-teal-500',
+    'from-cyan-500 to-blue-500',
+    'from-indigo-500 to-purple-500',
+    'from-fuchsia-500 to-pink-500',
+    'from-blue-600 to-indigo-600',
+    'from-violet-500 to-purple-500'
+  ];
+  const value = String(id || 'bundle');
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) - hash) + value.charCodeAt(index);
+    hash |= 0;
+  }
+  return gradients[Math.abs(hash) % gradients.length];
+}
+
+function getShadowColor(gradientClass) {
+  const colors = {
+    'from-rose-500 to-orange-500': 'rgba(244, 63, 94, 0.2)',
+    'from-orange-500 to-amber-500': 'rgba(249, 115, 22, 0.2)',
+    'from-emerald-500 to-teal-500': 'rgba(16, 185, 129, 0.2)',
+    'from-cyan-500 to-blue-500': 'rgba(6, 182, 212, 0.2)',
+    'from-indigo-500 to-purple-500': 'rgba(99, 102, 241, 0.2)',
+    'from-fuchsia-500 to-pink-500': 'rgba(217, 70, 239, 0.2)',
+    'from-blue-600 to-indigo-600': 'rgba(37, 99, 235, 0.2)',
+    'from-violet-500 to-purple-500': 'rgba(139, 92, 246, 0.2)'
+  };
+  return colors[gradientClass] || 'rgba(8,102,255,0.2)';
+}
+
+function stableHash(value) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function randomizeFeedCards(cards, limit = 10) {
+  const projectCards = cards.filter((card) => card.type === 'project');
+  const nonProjectCards = cards.filter((card) => card.type !== 'project');
+  const projectLimit = Math.min(projectCards.length, nonProjectCards.length + 1, limit);
+  const selectedProjects = projectCards.slice(0, projectLimit);
+  const selectedNonProjects = nonProjectCards.slice(0, Math.max(0, limit - selectedProjects.length));
+  const shuffle = (items, salt) => [...items].sort((a, b) => (
+    stableHash(`${salt}:${a.id}`) - stableHash(`${salt}:${b.id}`)
+  ));
+  const remainingCards = shuffle([...selectedProjects, ...selectedNonProjects], 'cards');
+  const reorderedCards = [];
+
+  while (remainingCards.length > 0) {
+    const previousCard = reorderedCards[reorderedCards.length - 1];
+    const validCards = remainingCards.filter((card) => {
+      if (!previousCard) return true;
+      if (card.type === 'project' && previousCard.type === 'project') return false;
+      return !(isBoxArtKitCard(card) && isBoxArtKitCard(previousCard));
+    });
+    const candidates = validCards.length > 0 ? validCards : remainingCards;
+    const nextCard = candidates[0];
+    reorderedCards.push(nextCard);
+    remainingCards.splice(remainingCards.indexOf(nextCard), 1);
+  }
+
+  return reorderedCards;
+}
+
+export default function BundleHighlights() {
+  const {
+    deals,
+    kits,
+    blueprints,
+    isLoading,
+    loadAllDeals,
+    isAdmin,
+    isAdminView
+  } = useStore();
+  const navigate = useNavigate();
+  const { isDarkMode, isSpectralMode } = useTheme();
+  const [now, setNow] = useState(() => Date.now());
+  const [selectedDeal, setSelectedDeal] = useState(null);
+  const [isAnimatedHighlightsRowHidden, setIsAnimatedHighlightsRowHidden] = useState(false);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  // Deals are normally loaded on the Kits route. The home page uses the same
+  // live collection, so load it here when this section is first mounted.
+  useEffect(() => {
+    if (!Array.isArray(deals) || deals.length === 0) {
+      loadAllDeals().catch((error) => {
+        console.error('Failed to load home bundle deals:', error);
+      });
+    }
+  }, [deals, loadAllDeals]);
+
+  const activeBundles = useMemo(() => {
+    const kitMap = new Map((kits || []).map((kit) => [String(kit.id), kit]));
+    return (deals || [])
+      .filter((deal) => {
+        if (!BUNDLE_TYPES.has(deal?.type) || deal.isActive === false) return false;
+        const endDate = getDealEndDate(deal.validUntil);
+        if (endDate && endDate.getTime() <= now) return false;
+
+        const kitIds = getBundleKitIds(deal);
+        if (kitIds.length === 0) return false;
+
+        // Keep this section aligned with the Kits page: a bundle is shown only
+        // when every included kit can still allocate a stock for the deal.
+        return kitIds.every((kitId) => {
+          const kit = kitMap.get(String(kitId));
+          return Object.values(kit?.stocks || {}).some((stock) => (
+            isPurchasableStock(stock, deal.stockSource || 'onhand')
+          ));
+        });
+      })
+      .map((deal) => ({
+        ...deal,
+        previewKits: getBundleKitIds(deal)
+          .map((kitId) => kitMap.get(String(kitId)))
+          .filter(Boolean)
+          .slice(0, 4)
+      }))
+      .sort((a, b) => {
+        const aEnd = getDealEndDate(a.validUntil)?.getTime() || Number.MAX_SAFE_INTEGER;
+        const bEnd = getDealEndDate(b.validUntil)?.getTime() || Number.MAX_SAFE_INTEGER;
+        return aEnd - bEnd;
+      });
+  }, [deals, kits, now]);
+
+  const fillerCards = useMemo(() => {
+    const usedKitIds = new Set();
+    const usedProjectIds = new Set();
+    const cards = [];
+    const kitMap = new Map((kits || []).map((kit) => [String(kit.id), kit]));
+
+    const isPubliclyReleased = (stock) => {
+      const releaseTime = getTimestamp(stock?.publicReleaseDate);
+      return !releaseTime || releaseTime <= now;
+    };
+
+    const getMatchingStock = (kit, source) => Object.entries(kit?.stocks || {})
+      .map(([key, stock]) => ({ key, ...(stock || {}) }))
+      .filter((stock) => isPubliclyReleased(stock) && isPurchasableStock(stock, source))
+      .sort((a, b) => getTimestamp(b.lastUpdated || b.createdAt) - getTimestamp(a.lastUpdated || a.createdAt))[0] || null;
+
+    const hasActiveFreeShipping = (stock) => {
+      if (!stock?.isFreeShippingEligible) return false;
+      const expiry = getTimestamp(stock.freeShippingUntil);
+      return !expiry || expiry > now;
+    };
+
+    // Priority 1: newest public pre-order kits.
+    (kits || [])
+      .map((kit) => ({ kit, stock: getMatchingStock(kit, 'preorder') }))
+      .filter(({ kit, stock }) => stock && kit?.id && !usedKitIds.has(String(kit.id)))
+      .sort((a, b) => (
+        Number(hasActiveFreeShipping(b.stock)) - Number(hasActiveFreeShipping(a.stock)) ||
+        getTimestamp(b.stock?.lastUpdated || b.stock?.createdAt || b.kit?.lastUpdated || b.kit?.createdAt) -
+        getTimestamp(a.stock?.lastUpdated || a.stock?.createdAt || a.kit?.lastUpdated || a.kit?.createdAt)
+      ))
+      .forEach(({ kit, stock }) => {
+        usedKitIds.add(String(kit.id));
+        cards.push({ type: 'kit', id: `preorder:${kit.id}`, kit, stock, label: 'PRE-ORDER' });
+      });
+
+    // Priority 2: kits with an active clearance discount.
+    (deals || [])
+      .filter((deal) => {
+        if (deal?.type !== 'clearance' || deal.isActive === false) return false;
+        const endDate = getDealEndDate(deal.validUntil);
+        return !endDate || endDate.getTime() > now;
+      })
+      .sort((a, b) => (
+        (getDealEndDate(a.validUntil)?.getTime() || Number.MAX_SAFE_INTEGER) -
+        (getDealEndDate(b.validUntil)?.getTime() || Number.MAX_SAFE_INTEGER)
+      ))
+      .forEach((deal) => {
+        getClearanceKitIds(deal).forEach((kitId) => {
+          const kit = kitMap.get(String(kitId));
+          const stock = getMatchingStock(kit, 'onhand');
+          if (!kit?.id || !stock || usedKitIds.has(String(kit.id))) return;
+          usedKitIds.add(String(kit.id));
+          cards.push({ type: 'kit', id: `clearance:${deal.id}:${kit.id}`, kit, stock, label: 'CLEARANCE' });
+        });
+      });
+
+    // Priority 3: published Garage Projects currently enabled for printing.
+    (blueprints || [])
+      .filter((project) => (
+        project?.isPublished !== false
+        && project?.status !== 'Draft'
+        && project?.canAddToBasket !== false
+        && isNamedProjectWithDisplayImage(project)
+      ))
+      .sort((a, b) => getTimestamp(b.createdAt || b.updatedAt) - getTimestamp(a.createdAt || a.updatedAt))
+      .forEach((project) => {
+        if (!project?.id || usedProjectIds.has(String(project.id))) return;
+        usedProjectIds.add(String(project.id));
+        cards.push({ type: 'project', id: `project:${project.id}`, project, label: 'GARAGE PROJECT' });
+      });
+
+    // Priority 4: kits from active bundle deals.
+    activeBundles.forEach((deal) => {
+      const stockSource = deal.stockSource || 'onhand';
+      getBundleKitIds(deal).forEach((kitId) => {
+        const kit = kitMap.get(String(kitId));
+        const stock = getMatchingStock(kit, stockSource);
+        if (!kit?.id || !stock || usedKitIds.has(String(kit.id))) return;
+        usedKitIds.add(String(kit.id));
+        cards.push({ type: 'kit', id: `bundle:${deal.id}:${kit.id}`, kit, stock, label: 'BUNDLE' });
+      });
+    });
+
+    return cards;
+  }, [activeBundles, blueprints, deals, kits, now]);
+
+  const displayCards = useMemo(() => {
+    // Keep priority selection, then randomize the presentation while using
+    // kit/other cards as separators between project cards.
+    return randomizeFeedCards(fillerCards, 10);
+  }, [fillerCards]);
+  const isLoadingBundles = isLoading && activeBundles.length === 0;
+
+  if (!isLoading && displayCards.length === 0) return null;
+
+  const getFeedVisibility = (index) => {
+    // Mobile uses three rows (3 columns). md keeps two rows (4 columns),
+    // while sm and lg use two rows (5 columns).
+    if (index < 8) return '';
+    if (index === 8) return 'md:hidden lg:block';
+    if (index === 9) return 'hidden sm:block md:hidden lg:block';
+    return 'hidden';
+  };
+
+  const handleOpenBundle = (deal) => {
+    setSelectedDeal(deal);
+  };
+
+  const handleOpenDealKit = (kit) => {
+    if (!kit?.id) return;
+    setSelectedDeal(null);
+    navigate(`/kits/${encodeURIComponent(kit.id)}`);
+  };
+
+  const handleDealAction = (deal) => {
+    setSelectedDeal(null);
+    navigate('/kits', { state: { openDealId: deal.id } });
+  };
+
+  const renderDealCard = (deal, visibilityClass = '') => {
+    const previewKits = deal.previewKits;
+    const includedKitCount = getBundleKitIds(deal).length;
+    const remainingCount = Math.max(0, includedKitCount - 4);
+    const dealGradient = getSpectralGradient(deal.id);
+    const dealShadow = getShadowColor(dealGradient);
+    const dealPrice = Number(deal.bundlePrice || 0);
+
+    return (
+      <div
+        key={deal.id}
+        role="button"
+        tabIndex={0}
+        onClick={() => handleOpenBundle(deal)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            handleOpenBundle(deal);
+          }
+        }}
+        className={`${visibilityClass} w-full group relative rounded-[2.2rem] p-[2px] ${isSpectralMode ? `bg-gradient-to-br ${dealGradient}` : 'bg-black/5 dark:bg-white/5'} transition-all duration-500 lg:hover:-translate-y-1 cursor-pointer overflow-hidden`}
+        style={{
+          boxShadow: isDarkMode
+            ? isSpectralMode
+              ? `0 20px 25px -5px ${dealShadow}, 0 8px 10px -6px ${dealShadow}`
+              : '0 20px 25px -5px rgba(0,0,0,0.5), 0 8px 10px -6px rgba(0,0,0,0.5)'
+            : '0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1)'
+        }}
+      >
+        <div className="relative flex h-full flex-col rounded-[2.1rem] bg-white p-3 dark:bg-[var(--color-surface)]">
+          <div className="relative mb-3 aspect-square shrink-0 overflow-hidden rounded-2xl bg-white dark:bg-[var(--color-surface)]">
+            <div className="grid h-full w-full grid-cols-2 grid-rows-2 gap-1.5">
+              {previewKits.length > 0 ? previewKits.map((kit, index) => (
+                <div key={kit?.id || index} className={`relative h-full w-full overflow-hidden rounded-xl ${getPreviewTileClass(previewKits.length, index)}`}>
+                  <img src={resolveKitImage(kit)} className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110" alt="" />
+                  {index === 3 && remainingCount > 0 && (
+                    <div className="absolute inset-0 flex items-center justify-center text-[14px] font-bold italic text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]">+{remainingCount}</div>
+                  )}
+                </div>
+              )) : (
+                <div className="col-span-2 flex items-center justify-center text-emerald-600 opacity-20"><Gift size={40} strokeWidth={1} /></div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex min-w-0 flex-1 flex-col px-1 text-center">
+            <div className="hidden" aria-hidden="true">
+              <h3 className="line-clamp-2 w-full text-[14px] font-bold uppercase leading-tight tracking-tighter transition-colors group-hover:text-emerald-600" title={deal.name}>
+                {deal.name}
+              </h3>
+            </div>
+            <div className="hidden" aria-hidden="true">
+              <div className="flex w-full min-w-0 items-center justify-between gap-2 pb-1">
+                <div className="flex min-w-0 flex-1 flex-col items-start pb-1 text-left">
+                  <span className={`block w-full truncate text-[14px] font-bold uppercase tracking-tighter ${isAdmin && isAdminView ? 'text-blue-500 dark:text-blue-400' : 'text-emerald-500 dark:text-emerald-400'}`}>
+                    {isAdmin && isAdminView ? 'EDIT DEAL' : getDealGrabLabel(deal)}
+                  </span>
+                  <span className="text-[14px] font-bold italic leading-none tracking-tighter text-amber-500 dark:text-amber-400">₱{dealPrice.toLocaleString()}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleDealAction(deal);
+                  }}
+                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white shadow-lg transition-all active:scale-95 lg:hover:scale-110 ${isAdmin && isAdminView ? 'bg-gradient-to-br from-blue-500 to-blue-600 shadow-blue-500/40' : 'bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-emerald-500/40'}`}
+                  title={isAdmin && isAdminView ? 'Edit Deal' : 'Grab Deal'}
+                  aria-label={isAdmin && isAdminView ? 'Edit deal' : 'Grab deal'}
+                >
+                  {isAdmin && isAdminView ? <Settings size={14} /> : <Zap size={14} fill="currentColor" />}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const handleHomeKitZap = (event, kit) => {
+    event?.stopPropagation();
+    if (!kit?.id) return;
+    navigate(`/kits/${encodeURIComponent(kit.id)}`);
+  };
+
+  const handleHomeProjectZap = (event, project) => {
+    event?.stopPropagation();
+    if (!project?.id) return;
+    navigate(`/prints/${encodeURIComponent(project.id)}`);
+  };
+
+  const renderFillerCard = (card, visibilityClass) => {
+    const isProject = card.type === 'project';
+    const item = isProject ? card.project : card.kit;
+    const previewKit = item;
+
+    return (
+      <div key={card.id} className={`${visibilityClass} w-full`}>
+        {isProject ? (
+          <ProjectCard
+            project={item}
+            type="blueprint"
+            showManagementActions={false}
+            homeZapAction={handleHomeProjectZap}
+            homePreview
+          />
+        ) : (
+          <ProductCard
+            kit={previewKit}
+            homeZapAction={handleHomeKitZap}
+            onEdit={() => navigate('/kits')}
+            homePreview
+          />
+        )}
+      </div>
+    );
+  };
+
+  const handleToggleStoriesStrip = () => {
+    const nextHiddenState = !isAnimatedHighlightsRowHidden;
+    setIsAnimatedHighlightsRowHidden(nextHiddenState);
+    window.dispatchEvent(new CustomEvent('toggleGarageStoriesStrip', {
+      detail: { hidden: nextHiddenState }
+    }));
+  };
+
+  return (
+    <section className="relative overflow-visible border-t border-black/[0.06] bg-neutral-50 px-5 pb-10 dark:border-white/[0.08] dark:bg-[#111111] sm:px-8 lg:px-12">
+      <div className="mx-auto max-w-7xl">
+        <div className="sticky top-[56px] z-[80] -mx-5 mb-4 flex flex-nowrap items-center justify-between gap-2 border-b border-black/5 bg-neutral-50/95 px-5 py-4 backdrop-blur-md sm:top-[60px] sm:-mx-8 sm:gap-4 sm:px-8 lg:-mx-12 lg:px-12 dark:border-white/5 dark:bg-[#111111]/95">
+          <h2 className="inline-flex min-w-0 items-center gap-1 whitespace-nowrap text-[clamp(18px,6vw,25px)] font-black italic uppercase leading-none tracking-[-0.06em] text-neutral-950 dark:text-white">
+            <span className="text-garage-blue">Garage</span>
+            <span>Highlights</span>
+            <Sparkles className="shrink-0 text-black dark:text-white" size={16} strokeWidth={2.5} aria-hidden="true" />
+          </h2>
+
+          {isAdmin && isAdminView && (
+            <button
+              type="button"
+              onClick={handleToggleStoriesStrip}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-black/10 bg-white text-neutral-800 shadow-sm transition-colors hover:border-garage-blue hover:text-garage-blue dark:border-white/10 dark:bg-white/5 dark:text-white"
+              title={isAnimatedHighlightsRowHidden ? 'Show animated highlights row' : 'Hide animated highlights row'}
+              aria-label={isAnimatedHighlightsRowHidden ? 'Show animated highlights row' : 'Hide animated highlights row'}
+              aria-pressed={isAnimatedHighlightsRowHidden}
+            >
+              <GalleryHorizontal size={16} />
+            </button>
+          )}
+        </div>
+
+        {isLoadingBundles ? (
+          <div className="grid min-h-[300px] grid-cols-3 items-start gap-2 sm:grid-cols-5 sm:gap-4 md:grid-cols-4 lg:grid-cols-5">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <div key={`bundle-skeleton-${index}`} className="relative aspect-[3/4] overflow-hidden rounded-2xl border border-black/[0.05] bg-neutral-200 shadow-sm dark:border-2 dark:border-neutral-500 dark:bg-neutral-900">
+                <img src="/snorlaxgarage.png" alt="Loading bundle deals" className="h-full w-full object-contain p-6 opacity-20" />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="grid min-h-[300px] content-start grid-cols-3 items-start gap-2 sm:min-h-[300px] sm:grid-cols-5 sm:gap-4 md:min-h-[460px] md:grid-cols-4 lg:min-h-[500px] lg:grid-cols-5 xl:min-h-[620px] 2xl:min-h-[664px]">
+            {displayCards.map((card, index) => {
+              const visibilityClass = getFeedVisibility(index);
+              return card.type === 'deal'
+                ? renderDealCard(card.deal, visibilityClass)
+                : renderFillerCard(card, visibilityClass);
+            })}
+          </div>
+        )}
+
+        {!isLoadingBundles && displayCards.length === 0 && (
+          <div className="flex min-h-64 flex-col items-center justify-center rounded-3xl border border-dashed border-black/10 bg-white/70 px-6 text-center dark:border-white/10 dark:bg-white/[0.03]">
+            <ImageIcon className="mb-4 text-garage-blue" size={26} />
+            <p className="text-sm font-black uppercase tracking-[0.18em] text-neutral-900 dark:text-white">Bundle deals are loading in</p>
+          </div>
+        )}
+      </div>
+
+      <DealDetailsModal
+        isOpen={Boolean(selectedDeal)}
+        onClose={() => setSelectedDeal(null)}
+        deal={selectedDeal}
+        onBuyNow={handleDealAction}
+        onAddToBasket={handleDealAction}
+        onOpenKit={handleOpenDealKit}
+        isEditMode={isAdmin && isAdminView}
+        onEditDeal={handleDealAction}
+      />
+    </section>
+  );
+}

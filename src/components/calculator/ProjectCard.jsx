@@ -723,6 +723,8 @@ export default function ProjectCard({
   showManagementActions = false,
   onModify,
   onDelete,
+  homeZapAction,
+  homePreview = false,
   isReadOnly = false,
   openOnMount = false,
   reopenRequestToken = null
@@ -823,7 +825,7 @@ export default function ProjectCard({
     return !normalized
       || normalized === 'unnamed project'
       || (normalizedDefaultTitle && normalized === normalizedDefaultTitle)
-      || /^project\s*#\s*\d+$/.test(normalized);
+      || /^project\s*#(?:\s*\d+)?$/.test(normalized);
   };
   const projectNameNeedsUpdate = isVault && isUnnamedProjectName(projectNameLocal, fallbackTitle);
 
@@ -886,6 +888,20 @@ export default function ProjectCard({
       lastManualActionTime.current = Date.now();
     }
   }, [isModalOpen]);
+
+  useEffect(() => {
+    if (!homePreview) return undefined;
+
+    window.dispatchEvent(new CustomEvent('highlightModalStateChange', {
+      detail: { open: isModalOpen }
+    }));
+
+    return () => {
+      window.dispatchEvent(new CustomEvent('highlightModalStateChange', {
+        detail: { open: false }
+      }));
+    };
+  }, [homePreview, isModalOpen]);
 
   useEffect(() => {
     if (!openOnMount || isModalOpen || hasAutoOpenedRef.current) return;
@@ -1336,14 +1352,15 @@ export default function ProjectCard({
   }, [orders, shippingSettings?.availabilitySchedule]);
 
   // Both project types require an operational printer that can fit the project,
-  // accept its materials, provide enough filament slots, and have an available
-  // production date. Garage Projects additionally respect the admin production
-  // flag; personal projects keep their file/design-service validation as well.
+  // accept its materials, and have enough filament capacity. Garage Projects
+  // additionally respect the admin production flag. Their public actions do
+  // not depend on today's calendar slot; checkout/scheduling can assign the
+  // next available production date. Personal projects keep their existing
+  // schedule and file/design-service validation.
   const canUseProject = isBlueprint
     ? isProductionEnabled
       && printerIsAvailable
       && materialStatus.available
-      && projectCanStartToday
     : printerIsAvailable
       && materialStatus.available
       && projectCanStartToday
@@ -1547,7 +1564,7 @@ export default function ProjectCard({
     ? 'Rename Project'
     : vaultNeedsFileLink
       ? 'Enter Valid Link'
-      : 'Add to Basket';
+      : 'Add to Cart';
   const vaultPrimaryActionDisabled = isPublicVaultView
     && !vaultNeedsProjectName
     && !vaultNeedsFileLink
@@ -1565,39 +1582,43 @@ export default function ProjectCard({
           />
         </div>
       )}
-      <div 
-        onClick={handleOpenModal} 
-        className={`w-full group relative rounded-[2.2rem] p-[2px] ${isSpectralMode ? `bg-gradient-to-br ${spectralGradient}` : 'bg-black/5 dark:bg-white/5'} transition-all duration-500 lg:hover:-translate-y-1 cursor-pointer overflow-hidden`}
+      <div
+        onClick={handleOpenModal}
+        className={homePreview
+          ? 'story-card glass-card w-full aspect-[3/4] rounded-[1.5rem] p-1 shadow-xl transition-all duration-500 lg:hover:-translate-y-1 cursor-pointer overflow-hidden group'
+          : `w-full group relative rounded-[2.2rem] p-[2px] ${isSpectralMode ? `bg-gradient-to-br ${spectralGradient}` : 'bg-black/5 dark:bg-white/5'} transition-all duration-500 lg:hover:-translate-y-1 cursor-pointer overflow-hidden`}
         style={{
-          boxShadow: isDarkMode 
+          boxShadow: homePreview ? undefined : isDarkMode
             ? isSpectralMode
               ? `0 20px 25px -5px ${shadowColor}, 0 8px 10px -6px ${shadowColor}`
               : `0 20px 25px -5px rgba(0,0,0,0.5), 0 8px 10px -6px rgba(0,0,0,0.5)`
             : `0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1)`
         }}
       >
-        <div className={`relative rounded-[2.1rem] flex flex-col h-full overflow-hidden ${
-            isDarkMode ? 'bg-[var(--color-surface)]' : 'bg-white'
-          }`}>
+        <div className={homePreview
+          ? 'story-card-media relative h-full w-full overflow-hidden rounded-[1.3rem]'
+          : `relative rounded-[2.1rem] flex flex-col h-full overflow-hidden ${isDarkMode ? 'bg-[var(--color-surface)]' : 'bg-white'}`
+        }>
           {/* Status Badges Container */}
-          <div className="absolute top-4 left-0 z-50 flex flex-col items-start px-2">
+          {!homePreview && <div className="absolute top-4 left-0 z-50 flex flex-col items-start px-2">
               {isReserved && (
                   <div className={`px-1.5 py-0.5 font-bold uppercase tracking-tigther text-[13px] ${isAdminView ? 'bg-blue-500 text-white' : 'bg-red-500 text-white'} shadow-lg`}>
                       {isAdminView ? 'Reserved' : 'NOT FOR SALE'}
                   </div>
               )}
-          </div>
+          </div>}
 
-          <div className="p-3 flex flex-col h-full">
+          <div className={homePreview ? 'relative h-full w-full' : 'p-3 flex flex-col h-full'}>
             {/* IMAGE / ICON AREA */}
-            <div className={`relative aspect-square rounded-2xl overflow-hidden mb-3 shrink-0 text-left transform-gpu ${
-              isVault && !displayImage ? 'block bg-blue-600/10 p-2 dark:bg-blue-600/20' : 'bg-[var(--color-bg)] flex items-center justify-center'
-            }`}>
+            <div className={homePreview
+              ? 'relative h-full w-full overflow-hidden rounded-[1.3rem] bg-[var(--color-bg)]'
+              : `relative aspect-square rounded-2xl overflow-hidden mb-3 shrink-0 text-left transform-gpu ${isVault && !displayImage ? 'block bg-blue-600/10 p-2 dark:bg-blue-600/20' : 'bg-[var(--color-bg)] flex items-center justify-center'}`
+            }>
               {displayImage ? (
                 <img 
                   src={displayImage} 
                   alt={projectTitle} 
-                  className="w-full h-full object-cover lg:group-hover:scale-110 transition-transform duration-700" 
+                  className="w-full h-full object-cover lg:group-hover:scale-110 transition-transform duration-700"
                 />
               ) : isVault ? (
                 /* Vault project info boxes — 2×2 grid */
@@ -1651,13 +1672,13 @@ export default function ProjectCard({
 
             {/* CONTENT AREA */}
             <div className="px-1 text-center flex-1 flex flex-col">
-              <div className="h-[2em] flex items-center justify-center min-w-0">
+              {!homePreview && <div className="h-[2em] flex items-center justify-center min-w-0">
                 <h3 className="text-[15px] font-bold uppercase tracking-tighter leading-tight line-clamp-2 w-full group-hover:text-blue-600 transition-colors">
                   {projectTitle}
                 </h3>
-              </div>
+              </div>}
               
-              <div className="mt-auto">
+              {!homePreview && <div className="mt-auto">
                 <div className="flex items-center justify-between gap-2 pb-1">
                   <div className="flex flex-col items-start">
                     <div className="text-[14px] font-bold uppercase tracking-tighter mb-1 select-none leading-none inline-block text-black dark:text-white">
@@ -1686,6 +1707,14 @@ export default function ProjectCard({
                     <button
                         onClick={async (e) => {
                         e.stopPropagation();
+                        if (homePreview) {
+                          handleOpenModal();
+                          return;
+                        }
+                        if (typeof homeZapAction === 'function') {
+                          homeZapAction(e, project);
+                          return;
+                        }
                         if (!canAddToBasket) {
                           if (canModifyProject) {
                             setGalleryIndex(0);
@@ -1702,6 +1731,9 @@ export default function ProjectCard({
                         await handleAddProjectToBasket(e);
                         }}
                         className={`w-8 h-8 rounded-full transition-all flex items-center justify-center active:scale-95 shadow-lg ${
+                        typeof homeZapAction === 'function'
+                            ? 'bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-emerald-500/40 text-white hover:scale-110'
+                            :
                         !canAddToBasket && canModifyProject
                             ? 'bg-gradient-to-br from-amber-500 to-orange-500 shadow-amber-500/40 text-white hover:scale-110'
                             : !canAddToBasket
@@ -1710,15 +1742,17 @@ export default function ProjectCard({
                             ? 'bg-gradient-to-br from-amber-500 to-orange-500 shadow-amber-500/40 text-white hover:scale-110'
                             : 'bg-gradient-to-br from-blue-500 to-blue-600 shadow-blue-500/40 text-white hover:scale-110'
                         }`}
-                        title={printerIssue
+                        title={typeof homeZapAction === 'function' ? 'Open project' : printerIssue
                           ? 'Printer issue'
                           : !canAddToBasket
                             ? (canModifyProject ? 'Modify project' : 'Public view only')
                             : isVault && !vaultReadyForBasket
                               ? (projectNameNeedsUpdate ? 'Custom project name required' : 'File link or 3D service required')
-                              : 'Add to Basket'}
+                              : 'Add to Cart'}
                     >
-                        {isVault ? (
+                        {typeof homeZapAction === 'function' ? (
+                        <Zap size={15} strokeWidth={2.5} fill="currentColor" />
+                        ) : isVault ? (
                         <PencilSparkles size={15} strokeWidth={2.5} />
                         ) : !canAddToBasket && canModifyProject ? (
                         <PencilSparkles size={15} strokeWidth={2.5} />
@@ -1730,7 +1764,7 @@ export default function ProjectCard({
                     </button>
                   )}
                 </div>
-              </div>
+              </div>}
             </div>
           </div>
         </div>
@@ -2284,7 +2318,7 @@ export default function ProjectCard({
               }`}
             >
               <ShoppingBasket size={14} strokeWidth={3} />
-              <span className="truncate">{printerIssue ? 'Printer Issue' : 'Add to Basket'}</span>
+              <span className="truncate">{printerIssue ? 'Printer Issue' : 'Add to Cart'}</span>
             </button>
           </div>
 

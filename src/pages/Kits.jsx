@@ -230,6 +230,20 @@ export default function Kits({ isActive = true }) {
     return () => window.clearTimeout(cleanupTimer);
   }, [isActive, setLoginModalOpen]);
 
+  // Home bundle cards can hand off a selected deal to the Kits page so the
+  // same deal modal remains the single source of truth for deal actions.
+  useEffect(() => {
+    const openDealId = location.state?.openDealId;
+    if (!openDealId || !Array.isArray(deals) || deals.length === 0) return;
+
+    const deal = deals.find((candidate) => String(candidate?.id) === String(openDealId));
+    if (!deal) return;
+
+    const openFrame = window.requestAnimationFrame(() => setSelectedDeal(deal));
+    navigate(location.pathname, { replace: true, state: null });
+    return () => window.cancelAnimationFrame(openFrame);
+  }, [deals, location.pathname, location.state, navigate]);
+
   useEffect(() => {
     const handler = setTimeout(() => {
         setSearchTerm(inputValue);

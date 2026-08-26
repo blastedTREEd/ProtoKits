@@ -296,7 +296,7 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onAd
                 }`}
               >
                 {isEditable ? <Settings size={14} /> : <Zap size={14} fill="currentColor" />}
-                {isEditable ? 'Edit Deal' : deal.type === 'clearance' ? 'Add to Basket' : 'Grab Deal'}
+                {isEditable ? 'Edit Deal' : deal.type === 'clearance' ? 'Add to Cart' : 'Grab Deal'}
                 <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" strokeWidth={3} />
               </button>
               </div>

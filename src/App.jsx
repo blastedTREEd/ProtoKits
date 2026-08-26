@@ -98,15 +98,25 @@ const isRouteDataReady = (pathname, datasets, isAdmin) => {
 const Layout = ({ children }) => {
   const location = useLocation();
   const { isAdmin, shippingSettings } = useStore();
+  const [hideAnimatedStories, setHideAnimatedStories] = useState(false);
   const isMaintenanceMode = shippingSettings?.paymentSettings?.maintenanceMode === true;
   const showViewportTag = shippingSettings?.paymentSettings?.showViewportTag !== false;
+
+  useEffect(() => {
+    const handleStoriesStripToggle = (event) => {
+      setHideAnimatedStories(event.detail?.hidden === true);
+    };
+
+    window.addEventListener('toggleGarageStoriesStrip', handleStoriesStripToggle);
+    return () => window.removeEventListener('toggleGarageStoriesStrip', handleStoriesStripToggle);
+  }, []);
 
   return (
     <div className="min-h-screen flex flex-col">
       {isKnownRoute(location.pathname) && (
         <>
-          <Stories isCompact={location.pathname !== "/"} />
-          <Navbar />
+          <Stories isCompact={location.pathname !== "/"} hideAnimatedCards={hideAnimatedStories} />
+          <Navbar isCompact />
         </>
       )}
       <main className={`${isKnownRoute(location.pathname) ? 'container mx-auto max-w-7xl' : ''} flex-1`}>

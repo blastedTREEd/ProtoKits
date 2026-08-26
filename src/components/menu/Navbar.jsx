@@ -118,6 +118,7 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   const [isOperationsOpen, setIsOperationsOpen] = useState(false);
   const [operationsTab, setOperationsTab] = useState('shipping');
   const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
+  const [isHighlightModalOpen, setIsHighlightModalOpen] = useState(false);
   const [isStoriesManagerOpen, setIsStoriesManagerOpen] = useState(false);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -490,7 +491,19 @@ useEffect(() => {
     }));
   }, [showBottomNav]);
 
-  const isCompactMode = location.pathname !== "/" || scrolledCompact || isPastScrollThreshold || isStoriesManagerOpen || isNotificationModalOpen || isProfileOpen || isMobile || isSmallViewport;
+  // Highlight cards open their full card modal while the landing page remains
+  // mounted. Keep the navbar compact even though the router location stays on
+  // the landing page while that modal is open.
+  useEffect(() => {
+    const handleHighlightModalState = (event) => {
+      setIsHighlightModalOpen(event.detail?.open === true);
+    };
+
+    window.addEventListener('highlightModalStateChange', handleHighlightModalState);
+    return () => window.removeEventListener('highlightModalStateChange', handleHighlightModalState);
+  }, []);
+
+  const isCompactMode = location.pathname !== "/" || scrolledCompact || isPastScrollThreshold || isStoriesManagerOpen || isNotificationModalOpen || isProfileOpen || isHighlightModalOpen || isMobile || isSmallViewport;
 
   useEffect(() => {
     if (!user?.uid) {
