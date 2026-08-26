@@ -6,7 +6,9 @@ import { useTheme } from '../../context/ThemeContext';
 import DealDetailsModal from '../kitcards/DealDetailsModal';
 import ProductCard from '../kitcards/ProductCard';
 import ProjectCard from '../calculator/ProjectCard';
+import LoginPromptModal from './LoginPromptModal';
 import { getDealGrabLabel } from '../../utils/dealSavings';
+import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
 
 const BUNDLE_TYPES = new Set(['bundle_only', 'bundle_discount']);
 
@@ -173,12 +175,19 @@ export default function BundleHighlights() {
     isLoading,
     loadAllDeals,
     isAdmin,
-    isAdminView
+    isAdminView,
+    addProjectToBasket,
+    setToastMessage,
+    setLoginModalOpen,
+    shippingSettings,
+    user
   } = useStore();
   const navigate = useNavigate();
   const { isDarkMode, isSpectralMode } = useTheme();
   const [now, setNow] = useState(() => Date.now());
   const [selectedDeal, setSelectedDeal] = useState(null);
+  const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
+  const [itemsForCheckout, setItemsForCheckout] = useState([]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
@@ -286,12 +295,13 @@ export default function BundleHighlights() {
         });
       });
 
-    // Priority 3: published Garage Projects currently enabled for printing.
+    // Priority 3: published Garage Projects explicitly enabled for printing.
+    // Missing availability flags are treated as unavailable for Highlights.
     (blueprints || [])
       .filter((project) => (
         project?.isPublished !== false
         && project?.status !== 'Draft'
-        && project?.canAddToBasket !== false
+        && project?.canAddToBasket === true
         && isNamedProjectWithDisplayImage(project)
       ))
       .sort((a, b) => getTimestamp(b.createdAt || b.updatedAt) - getTimestamp(a.createdAt || a.updatedAt))
@@ -440,6 +450,65 @@ export default function BundleHighlights() {
     navigate(`/prints/${encodeURIComponent(project.id)}`);
   };
 
+  const handleProjectBasketAction = async (event, project) => {
+    event?.stopPropagation();
+    if (project?.canAddToBasket === false) return;
+
+    try {
+      await addProjectToBasket(project);
+      setToastMessage(isAdmin && isAdminView ? 'Added to shelf!' : 'Added to cart!');
+    } catch (error) {
+      console.error('Failed to add highlighted project to basket:', error);
+      alert(error?.message || 'Unable to add project to basket.');
+      throw error;
+    }
+  };
+
+  const buildCheckoutProjectItem = (project) => {
+    const { handlingFee, installmentFee, transferFee } = getCheckoutPaymentFees({ shippingSettings });
+    const grandTotal = parseFloat(String(project?.totals?.total || project?.sellPrice || project?.price || 0).replace(/,/g, '')) || 0;
+    const basePrice = parseFloat(String(project?.totals?.basePrice || 0).replace(/,/g, '')) || Math.max(0, grandTotal - handlingFee - installmentFee - transferFee);
+    const downpayment = parseFloat(String(project?.totals?.dp || project?.minDownpayment || 0).replace(/,/g, '')) || 0;
+    const basketId = `checkout_project_${project?.vaultId || project?.id || Date.now()}`;
+
+    let name = `Custom Print: ${project?.projectName || project?.method?.name || 'Project'}`;
+    if (project?.selectedDesignService) name += ' (w/ Design Service)';
+
+    return {
+      id: `project_${basketId}`,
+      basketId,
+      type: 'project',
+      quantity: 1,
+      isFinalized: project?.method?.name === '3MF',
+      gdriveLink: project?.gdriveLink || '',
+      projectData: {
+        ...project,
+        sellPrice: basePrice,
+        displayPrice: grandTotal,
+        minDownpayment: downpayment
+      },
+      name,
+      price: grandTotal,
+      appliedHandlingFee: handlingFee,
+      appliedInstallmentFee: installmentFee,
+      appliedTransferFee: transferFee,
+      minDownpayment: downpayment,
+      createdAt: new Date().toISOString()
+    };
+  };
+
+  const handleProjectOrderNow = (project) => {
+    const checkoutItems = [buildCheckoutProjectItem(project)];
+    setItemsForCheckout(checkoutItems);
+    if (!user) {
+      setIsLoginPromptOpen(true);
+      return;
+    }
+    if (!(isAdmin && isAdminView)) {
+      navigate('/checkout', { state: { items: checkoutItems, isGuestPreview: false } });
+    }
+  };
+
   const renderFillerCard = (card, visibilityClass) => {
     const isProject = card.type === 'project';
     const item = isProject ? card.project : card.kit;
@@ -452,6 +521,8 @@ export default function BundleHighlights() {
             project={item}
             type="blueprint"
             showManagementActions={false}
+            onBasketAction={handleProjectBasketAction}
+            onOrderNow={handleProjectOrderNow}
             homeZapAction={handleHomeProjectZap}
             homePreview
           />
@@ -515,6 +586,20 @@ export default function BundleHighlights() {
         onOpenKit={handleOpenDealKit}
         isEditMode={isAdmin && isAdminView}
         onEditDeal={handleDealAction}
+      />
+
+      <LoginPromptModal
+        isOpen={isLoginPromptOpen}
+        onClose={() => setIsLoginPromptOpen(false)}
+        onLogin={() => {
+          setLoginModalOpen(true);
+          setIsLoginPromptOpen(false);
+        }}
+        onContinue={() => {
+          setIsLoginPromptOpen(false);
+          navigate('/checkout', { state: { items: itemsForCheckout, isGuestPreview: true } });
+        }}
+        continueLabel="Check Price & Shipping"
       />
     </section>
   );
