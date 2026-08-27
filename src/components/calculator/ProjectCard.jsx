@@ -4,7 +4,7 @@ import {
   Box, CalendarDays, Clock, Zap, Plus, Lock, Edit3, Trash2, Printer, PackageMinus,
   X, Weight, Layers, AlertTriangle, Link2, Unlink2, ExternalLink, ChevronRight, ChevronLeft,
   ShoppingBasket, Play, Pause, FileText, ShieldCheck, CheckCircle2, XCircle, ImagePlus,
-  Settings, Pencil, PencilSparkles
+  Settings, Pencil, PencilSparkles, Sparkles
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
@@ -33,8 +33,10 @@ const Gallery = ({
   className,
   thumbnailsContainerRef,
   isAdminGallery = false,
+  gridImageId = '',
   onAddPhoto,
   onDeletePhoto,
+  onSetGridPhoto,
   onToggleCalendar,
   placeholderSrc
 }) => {
@@ -119,6 +121,21 @@ const Gallery = ({
             )}
             {isAdminGallery && (
               <div className="absolute top-4 right-4 z-30 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onSetGridPhoto?.(activeImage); }}
+                  disabled={!activeImage?.url}
+                  aria-pressed={Boolean(activeImage?.url && (activeImage.id === gridImageId || activeImage.isGridImage))}
+                  aria-label={activeImage?.id === gridImageId || activeImage?.isGridImage ? 'Grid and highlight image selected' : 'Set current photo as grid and highlight image'}
+                  title={activeImage?.id === gridImageId || activeImage?.isGridImage ? 'Grid and highlight image' : 'Set current photo as grid and highlight image'}
+                  className={`h-9 w-9 rounded-full shadow-lg flex items-center justify-center transition-all hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 ${
+                    activeImage?.id === gridImageId || activeImage?.isGridImage
+                      ? 'bg-blue-600 text-white shadow-blue-600/30'
+                      : 'bg-white/90 text-blue-600 shadow-black/10'
+                  }`}
+                >
+                  <Sparkles size={16} strokeWidth={2.5} />
+                </button>
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); onAddPhoto?.(); }}
@@ -472,26 +489,45 @@ const getProjectDetailItemLabel = (project, methodLabel, item = {}, index = 0) =
   return item?.itemName || `Item ${itemNumber}`;
 };
 
-const getProjectImageUrl = (image) => (
-  typeof image === 'string' ? image : image?.url || ''
-);
+const getProjectImageUrl = (image, images = []) => {
+  if (typeof image !== 'string') return image?.url || '';
+  if (image.startsWith('data:') || image.startsWith('http') || image.startsWith('/')) return image;
+  return images.find((candidate) => candidate?.id === image)?.url || image;
+};
 
 const normalizeProjectGallery = (project = {}) => {
-  const images = [];
-  if (project.image) images.push({ id: 'main', url: getProjectImageUrl(project.image), type: 'PROJECT IMAGE' });
-  if (Array.isArray(project.images)) {
-    project.images.forEach((image, index) => {
-      const url = getProjectImageUrl(image);
-      if (url && url !== getProjectImageUrl(project.image)) {
-        images.push({
-          id: image?.id || `img-${index}`,
-          url,
-          type: image?.type || 'GALLERY IMAGE'
-        });
-      }
-    });
+  const projectImageReference = typeof project.image === 'string' ? project.image : '';
+  const sourceImages = Array.isArray(project.images) ? project.images : [];
+  const images = sourceImages
+    .map((image, index) => ({
+      ...(image && typeof image === 'object' ? image : {}),
+      id: image?.id || `img-${index}`,
+      url: getProjectImageUrl(image),
+      type: image?.type || 'GALLERY IMAGE'
+    }))
+    .filter((image) => image.url);
+
+  // Keep legacy projects working when their main image was stored separately
+  // from the gallery, and support both URL and image-id grid references.
+  const projectImageUrl = getProjectImageUrl(project.image, sourceImages);
+  if (projectImageUrl && !images.some((image) => image.url === projectImageUrl)) {
+    images.unshift({ id: 'main', url: projectImageUrl, type: 'PROJECT IMAGE' });
   }
-  return images.length > 0 ? images : [{ id: 'empty', url: '', type: 'NO IMAGE' }];
+
+  if (images.length === 0) return [{ id: 'empty', url: '', type: 'NO IMAGE' }];
+
+  const gridIndex = images.findIndex((image) => (
+    image.isGridImage
+    || image.id === project.gridImageId
+    || image.id === project.gridImage
+    || image.id === projectImageReference
+    || image.url === projectImageReference
+  ));
+  const selectedGridIndex = gridIndex >= 0 ? gridIndex : 0;
+  return images.map((image, index) => ({
+    ...image,
+    isGridImage: index === selectedGridIndex
+  }));
 };
 
 const compressProjectGalleryImage = (dataUrl, maxWidth = 1200, maxHeight = 1200, quality = 0.72) => (
@@ -914,6 +950,7 @@ export default function ProjectCard({
 
   const baseGalleryImages = useMemo(() => normalizeProjectGallery(project), [project]);
   const galleryImages = localGalleryImages || baseGalleryImages;
+  const gridImageId = galleryImages.find((image) => image.isGridImage)?.id || '';
 
   useEffect(() => {
     if (isModalOpen) {
@@ -1012,7 +1049,9 @@ export default function ProjectCard({
     }
   };
 
-  const displayImage = isBlueprint ? getProjectImageUrl(project.image) : null;
+  const displayImage = isBlueprint
+    ? (baseGalleryImages.find((image) => image.isGridImage)?.url || getProjectImageUrl(project.image, project.images))
+    : null;
   const displayProjectName = isVault || canRenameBlueprint ? projectNameLocal : project.projectName;
   const displayProjectTitle = isUnnamedProjectName(displayProjectName)
     ? (fallbackTitle || 'PROJECT #')
@@ -1446,16 +1485,40 @@ export default function ProjectCard({
   // Personal user-project cards keep their existing calendar-only behavior.
   const canManageGallery = isAdmin && isAdminView && isBlueprint;
   const showCalendarMode = isVault || (canManageGallery && isCalendarMode);
-  const saveProjectGallery = async (nextImages) => {
-    const nextImage = getProjectImageUrl(nextImages[0]);
+  const saveProjectGallery = async (nextImages, requestedGridImageId = '') => {
+    const normalizedImages = nextImages
+      .map((image, index) => ({
+        ...(image && typeof image === 'object' ? image : {}),
+        id: image?.id || `gallery-${Date.now()}-${index}`,
+        url: getProjectImageUrl(image, nextImages),
+        type: image?.type || 'GALLERY IMAGE'
+      }))
+      .filter((image) => image.url);
+    if (normalizedImages.length === 0) throw new Error('At least one project photo is required.');
+
+    const requestedGridIndex = normalizedImages.findIndex((image) => (
+      image.id === requestedGridImageId
+      || image.url === requestedGridImageId
+      || image.isGridImage
+    ));
+    const selectedGridIndex = requestedGridIndex >= 0 ? requestedGridIndex : 0;
+    const persistedImages = normalizedImages.map((image, index) => ({
+      ...image,
+      isGridImage: index === selectedGridIndex
+    }));
+    const selectedGridImage = persistedImages[selectedGridIndex];
     const payload = {
-      image: nextImage,
-      images: nextImages,
+      // Keep image as a URL for existing public highlight consumers while the
+      // marker/id makes the selection stable when the gallery is reordered.
+      image: selectedGridImage.url,
+      gridImageId: selectedGridImage.id,
+      images: persistedImages,
       canAddToBasket: project?.canAddToBasket !== false
     };
     if (isBlueprint && project?.id) {
       await updateBlueprint(project.id, payload);
     }
+    return persistedImages;
   };
 
   const handleGalleryFiles = async (event) => {
@@ -1475,15 +1538,33 @@ export default function ProjectCard({
         reader.onerror = reject;
         reader.readAsDataURL(file);
       })));
-      const existingImages = Array.isArray(project.images) && project.images.length > 0
-        ? [...project.images]
-        : (project.image ? [project.image] : []);
+      const existingImages = galleryImages.filter((image) => image.url);
       const nextImages = [...existingImages, ...newImages];
-      await saveProjectGallery(nextImages);
-      setLocalGalleryImages(normalizeProjectGallery({ image: getProjectImageUrl(nextImages[0]), images: nextImages }));
+      const savedImages = await saveProjectGallery(nextImages, gridImageId);
+      setLocalGalleryImages(normalizeProjectGallery({
+        image: savedImages.find((image) => image.isGridImage)?.url || savedImages[0]?.url,
+        gridImageId: savedImages.find((image) => image.isGridImage)?.id,
+        images: savedImages
+      }));
     } catch (error) {
       console.error('SG LOG: Failed to add project gallery photos:', error);
       alert(error?.message || 'Unable to add gallery photos.');
+    }
+  };
+
+  const handleSetGridPhoto = async (galleryImage) => {
+    if (!canManageGallery || !galleryImage?.url || galleryImage.id === gridImageId) return;
+
+    try {
+      const savedImages = await saveProjectGallery(galleryImages.filter((image) => image.url), galleryImage.id);
+      setLocalGalleryImages(normalizeProjectGallery({
+        image: savedImages.find((image) => image.isGridImage)?.url || savedImages[0]?.url,
+        gridImageId: savedImages.find((image) => image.isGridImage)?.id,
+        images: savedImages
+      }));
+    } catch (error) {
+      console.error('SG LOG: Failed to set project grid photo:', error);
+      alert(error?.message || 'Unable to set grid photo.');
     }
   };
 
@@ -1491,15 +1572,18 @@ export default function ProjectCard({
     if (!canManageGallery || galleryImages.length <= 1 || !galleryImage?.url) return;
     if (!window.confirm('Delete this project photo?')) return;
 
-    const existingImages = Array.isArray(project.images) && project.images.length > 0
-      ? [...project.images]
-      : (project.image ? [project.image] : []);
-    const nextImages = existingImages.filter((image) => getProjectImageUrl(image) !== galleryImage.url);
+    const existingImages = galleryImages.filter((image) => image.url);
+    const nextImages = existingImages.filter((image) => image.url !== galleryImage.url);
     if (nextImages.length === 0) return;
 
     try {
-      await saveProjectGallery(nextImages);
-      const nextGallery = normalizeProjectGallery({ image: getProjectImageUrl(nextImages[0]), images: nextImages });
+      const nextGridImageId = galleryImage.id === gridImageId ? nextImages[0]?.id : gridImageId;
+      const savedImages = await saveProjectGallery(nextImages, nextGridImageId);
+      const nextGallery = normalizeProjectGallery({
+        image: savedImages.find((image) => image.isGridImage)?.url || savedImages[0]?.url,
+        gridImageId: savedImages.find((image) => image.isGridImage)?.id,
+        images: savedImages
+      });
       setLocalGalleryImages(nextGallery);
       setGalleryIndex((currentIndex) => Math.min(currentIndex, Math.max(0, nextGallery.length - 1)));
     } catch (error) {
@@ -1888,8 +1972,10 @@ export default function ProjectCard({
                     handleTouchEnd={handleTouchEnd} 
                     thumbnailsContainerRef={thumbnailsContainerRef}
                     isAdminGallery={canManageGallery}
+                    gridImageId={gridImageId}
                     onAddPhoto={openGalleryUpload}
                     onDeletePhoto={handleDeleteGalleryPhoto}
+                    onSetGridPhoto={handleSetGridPhoto}
                     onToggleCalendar={() => setIsCalendarMode(true)}
                     placeholderSrc={isBlueprint ? '/snorlaxgarage.png' : undefined}
                     className="hidden sm:landscape:flex sm:landscape:h-full"
@@ -1928,8 +2014,10 @@ export default function ProjectCard({
                           handleTouchEnd={handleTouchEnd} 
                           thumbnailsContainerRef={thumbnailsContainerRef}
                           isAdminGallery={canManageGallery}
+                          gridImageId={gridImageId}
                           onAddPhoto={openGalleryUpload}
                           onDeletePhoto={handleDeleteGalleryPhoto}
+                          onSetGridPhoto={handleSetGridPhoto}
                           onToggleCalendar={() => setIsCalendarMode(true)}
                           placeholderSrc={isBlueprint ? '/snorlaxgarage.png' : undefined}
                       />

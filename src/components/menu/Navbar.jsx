@@ -1116,7 +1116,14 @@ return (
                         style={{ width: specs.utilIcon - 4, height: specs.utilIcon - 4 }} 
                       />
                     ) : (
-                      <CircleUserRound size={specs.utilIcon - 4} className={isProfileOpen ? 'text-red-500' : (isDarkMode ? 'text-white' : 'text-neutral-900 group-hover:text-transparent group-hover:bg-gradient-to-br group-hover:from-[#0866FF] group-hover:to-[#00CFFF] group-hover:bg-clip-text')} />
+                      <CircleUserRound
+                        size={specs.utilIcon - 4}
+                        className={isProfileOpen
+                          ? 'text-neutral-900 dark:text-white'
+                          : (isDarkMode
+                            ? 'text-white'
+                            : 'text-neutral-900 group-hover:text-transparent group-hover:bg-gradient-to-br group-hover:from-[#0866FF] group-hover:to-[#00CFFF] group-hover:bg-clip-text')}
+                      />
                     )}
                   </div>
                 </div>
