@@ -2,6 +2,32 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Typography guardrails for Android browsers and WebViews.
+ *
+ * `ui-sans-serif`/`system-ui` resolve to the user's Android system font and
+ * WebViews may also inflate text automatically. Keep the app's normal text
+ * stack explicit and prevent automatic text inflation while preserving user
+ * zoom/accessibility controls.
+ */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  font-family: Arial, "Helvetica Neue", sans-serif;
+}
+
+button,
+input,
+textarea,
+select,
+optgroup,
+option {
+  font-family: inherit;
+}
+
 /* Add this to index.css */
 @keyframes pulse-blue {
   0%, 100% { opacity: 1; background-color: var(--color-surface); }

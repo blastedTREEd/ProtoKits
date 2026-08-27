@@ -516,13 +516,17 @@ const normalizeProjectGallery = (project = {}) => {
 
   if (images.length === 0) return [{ id: 'empty', url: '', type: 'NO IMAGE' }];
 
-  const gridIndex = images.findIndex((image) => (
-    image.isGridImage
-    || image.id === project.gridImageId
+  const explicitGridReference = project.gridImageId || project.gridImage || projectImageReference;
+  const explicitGridIndex = images.findIndex((image) => (
+    image.id === project.gridImageId
     || image.id === project.gridImage
     || image.id === projectImageReference
     || image.url === projectImageReference
   ));
+  const markerGridIndex = images.findIndex((image) => image.isGridImage);
+  const gridIndex = explicitGridReference && explicitGridIndex >= 0
+    ? explicitGridIndex
+    : markerGridIndex;
   const selectedGridIndex = gridIndex >= 0 ? gridIndex : 0;
   return images.map((image, index) => ({
     ...image,
@@ -1521,6 +1525,22 @@ export default function ProjectCard({
     return persistedImages;
   };
 
+  const saveProjectGridSelection = async (galleryImage) => {
+    if (!isBlueprint || !project?.id || !galleryImage?.url) {
+      throw new Error('Unable to identify this Garage Project photo.');
+    }
+
+    await updateBlueprint(project.id, {
+      image: galleryImage.url,
+      gridImageId: galleryImage.id
+    });
+
+    return galleryImages.map((image) => ({
+      ...image,
+      isGridImage: image.id === galleryImage.id
+    }));
+  };
+
   const handleGalleryFiles = async (event) => {
     if (!canManageGallery) return;
     const files = Array.from(event.target.files || []).filter((file) => file.type.startsWith('image/'));
@@ -1556,12 +1576,8 @@ export default function ProjectCard({
     if (!canManageGallery || !galleryImage?.url || galleryImage.id === gridImageId) return;
 
     try {
-      const savedImages = await saveProjectGallery(galleryImages.filter((image) => image.url), galleryImage.id);
-      setLocalGalleryImages(normalizeProjectGallery({
-        image: savedImages.find((image) => image.isGridImage)?.url || savedImages[0]?.url,
-        gridImageId: savedImages.find((image) => image.isGridImage)?.id,
-        images: savedImages
-      }));
+      const selectedImages = await saveProjectGridSelection(galleryImage);
+      setLocalGalleryImages(selectedImages);
     } catch (error) {
       console.error('SG LOG: Failed to set project grid photo:', error);
       alert(error?.message || 'Unable to set grid photo.');

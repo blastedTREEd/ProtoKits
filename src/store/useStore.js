@@ -3121,6 +3121,18 @@ export const useStore = create(
           isPublished: true
         };
         await setDoc(doc(db, 'blueprints', blueprintId), blueprintData, { merge: true });
+        set((state) => ({
+          blueprints: (state.blueprints || []).map((project) => project.id === blueprintId
+            ? {
+                ...project,
+                ...cleanProjectData,
+                updatedAt: new Date().toISOString(),
+                updatedBy: user?.uid || null,
+                canAddToBasket: pData.canAddToBasket !== false,
+                isPublished: true
+              }
+            : project)
+        }));
       },
       deleteBlueprint: async (blueprintId) => {
         if (!blueprintId) throw new Error('Missing blueprint id.');
