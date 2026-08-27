@@ -15,7 +15,7 @@ import { getStockEta } from '../utils/stockDates';
 import {
   getPrinterFeeders,
   isFilamentCompatibleWithPrinter,
-  isPrinterAvailableForScheduling,
+  isPrinterAvailableForCostEstimation,
   normalizePrinterRecord
 } from '../utils/printerCompatibility';
 import { findFirstAvailable, getOccupiedDates } from '../components/calculator/GarageCalendar';
@@ -123,7 +123,9 @@ const getProjectRequiredMaterialSlots = (detail = {}, materialRecords = []) => {
 };
 
 const isProjectPrinterOperational = (printer = {}) => {
-  return isPrinterAvailableForScheduling(printer);
+  // Maintenance affects queue timing, but it does not mean the printer is
+  // incapable of processing the project.
+  return isPrinterAvailableForCostEstimation(printer);
 };
 
 const printerCanAccommodateProjectDetail = (printer, detail, feeders, filamentInventory) => {
@@ -467,11 +469,9 @@ export default function Cart() {
             ? 'Printer Issue'
             : storedIndicators.materials !== true
               ? 'Material Issue'
-              : storedIndicators.schedule !== true
-                ? 'Schedule Issue'
-                : storedIndicators.design !== true && !isGarageProject
-                  ? 'File Link Issue'
-                  : null;
+              : storedIndicators.design !== true && !isGarageProject
+                ? 'File Link Issue'
+                : null;
 
           if (storedIssue) issueByBasketId.set(item.basketId, storedIssue);
           return;
@@ -489,11 +489,9 @@ export default function Cart() {
           ? 'Printer Issue'
           : !indicators.materialsAvailable
             ? 'Material Issue'
-            : !indicators.canStartToday
-              ? 'Schedule Issue'
-              : !indicators.hasDesignService && !indicators.fileLinkIsValid && !isGarageProject
-                ? 'File Link Issue'
-                : null;
+            : !indicators.hasDesignService && !indicators.fileLinkIsValid && !isGarageProject
+              ? 'File Link Issue'
+              : null;
 
         if (issue) issueByBasketId.set(item.basketId, issue);
       });

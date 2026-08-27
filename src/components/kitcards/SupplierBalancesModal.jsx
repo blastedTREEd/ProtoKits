@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { X, Wallet, AlertCircle, Package, ExternalLink, ArrowRight, Loader2, Info, CheckSquare } from 'lucide-react';
+import { X, Wallet, AlertCircle, Package, ExternalLink, ArrowRight, Loader2, Info, CheckSquare, CheckCircle2 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useStore } from '../../store/useStore';
 
@@ -9,7 +9,7 @@ function resolveImage(idOrUrl, imagesArray) {
   const match = (imagesArray || []).find(img => img.id === idOrUrl);
   return match?.url || '';
 }
-import { collection, getDocs, doc, updateDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, serverTimestamp, query, where, writeBatch } from 'firebase/firestore';
 import { db } from '../../firebase/firebase';
 
 export default function SupplierBalancesModal({ isOpen, onClose }) {
@@ -89,23 +89,30 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
         const balance = cost - paid;
         const isPreOrder = stock.status?.toLowerCase().includes('pre') || stock.status?.toLowerCase().includes('batch');
         const isPaidInFull = cost > 0 && paid >= cost;
+        const isRefundPending = stock.supplierRefundStatus === 'pending';
+        const refundAmount = Number(stock.supplierRefundAmount ?? paid) || 0;
 
         // Keep outstanding balances and paid pre-orders visible until they
-        // arrive or are explicitly cancelled.
-        if (balance !== 0 || (isPreOrder && isPaidInFull)) {
+        // arrive or are explicitly cancelled. A paid pre-order awaiting a
+        // supplier refund remains visible until the refund is confirmed.
+        if (balance !== 0 || (isPreOrder && isPaidInFull) || isRefundPending) {
           items.push({
             ...stock,
             balance,
             cost,
             paid,
             isPreOrder,
-            isPaidInFull
+            isPaidInFull,
+            isRefundPending,
+            refundAmount
           });
         }
       });
     });
 
     return items.sort((a, b) => {
+      if (a.isRefundPending && !b.isRefundPending) return -1;
+      if (!a.isRefundPending && b.isRefundPending) return 1;
       if (a.isPreOrder && !b.isPreOrder) return -1;
       if (!a.isPreOrder && b.isPreOrder) return 1;
 
@@ -138,7 +145,9 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
     balanceItems.forEach(item => {
       let monthLabel = 'ON-HAND / READY';
 
-      if (item.isPreOrder) {
+      if (item.isRefundPending) {
+        monthLabel = 'SUPPLIER REFUND PENDING';
+      } else if (item.isPreOrder) {
         if (item.eta) {
           const parts = item.eta.toUpperCase().split(/\s+/);
           let foundMonth = null;
@@ -197,6 +206,12 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
 
   const totalBalance = useMemo(() => {
     return balanceItems.reduce((sum, item) => sum + item.balance, 0);
+  }, [balanceItems]);
+
+  const pendingRefundTotal = useMemo(() => {
+    return balanceItems
+      .filter(item => item.isRefundPending)
+      .reduce((sum, item) => sum + item.refundAmount, 0);
   }, [balanceItems]);
 
   const handlePayGroup = async (group) => {
@@ -291,6 +306,54 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
   };
 
   const cancelStock = async (item) => {
+    if (item.isRefundPending) return;
+
+    if (item.isPreOrder && item.isPaidInFull) {
+      if (!window.confirm("This pre-order is fully paid to the supplier. Cancel it and keep the stock visible as REFUND PENDING until the supplier refund is received?")) return;
+
+      try {
+        const kit = allKits.find(candidate => candidate.id === item.kitId) || storeKits.find(candidate => candidate.id === item.kitId);
+        if (!kit?.stocks?.[item.key]) throw new Error('Stock item no longer exists.');
+        const hasAvailableStock = Object.entries(kit.stocks).some(([key, stock]) => (
+          key !== item.key && !stock.order?.orderId && !stock.isReserved
+        ));
+
+        await updateDoc(doc(db, 'kits', item.kitId), {
+          [`stocks.${item.key}.isReserved`]: true,
+          [`stocks.${item.key}.reservedBy`]: null,
+          [`stocks.${item.key}.reservedAt`]: null,
+          [`stocks.${item.key}.reservationType`]: 'supplier-refund',
+          [`stocks.${item.key}.supplierRefundStatus`]: 'pending',
+          [`stocks.${item.key}.supplierRefundAmount`]: item.paid,
+          [`stocks.${item.key}.supplierRefundRequestedAt`]: serverTimestamp(),
+          hasAvailableStock,
+          lastUpdated: serverTimestamp()
+        });
+
+        // A supplier-cancelled stock must not remain in the separate admin
+        // shelf collection while it is waiting for a refund.
+        const shelfSnap = await getDocs(query(
+          collection(db, 'shelf'),
+          where('id', '==', item.kitId)
+        ));
+        const matchingShelfDocs = shelfSnap.docs.filter((shelfDoc) => (
+          shelfDoc.data()?.stockKey === item.key
+        ));
+        if (matchingShelfDocs.length > 0) {
+          const shelfBatch = writeBatch(db);
+          matchingShelfDocs.forEach((shelfDoc) => shelfBatch.delete(shelfDoc.ref));
+          await shelfBatch.commit();
+        }
+
+        alert("Stock cancelled and retained as refund pending.");
+        await refreshKits();
+      } catch (e) {
+        console.error("Refund-pending cancellation failed", e);
+        alert("Failed to mark stock as refund pending.");
+      }
+      return;
+    }
+
     if (!window.confirm("Are you sure you want to cancel this stock item? This will permanently remove it.")) return;
 
     try {
@@ -303,8 +366,27 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
     }
   };
 
+  const markRefunded = async (item) => {
+    if (!item.isRefundPending) return;
+    if (!window.confirm(`Confirm that the supplier refund of ₱${item.refundAmount.toLocaleString()} was received? This will permanently delete the retained stock record.`)) return;
+
+    try {
+      await deleteStock(item.kitId, item.key);
+      alert("Supplier refund recorded and stock removed.");
+      await refreshKits();
+    } catch (e) {
+      console.error("Refunded stock removal failed", e);
+      alert("Failed to remove the refunded stock.");
+    }
+  };
+
 // APAT NA DYNAMIC STYLING CONDITIONS BASE SA IYONG UPDATE
   const getItemCardStyles = (item) => {
+    if (item.isRefundPending) {
+      return isDarkMode
+        ? 'bg-purple-500/10 border-purple-500/30 text-white'
+        : 'bg-purple-50/70 border-purple-500/25 text-neutral-900';
+    }
     const isOnHand = item.status?.toLowerCase() === 'onhand';
     const isUnpaid = Number(item.paid || 0) === 0;
 
@@ -537,13 +619,28 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
 
                         <div className="shrink-0 text-right">
                           <div className="flex items-baseline justify-end gap-2">
-                          <p className="text-[10px] font-black uppercase tracking-widest opacity-40">{item.isPaidInFull ? 'Paid' : 'Balance'}</p>
-                          <p className={`text-sm font-black italic ${item.isPaidInFull ? 'text-emerald-500' : item.balance > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
-                            {item.isPaidInFull ? '₱0' : `₱${item.balance.toLocaleString()}`}
+                          <p className="text-[10px] font-black uppercase tracking-widest opacity-40">{item.isRefundPending ? 'Refund Pending' : item.isPaidInFull ? 'Paid' : 'Balance'}</p>
+                          <p className={`text-sm font-black italic ${item.isRefundPending ? 'text-purple-500' : item.isPaidInFull ? 'text-emerald-500' : item.balance > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
+                            {item.isRefundPending ? `₱${item.refundAmount.toLocaleString()}` : item.isPaidInFull ? `₱${item.paid.toLocaleString()}` : `₱${item.balance.toLocaleString()}`}
                           </p>
                           </div>
+                          {item.isRefundPending && (
+                            <p className="mt-1 text-[9px] font-bold uppercase tracking-widest text-purple-500">Retained until supplier refund</p>
+                          )}
                           <div className="mt-2 flex flex-wrap justify-end gap-1">
-                            {!isOnHand && (
+                            {item.isRefundPending ? (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  markRefunded(item);
+                                }}
+                                className="inline-flex items-center gap-1 rounded-lg bg-purple-600 px-2 py-1 text-[11px] font-black uppercase text-white hover:bg-purple-700 transition-all"
+                              >
+                                <CheckCircle2 size={12} /> Refunded
+                              </button>
+                            ) : (
+                              <>
+                              {!isOnHand && (
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -576,6 +673,8 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
                                 Cancel
                               </button>
                             )}
+                              </>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -598,12 +697,20 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
         {/* Footer / Total */}
         <div className="shrink-0 border-t border-white/10 bg-black/5 p-6">
           <div className="flex items-center justify-between">
-            <div>
+            <div className="flex flex-wrap items-center gap-8">
               <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-45">
                 Total Outstanding
               </p>
               <h3 className={`text-2xl font-black italic tracking-tighter ${totalBalance > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
                 ₱{totalBalance.toLocaleString()}
+              </h3>
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-purple-500">
+                Pending Supplier Refund
+              </p>
+              <h3 className="text-2xl font-black italic tracking-tighter text-purple-500">
+                ₱{pendingRefundTotal.toLocaleString()}
               </h3>
             </div>
             <div className="flex items-center gap-2 rounded-2xl bg-blue-600/10 px-4 py-3 text-blue-500">

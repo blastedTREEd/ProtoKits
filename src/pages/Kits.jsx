@@ -900,6 +900,7 @@ export default function Kits({ isActive = true }) {
         bundleReferencePrice: refPrice,
         allowShelfBundle: true,
         stockKey: availableStock?.key || 'default',
+        stockSource: deal.stockSource || 'onhand',
         price: finalPrice,
         appliedHandlingFee: 0,
         appliedInstallmentFee: 0,
@@ -941,6 +942,7 @@ export default function Kits({ isActive = true }) {
         ...clearanceKit,
         name: clearanceKit.name,
         stockKey: availableStock.key,
+        stockSource: 'onhand',
         status: availableStock.status || 'onhand',
         eta: getStockEta(availableStock),
         costPrice: Number(availableStock.costPrice || 0),
@@ -987,6 +989,7 @@ export default function Kits({ isActive = true }) {
     const itemData = {
       ...item.kit,
       stockKey: item.stock?.key,
+      stockSource: item.stockSource || (isPreOrder ? 'preorder' : 'onhand'),
       selectedStockId: item.stock?.timestamp,
       status: item.stock?.status,
       isPreOrder,

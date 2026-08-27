@@ -13,7 +13,7 @@ import { useStore } from '../../store/useStore';
 import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
 import { useTheme } from '../../context/ThemeContext';
 import { auth, db, googleProvider } from '../../firebase/firebase';
-import { doc, getDoc, deleteDoc } from 'firebase/firestore';
+import { doc, deleteDoc } from 'firebase/firestore';
 import { signInWithPopup } from 'firebase/auth';
 import L from 'leaflet';
 import DynamicShippingForm from './DynamicShippingForm';
@@ -1403,8 +1403,16 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   const hasUnavailableProjectItems = useMemo(() => (
     checkoutItems.some((item) => {
       if (!isProjectCheckoutItem(item)) return false;
-      const indicators = item.projectData?.projectStatusIndicators;
-      return Boolean(indicators && Object.values(indicators).some((status) => status !== true));
+      const projectData = item.projectData || {};
+      const indicators = projectData.projectStatusIndicators;
+      if (!indicators) return false;
+
+      // Queue timing is informational. Only capability/material checks block
+      // checkout; personal projects additionally need a file or design service.
+      const isGarageProject = !projectData.vaultId && Boolean(projectData.id);
+      return indicators.printer !== true
+        || indicators.materials !== true
+        || (!isGarageProject && indicators.design !== true);
     })
   ), [checkoutItems]);
 
@@ -2483,42 +2491,60 @@ const handleFinalizeOrder = async () => {
         await updateUserProfile(user.uid, buildProfileUpdates());
       }
       
-      await Promise.all(checkoutItems.filter(item => !isProjectCheckoutItem(item)).map(async (item) => {
-        const kitRef = doc(db, "kits", item.id);
-        const kitSnap = await getDoc(kitRef);
-        if (!kitSnap.exists()) throw new Error(`Kit ${item.id} no longer exists.`);
-        
-        const stock = kitSnap.data().stocks[item.stockKey];
-        if (!stock) throw new Error(`Stock variant for ${item.id} no longer exists.`);
-        
-        const isAcceptedOffer = Boolean(item.offerId && item.offerPrice);
-        const canUseAdminShelfStock = item.allowShelfBundle && stock.isReserved && stock.reservationType === 'admin' && !stock.order?.orderId;
-        if (stock.isReserved && stock.reservedBy !== checkoutUid && !canUseAdminShelfStock && !isAcceptedOffer) {
-          throw new Error(`Item "${item.name}" was just taken by someone else.`);
+      // Resolve every kit line against Firestore immediately before order
+      // creation. reserveStockForCheckout uses a transaction, so simultaneous
+      // customers receive the highest-cost stock, then the next-highest stock.
+      // Keep the returned key because it may differ from the basket snapshot.
+      const allocatedCheckoutItems = [];
+      for (const item of checkoutItems) {
+        if (isProjectCheckoutItem(item)) {
+          allocatedCheckoutItems.push(item);
+          continue;
         }
-        
+
+        const isAcceptedOffer = Boolean(item.offerId && item.offerPrice);
         const result = await reserveStockForCheckout(item.id, item.stockKey, checkoutUid, {
           allowAdminShelf: item.allowShelfBundle,
           allowAcceptedOffer: isAcceptedOffer,
-          offerId: item.offerId || null
+          offerId: item.offerId || null,
+          stockSource: item.stockSource || ''
         });
         if (!result?.success) {
           throw new Error(`Item "${item.name}" was just taken by someone else.`);
         }
-        if (canUseAdminShelfStock || isAcceptedOffer) {
-          const shelfItem = (shelf || []).find(entry => entry.id === item.id && entry.stockKey === item.stockKey);
+
+        const allocatedStock = result.stock || {};
+        const allocatedStockSource = isPreOrderStock(allocatedStock, item.status) ? 'preorder' : 'onhand';
+        const allocatedBasePrice = toCheckoutNumber(allocatedStock.sellPrice || item.sellPrice || item.price);
+        const itemFeeTotal = toCheckoutNumber(item.appliedHandlingFee)
+          + toCheckoutNumber(item.appliedInstallmentFee)
+          + toCheckoutNumber(item.appliedTransferFee);
+        const preserveDisplayedPrice = isAcceptedOffer || isBundleOrClearanceItem(item);
+        const allocatedItem = {
+          ...item,
+          stockKey: result.stockKey,
+          stockSource: allocatedStockSource,
+          status: allocatedStock.status || item.status,
+          costPrice: toCheckoutNumber(allocatedStock.costPrice ?? item.costPrice),
+          sellPrice: preserveDisplayedPrice ? item.sellPrice : allocatedBasePrice,
+          price: preserveDisplayedPrice ? item.price : allocatedBasePrice + itemFeeTotal,
+          eta: getStockEta(allocatedStock) || item.eta
+        };
+        allocatedCheckoutItems.push(allocatedItem);
+
+        if (result.usedAdminShelfStock || result.usedAcceptedOffer) {
+          const shelfItem = (shelf || []).find(entry => (
+            entry.id === item.id && entry.stockKey === result.stockKey
+          ));
           if (shelfItem?.basketId) await deleteDoc(doc(db, 'shelf', shelfItem.basketId));
         }
-        return result;
-      }));
+      }
       
       const orderId = `#SG-${Math.floor(Math.random() * 9000) + 1000}`;
-      const isPreOrder = checkoutItems.some(item => {
-        if (isProjectCheckoutItem(item)) return false; // Projects are custom/MTO, not standard stock pre-orders
-        const kit = (kits || []).find(k => k.id === item.id);
-        return kit?.stocks?.[item.stockKey]?.status === 'PRE-ORDER';
-      });
-      const hasProjects = checkoutItems.some(isProjectCheckoutItem);
+      const isPreOrder = allocatedCheckoutItems.some(item => (
+        !isProjectCheckoutItem(item) && isPreOrderStock(item, item.status)
+      ));
+      const hasProjects = allocatedCheckoutItems.some(isProjectCheckoutItem);
       const initialStatus = isPreOrder ? 'Waiting' : 'Reserved';
       const balanceDueDeadline = isPreOrder
         ? new Date(Date.now() + (14 * 24 * 60 * 60 * 1000)).toISOString()
@@ -2538,7 +2564,7 @@ const handleFinalizeOrder = async () => {
         userId: user?.uid || null,
         buyerName: checkoutName,
         isMaintenanceOrder: isOrderInvalidForMaintenance || false,
-        items: checkoutItems.map((item, index) => {
+        items: allocatedCheckoutItems.map((item, index) => {
           const distributedFee = distributedOrderFees[index] || { handling: 0, transfer: 0, total: 0 };
           return ({
           id: item.id,
@@ -2572,6 +2598,8 @@ const handleFinalizeOrder = async () => {
           freeShippingSuboption: item.freeShippingSuboption || 'All',
           // FIX: Prevents undefined crash on projects since they don't use shelf stock keys
           stockKey: item.stockKey || null, 
+          stockSource: item.stockSource || null,
+          costPrice: isProjectCheckoutItem(item) ? 0 : toCheckoutNumber(item.costPrice),
           type: isProjectCheckoutItem(item) ? 'project' : 'kit',
           projectData: isProjectCheckoutItem(item) ? (item.projectData || null) : null,
           productionJobs: isProjectCheckoutItem(item) ? (item.projectData?.productionJobs || item.projectData?.projectDetails?.flatMap(detail => detail.productionJobs || []) || []) : []
@@ -2651,9 +2679,9 @@ const handleFinalizeOrder = async () => {
         buyerPaid: 0,
         paymentDueNow: amountDueNow || 0,
         originalPaymentDueNow: amountDueNow || 0,
-        minDownpayment: checkoutItems.reduce((acc, item) => acc + Number(item.minDownpayment ?? item.projectData?.minDownpayment ?? 0), 0),
+        minDownpayment: allocatedCheckoutItems.reduce((acc, item) => acc + Number(item.minDownpayment ?? item.projectData?.minDownpayment ?? 0), 0),
         balanceDueDeadline,
-        projectProgress: hasProjects ? checkoutItems.flatMap(item => {
+        projectProgress: hasProjects ? allocatedCheckoutItems.flatMap(item => {
           if (!isProjectCheckoutItem(item)) return [];
           const jobs = item.projectData?.productionJobs || item.projectData?.projectDetails?.flatMap(detail => detail.productionJobs || []) || [];
           return jobs.map((job, idx) => ({
@@ -2683,7 +2711,7 @@ const handleFinalizeOrder = async () => {
       console.log("SG DEBUG: Order created successfully with ID:", docId);
       
       if (assignStockToOrder) {
-        for (const item of checkoutItems) {
+        for (const item of allocatedCheckoutItems) {
           if (isProjectCheckoutItem(item)) continue;
           await assignStockToOrder(item.id, item.stockKey, orderId, { 
             isManualOrder: false,
@@ -2693,7 +2721,7 @@ const handleFinalizeOrder = async () => {
       }
 
       const completedOffers = new globalThis.Map();
-      checkoutItems.forEach((item) => {
+      allocatedCheckoutItems.forEach((item) => {
         if (!item.offerId || !item.offerPrice || completedOffers.has(item.offerId)) return;
         completedOffers.set(item.offerId, item);
       });

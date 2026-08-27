@@ -542,7 +542,12 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   const visibleStocks = useMemo(() => {
     return publicReleasableStocks
       .filter(s => getPublicStatus(s).isPublic)
-      .sort((a, b) => Number(a.sellPrice || 0) - Number(b.sellPrice || 0));
+      // Customer orders consume the highest-cost stock first. Keep the same
+      // order in the public picker so the preview and checkout agree.
+      .sort((a, b) => (
+        getStockCostPrice(b) - getStockCostPrice(a)
+        || Number(b.sellPrice || 0) - Number(a.sellPrice || 0)
+      ));
   }, [publicReleasableStocks, getPublicStatus]);
 
   const groupedVariants = useMemo(() => {
@@ -569,7 +574,10 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     });
 
     Object.values(groups).forEach(group => {
-      group.items.sort((a, b) => Number(a.sellPrice || 0) - Number(b.sellPrice || 0));
+      group.items.sort((a, b) => (
+        getStockCostPrice(b) - getStockCostPrice(a)
+        || Number(b.sellPrice || 0) - Number(a.sellPrice || 0)
+      ));
     });
     
     return Object.values(groups).sort((a, b) => {
@@ -1227,6 +1235,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     addToBasket({
       ...kit,
       stockKey: stockForBasket.key,
+      stockSource: isPreOrderStock(stockForBasket) ? 'preorder' : 'onhand',
       selectedStockId: stockForBasket.timestamp,
       price: basePrice + itemHandlingFee + itemInstallmentFee + itemTransferFee,
       sellPrice: basePrice,
@@ -1305,14 +1314,31 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       return !isSold && !isReserved && isPublic;
     });
 
-    let finalStock = (isAdmin && isAdminView) 
-      ? availableForPurchase.reduce((prev, curr) => (getStockCostPrice(curr) < getStockCostPrice(prev)) ? curr : prev, availableForPurchase[0]) 
-      : (targetStock || availableForPurchase[0]);
+    const offerStock = acceptedOfferStock && acceptedOffer
+      && targetStock?.key === acceptedOfferStock.key
+      ? acceptedOfferStock
+      : null;
+    const requestedSource = targetStock
+      ? (isPreOrderStock(targetStock) ? 'preorder' : 'onhand')
+      : '';
+    const sourceAvailable = availableForPurchase.filter(stock => (
+      !requestedSource || (isPreOrderStock(stock) ? 'preorder' : 'onhand') === requestedSource
+    ));
+    const publicPurchaseCandidates = sourceAvailable.length > 0 ? sourceAvailable : availableForPurchase;
+    let finalStock = (isAdmin && isAdminView)
+      ? availableForPurchase.reduce((prev, curr) => (getStockCostPrice(curr) < getStockCostPrice(prev)) ? curr : prev, availableForPurchase[0])
+      : (offerStock || getHighestCostStock(publicPurchaseCandidates) || targetStock);
 
     if (!finalStock) return;
 
     if (onBuyNowClick) {
-      onBuyNowClick({ kit, stock: finalStock, displayPrice, ...getAcceptedOfferFields(finalStock) });
+      onBuyNowClick({
+        kit,
+        stock: finalStock,
+        stockSource: isPreOrderStock(finalStock) ? 'preorder' : 'onhand',
+        displayPrice,
+        ...getAcceptedOfferFields(finalStock)
+      });
       if (window.location.pathname !== productPath) {
         closeProductModal();
       }
@@ -1323,6 +1349,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
         setPendingBasketItem({
           ...kit,
           stockKey: finalStock.key,
+          stockSource: isPreOrderStock(finalStock) ? 'preorder' : 'onhand',
           selectedStockId: finalStock.timestamp,
           price: basePrice + handlingFee + installmentFee + transferFee,
           sellPrice: basePrice,
@@ -1346,6 +1373,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       addToBasket({
         ...kit,
         stockKey: finalStock.key,
+        stockSource: isPreOrderStock(finalStock) ? 'preorder' : 'onhand',
         selectedStockId: finalStock.timestamp,
         price: basePrice + handlingFee + installmentFee + transferFee,
         sellPrice: basePrice,

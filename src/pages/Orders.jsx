@@ -30,6 +30,11 @@ function resolveImage(idOrUrl, imagesArray) {
   return match?.url || '';
 }
 
+function createPaymentReviewId() {
+  return globalThis.crypto?.randomUUID?.()
+    || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 
 function ChangeView({ center }) {
   const map = useMap();
@@ -1114,7 +1119,7 @@ export default function Orders() {
       }
     }
   };
-  const handleConfirmPayment = async (order, skipConfirm = false) => {
+  const handleConfirmPayment = async (order, skipConfirm = false, isBalanceReceipt = false) => {
     const isSecondPaymentPending = order.items?.some(item => 
       item.type === 'project' && 
       item.projectData?.method?.name?.toUpperCase() === 'STL' && 
@@ -1156,9 +1161,15 @@ export default function Orders() {
         await confirmOrderPayment(order.id, amount);
       }
       
-      if (Object.keys(extraFields).length > 0) {
-        await updateOrderDetails(order.id, extraFields);
-      }
+      await updateOrderDetails(order.id, {
+        ...extraFields,
+        paymentReview: {
+          decision: 'approved',
+          receiptType: isBalanceReceipt ? 'balance' : (order.receipt ? 'initial' : 'cash'),
+          reviewId: createPaymentReviewId(),
+          reviewedAt: new Date().toISOString()
+        }
+      });
       
       let newStatus;
       const isPartialPlan = String(order.paymentPlan || '').toLowerCase() === 'partial';
@@ -1244,7 +1255,13 @@ export default function Orders() {
       const extraFields = {
         status: newStatus,
         balanceRequested: true,
-        balanceRequestedAt: new Date().toISOString()
+        balanceRequestedAt: new Date().toISOString(),
+        paymentReview: {
+          decision: 'balance_requested',
+          receiptType: isBalance ? 'balance' : 'initial',
+          reviewId: createPaymentReviewId(),
+          reviewedAt: new Date().toISOString()
+        }
       };
       if (isReservationPlan && !order.downpaymentConfirmedAt) {
         extraFields.downpaymentConfirmedAt = new Date().toISOString();
@@ -2980,7 +2997,7 @@ export default function Orders() {
                           <button 
                             onClick={() => {
                               if (window.confirm(`Validate this ${receiptLabel.toLowerCase()}?`)) {
-                                handleConfirmPayment(selectedOrder, true);
+                                handleConfirmPayment(selectedOrder, true, isBalanceReceipt);
                                 setIsPreviewExpanded(false);
                                 setActivePreviewUrl(null);
                               }

@@ -32,6 +32,24 @@ const getAvailableStockCount = (kit) => {
   return Object.values(kit?.stocks || {}).filter((stock) => !stock?.order?.orderId && !stock?.isReserved).length;
 };
 
+const removeUndefinedValues = (value) => {
+  if (Array.isArray(value)) {
+    return value
+      .filter((entry) => entry !== undefined)
+      .map(removeUndefinedValues);
+  }
+
+  if (!value || typeof value !== 'object' || value instanceof Date) return value;
+
+  // Preserve Firestore Timestamp-like values and other SDK objects.
+  if (typeof value.toDate === 'function' || typeof value.toMillis === 'function') return value;
+
+  return Object.entries(value).reduce((result, [key, entry]) => {
+    if (entry !== undefined) result[key] = removeUndefinedValues(entry);
+    return result;
+  }, {});
+};
+
 const reconcileAdminShelfSnapshot = async (shelfSnap) => {
   const kitsSnap = await getDocs(collection(db, 'kits'));
   const kitsById = new Map(kitsSnap.docs.map((kitDoc) => [kitDoc.id, kitDoc.data()]));
@@ -73,6 +91,23 @@ const reconcileAdminShelfSnapshot = async (shelfSnap) => {
 const getStockCostPrice = (stock) => {
   const value = Number(stock?.costPrice);
   return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
+};
+
+const getStockSource = (stock) => {
+  const status = String(stock?.status || '').trim().toLowerCase();
+  return status.includes('pre') || status.includes('batch') ? 'preorder' : 'onhand';
+};
+
+const stockMatchesSource = (stock, source) => !source || getStockSource(stock) === source;
+
+const compareCustomerStockEntries = ([aKey, aStock], [bKey, bStock]) => {
+  const costDelta = Number(bStock?.costPrice || 0) - Number(aStock?.costPrice || 0);
+  if (costDelta !== 0) return costDelta;
+
+  const sellDelta = Number(bStock?.sellPrice || 0) - Number(aStock?.sellPrice || 0);
+  if (sellDelta !== 0) return sellDelta;
+
+  return String(aKey).localeCompare(String(bKey));
 };
 
 const getBuiltOnhandSellPrice = (costPrice) => {
@@ -376,6 +411,38 @@ const releaseStockTarget = async (kitId, stockKey, orderDocId, order = {}) => {
 
   const matchesOrder = stock.order?.orderDocId === orderDocId || (order.orderId && stock.order?.orderId === order.orderId);
   if (!matchesOrder) return false;
+
+  // Supplier-cancelled, fully paid pre-orders remain reserved until the
+  // supplier refund is confirmed. If the linked customer order is deleted
+  // or cancelled first, remove only the order link and keep the supplier
+  // refund hold in place.
+  if (stock.supplierRefundStatus === 'pending') {
+    const nextStocks = {
+      ...stocks,
+      [stockKey]: {
+        ...stock,
+        isReserved: true,
+        reservedBy: null,
+        reservedAt: null,
+        reservationType: 'supplier-refund'
+      }
+    };
+    delete nextStocks[stockKey].order;
+    delete nextStocks[stockKey].reservedByDealId;
+
+    const hasAvailable = Object.values(nextStocks).some((candidate) => !candidate.order?.orderId && !candidate.isReserved);
+    await updateDoc(kitRef, {
+      [`stocks.${stockKey}.isReserved`]: true,
+      [`stocks.${stockKey}.reservedAt`]: null,
+      [`stocks.${stockKey}.reservedBy`]: null,
+      [`stocks.${stockKey}.reservationType`]: 'supplier-refund',
+      [`stocks.${stockKey}.reservedByDealId`]: deleteField(),
+      [`stocks.${stockKey}.order`]: deleteField(),
+      hasAvailableStock: hasAvailable,
+      lastUpdated: serverTimestamp()
+    });
+    return true;
+  }
 
   const nextStocks = {
     ...stocks,
@@ -2518,16 +2585,22 @@ export const useStore = create(
         }
 
         const occupied = new Set(currentList.filter(i => i.id === itemData.id).map(i => i.stockKey));
-        const available = Object.entries(kit.stocks).filter(([key, s]) => !s.isReserved && !s.order?.orderId && !occupied.has(key));
-        available.sort((a, b) => isAdminContext ? getStockCostPrice(a[1]) - getStockCostPrice(b[1]) : Number(b[1].costPrice || 0) - Number(a[1].costPrice || 0));
-        
-        const allStocks = Object.entries(kit.stocks);
+        const available = Object.entries(kit.stocks)
+          .filter(([key, stock]) => !stock.isReserved && !stock.order?.orderId && !occupied.has(key));
+        const requestedStock = itemData.stockKey ? kit.stocks[itemData.stockKey] : null;
+        const requestedSource = itemData.stockSource || (requestedStock ? getStockSource(requestedStock) : '');
+        const sourceAvailable = available.filter(([, stock]) => stockMatchesSource(stock, requestedSource));
+        const customerCandidates = sourceAvailable.length > 0 ? sourceAvailable : available;
+        const sortedAvailable = isAdminContext
+          ? [...available].sort((a, b) => getStockCostPrice(a[1]) - getStockCostPrice(b[1]))
+          : [...customerCandidates].sort(compareCustomerStockEntries);
+        const isAcceptedOffer = Boolean(itemData.offerId && requestedStock);
         const targetKey = isAdminContext
-          ? available[0]?.[0]
-          : itemData.stockKey && kit.stocks[itemData.stockKey]
-          ? itemData.stockKey
-          : (available[0]?.[0] || allStocks[0]?.[0]);
-          
+          ? sortedAvailable[0]?.[0]
+          : isAcceptedOffer
+            ? itemData.stockKey
+            : sortedAvailable[0]?.[0];
+
         if (!targetKey) return;
 
         const basketId = `b_kit_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
@@ -2560,6 +2633,7 @@ export const useStore = create(
           appliedInstallmentFee: itemInstallmentFee, 
           appliedTransferFee: itemTransferFee,
           stockKey: targetKey, 
+          stockSource: getStockSource(stock),
           type: itemData.type || 'kit', 
           basketId, 
           minDownpayment: stock.minDownpayment || 0,
@@ -2902,54 +2976,134 @@ export const useStore = create(
       },
 
       reserveStockForCheckout: async (kitId, stockKey, uid, options = {}) => {
-        const snap = await getDoc(doc(db, "kits", kitId));
-        if (!snap.exists()) return { success: false };
-        const data = snap.data();
-        const stock = data.stocks?.[stockKey];
-        if (!stock) return { success: false };
-        let canUseAcceptedOffer = false;
-        if (options.offerId) {
-          const offerSnap = await getDoc(doc(db, 'hunts', options.offerId));
-          const offer = offerSnap.exists() ? offerSnap.data() : null;
-          const offerExpiresAt = offer?.offerExpiresAt ? new Date(offer.offerExpiresAt).getTime() : 0;
-          canUseAcceptedOffer = Boolean(
+        const kitRef = doc(db, "kits", kitId);
+        let allocation = null;
+
+        await runTransaction(db, async (transaction) => {
+          const snap = await transaction.get(kitRef);
+          if (!snap.exists()) return;
+
+          const data = snap.data();
+          const stockEntries = Object.entries(data.stocks || {});
+          const requestedStock = stockKey ? data.stocks?.[stockKey] : null;
+          let acceptedOffer = null;
+
+          if (options.offerId) {
+            const offerSnap = await transaction.get(doc(db, 'hunts', options.offerId));
+            acceptedOffer = offerSnap.exists() ? offerSnap.data() : null;
+          }
+
+          const offerExpiresAt = acceptedOffer?.offerExpiresAt
+            ? new Date(acceptedOffer.offerExpiresAt).getTime()
+            : 0;
+          const canUseAcceptedOffer = Boolean(
             options.allowAcceptedOffer
-            && offer?.uid === uid
-            && offer?.kitId === kitId
-            && offer?.status === 'released'
-            && offer?.releasedStockKey === stockKey
+            && acceptedOffer?.uid === uid
+            && acceptedOffer?.kitId === kitId
+            && acceptedOffer?.status === 'released'
+            && acceptedOffer?.releasedStockKey === stockKey
             && offerExpiresAt > Date.now()
           );
-        }
-        const canUseAdminShelfStock = options.allowAdminShelf && stock.isReserved && stock.reservationType === 'admin' && !stock.order?.orderId;
-        if (stock.isReserved && stock.reservedBy !== uid && !canUseAdminShelfStock && !canUseAcceptedOffer) return { success: false };
 
-        const stocks = { ...data.stocks };
-        if (stocks[stockKey]) {
-          stocks[stockKey].isReserved = true;
-          stocks[stockKey].reservedBy = uid;
-          if (canUseAdminShelfStock || canUseAcceptedOffer) delete stocks[stockKey].reservationType;
-        }
-        const hasAvailable = Object.values(stocks).some(s => !s.order?.orderId && !s.isReserved);
+          // An accepted offer is tied to one released stock variant. Never
+          // silently move that discounted offer onto another stock item.
+          if (options.allowAcceptedOffer && options.offerId && !canUseAcceptedOffer) return;
+          const requestedIsAdminShelfStock = Boolean(
+            options.allowAdminShelf
+            && requestedStock?.isReserved
+            && requestedStock.reservationType === 'admin'
+            && !requestedStock.order?.orderId
+          );
+          const requestedIsOwnReservation = Boolean(
+            requestedStock
+            && requestedStock.isReserved
+            && requestedStock.reservedBy === uid
+            && !requestedStock.order?.orderId
+          );
 
-        await updateDoc(doc(db, "kits", kitId), {
-          [`stocks.${stockKey}.isReserved`]: true,
-          [`stocks.${stockKey}.reservedBy`]: uid,
-          [`stocks.${stockKey}.reservedAt`]: serverTimestamp(),
-          ...((canUseAdminShelfStock || canUseAcceptedOffer) ? { [`stocks.${stockKey}.reservationType`]: deleteField() } : {}),
-          lastUpdated: serverTimestamp(),
-          hasAvailableStock: hasAvailable
+          let selectedEntry = null;
+          let usedAdminShelfStock = false;
+
+          if (canUseAcceptedOffer || requestedIsAdminShelfStock || requestedIsOwnReservation) {
+            selectedEntry = [stockKey, requestedStock];
+            usedAdminShelfStock = requestedIsAdminShelfStock;
+          } else {
+            const source = options.stockSource || (requestedStock ? getStockSource(requestedStock) : '');
+            const availableEntries = stockEntries
+              .filter(([, stock]) => (
+                !stock?.order?.orderId
+                && !stock?.isReserved
+                && stockMatchesSource(stock, source)
+              ))
+              .sort(compareCustomerStockEntries);
+            selectedEntry = availableEntries[0] || null;
+
+            // Deal items may consume an admin-held shelf stock only after all
+            // ordinary customer-available stocks have been exhausted.
+            if (!selectedEntry && options.allowAdminShelf) {
+              const adminShelfEntries = stockEntries
+                .filter(([, stock]) => (
+                  !stock?.order?.orderId
+                  && stock?.isReserved
+                  && stock?.reservationType === 'admin'
+                  && stockMatchesSource(stock, source)
+                ))
+                .sort(compareCustomerStockEntries);
+              selectedEntry = adminShelfEntries[0] || null;
+              usedAdminShelfStock = Boolean(selectedEntry);
+            }
+          }
+
+          if (!selectedEntry?.[0] || !selectedEntry[1]) return;
+
+          const [allocatedStockKey, allocatedStock] = selectedEntry;
+          const nextStocks = {
+            ...data.stocks,
+            [allocatedStockKey]: {
+              ...allocatedStock,
+              isReserved: true,
+              reservedBy: uid
+            }
+          };
+          const hasAvailable = Object.values(nextStocks).some(stock => (
+            !stock?.order?.orderId && !stock?.isReserved
+          ));
+
+          transaction.update(kitRef, {
+            [`stocks.${allocatedStockKey}.isReserved`]: true,
+            [`stocks.${allocatedStockKey}.reservedBy`]: uid,
+            [`stocks.${allocatedStockKey}.reservedAt`]: serverTimestamp(),
+            ...((canUseAcceptedOffer || usedAdminShelfStock)
+              ? { [`stocks.${allocatedStockKey}.reservationType`]: deleteField() }
+              : {}),
+            lastUpdated: serverTimestamp(),
+            hasAvailableStock: hasAvailable
+          });
+
+          allocation = {
+            success: true,
+            stockKey: allocatedStockKey,
+            stock: {
+              ...allocatedStock,
+              isReserved: true,
+              reservedBy: uid
+            },
+            usedAdminShelfStock,
+            usedAcceptedOffer: canUseAcceptedOffer
+          };
         });
-        return { success: true };
+
+        return allocation || { success: false };
       },
 
       publishBlueprint: async (pData) => {
         const { user } = get();
+        const cleanProjectData = removeUndefinedValues(pData || {});
         const blueprintData = {
-          ...pData,
+          ...cleanProjectData,
           createdAt: serverTimestamp(),
           publishedBy: user?.uid || null,
-          canAddToBasket: pData.canAddToBasket !== false,
+          canAddToBasket: cleanProjectData.canAddToBasket !== false,
           isPublished: true
         };
         await addDoc(collection(db, 'blueprints'), blueprintData);
@@ -2957,8 +3111,9 @@ export const useStore = create(
       updateBlueprint: async (blueprintId, pData) => {
         const { user } = get();
         if (!blueprintId) throw new Error('Missing blueprint id.');
+        const cleanProjectData = removeUndefinedValues(pData || {});
         const blueprintData = {
-          ...pData,
+          ...cleanProjectData,
           id: blueprintId,
           updatedAt: serverTimestamp(),
           updatedBy: user?.uid || null,

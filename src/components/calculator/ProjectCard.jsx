@@ -250,9 +250,11 @@ const isProjectPrinterOperational = (printer = {}) => {
 };
 
 const getProjectPrinterStatusTextClass = (printerSelection, printer) => (
-  printerSelection?.isCompatible && isProjectPrinterOperational(printer)
-    ? 'text-emerald-600'
-    : 'text-red-500'
+  normalizePrinterStatus(printer?.status, printer) === 'maintenance'
+    ? 'text-amber-500'
+    : printerSelection?.isCompatible && isProjectPrinterOperational(printer)
+      ? 'text-emerald-600'
+      : 'text-red-500'
 );
 
 const printerFitsProjectDimensions = (printer, dimensions) => {
@@ -323,25 +325,37 @@ const getBestProjectPrinter = (printers, project, details, feeders, filamentInve
   const { detailsToCheck } = getProjectPrinterCandidates(printers, project, details);
   const detailSelections = detailsToCheck.map((detail) => {
     const { candidates } = getProjectPrinterCandidates(printers, project, detailsToCheck, detail);
+    const operationalPrinter = candidates.find((printer) => (
+      printerCanAccommodateProjectDetail(printer, detail, feeders, filamentInventory)
+    )) || null;
+    const displayPrinter = operationalPrinter || candidates.find((printer) => (
+      printerCanAccommodateProjectDetail(
+        printer,
+        detail,
+        feeders,
+        filamentInventory,
+        isPrinterAvailableForCostEstimation
+      )
+    )) || null;
     return {
       candidates,
-      printer: candidates.find((printer) => (
-        printerCanAccommodateProjectDetail(printer, detail, feeders, filamentInventory)
-      )) || null
+      // Keep the operational match separate so maintenance still blocks
+      // production while remaining available for display and repricing.
+      printer: operationalPrinter,
+      displayPrinter
     };
   });
 
   return {
     detailsToCheck,
-    printer: detailSelections[0]?.printer || detailSelections[0]?.candidates?.[0] || null,
+    printer: detailSelections[0]?.displayPrinter || detailSelections[0]?.candidates?.[0] || null,
     isCompatible: detailSelections.length > 0 && detailSelections.every((selection) => Boolean(selection.printer)),
     detailSelections
   };
 };
 
-// Production eligibility only accepts available printers. Pricing can still be
-// recalculated with a maintenance printer because maintenance stops scheduling
-// but does not invalidate the printer's cost parameters.
+// Capability/pricing checks accept available and maintenance printers. The
+// queue still uses the maintenance status to delay the actual print slot.
 const getBestCostProjectPrinter = (printers, project, details, feeders, filamentInventory) => {
   const { detailsToCheck } = getProjectPrinterCandidates(printers, project, details);
   const detailSelections = detailsToCheck.map((detail) => {
@@ -355,9 +369,8 @@ const getBestCostProjectPrinter = (printers, project, details, feeders, filament
         isPrinterAvailableForCostEstimation
       )
     ));
-    // Prefer a printer that can schedule now. A maintenance printer remains a
-    // valid cost fallback, but should not keep stale pricing when an available
-    // compatible printer can take over the project.
+    // Prefer a printer that can schedule now for the displayed estimate. A
+    // maintenance printer remains a valid capability fallback.
     const printer = costCompatibleCandidates.find(isProjectPrinterOperational)
       || costCompatibleCandidates[0]
       || null;
@@ -537,7 +550,8 @@ const GarageProjectSummary = ({
   feeders,
   lowestPrice,
   printers,
-  isDarkMode
+  isDarkMode,
+  titleEditor = null
 }) => {
   const condition = project?.conditionDetails || project?.conditions || {};
   const boxCondition = project?.boxCondition || condition.box || project?.box;
@@ -574,17 +588,21 @@ const GarageProjectSummary = ({
     ? normalizePrinterStatus(assignedPrinter.status, assignedPrinter)
     : 'unavailable';
   const printerStatus = assignedPrinter
-    ? (printerSelection.isCompatible
-      ? normalizedPrinterStatus.toUpperCase()
-      : 'UNAVAILABLE')
+    ? (normalizedPrinterStatus === 'maintenance'
+      ? 'MAINTENANCE'
+      : printerSelection.isCompatible
+        ? normalizedPrinterStatus.toUpperCase()
+        : 'UNAVAILABLE')
     : 'UNAVAILABLE';
 
   return (
     <div className="p-6 sm:p-8 lg:p-10 space-y-7">
       <div className="space-y-2">
-        <h2 className="text-[24px] sm:text-[30px] font-black uppercase italic leading-[0.95] tracking-tight line-clamp-2 break-words">
-          {title}
-        </h2>
+        {titleEditor || (
+          <h2 className="text-[24px] sm:text-[30px] font-black uppercase italic leading-[0.95] tracking-tight line-clamp-2 break-words">
+            {title}
+          </h2>
+        )}
         {metadata.length > 0 && (
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] sm:text-[14px] font-black uppercase tracking-[0.18em]">
             {metadata.map((value, index) => (
@@ -805,6 +823,20 @@ export default function ProjectCard({
       } catch (err) {
         console.error('SG LOG: Failed to update project name:', err);
       }
+    } else if (
+      type === 'blueprint'
+      && isAdmin
+      && isAdminView
+      && showManagementActions
+      && project?.id
+      && trimmed !== (project?.projectName || '')
+    ) {
+      try {
+        await updateBlueprint(project.id, { projectName: trimmed });
+      } catch (err) {
+        console.error('SG LOG: Failed to update garage project name:', err);
+        setProjectNameLocal(project?.projectName || '');
+      }
     }
   };
 
@@ -963,6 +995,7 @@ export default function ProjectCard({
   };
 
   const isBlueprint = type === 'blueprint';
+  const canRenameBlueprint = isBlueprint && isAdmin && isAdminView && showManagementActions;
   const isProductionEnabled = project?.canAddToBasket !== false;
   
   const handleToggleProduction = async (e) => {
@@ -980,10 +1013,48 @@ export default function ProjectCard({
   };
 
   const displayImage = isBlueprint ? getProjectImageUrl(project.image) : null;
-  const displayProjectTitle = isUnnamedProjectName(isVault ? projectNameLocal : project.projectName)
+  const displayProjectName = isVault || canRenameBlueprint ? projectNameLocal : project.projectName;
+  const displayProjectTitle = isUnnamedProjectName(displayProjectName)
     ? (fallbackTitle || 'PROJECT #')
-    : (isVault ? projectNameLocal : project.projectName);
+    : displayProjectName;
   const projectTitle = displayProjectTitle;
+
+  const projectNameEditor = canRenameBlueprint ? (
+    <div
+      className="text-left cursor-pointer"
+      onClick={(e) => {
+        e.stopPropagation();
+        setIsEditingName(true);
+      }}
+      title="Tap to rename garage project"
+    >
+      {isEditingName ? (
+        <input
+          type="text"
+          ref={projectNameInputRef}
+          value={projectNameLocal}
+          onChange={(e) => setProjectNameLocal(e.target.value)}
+          onBlur={handleProjectNameBlur}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleProjectNameBlur();
+          }}
+          onClick={(e) => e.stopPropagation()}
+          placeholder="Rename Garage Project"
+          className="w-full border-b border-dashed border-blue-500 bg-transparent py-1 text-[24px] font-black uppercase italic leading-[0.95] tracking-tight text-[var(--color-text-main)] outline-none"
+          autoFocus
+        />
+      ) : (
+        <h2 className="text-[24px] sm:text-[30px] font-black uppercase italic leading-[0.95] tracking-tight line-clamp-2 break-words hover:text-blue-500 transition-colors">
+          {displayProjectTitle}
+        </h2>
+      )}
+      {isUnnamedProjectName(projectNameLocal) && (
+        <p className="mt-2 text-[11px] font-black uppercase leading-tight text-amber-500">
+          Tap the project name to make this visible publicly.
+        </p>
+      )}
+    </div>
+  ) : null;
   
   // Dynamic design services from Firestore rates — filter for active maps with status: true
   const availableDesignServices = useMemo(() => {
@@ -1137,16 +1208,6 @@ export default function ProjectCard({
     setIsModalOpen(true);
   };
 
-  const printerIsAvailable = useMemo(() => {
-    return getBestProjectPrinter(
-      printers,
-      project,
-      details,
-      feeders,
-      filamentInventory
-    ).isCompatible;
-  }, [details, feeders, filamentInventory, printers, project]);
-
   const projectPrinterSelection = useMemo(() => getBestProjectPrinter(
       printers,
       project,
@@ -1162,6 +1223,11 @@ export default function ProjectCard({
     feeders,
     filamentInventory
   ), [details, feeders, filamentInventory, printers, project]);
+
+  // Maintenance is a scheduling delay, not a capability failure. A project
+  // may still be ordered when a compatible maintenance printer can process it;
+  // the queue/calendar will place it after the downtime.
+  const printerCanProcessProject = projectCostPrinterSelection.isCompatible;
 
   // If the assigned printer becomes unavailable, resolve another cost-capable
   // printer and recalculate from the existing project inputs. This intentionally
@@ -1351,22 +1417,22 @@ export default function ProjectCard({
     return Boolean(firstAvailable && toDateKey(firstAvailable) === toDateKey(today));
   }, [orders, shippingSettings?.availabilitySchedule]);
 
-  // Both project types require an operational printer that can fit the project,
-  // accept its materials, and have enough filament capacity. Garage Projects
-  // additionally respect the admin production flag. Their public actions do
-  // not depend on today's calendar slot; checkout/scheduling can assign the
-  // next available production date. Personal projects keep their existing
-  // schedule and file/design-service validation.
+  // Both project types require a capable printer that can fit the project,
+  // accept its materials, and have enough filament capacity. A maintenance
+  // printer remains capable; its downtime is handled by the queue. Garage Projects
+  // additionally respect the admin production flag. Neither project type is
+  // blocked by today's calendar slot; checkout/scheduling can assign the next
+  // available production date. Personal projects still require a valid file
+  // link or selected design service.
   const canUseProject = isBlueprint
     ? isProductionEnabled
-      && printerIsAvailable
+      && printerCanProcessProject
       && materialStatus.available
-    : printerIsAvailable
+    : printerCanProcessProject
       && materialStatus.available
-      && projectCanStartToday
       && (Boolean(effectiveSelectedDesignService) || fileLinkIsValid);
   const canAddToBasket = canUseProject;
-  const printerIssue = !printerIsAvailable;
+  const printerIssue = !printerCanProcessProject;
   const canModifyProject = isVault && !canUseProject;
   const productionStatusTitle = isProductionEnabled
     ? (isBlueprint && !canUseProject
@@ -1476,7 +1542,7 @@ export default function ProjectCard({
       ...(isVault ? { gdriveLink: fileLink, licenseAcknowledged } : {}),
       selectedDesignService: effectiveSelectedDesignService,
       projectStatusIndicators: {
-        printer: printerIsAvailable,
+        printer: printerCanProcessProject,
         materials: materialStatus.available,
         schedule: projectCanStartToday,
         design: Boolean(effectiveSelectedDesignService) || fileLinkIsValid
@@ -1623,7 +1689,7 @@ export default function ProjectCard({
               ) : isVault ? (
                 /* Vault project info boxes — 2×2 grid */
                 <ProjectStatusGrid
-                  printerAvailable={printerIsAvailable}
+                  printerAvailable={printerCanProcessProject}
                   materialsAvailable={materialStatus.available}
                   canStartToday={projectCanStartToday}
                   hasDesignService={Boolean(effectiveSelectedDesignService)}
@@ -1881,6 +1947,7 @@ export default function ProjectCard({
                       lowestPrice={lowestPrice}
                       printers={printers}
                       isDarkMode={isDarkMode}
+                      titleEditor={projectNameEditor}
                     />
                   ) : (
                   <div className="p-6 sm:p-8 lg:p-10 space-y-8">

@@ -29,8 +29,8 @@ export default function ProjectStatusGrid({
       <div className={tileClassName} title={materialsAvailable ? 'Materials available' : 'Materials unavailable'}>
         <Disc3 size={24} className={materialsAvailable ? 'text-blue-500' : 'text-red-500'} strokeWidth={2.5} />
       </div>
-      <div className={tileClassName} title={canStartToday ? 'Available today' : 'Not available today'}>
-        <CalendarDays size={24} className={canStartToday ? 'text-blue-500' : 'text-red-500'} strokeWidth={2.5} />
+      <div className={tileClassName} title={canStartToday ? 'Available today' : 'Queued for the next available date'}>
+        <CalendarDays size={24} className="text-blue-500" strokeWidth={2.5} />
       </div>
       <div className={tileClassName} title={hasDesignService ? '3D service selected' : fileLinkIsValid ? 'File link available' : 'File link missing'}>
         {hasDesignService ? (

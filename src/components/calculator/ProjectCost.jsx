@@ -252,17 +252,29 @@ export default function ProjectCost({
         electricityMarkupMultiplier: calculatedTotals.electricityMarkupMultiplier
           ?? previousTotals.electricityMarkupMultiplier
           ?? 1,
-        filament: calculatedTotals.filament ?? previousTotals.filament,
-        labor: calculatedTotals.labor ?? previousTotals.labor,
-        maintenance: calculatedTotals.maintenance ?? previousTotals.maintenance,
-        extras: calculatedTotals.extras ?? previousTotals.extras
+        ...(calculatedTotals.filament ?? previousTotals.filament) !== undefined
+          ? { filament: calculatedTotals.filament ?? previousTotals.filament }
+          : {},
+        ...(calculatedTotals.labor ?? previousTotals.labor) !== undefined
+          ? { labor: calculatedTotals.labor ?? previousTotals.labor }
+          : {},
+        ...(calculatedTotals.maintenance ?? previousTotals.maintenance) !== undefined
+          ? { maintenance: calculatedTotals.maintenance ?? previousTotals.maintenance }
+          : {},
+        ...(calculatedTotals.extras ?? previousTotals.extras) !== undefined
+          ? { extras: calculatedTotals.extras ?? previousTotals.extras }
+          : {}
       };
       const projectPayload = {
         ...data,
         source: isAdmin && isAdminView ? 'admin-estimate' : 'customer-estimate',
         listingType: 'estimate',
         totals: nextTotals,
-        rates: Object.keys(draftRates || {}).length > 0 ? draftRates : data?.rates
+        ...(Object.keys(draftRates || {}).length > 0
+          ? { rates: draftRates }
+          : data?.rates !== undefined
+            ? { rates: data.rates }
+            : {})
       };
 
       if (onFinalConfirm && (isEditMode || isInventoryMode)) {

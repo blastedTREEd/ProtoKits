@@ -1,0 +1,22 @@
+{
+  "name": "snorlaxgarage-functions",
+  "private": true,
+  "engines": {
+    "node": "20"
+  },
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "lint": "eslint .",
+    "serve": "firebase emulators:start --only functions,firestore",
+    "shell": "firebase functions:shell"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.0",
+    "firebase-functions": "^6.4.0",
+    "nodemailer": "^7.0.3"
+  },
+  "devDependencies": {
+    "firebase-functions-test": "^3.4.0"
+  }
+}

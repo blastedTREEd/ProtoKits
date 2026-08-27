@@ -16,12 +16,13 @@ export default function Home() {
   
   const paymentSettings = shippingSettings?.paymentSettings;
   const maintenanceInvalidTypes = paymentSettings?.maintenanceInvalidTypes || {};
+  const hasCheckoutSettings = shippingSettings !== null;
   const isUnderMaintenance = paymentSettings?.maintenanceMode === true
-    && maintenanceInvalidTypes.kit !== false
-    && maintenanceInvalidTypes.prints !== false;
+    && (maintenanceInvalidTypes.kit !== false || maintenanceInvalidTypes.prints !== false);
   const isOpen = !isUnderMaintenance;
-  const garageStatusText = isLoading ? "OPENING" : (isOpen ? "NOW OPEN" : "UNDER MAINTENANCE");
-  const isOpeningOrOpen = isLoading || isOpen;
+  const isStatusLoading = isLoading || !hasCheckoutSettings;
+  const garageStatusText = isStatusLoading ? "OPENING" : (isOpen ? "NOW OPEN" : "UNDER MAINTENANCE");
+  const isOpeningOrOpen = isStatusLoading || isOpen;
   const { scrollYProgress } = useScroll({
     target: containerRef,
     offset: ["start start", "end start"]
