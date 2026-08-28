@@ -12,6 +12,17 @@ function getStoryTime(value) {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
+function formatStoryDate(value) {
+  const timestamp = getStoryTime(value);
+  if (!timestamp) return 'Recently';
+
+  return new Date(timestamp).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
+}
+
 function getStoryImage(story) {
   return story.backgroundImage || story.image || story.stickers?.find((sticker) => sticker.src)?.src || '';
 }
@@ -301,6 +312,8 @@ export default function Highlights() {
                 const image = getStoryImage(story);
                 const isSelected = selectedStoryIds.has(story.id);
                 const storyLabel = story.label || 'Untitled garage story';
+                const storyDateLabel = formatStoryDate(story.storyDate || story.createdAt || story.lastUpdated);
+                const storyDestination = String(story.destination || '').trim() || 'Garage Story';
 
                 return (
                   <div
@@ -359,6 +372,15 @@ export default function Highlights() {
                           Edit
                         </button>
                       ))}
+
+                      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[15] rounded-b-[1.3rem] bg-gradient-to-t from-black/95 via-black/65 to-transparent px-3 pb-3 pt-12 text-left text-white">
+                        <p className="truncate text-[9px] font-bold uppercase tracking-[0.16em] text-white sm:text-[10px]">
+                          {storyDateLabel}
+                        </p>
+                        <p className="line-clamp-1 text-[12px] font-bold uppercase leading-tight tracking-tight text-white sm:line-clamp-2 sm:text-[14px]">
+                          {storyDestination}
+                        </p>
+                      </div>
                     </div>
                   </div>
                 );

@@ -260,19 +260,18 @@ export default function BundleHighlights() {
       return !expiry || expiry > now;
     };
 
-    // Priority 1: newest public pre-order kits.
-    (kits || [])
-      .map((kit) => ({ kit, stock: getMatchingStock(kit, 'preorder') }))
-      .filter(({ kit, stock }) => stock && kit?.id && !usedKitIds.has(String(kit.id)))
-      .sort((a, b) => (
-        Number(hasActiveFreeShipping(b.stock)) - Number(hasActiveFreeShipping(a.stock)) ||
-        getTimestamp(b.stock?.lastUpdated || b.stock?.createdAt || b.kit?.lastUpdated || b.kit?.createdAt) -
-        getTimestamp(a.stock?.lastUpdated || a.stock?.createdAt || a.kit?.lastUpdated || a.kit?.createdAt)
-      ))
-      .forEach(({ kit, stock }) => {
+    // Priority 1: only the first kit represents each active bundle deal in
+    // Highlights. The full bundle remains available from the deal modal.
+    activeBundles.forEach((deal) => {
+      const stockSource = deal.stockSource || 'onhand';
+      getBundleKitIds(deal).slice(0, 1).forEach((kitId) => {
+        const kit = kitMap.get(String(kitId));
+        const stock = getMatchingStock(kit, stockSource);
+        if (!kit?.id || !stock || usedKitIds.has(String(kit.id))) return;
         usedKitIds.add(String(kit.id));
-        cards.push({ type: 'kit', id: `preorder:${kit.id}`, kit, stock, label: 'PRE-ORDER' });
+        cards.push({ type: 'kit', id: `bundle:${deal.id}:${kit.id}`, kit, stock, label: 'BUNDLE DEAL' });
       });
+    });
 
     // Priority 2: kits with an active clearance discount.
     (deals || [])
@@ -295,7 +294,36 @@ export default function BundleHighlights() {
         });
       });
 
-    // Priority 3: published Garage Projects explicitly enabled for printing.
+    // Priority 3: remaining on-hand kits. This runs after clearance so a kit
+    // that belongs to both categories keeps the higher-priority label.
+    (kits || [])
+      .map((kit) => ({ kit, stock: getMatchingStock(kit, 'onhand') }))
+      .filter(({ kit, stock }) => stock && kit?.id && !usedKitIds.has(String(kit.id)))
+      .sort((a, b) => (
+        getTimestamp(b.stock?.lastUpdated || b.stock?.createdAt || b.kit?.lastUpdated || b.kit?.createdAt) -
+        getTimestamp(a.stock?.lastUpdated || a.stock?.createdAt || a.kit?.lastUpdated || a.kit?.createdAt)
+      ))
+      .forEach(({ kit, stock }) => {
+        usedKitIds.add(String(kit.id));
+        cards.push({ type: 'kit', id: `onhand:${kit.id}`, kit, stock, label: 'ONHAND' });
+      });
+
+    // Priority 4: newest public pre-order kits that were not already claimed
+    // by a bundle, clearance, or on-hand card.
+    (kits || [])
+      .map((kit) => ({ kit, stock: getMatchingStock(kit, 'preorder') }))
+      .filter(({ kit, stock }) => stock && kit?.id && !usedKitIds.has(String(kit.id)))
+      .sort((a, b) => (
+        Number(hasActiveFreeShipping(b.stock)) - Number(hasActiveFreeShipping(a.stock)) ||
+        getTimestamp(b.stock?.lastUpdated || b.stock?.createdAt || b.kit?.lastUpdated || b.kit?.createdAt) -
+        getTimestamp(a.stock?.lastUpdated || a.stock?.createdAt || a.kit?.lastUpdated || a.kit?.createdAt)
+      ))
+      .forEach(({ kit, stock }) => {
+        usedKitIds.add(String(kit.id));
+        cards.push({ type: 'kit', id: `preorder:${kit.id}`, kit, stock, label: 'PRE-ORDER' });
+      });
+
+    // Priority 5: published Garage Projects explicitly enabled for printing.
     // Missing availability flags are treated as unavailable for Highlights.
     (blueprints || [])
       .filter((project) => (
@@ -308,20 +336,8 @@ export default function BundleHighlights() {
       .forEach((project) => {
         if (!project?.id || usedProjectIds.has(String(project.id))) return;
         usedProjectIds.add(String(project.id));
-        cards.push({ type: 'project', id: `project:${project.id}`, project, label: 'GARAGE PROJECT' });
+        cards.push({ type: 'project', id: `project:${project.id}`, project, label: '3D PROJECT' });
       });
-
-    // Priority 4: kits from active bundle deals.
-    activeBundles.forEach((deal) => {
-      const stockSource = deal.stockSource || 'onhand';
-      getBundleKitIds(deal).forEach((kitId) => {
-        const kit = kitMap.get(String(kitId));
-        const stock = getMatchingStock(kit, stockSource);
-        if (!kit?.id || !stock || usedKitIds.has(String(kit.id))) return;
-        usedKitIds.add(String(kit.id));
-        cards.push({ type: 'kit', id: `bundle:${deal.id}:${kit.id}`, kit, stock, label: 'BUNDLE' });
-      });
-    });
 
     return cards;
   }, [activeBundles, blueprints, deals, kits, now]);
@@ -513,9 +529,10 @@ export default function BundleHighlights() {
     const isProject = card.type === 'project';
     const item = isProject ? card.project : card.kit;
     const previewKit = item;
+    const itemName = isProject ? (item?.projectName || 'Garage Project') : (item?.name || 'Untitled Kit');
 
     return (
-      <div key={card.id} className={`${visibilityClass} w-full`}>
+      <div key={card.id} className={`${visibilityClass} relative w-full`}>
         {isProject ? (
           <ProjectCard
             project={item}
@@ -534,6 +551,14 @@ export default function BundleHighlights() {
             homePreview
           />
         )}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 rounded-b-[1.5rem] bg-gradient-to-t from-black/95 via-black/65 to-transparent px-3 pb-3 pt-12 text-left text-white">
+          <p className="truncate text-[9px] font-bold uppercase tracking-[0.16em] text-white sm:text-[10px]">
+            {card.label}
+          </p>
+          <p className="line-clamp-1 text-[12px] font-bold uppercase leading-tight tracking-tight text-white sm:line-clamp-2 sm:text-[14px]">
+            {itemName}
+          </p>
+        </div>
       </div>
     );
   };

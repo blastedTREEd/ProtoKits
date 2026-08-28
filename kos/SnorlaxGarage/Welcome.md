@@ -24,14 +24,6 @@ This vault documents the current application behavior. It helps developers, oper
 - Sales dashboard, users dashboard, offers, stories, and maintenance settings.
 - Operations modal for shipping methods, payment options, and Garage Calendar availability.
 
-### Client typography and Android rendering
-
-- The main React client uses an explicit `Arial, "Helvetica Neue", sans-serif` font stack instead of Tailwind's device-dependent `ui-sans-serif`/`system-ui` defaults.
-- `html` sets `-webkit-text-size-adjust: 100%` and `text-size-adjust: 100%` to prevent Android browsers and WebViews from automatically inflating text. Form controls inherit the application font.
-- The same font and text-sizing guardrails are applied to the standalone Terms, Privacy, and Data Deletion pages.
-- The Story Editor intentionally retains per-text font choices (`sans-serif`, `serif`, `monospace`, and `Impact`); the global typography guardrails do not replace those inline selections.
-- These are web-layer protections. A native Android host can still force WebView font or text-zoom settings through its own WebView configuration.
-
 ## Core flows
 
 - **Kit purchase:** browse a kit → select a stock variant/deal → add to basket → enter fulfillment details → reserve an exact stock unit during checkout → submit payment/receipt → admin validates and fulfills the order.
@@ -65,7 +57,6 @@ This vault documents the current application behavior. It helps developers, oper
 - Stock reservation and several business writes currently execute through the client-side Zustand/Firebase path. The rules and code contain indications that stronger server-side transaction handling is still a future migration item.
 - Firestore rules are part of the production security boundary. Current rules require review for kit-write authorization and public shelf reads before the system is considered fully hardened.
 - The temporary admin stock-condition action on the Kits page is an operational migration tool, not a permanent customer feature.
-- Android typography protection is implemented in `src/index.css` and the Tailwind `font-sans` configuration. It reduces system-font substitution and automatic text inflation but cannot override settings forced by a native WebView host.
 
 ## Brand language
 

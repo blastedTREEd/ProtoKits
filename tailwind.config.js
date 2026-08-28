@@ -4,11 +4,6 @@ export default {
   darkMode: 'class',
   theme: {
     extend: {
-      // Keep Tailwind's font-sans utility aligned with the app's explicit
-      // typography instead of the device-dependent ui-sans-serif stack.
-      fontFamily: {
-        sans: ['Arial', 'Helvetica Neue', 'sans-serif'],
-      },
       screens: {
         'portrait': { 'raw': '(orientation: portrait)' },
         'landscape': { 'raw': '(orientation: landscape)' },

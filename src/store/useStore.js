@@ -100,6 +100,71 @@ const getStockSource = (stock) => {
 
 const stockMatchesSource = (stock, source) => !source || getStockSource(stock) === source;
 
+const BUNDLE_DEAL_DEFAULT_RESTART_DELAY_MS = 60 * 60 * 1000;
+const BUNDLE_DEAL_DEFAULT_VALIDITY_MS = 3 * 24 * 60 * 60 * 1000;
+const BUNDLE_DEAL_MIN_VALIDITY_DAYS = 3;
+const BUNDLE_DEAL_MIN_RESTART_DELAY_MS = 60 * 60 * 1000;
+
+const getDealDateMillis = (value) => {
+  if (!value) return 0;
+  if (typeof value.toMillis === 'function') return value.toMillis();
+  if (typeof value.toDate === 'function') return value.toDate().getTime();
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+
+  // Deal dates are stored as local `YYYY-MM-DDTHH:mm` values. Keep the same
+  // local-time interpretation used by the customer-facing deal components.
+  const [datePart, timePart = '00:00'] = String(value).split('T');
+  const [year, month, day] = datePart.split('-').map(Number);
+  const [hours, minutes] = timePart.split(':').map(Number);
+  if (![year, month, day, hours, minutes].every(Number.isFinite)) return 0;
+
+  const parsed = new Date(year, month - 1, day, hours, minutes, 0, 0);
+  return Number.isFinite(parsed.getTime()) ? parsed.getTime() : 0;
+};
+
+const getBundleDealReactivationDelayMs = (deal) => {
+  const configuredHours = Number(deal?.reactivationDelayHours);
+  if (Number.isFinite(configuredHours) && configuredHours >= 0) {
+    return Math.max(BUNDLE_DEAL_MIN_RESTART_DELAY_MS, configuredHours * 60 * 60 * 1000);
+  }
+
+  const configuredValue = Number(deal?.reactivationDelayValue ?? deal?.reactivationDelay);
+  if (Number.isFinite(configuredValue) && configuredValue >= 0) {
+    const multiplier = deal?.reactivationDelayUnit === 'days' ? 24 : 1;
+    return Math.max(BUNDLE_DEAL_MIN_RESTART_DELAY_MS, configuredValue * multiplier * 60 * 60 * 1000);
+  }
+
+  // Existing deals predate the configurable cooldown and retain the original
+  // one-hour behavior until they are edited and saved again.
+  return BUNDLE_DEAL_DEFAULT_RESTART_DELAY_MS;
+};
+
+const getBundleDealValidityMs = (deal) => {
+  const configuredDays = Number(deal?.validityDays);
+  if (Number.isFinite(configuredDays) && configuredDays > 0) {
+    return Math.max(BUNDLE_DEAL_MIN_VALIDITY_DAYS, configuredDays) * 24 * 60 * 60 * 1000;
+  }
+
+  const validFromMs = getDealDateMillis(deal?.validFrom);
+  const validUntilMs = getDealDateMillis(deal?.validUntil);
+  if (validUntilMs > validFromMs && validFromMs > 0) {
+    return Math.max(BUNDLE_DEAL_MIN_VALIDITY_DAYS * 24 * 60 * 60 * 1000, validUntilMs - validFromMs);
+  }
+
+  // Existing records without a duration field retain the previous default.
+  return BUNDLE_DEAL_DEFAULT_VALIDITY_MS;
+};
+
+const formatDealDateValue = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+};
+
 const compareCustomerStockEntries = ([aKey, aStock], [bKey, bStock]) => {
   const costDelta = Number(bStock?.costPrice || 0) - Number(aStock?.costPrice || 0);
   if (costDelta !== 0) return costDelta;
@@ -606,6 +671,7 @@ export const useStore = create(
       unsubProjectVault: null,
       unsubOffers: null,
       _syncAllDealsPromise: null,
+      _bundleDealRestartTimer: null,
       setStoriesHeight: (height) => set({ storiesHeight: height }),
 
       cleanupFilamentsStockNo: async () => {
@@ -1057,6 +1123,10 @@ export const useStore = create(
           const bgUnsubs = get()._bgUnsubs || [];
           bgUnsubs.forEach(unsub => unsub && unsub());
           set({ _bgUnsubs: [], _datasetListenerKeys: {}, _backgroundListenersStarted: false });
+
+          const bundleDealRestartTimer = get()._bundleDealRestartTimer;
+          if (bundleDealRestartTimer) clearTimeout(bundleDealRestartTimer);
+          set({ _bundleDealRestartTimer: null });
 
           if (get().unsubUser) get().unsubUser();
           if (get().unsubShelf) get().unsubShelf();
@@ -3519,6 +3589,28 @@ export const useStore = create(
         }
       },
 
+      scheduleBundleDealRestart: (restartAt) => {
+        const existingTimer = get()._bundleDealRestartTimer;
+        if (existingTimer) clearTimeout(existingTimer);
+
+        if (!Number.isFinite(restartAt)) {
+          set({ _bundleDealRestartTimer: null });
+          return;
+        }
+
+        // setTimeout is capped by the browser's maximum delay. A long-dated
+        // deal will be rescheduled by the next timer callback if necessary.
+        const maxTimeout = 2_147_483_647;
+        const delay = Math.min(maxTimeout, Math.max(0, restartAt - Date.now()));
+        const timer = setTimeout(() => {
+          if (get()._bundleDealRestartTimer !== timer) return;
+          set({ _bundleDealRestartTimer: null });
+          void get().syncAllDeals();
+        }, delay);
+
+        set({ _bundleDealRestartTimer: timer });
+      },
+
       syncBundleDealsFulfillment: async () => {
         const { kits, deals, user } = get();
         if (!deals || !kits || !user) return;
@@ -3535,11 +3627,18 @@ export const useStore = create(
         };
 
         const bundleDeals = deals.filter(d => (
-          d.type === 'bundle_only'
+          d.type === 'bundle'
+          || d.type === 'bundle_only'
           || d.type === 'bundle_discount'
           || d.type === 'clearance'
         ));
-        if (bundleDeals.length === 0) return;
+        if (bundleDeals.length === 0) {
+          get().scheduleBundleDealRestart(Number.NaN);
+          return;
+        }
+
+        const now = Date.now();
+        let nextRestartAt = Number.POSITIVE_INFINITY;
 
         for (const deal of bundleDeals) {
           const dealKitIds = deal.type === 'clearance' && deal.clearanceKitIds?.length
@@ -3555,7 +3654,65 @@ export const useStore = create(
           });
 
           const currentActive = deal.isActive !== false;
-          if (isFulfillable && !currentActive) {
+          const validUntilMs = deal.type === 'clearance' ? 0 : getDealDateMillis(deal.validUntil);
+          const isExpired = validUntilMs > 0 && validUntilMs <= now;
+          const restartAt = validUntilMs > 0
+            ? validUntilMs + getBundleDealReactivationDelayMs(deal)
+            : 0;
+
+          if (restartAt > now) {
+            nextRestartAt = Math.min(nextRestartAt, restartAt);
+          }
+
+          if (isExpired && now < restartAt) {
+            // Keep the expired deal inactive during the configured cooldown.
+            // The timer below retries at the end of that cooldown even when
+            // no stock document changes in the meantime.
+            if (currentActive) {
+              console.log(`SG LOG: Auto-deactivating expired deal ${deal.name} (${deal.id}) - waiting for restart window`);
+              try {
+                await updateDoc(doc(db, "deals", deal.id), {
+                  isActive: false,
+                  lastUpdated: serverTimestamp()
+                });
+              } catch (err) {
+                console.error("SG LOG: Error auto-deactivating expired deal:", err);
+              }
+            }
+          } else if (isExpired && isFulfillable) {
+            // An expired bundle gets a fresh configured validity window only
+            // after the configured cooldown has elapsed and every included
+            // kit can be allocated.
+            const restartedAt = new Date(now);
+            const validityDurationMs = getBundleDealValidityMs(deal);
+            const restartedUntil = new Date(now + validityDurationMs);
+            const validityDurationDays = Math.max(1, Math.round(validityDurationMs / (24 * 60 * 60 * 1000)));
+            console.log(`SG LOG: Restarting expired deal ${deal.name} (${deal.id}) - stocks available`);
+            try {
+              await updateDoc(doc(db, "deals", deal.id), {
+                isActive: true,
+                validFrom: formatDealDateValue(restartedAt),
+                validUntil: formatDealDateValue(restartedUntil),
+                validityDays: validityDurationDays,
+                lastUpdated: serverTimestamp()
+              });
+            } catch (err) {
+              console.error("SG LOG: Error restarting expired deal:", err);
+            }
+          } else if (isExpired && currentActive) {
+            // Do not leave an expired deal active when it cannot currently be
+            // fulfilled. A later kit snapshot can restart it once stock is
+            // allocatable again.
+            console.log(`SG LOG: Auto-deactivating expired deal ${deal.name} (${deal.id}) - stock(s) unavailable`);
+            try {
+              await updateDoc(doc(db, "deals", deal.id), {
+                isActive: false,
+                lastUpdated: serverTimestamp()
+              });
+            } catch (err) {
+              console.error("SG LOG: Error auto-deactivating expired deal:", err);
+            }
+          } else if (isFulfillable && !currentActive) {
             console.log(`SG LOG: Auto-activating deal ${deal.name} (${deal.id}) - stocks available`);
             try {
               await updateDoc(doc(db, "deals", deal.id), { isActive: true, lastUpdated: serverTimestamp() });
@@ -3571,6 +3728,8 @@ export const useStore = create(
             }
           }
         }
+
+        get().scheduleBundleDealRestart(nextRestartAt);
       },
 
       syncAllDeals: async () => {

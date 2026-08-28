@@ -136,6 +136,38 @@ function formatLocalDateTimeValue(date) {
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 }
 
+const DEFAULT_BUNDLE_VALIDITY_DAYS = 3;
+const DEFAULT_REACTIVATION_DELAY = 1;
+const DAY_IN_MILLISECONDS = 24 * 60 * 60 * 1000;
+
+function getBundleValidityDays(deal) {
+  const configuredDays = Number(deal?.validityDays);
+  if (Number.isFinite(configuredDays) && configuredDays > 0) return Math.max(3, configuredDays);
+
+  const validFromDate = parseLocalDateTime(deal?.validFrom);
+  const validUntilDate = parseLocalDateTime(deal?.validUntil);
+  if (validFromDate && validUntilDate && validUntilDate > validFromDate) {
+    return Math.max(3, Math.ceil((validUntilDate.getTime() - validFromDate.getTime()) / DAY_IN_MILLISECONDS));
+  }
+
+  return DEFAULT_BUNDLE_VALIDITY_DAYS;
+}
+
+function getReactivationSettings(deal) {
+  const configuredUnit = deal?.reactivationDelayUnit === 'days' ? 'days' : 'hours';
+  const configuredValue = Number(deal?.reactivationDelayValue ?? deal?.reactivationDelay);
+  if (Number.isFinite(configuredValue) && configuredValue >= 0) {
+    return { value: Math.max(1, configuredValue), unit: configuredUnit };
+  }
+
+  const legacyHours = Number(deal?.reactivationDelayHours);
+  if (Number.isFinite(legacyHours) && legacyHours >= 0) {
+    return { value: Math.max(1, legacyHours), unit: 'hours' };
+  }
+
+  return { value: DEFAULT_REACTIVATION_DELAY, unit: 'hours' };
+}
+
 function getMonthMatrix(viewDate) {
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
@@ -300,7 +332,9 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
   const [isSaving, setIsSaving] = useState(false);
   const [activeEditId, setActiveEditId] = useState(null);
   const [validFrom, setValidFrom] = useState('');
-  const [validUntil, setValidUntil] = useState('');
+  const [validityDays, setValidityDays] = useState(String(DEFAULT_BUNDLE_VALIDITY_DAYS));
+  const [reactivationDelay, setReactivationDelay] = useState(String(DEFAULT_REACTIVATION_DELAY));
+  const [reactivationDelayUnit, setReactivationDelayUnit] = useState('hours');
   const [previewKitIds, setPreviewKitIds] = useState([]);
   const [draggedPreviewKitId, setDraggedPreviewKitId] = useState(null);
   const [clearanceKitIds, setClearanceKitIds] = useState([]);
@@ -356,7 +390,10 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
           : (dealToEdit.name || ''));
       setActiveEditId(dealToEdit.id);
       setValidFrom(mappedType === 'mutually_exclusive' ? '' : (dealToEdit.validFrom || ''));
-      setValidUntil(mappedType === 'mutually_exclusive' ? '' : (dealToEdit.validUntil || ''));
+      setValidityDays(mappedType === 'mutually_exclusive' ? '' : String(getBundleValidityDays(dealToEdit)));
+      const editReactivationSettings = getReactivationSettings(dealToEdit);
+      setReactivationDelay(mappedType === 'mutually_exclusive' ? String(DEFAULT_REACTIVATION_DELAY) : String(editReactivationSettings.value));
+      setReactivationDelayUnit(mappedType === 'mutually_exclusive' ? 'hours' : editReactivationSettings.unit);
       
       let disc = 0;
       if (dealToEdit.discountAmount !== undefined) {
@@ -410,7 +447,9 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       setSearchTerm('');
       setActiveEditId(null);
       setValidFrom('');
-      setValidUntil('');
+      setValidityDays(String(DEFAULT_BUNDLE_VALIDITY_DAYS));
+      setReactivationDelay(String(DEFAULT_REACTIVATION_DELAY));
+      setReactivationDelayUnit('hours');
       setPreviewKitIds([]);
       setDraggedPreviewKitId(null);
       setClearanceKitIds([]);
@@ -618,7 +657,10 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     setDealName(mappedType === 'mutually_exclusive' ? 'BANDAI VS BOOTLEG' : (deal.name || ''));
     setActiveEditId(deal.id);
     setValidFrom(mappedType === 'mutually_exclusive' ? '' : (deal.validFrom || ''));
-    setValidUntil(mappedType === 'mutually_exclusive' ? '' : (deal.validUntil || ''));
+    setValidityDays(mappedType === 'mutually_exclusive' ? '' : String(getBundleValidityDays(deal)));
+    const editReactivationSettings = getReactivationSettings(deal);
+    setReactivationDelay(mappedType === 'mutually_exclusive' ? String(DEFAULT_REACTIVATION_DELAY) : String(editReactivationSettings.value));
+    setReactivationDelayUnit(mappedType === 'mutually_exclusive' ? 'hours' : editReactivationSettings.unit);
     
     let disc = 0;
     if (deal.discountAmount !== undefined) {
@@ -682,7 +724,9 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     setClearanceDiscounts({});
     setActiveEditId(null);
     setValidFrom('');
-    setValidUntil('');
+    setValidityDays(String(DEFAULT_BUNDLE_VALIDITY_DAYS));
+    setReactivationDelay(String(DEFAULT_REACTIVATION_DELAY));
+    setReactivationDelayUnit('hours');
     setPreviewKitIds([]);
     setDraggedPreviewKitId(null);
   };
@@ -715,7 +759,9 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       setClearanceDiscounts({});
       setActiveEditId(null);
       setValidFrom('');
-      setValidUntil('');
+      setValidityDays(String(DEFAULT_BUNDLE_VALIDITY_DAYS));
+      setReactivationDelay(String(DEFAULT_REACTIVATION_DELAY));
+      setReactivationDelayUnit('hours');
       setPreviewKitIds([]);
       setDraggedPreviewKitId(null);
     } catch (error) {
@@ -756,6 +802,17 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       }
     } else if (dealType !== 'clearance' && selectedKitIds.length < 2) {
       return alert("Pick at least 2 kits for this deal");
+    }
+
+    if (dealType === 'bundle_only') {
+      const durationDays = Number(validityDays);
+      const delayValue = Number(reactivationDelay);
+      if (!Number.isInteger(durationDays) || durationDays < DEFAULT_BUNDLE_VALIDITY_DAYS) {
+        return alert(`Bundle validity must be at least ${DEFAULT_BUNDLE_VALIDITY_DAYS} days.`);
+      }
+      if (!Number.isFinite(delayValue) || delayValue < DEFAULT_REACTIVATION_DELAY) {
+        return alert(`Automatic reactivation must be at least ${DEFAULT_REACTIVATION_DELAY} hour.`);
+      }
     }
     
     const dealId = activeEditId
@@ -799,8 +856,11 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
 
     if (dealType === 'bundle_only') {
       const publishDate = new Date();
-      const defaultValidUntil = new Date(publishDate);
-      defaultValidUntil.setDate(defaultValidUntil.getDate() + 7);
+      const durationDays = Number(validityDays);
+      const delayValue = Number(reactivationDelay);
+      const bundleStart = parseLocalDateTime(validFrom) || publishDate;
+      const bundleEnd = new Date(bundleStart);
+      bundleEnd.setDate(bundleEnd.getDate() + durationDays);
       dealData.discountAmount = financialSummary.requestedDiscount;
       dealData.bundlePrice = financialSummary.bundlePrice;
       dealData.totalCost = financialSummary.totalCost;
@@ -814,12 +874,14 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
           costPrice: row.costPrice
         }
       ]));
-      dealData.validFrom = validFrom || formatLocalDateTimeValue(publishDate);
-      // Editing a bundle deal reopens its one-week validity window from now.
-      // New deals still respect an explicitly selected expiry date.
-      dealData.validUntil = activeEditId
-        ? formatLocalDateTimeValue(defaultValidUntil)
-        : (validUntil || formatLocalDateTimeValue(defaultValidUntil));
+      dealData.validFrom = formatLocalDateTimeValue(bundleStart);
+      // Keep the end date for customer-facing countdown/checkout compatibility,
+      // but derive it from the admin-controlled duration instead of a fixed week.
+      dealData.validUntil = formatLocalDateTimeValue(bundleEnd);
+      dealData.validityDays = durationDays;
+      dealData.reactivationDelayValue = delayValue;
+      dealData.reactivationDelayUnit = reactivationDelayUnit;
+      dealData.reactivationDelayHours = delayValue * (reactivationDelayUnit === 'days' ? 24 : 1);
       dealData.stockSource = 'onhand';
     }
 
@@ -894,7 +956,9 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       setSearchTerm('');
       setActiveEditId(null);
       setValidFrom('');
-      setValidUntil('');
+      setValidityDays(String(DEFAULT_BUNDLE_VALIDITY_DAYS));
+      setReactivationDelay(String(DEFAULT_REACTIVATION_DELAY));
+      setReactivationDelayUnit('hours');
       setPreviewKitIds([]);
       setDraggedPreviewKitId(null);
         setClearanceKitIds([]);
@@ -1043,8 +1107,10 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
         setSelectedKitIds([]);
         setSearchTerm('');
         setActiveEditId(null);
-        setValidFrom('');
-        setValidUntil('');
+      setValidFrom('');
+      setValidityDays(String(DEFAULT_BUNDLE_VALIDITY_DAYS));
+        setReactivationDelay(String(DEFAULT_REACTIVATION_DELAY));
+        setReactivationDelayUnit('hours');
         setPreviewKitIds([]);
         setDraggedPreviewKitId(null);
       }
@@ -1076,7 +1142,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
         await deleteDeal(id);
         if (activeEditId === id) {
           setDealName(''); setDiscountAmount(''); setSelectedKitIds([]);
-          setSearchTerm(''); setActiveEditId(null); setValidFrom(''); setValidUntil('');
+          setSearchTerm(''); setActiveEditId(null); setValidFrom(''); setValidityDays(String(DEFAULT_BUNDLE_VALIDITY_DAYS)); setReactivationDelay(String(DEFAULT_REACTIVATION_DELAY)); setReactivationDelayUnit('hours');
         setPreviewKitIds([]); setDraggedPreviewKitId(null);
         }
       }
@@ -1351,31 +1417,61 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                       <input type="number" min="0" value={discountAmount} onChange={e => setDiscountAmount(e.target.value === '' ? '' : String(Math.max(0, Number(e.target.value) || 0)))} placeholder="0.00" className="w-full appearance-none bg-blue-600/10 border border-blue-600/30 rounded-2xl px-4 py-4 text-sm font-black text-blue-500 outline-none focus:border-blue-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" />
                     </div>
 
-                    {/* Bundle deals expire; clearance and brand-exclusion master lists do not. */}
+                    {/* Bundle timing is controlled by the publish date, duration, and reactivation delay. */}
                     {dealType !== 'clearance' && dealType !== 'mutually_exclusive' && <div className="order-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1 text-left">
                         <label className="text-[12px] font-black uppercase tracking-widest opacity-40 ml-2 flex items-center gap-1.5">
-                          <Calendar size={10} /> Valid From
+                          <Calendar size={10} /> Validity Start
                         </label>
                         <DealDatePicker
                           value={validFrom}
                           onChange={setValidFrom}
                           isDarkMode={isDarkMode}
-                          placeholder="Publish time"
+                          placeholder="Current date & time"
                           align="left"
                         />
                       </div>
                       <div className="space-y-1 text-left">
                         <label className="text-[12px] font-black uppercase tracking-widest opacity-40 ml-2 flex items-center gap-1.5">
-                          <Calendar size={10} /> Valid Until
+                          <Clock3 size={10} /> Validity Duration
                         </label>
-                        <DealDatePicker
-                          value={validUntil}
-                          onChange={setValidUntil}
-                          isDarkMode={isDarkMode}
-                          placeholder="Next week"
-                          align="right"
+                        <input
+                          type="number"
+                          min={DEFAULT_BUNDLE_VALIDITY_DAYS}
+                          step="1"
+                          value={validityDays}
+                          onChange={e => setValidityDays(e.target.value)}
+                          placeholder="Number of days"
+                          className="h-[42px] w-full appearance-none bg-black/5 border border-[var(--color-border)] rounded-2xl px-4 py-2 text-sm font-black outline-none focus:border-blue-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                         />
+                      </div>
+                      <div className="space-y-1 text-left sm:col-span-2">
+                        <label className="text-[12px] font-black uppercase tracking-widest opacity-40 ml-2 flex items-center gap-1.5">
+                          <RefreshCw size={10} /> Auto Reactivate After
+                        </label>
+                        <div className="flex gap-2">
+                          <input
+                            type="number"
+                            min={DEFAULT_REACTIVATION_DELAY}
+                            step="1"
+                            value={reactivationDelay}
+                            onChange={e => setReactivationDelay(e.target.value)}
+                            placeholder="1"
+                            className="h-[42px] min-w-0 flex-1 appearance-none bg-black/5 border border-[var(--color-border)] rounded-2xl px-4 py-2 text-sm font-black outline-none focus:border-blue-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setReactivationDelayUnit(currentUnit => currentUnit === 'hours' ? 'days' : 'hours')}
+                            aria-label={`Switch reactivation unit to ${reactivationDelayUnit === 'hours' ? 'days' : 'hours'}`}
+                            aria-pressed={reactivationDelayUnit === 'days'}
+                            className="h-[42px] w-32 rounded-2xl border border-[var(--color-border)] bg-black/5 px-3 py-2 text-left text-sm font-black outline-none transition-colors hover:border-blue-500 focus:border-blue-500"
+                          >
+                            {reactivationDelayUnit === 'hours' ? 'Hours' : 'Days'}
+                          </button>
+                        </div>
+                        <p className="px-2 pt-1 text-[10px] font-bold uppercase tracking-wider opacity-40">
+                          After expiry, the deal will be checked for allocatable stock before it is reopened.
+                        </p>
                       </div>
                     </div>}
 
@@ -1440,7 +1536,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
 
              <div className="flex gap-3">
                {activeEditId && (
-                 <button onClick={() => { setActiveEditId(null); setDealName(''); setDiscountAmount(''); setSelectedKitIds([]); setValidFrom(''); setValidUntil(''); setPreviewKitIds([]); setDraggedPreviewKitId(null); setClearanceKitIds([]); setClearanceOriginalOverrides({}); setClearanceCurrentDiscounts({}); setClearanceDiscounts({}); setMobileTab('list'); }} className="px-5 py-4 rounded-2xl bg-black/5 hover:bg-black/10 border border-[var(--color-border)] font-black uppercase text-[11px] tracking-widest transition-all">Cancel</button>
+               <button onClick={() => { setActiveEditId(null); setDealName(''); setDiscountAmount(''); setSelectedKitIds([]); setValidFrom(''); setValidityDays(String(DEFAULT_BUNDLE_VALIDITY_DAYS)); setReactivationDelay(String(DEFAULT_REACTIVATION_DELAY)); setReactivationDelayUnit('hours'); setPreviewKitIds([]); setDraggedPreviewKitId(null); setClearanceKitIds([]); setClearanceOriginalOverrides({}); setClearanceCurrentDiscounts({}); setClearanceDiscounts({}); setMobileTab('list'); }} className="px-5 py-4 rounded-2xl bg-black/5 hover:bg-black/10 border border-[var(--color-border)] font-black uppercase text-[11px] tracking-widest transition-all">Cancel</button>
                )}
                <button 
                   disabled={isSaving}
@@ -1549,6 +1645,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                           return stocks.some(s => isBundlePurchasableStock(s, deal.stockSource || 'onhand'));
                         })
                       : true; // mutually_exclusive deals are always considered fulfillable
+                    const reactivationSettings = getReactivationSettings(deal);
 
                     if (isMutualDeal) {
                       const pairRows = getMutuallyExclusivePairRows(deal, kits);
@@ -1654,14 +1751,19 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                               )}
                             </div>
                              <h4 className="text-sm font-black uppercase italic tracking-tight mt-2 text-[var(--color-text-main)] leading-none">{deal.type === 'clearance' ? 'Clearance Eligible Kits' : isMutualDeal ? 'BANDAI VS BOOTLEG' : deal.name}</h4>
-                            {/* Validity dates */}
+                            {/* Validity dates and automatic reactivation settings */}
                             {!isMutualDeal && deal.type !== 'clearance' && (deal.validFrom || deal.validUntil) && (
-                              <p className="text-[12px] font-bold opacity-40 mt-1.5 flex items-center gap-1">
-                                <Calendar size={9} />
-                                {deal.validFrom ? parseLocalDateTime(deal.validFrom)?.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '—'}
-                                {' → '}
-                                {deal.validUntil ? parseLocalDateTime(deal.validUntil)?.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
-                              </p>
+                              <>
+                                <p className="text-[12px] font-bold opacity-40 mt-1.5 flex items-center gap-1">
+                                  <Calendar size={9} />
+                                  {deal.validFrom ? parseLocalDateTime(deal.validFrom)?.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '—'}
+                                  {' → '}
+                                  {deal.validUntil ? parseLocalDateTime(deal.validUntil)?.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
+                                </p>
+                                <p className="text-[10px] font-black uppercase tracking-wider opacity-35 mt-1">
+                                  {getBundleValidityDays(deal)} day validity · auto-reactivates after {reactivationSettings.value} {reactivationSettings.unit}
+                                </p>
+                              </>
                             )}
                           </div>
 
