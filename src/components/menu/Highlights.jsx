@@ -29,7 +29,8 @@ function getStoryImage(story) {
 }
 
 export default function Highlights() {
-  const { stories, isAdmin, isAdminView, isLoading, deleteStory } = useStore();
+  const { stories, isAdmin, isAdminView, deleteStory } = useStore();
+  const storiesLoaded = useStore((state) => state._loadedDatasets?.stories);
   const canManageStories = isAdmin && isAdminView;
   const sectionRef = useRef(null);
   const headerRef = useRef(null);
@@ -146,7 +147,7 @@ export default function Highlights() {
   ), [stories]);
 
   const visibleStories = isDraftView ? drafts : highlights;
-  const isLoadingHighlights = isLoading && visibleStories.length === 0;
+  const isLoadingHighlights = !storiesLoaded && visibleStories.length === 0;
   const hasMoreHighlights = highlights.length > 6;
 
   const getCollapsedStoryVisibility = (index) => {
@@ -304,8 +305,14 @@ export default function Highlights() {
           <>
             <div id="garage-highlights-grid" className="grid min-h-[300px] content-start grid-cols-3 items-start gap-2 sm:min-h-[300px] sm:grid-cols-5 sm:gap-4 md:min-h-[460px] md:grid-cols-4 lg:min-h-[500px] lg:grid-cols-5 xl:min-h-[620px] 2xl:min-h-[664px]">
               {isLoadingHighlights && Array.from({ length: 5 }).map((_, index) => (
-                <div key={`highlight-skeleton-${index}`} className="relative aspect-[3/4] self-start overflow-hidden rounded-[1.5rem] border border-black/[0.05] bg-neutral-200 p-1 shadow-xl dark:border-2 dark:border-neutral-500 dark:bg-neutral-900">
-                  <div className="h-full w-full rounded-[1.3rem] bg-black/5 dark:bg-white/5" />
+                <div key={`highlight-skeleton-${index}`} className="relative aspect-[3/4] self-start overflow-hidden rounded-[1.5rem] border border-black/[0.05] bg-neutral-200 p-1 shadow-xl animate-pulse dark:border-2 dark:border-neutral-500 dark:bg-neutral-900">
+                  <div className="relative h-full w-full overflow-hidden rounded-[1.3rem] bg-black/5 dark:bg-white/5">
+                    <UniversalImage src="" alt="" aria-hidden="true" className="h-full w-full object-contain p-8 opacity-30" />
+                    <div className="absolute inset-x-3 bottom-3 space-y-2">
+                      <div className="h-2 w-2/3 rounded-full bg-black/10 dark:bg-white/10" />
+                      <div className="h-3 w-1/2 rounded-full bg-black/10 dark:bg-white/10" />
+                    </div>
+                  </div>
                 </div>
               ))}
 

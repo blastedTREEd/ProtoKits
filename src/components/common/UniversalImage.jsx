@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 
 export const GARAGE_PLACEHOLDER_SRC = '/snorlaxgarage.png';
 
@@ -18,17 +18,11 @@ export default function UniversalImage({
   ...props
 }) {
   const normalizedSrc = typeof src === 'string' ? src.trim() : '';
-  const [hasLoaded, setHasLoaded] = useState(!normalizedSrc);
-  const [hasError, setHasError] = useState(false);
-  const sourceRef = useRef(normalizedSrc);
+  const [loadedSrc, setLoadedSrc] = useState('');
+  const [failedSrc, setFailedSrc] = useState('');
 
-  useEffect(() => {
-    sourceRef.current = normalizedSrc;
-    setHasLoaded(!normalizedSrc);
-    setHasError(false);
-  }, [normalizedSrc]);
-
-  const usingPlaceholder = !normalizedSrc || hasError;
+  const hasLoaded = normalizedSrc !== '' && loadedSrc === normalizedSrc;
+  const usingPlaceholder = !normalizedSrc || failedSrc === normalizedSrc;
   const displaySrc = usingPlaceholder ? placeholderSrc : normalizedSrc;
   const showPlaceholderBackground = !usingPlaceholder && !hasLoaded;
 
@@ -48,14 +42,11 @@ export default function UniversalImage({
         } : {})
       }}
       onLoad={(event) => {
-        if (sourceRef.current === normalizedSrc) setHasLoaded(true);
+        if (normalizedSrc) setLoadedSrc(normalizedSrc);
         onLoad?.(event);
       }}
       onError={(event) => {
-        if (!usingPlaceholder && sourceRef.current === normalizedSrc) {
-          setHasError(true);
-          setHasLoaded(false);
-        }
+        if (!usingPlaceholder) setFailedSrc(normalizedSrc);
         onError?.(event);
       }}
     />

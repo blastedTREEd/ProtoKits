@@ -49,7 +49,8 @@ function formatStoryDate(value) {
 
 export default function Stories({ isCompact, hideImmediately = false, hideAnimatedCards = false }) {
   // Kunin ang actual data mula sa Zustand store (DB)
-  const { stories, kits, blueprints, isLoading, isAdmin, isAdminView, setStoriesHeight } = useStore();
+  const { stories, kits, blueprints, isAdmin, isAdminView, setStoriesHeight } = useStore();
+  const storiesLoaded = useStore((state) => state._loadedDatasets?.stories);
   const navigate = useNavigate();
   const containerRef = useRef(null);
 
@@ -372,8 +373,8 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
     }))
   ), [syncingStoryCount]);
 
-  const isShowingPlaceholders = isLoading && highlightItems.length === 0;
-  const shouldAnimateStories = !isLoading && !isShowingPlaceholders && highlightItems.length > 0;
+  const isShowingPlaceholders = !storiesLoaded && highlightItems.length === 0;
+  const shouldAnimateStories = storiesLoaded && !isShowingPlaceholders && highlightItems.length > 0;
   const filledHighlightItems = React.useMemo(() => {
     if (highlightItems.length === 0) return [];
 

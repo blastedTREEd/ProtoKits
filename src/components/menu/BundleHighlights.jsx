@@ -173,7 +173,6 @@ export default function BundleHighlights() {
     deals,
     kits,
     blueprints,
-    isLoading,
     loadAllDeals,
     isAdmin,
     isAdminView,
@@ -181,7 +180,8 @@ export default function BundleHighlights() {
     setToastMessage,
     setLoginModalOpen,
     shippingSettings,
-    user
+    user,
+    _loadedDatasets
   } = useStore();
   const navigate = useNavigate();
   const { isDarkMode, isSpectralMode } = useTheme();
@@ -349,9 +349,16 @@ export default function BundleHighlights() {
     // kit/other cards as separators between project cards.
     return randomizeFeedCards(fillerCards, 10);
   }, [fillerCards]);
-  const isLoadingBundles = isLoading && activeBundles.length === 0;
+  const bundleDataReady = Boolean(
+    _loadedDatasets?.kits
+    && _loadedDatasets?.deals
+    && _loadedDatasets?.prints
+  );
+  // Keep this section's skeleton independent from other landing sections.
+  // Partial cards are allowed through as soon as any usable data exists.
+  const isLoadingBundles = !bundleDataReady && displayCards.length === 0;
 
-  if (!isLoading && displayCards.length === 0) return null;
+  if (bundleDataReady && displayCards.length === 0) return null;
 
   const getFeedVisibility = (index) => {
     // Mobile uses three rows (3 columns). md keeps two rows (4 columns),
@@ -580,8 +587,14 @@ export default function BundleHighlights() {
         {isLoadingBundles ? (
           <div className="grid min-h-[300px] grid-cols-3 items-start gap-2 sm:grid-cols-5 sm:gap-4 md:grid-cols-4 lg:grid-cols-5">
             {Array.from({ length: 5 }).map((_, index) => (
-              <div key={`bundle-skeleton-${index}`} className="relative aspect-[3/4] overflow-hidden rounded-2xl border border-black/[0.05] bg-neutral-200 shadow-sm dark:border-2 dark:border-neutral-500 dark:bg-neutral-900">
-                <img src="/snorlaxgarage.png" alt="Loading bundle deals" className="h-full w-full object-contain p-6 opacity-20" />
+              <div key={`bundle-skeleton-${index}`} className="relative aspect-[3/4] overflow-hidden rounded-2xl border border-black/[0.05] bg-neutral-200 p-1 shadow-sm animate-pulse dark:border-2 dark:border-neutral-500 dark:bg-neutral-900">
+                <div className="relative h-full w-full overflow-hidden rounded-[1.3rem] bg-black/5 dark:bg-white/5">
+                  <UniversalImage src="" alt="" aria-hidden="true" className="h-full w-full object-contain p-8 opacity-30" />
+                  <div className="absolute inset-x-3 bottom-3 space-y-2">
+                    <div className="h-2 w-2/3 rounded-full bg-black/10 dark:bg-white/10" />
+                    <div className="h-3 w-1/2 rounded-full bg-black/10 dark:bg-white/10" />
+                  </div>
+                </div>
               </div>
             ))}
           </div>
