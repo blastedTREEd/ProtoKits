@@ -32,6 +32,11 @@ const getAvailableStockCount = (kit) => {
   return Object.values(kit?.stocks || {}).filter((stock) => !stock?.order?.orderId && !stock?.isReserved).length;
 };
 
+// Firestore may emit an empty local-cache snapshot before the server result.
+// Do not mark an empty cache as fully loaded or loading shells can disappear
+// briefly and then reappear when the network snapshot arrives.
+const shouldMarkSnapshotLoaded = (snap) => !(snap?.metadata?.fromCache && snap.empty);
+
 const removeUndefinedValues = (value) => {
   if (Array.isArray(value)) {
     return value
@@ -846,7 +851,7 @@ export const useStore = create(
           const initialStoriesQuery = query(collection(db, "stories"), orderBy("order", "asc"));
           const unsub = onSnapshot(initialStoriesQuery, (snap) => {
             set({ stories: snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) });
-            get().markLoaded('stories');
+            if (shouldMarkSnapshotLoaded(snap)) get().markLoaded('stories');
           }, (err) => {
             console.error("SG LOG: Stories subscription error:", err);
             markListener('stories', false);
@@ -865,7 +870,7 @@ export const useStore = create(
               kits: sortKitsByAvailability(allKits), 
               lastVisibleKit: snap.docs[snap.docs.length - 1]
             });
-            get().markLoaded('kits');
+            if (shouldMarkSnapshotLoaded(snap)) get().markLoaded('kits');
             get().syncAllDeals();
           }, (err) => {
             console.error("SG LOG: Kits subscription error:", err);
@@ -883,7 +888,7 @@ export const useStore = create(
               blueprints: docsToArray(snap),
               loadedData: { ...get().loadedData, blueprints: true }
             });
-            get().markLoaded('prints');
+            if (shouldMarkSnapshotLoaded(snap)) get().markLoaded('prints');
           }, (err) => {
             console.error("SG LOG: Blueprints subscription error:", err);
             markListener('prints', false);
@@ -921,7 +926,7 @@ export const useStore = create(
         if (req.deals && !ds.deals && !listenerKeys.deals) {
           const unsubDeals = onSnapshot(collection(db, "deals"), (snap) => {
             set({ deals: docsToArray(snap) });
-            get().markLoaded('deals');
+            if (shouldMarkSnapshotLoaded(snap)) get().markLoaded('deals');
             get().syncAllDeals();
           }, (err) => {
             console.error("SG LOG: Background Deals subscription error:", err);
@@ -985,7 +990,7 @@ export const useStore = create(
               const initialStoriesQuery = query(collection(db, "stories"), orderBy("order", "asc"));
               const unsub = onSnapshot(initialStoriesQuery, (snap) => {
                 set({ stories: snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) });
-                get().markLoaded('stories');
+                if (shouldMarkSnapshotLoaded(snap)) get().markLoaded('stories');
               }, (err) => {
                 console.error("SG LOG: Stories subscription error:", err);
                 set((state) => ({ _datasetListenerKeys: { ...state._datasetListenerKeys, stories: false } }));
@@ -1004,7 +1009,7 @@ export const useStore = create(
                   kits: sortKitsByAvailability(allKits), 
                   lastVisibleKit: snap.docs[snap.docs.length - 1]
                 });
-                get().markLoaded('kits');
+                if (shouldMarkSnapshotLoaded(snap)) get().markLoaded('kits');
                 get().syncAllDeals();
               }, (err) => {
                 console.error("SG LOG: Kits subscription error:", err);
@@ -1019,7 +1024,7 @@ export const useStore = create(
             if (currentReq.deals) {
               const unsub = onSnapshot(collection(db, "deals"), (snap) => {
                 set({ deals: docsToArray(snap) });
-                get().markLoaded('deals');
+                if (shouldMarkSnapshotLoaded(snap)) get().markLoaded('deals');
                 get().syncAllDeals();
               }, (err) => {
                 console.error("SG LOG: Deals priority subscription error:", err);
@@ -1037,7 +1042,7 @@ export const useStore = create(
                   blueprints: docsToArray(snap),
                   loadedData: { ...get().loadedData, blueprints: true }
                 });
-                get().markLoaded('prints');
+                if (shouldMarkSnapshotLoaded(snap)) get().markLoaded('prints');
               }, (err) => {
                 console.error("SG LOG: Blueprints priority error:", err);
                 set((state) => ({ _datasetListenerKeys: { ...state._datasetListenerKeys, prints: false } }));
