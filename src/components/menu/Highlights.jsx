@@ -29,7 +29,7 @@ function getStoryImage(story) {
 }
 
 export default function Highlights() {
-  const { stories, isAdmin, isAdminView, deleteStory } = useStore();
+  const { stories, isAdmin, isAdminView, isLoading, deleteStory } = useStore();
   const storiesLoaded = useStore((state) => state._loadedDatasets?.stories);
   const canManageStories = isAdmin && isAdminView;
   const sectionRef = useRef(null);
@@ -147,7 +147,10 @@ export default function Highlights() {
   ), [stories]);
 
   const visibleStories = isDraftView ? drafts : highlights;
-  const isLoadingHighlights = !storiesLoaded && visibleStories.length === 0;
+  // A fresh session can finish the Stories snapshot before the rest of the
+  // bootstrap settles. Keep the skeleton for an empty list during that time;
+  // only show the empty state after the app has finished loading.
+  const isLoadingHighlights = visibleStories.length === 0 && (!storiesLoaded || isLoading);
   const hasMoreHighlights = highlights.length > 6;
 
   const getCollapsedStoryVisibility = (index) => {
@@ -411,7 +414,7 @@ export default function Highlights() {
         ) : (
           <div className="flex min-h-64 flex-col items-center justify-center rounded-3xl border border-dashed border-black/10 bg-white/70 px-6 text-center dark:border-white/10 dark:bg-white/[0.03]">
             <ImageIcon className="mb-4 text-garage-blue" size={26} />
-            <p className="text-sm font-black uppercase tracking-[0.18em] text-neutral-900 dark:text-white">New highlights are loading in</p>
+            <p className="text-sm font-black uppercase tracking-[0.18em] text-neutral-900 dark:text-white">No published stories</p>
             <p className="mt-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Check back soon for the latest garage stories.</p>
           </div>
         )}
