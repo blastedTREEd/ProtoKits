@@ -32,10 +32,29 @@ const getAvailableStockCount = (kit) => {
   return Object.values(kit?.stocks || {}).filter((stock) => !stock?.order?.orderId && !stock?.isReserved).length;
 };
 
+const DATASET_KEYS = ['userProfile', 'stories', 'kits', 'deals', 'orders', 'basket', 'shelf', 'prints'];
+
+const createInitialDatasetState = (value) => DATASET_KEYS.reduce((result, key) => {
+  result[key] = value;
+  return result;
+}, {});
+
 // Firestore may emit an empty local-cache snapshot before the server result.
-// Do not mark an empty cache as fully loaded or loading shells can disappear
-// briefly and then reappear when the network snapshot arrives.
-const shouldMarkSnapshotLoaded = (snap) => !(snap?.metadata?.fromCache && snap.empty);
+// Keep that dataset in its loading state until a non-cache snapshot or an
+// actual listener error arrives, so the UI cannot flash an empty state midway
+// through the initial request.
+const isEmptyCacheSnapshot = (snap) => Boolean(snap?.metadata?.fromCache && snap.empty);
+
+const updateSnapshotDatasetStatus = (get, key, snap) => {
+  if (isEmptyCacheSnapshot(snap)) {
+    get().setDatasetStatus(key, 'loading');
+    return;
+  }
+
+  get().markLoaded(key, {
+    status: snap?.metadata?.fromCache ? 'cache' : (snap.empty ? 'empty' : 'ready')
+  });
+};
 
 const removeUndefinedValues = (value) => {
   if (Array.isArray(value)) {
@@ -642,7 +661,8 @@ export const useStore = create(
       shelf: [],
       shippingSettings: null, // New state
       loadedData: {},
-      _loadedDatasets: { userProfile: false, stories: false, kits: false, deals: false, orders: false, basket: false, shelf: false, prints: false },
+      _loadedDatasets: createInitialDatasetState(false),
+      _datasetStatus: createInitialDatasetState('loading'),
       _isInitialAuthChecked: false,
       _activePath: typeof window !== 'undefined' ? window.location.pathname : '/',
       _backgroundListenersStarted: false,
@@ -698,6 +718,13 @@ export const useStore = create(
       },
 
       setLoading: (loading) => set({ isLoading: loading }),
+      setDatasetStatus: (key, status) => {
+        if (!DATASET_KEYS.includes(key)) return;
+        set((state) => {
+          if (state._datasetStatus?.[key] === status) return state;
+          return { _datasetStatus: { ...state._datasetStatus, [key]: status } };
+        });
+      },
       setToastMessage: (message) => set({ toastMessage: message }),
       beginAuthAttempt: (retry) => {
         const authAttemptId = get().authAttemptId + 1;
@@ -805,11 +832,21 @@ export const useStore = create(
         get().startBackgroundListeners();
       },
 
-      markLoaded: (key) => {
+      markLoaded: (key, { status = 'ready', releasePage = true } = {}) => {
         const prev = get()._loadedDatasets;
-        if (prev[key]) return; // already marked
+        const statusChanged = get()._datasetStatus?.[key] !== status;
+        if (statusChanged) {
+          set((state) => ({
+            _datasetStatus: { ...state._datasetStatus, [key]: status }
+          }));
+        }
+        if (prev[key]) return; // already marked for page gating
         const updated = { ...prev, [key]: true };
         set({ _loadedDatasets: updated });
+
+        // A slow listener may release the route-level gate, but its section
+        // must continue showing its own skeleton until the listener settles.
+        if (!releasePage) return;
 
         // Check if current page is ready
         const activePath = get()._activePath;
@@ -851,11 +888,11 @@ export const useStore = create(
           const initialStoriesQuery = query(collection(db, "stories"), orderBy("order", "asc"));
           const unsub = onSnapshot(initialStoriesQuery, (snap) => {
             set({ stories: snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) });
-            if (shouldMarkSnapshotLoaded(snap)) get().markLoaded('stories');
+            updateSnapshotDatasetStatus(get, 'stories', snap);
           }, (err) => {
             console.error("SG LOG: Stories subscription error:", err);
             markListener('stories', false);
-            get().markLoaded('stories');
+            get().markLoaded('stories', { status: 'error' });
           });
           markListener('stories');
           unsubs.push(unsub);
@@ -870,12 +907,12 @@ export const useStore = create(
               kits: sortKitsByAvailability(allKits), 
               lastVisibleKit: snap.docs[snap.docs.length - 1]
             });
-            if (shouldMarkSnapshotLoaded(snap)) get().markLoaded('kits');
+            updateSnapshotDatasetStatus(get, 'kits', snap);
             get().syncAllDeals();
           }, (err) => {
             console.error("SG LOG: Kits subscription error:", err);
             markListener('kits', false);
-            get().markLoaded('kits');
+            get().markLoaded('kits', { status: 'error' });
           });
           markListener('kits');
           unsubs.push(unsub);
@@ -888,11 +925,11 @@ export const useStore = create(
               blueprints: docsToArray(snap),
               loadedData: { ...get().loadedData, blueprints: true }
             });
-            if (shouldMarkSnapshotLoaded(snap)) get().markLoaded('prints');
+            updateSnapshotDatasetStatus(get, 'prints', snap);
           }, (err) => {
             console.error("SG LOG: Blueprints subscription error:", err);
             markListener('prints', false);
-            get().markLoaded('prints');
+            get().markLoaded('prints', { status: 'error' });
           });
           markListener('prints');
           unsubs.push(unsub);
@@ -913,7 +950,7 @@ export const useStore = create(
           }, (err) => {
             console.error("SG LOG: Shelf subscription error:", err);
             markListener('shelf', false);
-            get().markLoaded('shelf');
+            get().markLoaded('shelf', { status: 'error' });
           });
           if (get().unsubShelf) get().unsubShelf();
           set({ unsubShelf: unsub });
@@ -926,12 +963,12 @@ export const useStore = create(
         if (req.deals && !ds.deals && !listenerKeys.deals) {
           const unsubDeals = onSnapshot(collection(db, "deals"), (snap) => {
             set({ deals: docsToArray(snap) });
-            if (shouldMarkSnapshotLoaded(snap)) get().markLoaded('deals');
+            updateSnapshotDatasetStatus(get, 'deals', snap);
             get().syncAllDeals();
           }, (err) => {
             console.error("SG LOG: Background Deals subscription error:", err);
             markListener('deals', false);
-            get().markLoaded('deals');
+            get().markLoaded('deals', { status: 'error' });
           });
           markListener('deals');
           unsubs.push(unsubDeals);
@@ -968,7 +1005,8 @@ export const useStore = create(
               _datasetListenerKeys: {},
               _backgroundListenersStarted: false,
               isLoading: true,
-              _loadedDatasets: { userProfile: false, stories: false, kits: false, deals: false, orders: false, basket: false, shelf: false, prints: false }
+              _loadedDatasets: createInitialDatasetState(false),
+              _datasetStatus: createInitialDatasetState('loading')
             });
 
             // Start PUBLIC data listeners immediately (these don't depend on user identity)
@@ -979,7 +1017,7 @@ export const useStore = create(
               const timeoutId = setTimeout(() => {
                 if (!get()._loadedDatasets[key]) {
                   console.warn(`SG LOG: ${key} listener is slow; rendering page while Firestore reconnects.`);
-                  get().markLoaded(key);
+                  get().markLoaded(key, { status: 'loading' });
                 }
               }, 8000);
               priorityLoadTimeouts.push(timeoutId);
@@ -990,11 +1028,11 @@ export const useStore = create(
               const initialStoriesQuery = query(collection(db, "stories"), orderBy("order", "asc"));
               const unsub = onSnapshot(initialStoriesQuery, (snap) => {
                 set({ stories: snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) });
-                if (shouldMarkSnapshotLoaded(snap)) get().markLoaded('stories');
+                updateSnapshotDatasetStatus(get, 'stories', snap);
               }, (err) => {
                 console.error("SG LOG: Stories subscription error:", err);
                 set((state) => ({ _datasetListenerKeys: { ...state._datasetListenerKeys, stories: false } }));
-                get().markLoaded('stories');
+                get().markLoaded('stories', { status: 'error' });
               });
               set((state) => ({ _datasetListenerKeys: { ...state._datasetListenerKeys, stories: true } }));
               set((state) => ({ _prioUnsubs: [...state._prioUnsubs, unsub] }));
@@ -1009,12 +1047,12 @@ export const useStore = create(
                   kits: sortKitsByAvailability(allKits), 
                   lastVisibleKit: snap.docs[snap.docs.length - 1]
                 });
-                if (shouldMarkSnapshotLoaded(snap)) get().markLoaded('kits');
+                updateSnapshotDatasetStatus(get, 'kits', snap);
                 get().syncAllDeals();
               }, (err) => {
                 console.error("SG LOG: Kits subscription error:", err);
                 set((state) => ({ _datasetListenerKeys: { ...state._datasetListenerKeys, kits: false } }));
-                get().markLoaded('kits');
+                get().markLoaded('kits', { status: 'error' });
               });
               set((state) => ({ _datasetListenerKeys: { ...state._datasetListenerKeys, kits: true } }));
               set((state) => ({ _prioUnsubs: [...state._prioUnsubs, unsub] }));
@@ -1024,12 +1062,12 @@ export const useStore = create(
             if (currentReq.deals) {
               const unsub = onSnapshot(collection(db, "deals"), (snap) => {
                 set({ deals: docsToArray(snap) });
-                if (shouldMarkSnapshotLoaded(snap)) get().markLoaded('deals');
+                updateSnapshotDatasetStatus(get, 'deals', snap);
                 get().syncAllDeals();
               }, (err) => {
                 console.error("SG LOG: Deals priority subscription error:", err);
                 set((state) => ({ _datasetListenerKeys: { ...state._datasetListenerKeys, deals: false } }));
-                get().markLoaded('deals');
+                get().markLoaded('deals', { status: 'error' });
               });
               set((state) => ({ _datasetListenerKeys: { ...state._datasetListenerKeys, deals: true } }));
               set((state) => ({ _prioUnsubs: [...state._prioUnsubs, unsub] }));
@@ -1042,11 +1080,11 @@ export const useStore = create(
                   blueprints: docsToArray(snap),
                   loadedData: { ...get().loadedData, blueprints: true }
                 });
-                if (shouldMarkSnapshotLoaded(snap)) get().markLoaded('prints');
+                updateSnapshotDatasetStatus(get, 'prints', snap);
               }, (err) => {
                 console.error("SG LOG: Blueprints priority error:", err);
                 set((state) => ({ _datasetListenerKeys: { ...state._datasetListenerKeys, prints: false } }));
-                get().markLoaded('prints');
+                get().markLoaded('prints', { status: 'error' });
               });
               set((state) => ({ _datasetListenerKeys: { ...state._datasetListenerKeys, prints: true } }));
               set((state) => ({ _prioUnsubs: [...state._prioUnsubs, unsub] }));
@@ -1065,6 +1103,13 @@ export const useStore = create(
                 basket: false,
                 shelf: false,
                 orders: false
+              },
+              _datasetStatus: {
+                ...get()._datasetStatus,
+                userProfile: 'loading',
+                basket: 'loading',
+                shelf: 'loading',
+                orders: 'loading'
               }
             });
             if (!u && hadUser) {
@@ -1094,7 +1139,7 @@ export const useStore = create(
               }, (err) => {
                 console.error("SG LOG: Shelf subscription error:", err);
                 set((state) => ({ _datasetListenerKeys: { ...state._datasetListenerKeys, shelf: false } }));
-                get().markLoaded('shelf');
+                get().markLoaded('shelf', { status: 'error' });
               });
               if (get().unsubShelf) get().unsubShelf();
               set({ unsubShelf: unsub });
@@ -1159,23 +1204,35 @@ export const useStore = create(
         const currentKits = get().kits || [];
         if (currentKits.length > 0 && get()._loadedDatasets.kits) return currentKits;
 
-        const snap = await getDocs(query(collection(db, 'kits'), orderBy('lastUpdated', 'desc')));
-        const allKits = sortKitsByAvailability(snap.docs.map(kitDoc => ({ id: kitDoc.id, ...kitDoc.data() })));
-        set({ kits: allKits });
-        get().markLoaded('kits');
-        return allKits;
+        get().setDatasetStatus('kits', 'loading');
+        try {
+          const snap = await getDocs(query(collection(db, 'kits'), orderBy('lastUpdated', 'desc')));
+          const allKits = sortKitsByAvailability(snap.docs.map(kitDoc => ({ id: kitDoc.id, ...kitDoc.data() })));
+          set({ kits: allKits });
+          get().markLoaded('kits', { status: allKits.length > 0 ? 'ready' : 'empty' });
+          return allKits;
+        } catch (error) {
+          get().markLoaded('kits', { status: 'error' });
+          throw error;
+        }
       },
 
       loadAllDeals: async () => {
         const currentDeals = get().deals || [];
         if (get()._loadedDatasets.deals) return currentDeals;
 
-        const snap = await getDocs(collection(db, 'deals'));
-        const allDeals = docsToArray(snap);
-        set({ deals: allDeals });
-        get().markLoaded('deals');
-        get().syncAllDeals();
-        return allDeals;
+        get().setDatasetStatus('deals', 'loading');
+        try {
+          const snap = await getDocs(collection(db, 'deals'));
+          const allDeals = docsToArray(snap);
+          set({ deals: allDeals });
+          get().markLoaded('deals', { status: allDeals.length > 0 ? 'ready' : 'empty' });
+          get().syncAllDeals();
+          return allDeals;
+        } catch (error) {
+          get().markLoaded('deals', { status: 'error' });
+          throw error;
+        }
       },
 
 
@@ -1354,7 +1411,7 @@ export const useStore = create(
           get().markLoaded('orders');
         }, (err) => {
           console.error("SG LOG: Order subscription error:", err);
-          get().markLoaded('orders');
+          get().markLoaded('orders', { status: 'error' });
           // Wag din i-clear sa error para iwas flicker
         });
 
@@ -2319,7 +2376,7 @@ export const useStore = create(
             get().markLoaded('basket');
         }, (err) => {
             console.error("SG LOG: Basket subscription error:", err);
-            get().markLoaded('basket');
+            get().markLoaded('basket', { status: 'error' });
         });
 
         const unsubProjectVault = onSnapshot(vaultRef, (vaultSnapshot) => {

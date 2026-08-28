@@ -12,7 +12,8 @@ export default function Blueprints() {
   const basket = useStore((state) => state.basket);
   const addProjectToBasket = useStore((state) => state.addProjectToBasket);
   const removeFromBasket = useStore((state) => state.removeFromBasket);
-  const isLoading = useStore((state) => state.isLoading);
+  const printsStatus = useStore((state) => state._datasetStatus?.prints || 'loading');
+  const isBlueprintsDataLoading = printsStatus === 'loading';
   const loadBlueprints = useStore((state) => state.loadBlueprints);
   const subscribeOrders = useStore((state) => state.subscribeOrders);
   const user = useStore((state) => state.user);
@@ -67,7 +68,7 @@ export default function Blueprints() {
                   Blueprint <span className="text-blue-600">Library</span>
                 </h1>
                 <p className="text-[10px] font-bold opacity-40 uppercase tracking-[0.3em] text-neutral-900 dark:text-white mt-1">
-                  {isLoading ? (
+                  {isBlueprintsDataLoading ? (
                     <span className="flex items-center gap-2">
                       <Loader2 size={10} className="animate-spin" /> SYNCING...
                     </span>
@@ -90,7 +91,7 @@ export default function Blueprints() {
         </header>
 
         <main className="max-w-full mx-auto px-4 md:px-8 mt-4">
-          {isLoading && filteredBlueprints.length === 0 ? (
+          {isBlueprintsDataLoading && filteredBlueprints.length === 0 ? (
             <LoadingState />
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-5 gap-4 md:gap-6">
@@ -111,7 +112,7 @@ export default function Blueprints() {
             </div>
           )}
 
-          {!isLoading && filteredBlueprints.length === 0 && (
+          {!isBlueprintsDataLoading && filteredBlueprints.length === 0 && (
             <div className="mt-20 text-center opacity-20">
               <Library size={48} className="mx-auto mb-4" />
               <p className="font-black italic uppercase tracking-widest">Library is currently empty</p>

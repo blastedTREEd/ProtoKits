@@ -49,8 +49,8 @@ function formatStoryDate(value) {
 
 export default function Stories({ isCompact, hideImmediately = false, hideAnimatedCards = false }) {
   // Kunin ang actual data mula sa Zustand store (DB)
-  const { stories, kits, blueprints, isLoading, isAdmin, isAdminView, setStoriesHeight } = useStore();
-  const storiesLoaded = useStore((state) => state._loadedDatasets?.stories);
+  const { stories, kits, blueprints, isAdmin, isAdminView, setStoriesHeight } = useStore();
+  const storiesStatus = useStore((state) => state._datasetStatus?.stories || 'loading');
   const navigate = useNavigate();
   const containerRef = useRef(null);
 
@@ -373,8 +373,8 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
     }))
   ), [syncingStoryCount]);
 
-  const isShowingPlaceholders = highlightItems.length === 0 && (!storiesLoaded || isLoading);
-  const shouldAnimateStories = storiesLoaded && !isLoading && !isShowingPlaceholders && highlightItems.length > 0;
+  const isShowingPlaceholders = highlightItems.length === 0 && storiesStatus === 'loading';
+  const shouldAnimateStories = storiesStatus !== 'loading' && !isShowingPlaceholders && highlightItems.length > 0;
   const filledHighlightItems = React.useMemo(() => {
     if (highlightItems.length === 0) return [];
 
@@ -386,11 +386,11 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
   }, [highlightItems, syncingStoryCount]);
   const displayStories = isShowingPlaceholders
     ? syncingStories
-      : highlightItems.length > 0
+    : highlightItems.length > 0
       ? (shouldAnimateStories
         ? [...filledHighlightItems, ...filledHighlightItems, ...filledHighlightItems]
         : filledHighlightItems)
-      : syncingStories;
+      : [];
   const isStoriesStripHidden = isCompact || hideAnimatedCards;
 
   const handleHighlightClick = (item) => {

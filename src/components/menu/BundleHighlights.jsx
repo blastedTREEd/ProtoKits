@@ -181,7 +181,7 @@ export default function BundleHighlights() {
     setLoginModalOpen,
     shippingSettings,
     user,
-    _loadedDatasets
+    _datasetStatus
   } = useStore();
   const navigate = useNavigate();
   const { isDarkMode, isSpectralMode } = useTheme();
@@ -349,14 +349,14 @@ export default function BundleHighlights() {
     // kit/other cards as separators between project cards.
     return randomizeFeedCards(fillerCards, 10);
   }, [fillerCards]);
-  const bundleDataReady = Boolean(
-    _loadedDatasets?.kits
-    && _loadedDatasets?.deals
-    && _loadedDatasets?.prints
-  );
-  // Keep this section's skeleton independent from other landing sections.
-  // Partial cards are allowed through as soon as any usable data exists.
-  const isLoadingBundles = !bundleDataReady && displayCards.length === 0;
+  const bundleDataLoading = ['kits', 'deals', 'prints'].some((key) => (
+    (_datasetStatus?.[key] || 'loading') === 'loading'
+  ));
+  const bundleDataReady = !bundleDataLoading;
+  // Keep this section's skeleton visible until every source it uses has
+  // settled. This prevents partial cards from being replaced by a different
+  // layout while the remaining Firebase snapshots are still arriving.
+  const isLoadingBundles = bundleDataLoading;
 
   if (bundleDataReady && displayCards.length === 0) return null;
 

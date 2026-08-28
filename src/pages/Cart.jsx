@@ -634,6 +634,9 @@ export default function Cart() {
     )];
   }, [activeBasket, kits]);
 
+  const basketStatus = useStore((state) => state._datasetStatus?.basket || 'loading');
+  const kitsStatus = useStore((state) => state._datasetStatus?.kits || 'loading');
+
   useEffect(() => {
     const activeBasketIds = activeBasket.map(item => item.id);
     if (activeBasketIds.length > 0) {
@@ -660,7 +663,12 @@ export default function Cart() {
   }, [isAdminView, isAdmin, isCartPath, navigate, location.pathname]);
   
   const isOfferStateLoading = Boolean(user && !isAnonymousUser && !isAdminView && !userOffersLoaded);
-  const isBasketRowsLoading = isLoading || missingKitIds.length > 0 || isOfferStateLoading || isProjectStatusLoading;
+  const isBasketRowsLoading = isLoading
+    || basketStatus === 'loading'
+    || (missingKitIds.length > 0 && kitsStatus === 'loading')
+    || missingKitIds.length > 0
+    || isOfferStateLoading
+    || isProjectStatusLoading;
 
   const { handlingFee, installmentFee, transferFee } = useMemo(() => {
     return getCheckoutPaymentFees({ shippingSettings });

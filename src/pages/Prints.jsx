@@ -213,7 +213,8 @@ export default function Prints() {
   const updateBlueprint = useStore((state) => state.updateBlueprint);
   const addProjectToBasket = useStore((state) => state.addProjectToBasket);
   const deleteBlueprint = useStore((state) => state.deleteBlueprint);
-  const isLoading = useStore((state) => state.isLoading);
+  const printsStatus = useStore((state) => state._datasetStatus?.prints || 'loading');
+  const isPrintsDataLoading = printsStatus === 'loading';
   const loadBlueprints = useStore((state) => state.loadBlueprints);
   const loadPrintResources = useStore((state) => state.loadPrintResources);
   const subscribeOrders = useStore((state) => state.subscribeOrders);
@@ -594,7 +595,7 @@ export default function Prints() {
         </div>
 
         <main className="max-w-full mx-auto px-4 md:px-8">
-          {isLoading && totalMatches === 0 ? (
+          {isPrintsDataLoading && totalMatches === 0 ? (
             <div className="grid grid-cols-2 items-stretch gap-4 sm:grid-cols-4 sm:portrait:grid-cols-3 md:grid-cols-4 md:portrait:grid-cols-3 md:gap-3 lg:grid-cols-4 xl:grid-cols-5">
               {Array.from({ length: 10 }).map((_, index) => <ProductCardSkeleton key={`print-skeleton-${index}`} />)}
             </div>
@@ -664,7 +665,7 @@ export default function Prints() {
             </div>
           )}
 
-          {totalMatches === 0 && !isLoading && searchTerm !== "" && (
+          {totalMatches === 0 && !isPrintsDataLoading && searchTerm !== "" && (
             <div className="py-20 flex flex-col items-center justify-center opacity-20 text-neutral-900 dark:text-white">
               <Search size={48} strokeWidth={1} />
               <p className="mt-4 font-black uppercase tracking-widest text-sm">No results found for "{searchTerm}"</p>

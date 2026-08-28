@@ -29,8 +29,8 @@ function getStoryImage(story) {
 }
 
 export default function Highlights() {
-  const { stories, isAdmin, isAdminView, isLoading, deleteStory } = useStore();
-  const storiesLoaded = useStore((state) => state._loadedDatasets?.stories);
+  const { stories, isAdmin, isAdminView, deleteStory } = useStore();
+  const storiesStatus = useStore((state) => state._datasetStatus?.stories || 'loading');
   const canManageStories = isAdmin && isAdminView;
   const sectionRef = useRef(null);
   const headerRef = useRef(null);
@@ -147,10 +147,10 @@ export default function Highlights() {
   ), [stories]);
 
   const visibleStories = isDraftView ? drafts : highlights;
-  // A fresh session can finish the Stories snapshot before the rest of the
-  // bootstrap settles. Keep the skeleton for an empty list during that time;
-  // only show the empty state after the app has finished loading.
-  const isLoadingHighlights = visibleStories.length === 0 && (!storiesLoaded || isLoading);
+  // This section follows the Stories dataset only. A slow listener may release
+  // the route-level gate, but it must not turn this shell into an empty state.
+  const isLoadingHighlights = visibleStories.length === 0 && storiesStatus === 'loading';
+  const isStoriesError = visibleStories.length === 0 && storiesStatus === 'error';
   const hasMoreHighlights = highlights.length > 6;
 
   const getCollapsedStoryVisibility = (index) => {
@@ -403,10 +403,10 @@ export default function Highlights() {
               <div className="col-span-full flex min-h-64 flex-col items-center justify-center rounded-3xl border border-dashed border-black/10 bg-white/70 px-6 text-center dark:border-white/10 dark:bg-white/[0.03]">
                 <ImageIcon className="mb-4 text-garage-blue" size={26} />
                 <p className="text-sm font-black uppercase tracking-[0.18em] text-neutral-900 dark:text-white">
-                  {isDraftView ? 'No draft stories' : 'No published stories'}
+                  {isStoriesError ? 'Stories are unavailable' : isDraftView ? 'No draft stories' : 'No published stories'}
                 </p>
                 <p className="mt-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">
-                  {isDraftView ? 'Create a story and save it as a draft to see it here.' : 'Published garage stories will appear here.'}
+                  {isStoriesError ? 'We could not load garage stories. Please try again shortly.' : isDraftView ? 'Create a story and save it as a draft to see it here.' : 'Published garage stories will appear here.'}
                 </p>
               </div>
             )}

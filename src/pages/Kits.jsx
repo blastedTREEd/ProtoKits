@@ -14,7 +14,6 @@ import SupplierBalancesModal from '../components/kitcards/SupplierBalancesModal'
 import SalesDashboardModal from '../components/kitcards/SalesDashboardModal';
 import KitDataQualityModal from '../components/kitcards/KitDataQualityModal';
 import LoginPromptModal from '../components/menu/LoginPromptModal';
-import LoadingState from '../components/common/LoadingState';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
 import { getBundleDealPricing, getClearanceBundlePricing, getHighestCostStock } from '../utils/bundlePricing';
 import { isOfferCheckoutActive } from '../utils/offerUtils';
@@ -155,7 +154,7 @@ function getRouteKitStatus(kit, isAdmin, isAdminView) {
 export default function Kits({ isActive = true }) {
   const { 
     isAdmin, isAdminView, kits: storeKits, deals, 
-    isLoading, addKit,
+    addKit,
     user, isAnonymousUser, userOffers, notifyList, subscribeNotifyList, subscribeOrders, setLoginModalOpen, addToBasket,
     shippingSettings
   } = useStore();
@@ -276,7 +275,9 @@ export default function Kits({ isActive = true }) {
   }, []);
 
   // Infinite Scroll States
-  const [showSkeletons, setShowSkeletons] = useState(false);
+  const kitsStatus = useStore((state) => state._datasetStatus?.kits || 'loading');
+  const dealsStatus = useStore((state) => state._datasetStatus?.deals || 'loading');
+  const isKitsDataLoading = kitsStatus === 'loading' || dealsStatus === 'loading';
   const [isContentHeaderHidden, setIsContentHeaderHidden] = useState(false);
   const contentHeaderScrollRef = useRef({ previousY: window.scrollY, frame: 0, hidden: false, direction: 0, distance: 0 });
 
@@ -375,19 +376,6 @@ export default function Kits({ isActive = true }) {
       ))
       .map(offer => offer.kitId));
   }, [isAdminView, notifyList, offerClock, userId, userOffers]);
-
-  useEffect(() => {
-    if (isLoading) {
-      const timer = setTimeout(() => setShowSkeletons(true), 3000);
-      return () => clearTimeout(timer);
-    }
-
-    const timer = setTimeout(() => {
-      setShowSkeletons(true);
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [isLoading]);
-
 
 // --- Stable sort: hindi mag-re-sort ang cards kapag nagbago lang ang stock count sa real-time ---
   const [stableSortCache, setStableSortCache] = useState({ criteria: '', ids: [] });
@@ -1535,11 +1523,11 @@ export default function Kits({ isActive = true }) {
                 );
               })}
               
-              {isLoading && <div className="w-full h-full"><KitSkeleton /></div>}
+              {isKitsDataLoading && <div className="w-full h-full"><KitSkeleton /></div>}
 
-              {isLoading && allFilteredKits.length === 0 ? (
+              {isKitsDataLoading && allFilteredKits.length === 0 ? (
                 Array.from({ length: 15 }).map((_, i) => <div key={`skeleton-init-${i}`} className="w-full h-full"><KitSkeleton /></div>)
-              ) : allFilteredKits.length > 0 && !isLoading && (
+              ) : allFilteredKits.length > 0 && !isKitsDataLoading && (
                 <div className="col-span-2 sm:col-span-3 lg:col-span-4 xl:col-span-5 2xl:col-span-5 py-12 text-center">
                   <p className="text-[13px] font-bold uppercase tracking-widest text-neutral-900 dark:text-white">
                     {searchTerm ? (
@@ -1556,13 +1544,7 @@ export default function Kits({ isActive = true }) {
               )}
             </div>
 
-            {isLoading && !showSkeletons && (
-              <div className="flex justify-center py-20 w-full">
-                <LoadingState message="Loading kits..." />
-              </div>
-            )}
-
-            {allFilteredKits.length === 0 && !isLoading && searchTerm !== "" && (
+            {allFilteredKits.length === 0 && !isKitsDataLoading && searchTerm !== "" && (
               <div className="py-20 flex flex-col items-center justify-center opacity-20 text-neutral-900 dark:text-white">
                 <Search size={48} strokeWidth={1} />
                 <p className="mt-4 font-bold uppercase tracking-widest text-[13px]">No results found for "{searchTerm}"</p>
