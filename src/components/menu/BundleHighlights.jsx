@@ -260,20 +260,8 @@ export default function BundleHighlights() {
       return !expiry || expiry > now;
     };
 
-    // Priority 1: only the first kit represents each active bundle deal in
-    // Highlights. The full bundle remains available from the deal modal.
-    activeBundles.forEach((deal) => {
-      const stockSource = deal.stockSource || 'onhand';
-      getBundleKitIds(deal).slice(0, 1).forEach((kitId) => {
-        const kit = kitMap.get(String(kitId));
-        const stock = getMatchingStock(kit, stockSource);
-        if (!kit?.id || !stock || usedKitIds.has(String(kit.id))) return;
-        usedKitIds.add(String(kit.id));
-        cards.push({ type: 'kit', id: `bundle:${deal.id}:${kit.id}`, kit, stock, label: 'BUNDLE DEAL' });
-      });
-    });
-
-    // Priority 2: kits with an active clearance discount.
+    // Priority 1: kits with an active clearance discount. Clearance takes
+    // precedence when a kit also belongs to an active bundle deal.
     (deals || [])
       .filter((deal) => {
         if (deal?.type !== 'clearance' || deal.isActive === false) return false;
@@ -291,8 +279,21 @@ export default function BundleHighlights() {
           if (!kit?.id || !stock || usedKitIds.has(String(kit.id))) return;
           usedKitIds.add(String(kit.id));
           cards.push({ type: 'kit', id: `clearance:${deal.id}:${kit.id}`, kit, stock, label: 'CLEARANCE' });
-        });
+       });
       });
+
+    // Priority 2: only the first kit represents each active bundle deal in
+    // Highlights. The full bundle remains available from the deal modal.
+    activeBundles.forEach((deal) => {
+      const stockSource = deal.stockSource || 'onhand';
+      getBundleKitIds(deal).slice(0, 1).forEach((kitId) => {
+        const kit = kitMap.get(String(kitId));
+        const stock = getMatchingStock(kit, stockSource);
+        if (!kit?.id || !stock || usedKitIds.has(String(kit.id))) return;
+        usedKitIds.add(String(kit.id));
+        cards.push({ type: 'kit', id: `bundle:${deal.id}:${kit.id}`, kit, stock, label: 'BUNDLE DEAL' });
+      });
+    });
 
     // Priority 3: remaining on-hand kits. This runs after clearance so a kit
     // that belongs to both categories keeps the higher-priority label.
@@ -552,10 +553,10 @@ export default function BundleHighlights() {
           />
         )}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 rounded-b-[1.5rem] bg-gradient-to-t from-black/95 via-black/65 to-transparent px-3 pb-3 pt-12 text-left text-white">
-          <p className="truncate text-[9px] font-bold uppercase tracking-[0.16em] text-white sm:text-[10px]">
+          <p className="truncate text-[10px] font-bold uppercase tracking-[0.16em] text-white sm:text-[12px]">
             {card.label}
           </p>
-          <p className="line-clamp-1 text-[12px] font-bold uppercase leading-tight tracking-tight text-white sm:line-clamp-2 sm:text-[14px]">
+          <p className="line-clamp-2 text-[12px] font-bold uppercase leading-tight tracking-tight text-white sm:text-[14px]">
             {itemName}
           </p>
         </div>

@@ -374,10 +374,10 @@ export default function Highlights() {
                       ))}
 
                       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[15] rounded-b-[1.3rem] bg-gradient-to-t from-black/95 via-black/65 to-transparent px-3 pb-3 pt-12 text-left text-white">
-                        <p className="truncate text-[9px] font-bold uppercase tracking-[0.16em] text-white sm:text-[10px]">
+                        <p className="truncate text-[10px] font-bold uppercase tracking-[0.16em] text-white sm:text-[12px]">
                           {storyDateLabel}
                         </p>
-                        <p className="line-clamp-1 text-[12px] font-bold uppercase leading-tight tracking-tight text-white sm:line-clamp-2 sm:text-[14px]">
+                        <p className="line-clamp-2 text-[12px] font-bold uppercase leading-tight tracking-tight text-white sm:text-[14px]">
                           {storyDestination}
                         </p>
                       </div>
