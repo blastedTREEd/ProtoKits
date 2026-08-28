@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Bell, CheckCircle2, Clock3, PackageOpen, Pencil, Save, Trash2, XCircle } from 'lucide-react';
+import { Bell, CheckCircle2, Clock3, Pencil, Save, Trash2, XCircle } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
 import ListItemSkeleton from '../components/common/ListItemSkeleton';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
+import UniversalImage from '../components/common/UniversalImage';
 
 function resolveImage(idOrUrl, imagesArray) {
   if (!idOrUrl) return '';
@@ -376,24 +377,12 @@ export default function NotifyList() {
                     className={`p-3 rounded-2xl border-2 cursor-pointer flex gap-4 items-center transition-all duration-300 ${isSelected ? 'border-blue-500 shadow-lg' : 'border-black/5 dark:border-white/5'} ${status === 'expired' ? 'opacity-60' : ''} bg-white dark:bg-neutral-900`}
                   >
                     <div className="flex items-center justify-center">
-                      {displayImage ? (
-                        <img
-                          src={displayImage}
-                          alt={displayName}
-                          loading="lazy"
-                          className="w-20 h-20 md:portrait:w-48 md:landscape:w-72 md:h-24 lg:w-72 xl:w-72 aspect-square md:aspect-auto object-cover object-[center_25%] rounded-xl border border-neutral-100 dark:border-neutral-800 transition-opacity duration-500"
-                          onError={(e) => {
-                            e.target.style.display = 'none';
-                            e.target.nextSibling.style.display = 'flex';
-                          }}
-                        />
-                      ) : null}
-                      <div
-                        className="w-20 h-20 md:portrait:w-48 md:landscape:w-72 md:h-24 lg:w-72 xl:w-72 aspect-square md:aspect-auto rounded-xl border border-neutral-100 dark:border-neutral-800 bg-neutral-200 dark:bg-neutral-800 flex items-center justify-center"
-                        style={{ display: displayImage ? 'none' : 'flex' }}
-                      >
-                        <PackageOpen size={32} className="opacity-20" />
-                      </div>
+                      <UniversalImage
+                        src={displayImage}
+                        alt={displayName}
+                        loading="lazy"
+                        className="w-20 h-20 md:portrait:w-48 md:landscape:w-72 md:h-24 lg:w-72 xl:w-72 aspect-square md:aspect-auto object-cover object-[center_25%] rounded-xl border border-neutral-100 dark:border-neutral-800 transition-opacity duration-500"
+                      />
                     </div>
 
                     <div className="flex-1 flex flex-col gap-3 min-w-0 min-h-[80px] justify-center">

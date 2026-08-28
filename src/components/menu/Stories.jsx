@@ -3,6 +3,7 @@ import { X, ChevronLeft, ChevronRight, MapPin, Package } from 'lucide-react';
 import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../../store/useStore';
+import UniversalImage from '../common/UniversalImage';
 
 const SYNC_GLOW_COLORS = ['#0066ff', '#ff3b30', '#34c759', '#ffcc00', '#af52de', '#ff7a00', '#00c7be'];
 const STORY_CARD_WIDTH = 112;
@@ -453,7 +454,7 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
                       >
                         <div className="relative h-full w-full overflow-hidden rounded-[1.3rem] bg-[var(--color-bg)]">
                           {highlight.image ? (
-                            <img
+                            <UniversalImage
                               src={highlight.image}
                               alt={highlight.label || 'Garage highlight'}
                               className={`absolute z-[1] ${isLoadingCard
@@ -513,7 +514,7 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
               {/* Story Image / Background */}
               <div className="absolute inset-0 overflow-hidden md:right-[43.75%] md:w-[56.25%]">
                 {activeStory.backgroundImage ? (
-                  <img 
+                  <UniversalImage
                     src={activeStory.backgroundImage} 
                     alt={activeStory.label}
                     className="w-full h-full object-cover"
@@ -523,7 +524,7 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
                     }}
                   />
                 ) : activeStory.image ? (
-                  <img 
+                  <UniversalImage
                     src={activeStory.image} 
                     alt={activeStory.label}
                     className="w-full h-full object-cover"
@@ -562,7 +563,7 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
                           style={{ width: '90px', height: '90px' }}
                         >
                           <div className="w-full h-[70px] overflow-hidden relative bg-neutral-100">
-                            <img 
+                            <UniversalImage
                               src={st.src} 
                               alt="Polaroid overlay" 
                               className="w-full h-full object-cover border border-black/5" 
@@ -574,7 +575,7 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
                         <div 
                           className="w-[80px] h-[80px] rounded-full overflow-hidden border-2 border-white shadow-lg bg-white/20 relative"
                         >
-                          <img 
+                          <UniversalImage
                             src={st.src} 
                             alt="Mask overlay" 
                             className="w-full h-full object-cover rounded-full" 

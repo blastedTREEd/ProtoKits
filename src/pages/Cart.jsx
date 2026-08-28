@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Trash2, ShoppingBag, ShelvingUnit, ShoppingCart, PackageOpen, PackagePlus, Plus, Minus } from 'lucide-react';
+import { Trash2, ShoppingBag, ShelvingUnit, ShoppingCart, PackagePlus, Plus, Minus } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
@@ -12,6 +12,7 @@ import { getIntegerFeeShare, getStockStandaloneSellPrice, isBundleOrClearanceIte
 import { getBundleDealPricing, getClearanceBundlePricing } from '../utils/bundlePricing';
 import { getUnavailableDateSet, getUnavailableWeekdaySet, toDateKey } from '../utils/availabilitySchedule';
 import { getStockEta } from '../utils/stockDates';
+import UniversalImage from '../components/common/UniversalImage';
 import {
   getPrinterFeeders,
   isFilamentCompatibleWithPrinter,
@@ -1729,22 +1730,14 @@ export default function Cart() {
                           bareTiles
                           className="w-20 h-20 md:portrait:w-48 md:landscape:w-72 md:h-24 lg:w-72 xl:w-72 aspect-square md:aspect-auto rounded-xl border border-blue-100 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/30 shadow-sm p-1.5"
                         />
-                      ) : displayImage ? (
-                        <img 
+                      ) : (
+                        <UniversalImage
                           src={displayImage} 
                           alt={displayName} 
                           loading="lazy" 
                           className={`w-20 h-20 md:portrait:w-48 md:landscape:w-72 md:h-24 lg:w-72 xl:w-72 aspect-square md:aspect-auto object-cover object-[center_25%] rounded-xl border border-neutral-100 dark:border-neutral-800 transition-opacity duration-500`}
-                          onLoad={(e) => e.target.classList.remove('opacity-0')}
-                          onError={(e) => {
-                            e.target.style.display = 'none';
-                            e.target.nextSibling.style.display = 'flex';
-                          }}
                         />
-                      ) : null}
-                      {!isUserProject && <div className={`w-20 h-20 md:portrait:w-48 md:landscape:w-72 md:h-24 lg:w-72 xl:w-72 aspect-square md:aspect-auto object-cover object-[center_25%] rounded-xl border border-neutral-100 dark:border-neutral-800 bg-neutral-200 dark:bg-neutral-800 flex items-center justify-center`} style={{ display: displayImage ? 'none' : 'flex' }}>
-                          <PackageOpen size={32} className="opacity-20" />
-                      </div>}
+                      )}
                     </div>
                     <div className="flex-1 flex flex-col gap-3 min-w-0 min-h-[80px] justify-center">
                       <div className="flex flex-col justify-center">

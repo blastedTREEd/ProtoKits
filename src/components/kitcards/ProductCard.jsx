@@ -14,6 +14,7 @@ import { formatOfferCountdown, isOfferCheckoutActive } from '../../utils/offerUt
 import { getStockStandaloneSellPrice } from '../../utils/standalonePricing';
 import { getDealDiscountAmount, getDealGrabLabel, getDealSaveUpToLabel } from '../../utils/dealSavings';
 import { getStockEta } from '../../utils/stockDates';
+import UniversalImage from '../common/UniversalImage';
 
 // Resolves an image ID to its URL from the images array.
 // Backward compatible: if the value is already a URL (base64 or http), returns it directly.
@@ -42,9 +43,9 @@ const Gallery = ({ galleryImages, galleryIndex, setGalleryIndex, handleTouchStar
         <div onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} className={`w-full overflow-hidden bg-neutral-100 dark:bg-neutral-900 border-b sm:landscape:border-b-0 sm:landscape:border-r border-black/5 dark:border-white/5 relative group/img flex flex-col items-center justify-center h-[420px] sm:h-[450px] md:h-[550px] md:min-h-[150px] sm:landscape:h-full sm:landscape:w-5/12 sm:landscape:flex-1 shrink-0 isolate ${className || ''}`}>
             {galleryImages[galleryIndex] && (
                 <>
-                    <img src={galleryImages[galleryIndex].url} alt="" className="absolute inset-0 w-full h-full object-cover blur-2xl opacity-40 scale-110" />
+                    <UniversalImage src={galleryImages[galleryIndex].url} alt="" className="absolute inset-0 w-full h-full object-cover blur-2xl opacity-40 scale-110" />
                     <div className="relative z-10 w-full h-full flex flex-col items-center justify-center p-4 lg:p-6">
-                        <img 
+                        <UniversalImage
                             src={galleryImages[galleryIndex].url} 
                             alt={galleryImages[galleryIndex].type} 
                             className="max-w-full max-h-full object-contain transition-opacity duration-300 mx-auto" 
@@ -78,7 +79,7 @@ const Gallery = ({ galleryImages, galleryIndex, setGalleryIndex, handleTouchStar
                                         onClick={(e) => { e.stopPropagation(); setGalleryIndex(idx); }}
                                         className={`relative w-11 h-11 rounded-full border-2 transition-all shrink-0 overflow-hidden group/thumb ${galleryIndex === idx ? 'border-transparent bg-gradient-to-br from-blue-500 via-blue-600 to-cyan-400 bg-origin-border shadow-lg z-10 opacity-100' : 'border-white/30 opacity-40 hover:opacity-100 hover:border-white/60'}`}
                                     >
-                                        <img src={img.url} className="w-full h-full object-cover scale-[1.3]" alt="" />
+                                        <UniversalImage src={img.url} className="w-full h-full object-cover scale-[1.3]" alt="" />
                                     </button>
                                 ))}
                             </div>
@@ -1681,7 +1682,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                 ? 'absolute inset-0 h-full w-full overflow-hidden rounded-[1.3rem]'
                 : 'absolute inset-0 w-full h-full bg-white dark:bg-[var(--color-surface)] overflow-hidden rounded-2xl'}
               >
-                 <img src={resolveImage(kit.image, kit?.images) || null} alt={kit.name} loading="lazy" className="w-full h-full object-cover transition-transform duration-700 lg:group-hover:scale-110 transform-gpu" />
+                 <UniversalImage src={resolveImage(kit.image, kit?.images)} alt={kit.name} loading="lazy" className="w-full h-full object-cover transition-transform duration-700 lg:group-hover:scale-110 transform-gpu" />
                  <div className="absolute top-2 right-2 z-20">
                     {!homePreview && isAdmin && isAdminView && (
                       <button onClick={(e) => { e.stopPropagation(); onEdit(kit); }} className="px-2 py-1 rounded-full transition-all border bg-gradient-to-br from-amber-500 to-amber-600 border-white/20 shadow-lg text-white font-bold uppercase text-[12px] tracking-widest hover:scale-110">
@@ -2079,7 +2080,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                         >
                                           <div className="flex items-center justify-center shrink-0">
                                             {resolveImage(includedKit.image, includedKit.images) ? (
-                                              <img
+                                              <UniversalImage
                                                 src={resolveImage(includedKit.image, includedKit.images)}
                                                 className="w-20 h-20 md:landscape:w-40 md:landscape:h-22 object-cover object-[center_25%] rounded-xl border border-neutral-100 dark:border-neutral-800 transition-opacity duration-500"
                                                 alt={includedKit.name}
@@ -2168,7 +2169,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                               className={`h-20 w-20 overflow-hidden rounded-full border-2 border-white bg-neutral-200 shadow-md dark:bg-neutral-800 ${includedIndex > 0 ? '-ml-2' : ''}`}
                                             >
                                               {includedKitImage ? (
-                                                <img
+                                                <UniversalImage
                                                   src={includedKitImage}
                                                   className={`h-full w-full object-cover object-[center_25%] ${usesBoxArtImage ? '' : 'scale-[1.2]'}`}
                                                   alt=""

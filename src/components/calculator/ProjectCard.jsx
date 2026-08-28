@@ -23,6 +23,7 @@ import CostBreakdown from './CostBreakdown';
 import { LiaGoogleDrive } from 'react-icons/lia';
 import { TbHexagon3D } from 'react-icons/tb';
 import { LuRotate3D } from 'react-icons/lu';
+import UniversalImage from '../common/UniversalImage';
 
 const Gallery = ({
   galleryImages,
@@ -61,13 +62,13 @@ const Gallery = ({
             {activeImage && (
                 <>
                     {hasActiveImage ? (
-                      <img src={activeImage.url} alt="" className="absolute inset-0 w-full h-full object-cover blur-2xl opacity-40 scale-110" />
+                      <UniversalImage src={activeImage.url} alt="" className="absolute inset-0 w-full h-full object-cover blur-2xl opacity-40 scale-110" />
                     ) : placeholderSrc ? (
                       <div className="absolute inset-0 bg-blue-600/10 dark:bg-blue-600/20" />
                     ) : null}
                     <div className="relative z-10 w-full h-full flex flex-col items-center justify-center p-4 lg:p-6">
                         {hasActiveImage ? (
-                          <img
+                          <UniversalImage
                               src={activeImage.url}
                               alt={activeImage.type}
                               className="max-w-full max-h-full object-contain transition-opacity duration-300 mx-auto"
@@ -99,7 +100,7 @@ const Gallery = ({
                                         className={`relative w-11 h-11 rounded-full border-2 transition-all shrink-0 overflow-hidden group/thumb ${galleryIndex === idx ? 'border-blue-500 shadow-lg shadow-blue-500/30 z-10 opacity-100' : 'border-white/20 opacity-40 hover:opacity-100 hover:border-white/50'}`}
                                     >
                                         {img.url ? (
-                                          <img src={img.url} className="w-full h-full object-cover" alt="" />
+                                          <UniversalImage src={img.url} className="w-full h-full object-cover" alt="" />
                                         ) : placeholderSrc ? (
                                           <img src={placeholderSrc} className="w-full h-full object-contain bg-blue-600/10 p-2 opacity-45" alt="Garage placeholder" />
                                         ) : null}
@@ -1781,7 +1782,7 @@ export default function ProjectCard({
               : `relative aspect-square rounded-2xl overflow-hidden mb-3 shrink-0 text-left transform-gpu ${isVault && !displayImage ? 'block bg-blue-600/10 p-2 dark:bg-blue-600/20' : 'bg-[var(--color-bg)] flex items-center justify-center'}`
             }>
               {displayImage ? (
-                <img 
+                <UniversalImage
                   src={displayImage} 
                   alt={projectTitle} 
                   className="w-full h-full object-cover lg:group-hover:scale-110 transition-transform duration-700"

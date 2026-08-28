@@ -20,6 +20,7 @@ import { getBundleDealPricing, getClearanceBundlePricing, getHighestCostStock } 
 import { isOfferCheckoutActive } from '../utils/offerUtils';
 import { getDealGrabLabel } from '../utils/dealSavings';
 import { getStockEta } from '../utils/stockDates';
+import UniversalImage from '../components/common/UniversalImage';
 
 // --- Spectral gradient helpers (mirrored from ProductCard) ---
 const SPECTRAL_GRADIENTS = [
@@ -1113,7 +1114,7 @@ export default function Kits({ isActive = true }) {
             <div className="grid gap-1.5 h-full w-full grid-cols-2 grid-rows-2">
               {previewKits.length > 0 ? previewKits.map((kit, idx) => (
                 <div key={kit?.id || idx} className={`relative w-full h-full rounded-xl overflow-hidden ${getPreviewTileClass(previewKits.length, idx)}`}>
-                  <img src={(() => { const id = kit?.image; if (!id) return ''; if (id.startsWith('data:') || id.startsWith('http')) return id; const match = (kit?.images || []).find(img => img.id === id); return match?.url || id; })()} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt="" />
+                  <UniversalImage src={(() => { const id = kit?.image; if (!id) return ''; if (id.startsWith('data:') || id.startsWith('http')) return id; const match = (kit?.images || []).find(img => img.id === id); return match?.url || id; })()} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt="" />
                   {idx === 3 && remainingCount > 0 && (
                     <div className="absolute inset-0 flex items-center justify-center text-white text-[14px] font-bold italic drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]">
                       +{remainingCount}
@@ -1309,7 +1310,7 @@ export default function Kits({ isActive = true }) {
                           <div className="grid gap-1.5 h-full w-full grid-cols-2 grid-rows-2">
                             {previewKits.length > 0 ? previewKits.map((kit, idx) => (
                               <div key={kit?.id || idx} className={`relative w-full h-full rounded-xl overflow-hidden ${getPreviewTileClass(previewKits.length, idx)}`}>
-                                <img src={(() => { const id = kit?.image; if (!id) return ''; if (id.startsWith('data:') || id.startsWith('http')) return id; const match = (kit?.images || []).find(img => img.id === id); return match?.url || id; })()} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt="" />
+                                <UniversalImage src={(() => { const id = kit?.image; if (!id) return ''; if (id.startsWith('data:') || id.startsWith('http')) return id; const match = (kit?.images || []).find(img => img.id === id); return match?.url || id; })()} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt="" />
                                 {idx === 3 && remainingCount > 0 && (
                                   <div className="absolute inset-0 flex items-center justify-center text-white text-[14px] font-bold italic drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]">
                                     +{remainingCount}

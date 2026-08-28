@@ -9,6 +9,7 @@ import ProjectCard from '../calculator/ProjectCard';
 import LoginPromptModal from './LoginPromptModal';
 import { getDealGrabLabel } from '../../utils/dealSavings';
 import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
+import UniversalImage from '../common/UniversalImage';
 
 const BUNDLE_TYPES = new Set(['bundle_only', 'bundle_discount']);
 
@@ -410,7 +411,7 @@ export default function BundleHighlights() {
             <div className="grid h-full w-full grid-cols-2 grid-rows-2 gap-1.5">
               {previewKits.length > 0 ? previewKits.map((kit, index) => (
                 <div key={kit?.id || index} className={`relative h-full w-full overflow-hidden rounded-xl ${getPreviewTileClass(previewKits.length, index)}`}>
-                  <img src={resolveKitImage(kit)} className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110" alt="" />
+                  <UniversalImage src={resolveKitImage(kit)} className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110" alt="" />
                   {index === 3 && remainingCount > 0 && (
                     <div className="absolute inset-0 flex items-center justify-center text-[14px] font-bold italic text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]">+{remainingCount}</div>
                   )}

@@ -73,28 +73,6 @@ if (typeof window !== 'undefined' && 'scrollRestoration' in window.history) {
 const KNOWN_PATHS = ['/', '/kits', '/prints', '/blueprints', '/about-us', '/orders', '/cart', '/basket', '/checkout', '/shelf', '/notify-list', '/users-dashboard', '/privacy-policy', '/terms-of-use', '/data-deletion', '/shipping-policy', '/payment-and-refund-policy'];
 const isKnownRoute = (pathname) => KNOWN_PATHS.some(p => p === '/' ? pathname === '/' : pathname === p || pathname.startsWith(p + '/'));
 
-const isRouteDataReady = (pathname, datasets, isAdmin) => {
-  if (!datasets.userProfile) return false;
-
-  const needsStories = pathname === '/' || pathname === '';
-  // Stories uses kit availability to fill missing/unavailable project slots
-  // in the landing-page highlights.
-  const needsKits = pathname === '/' || pathname === '' || pathname.startsWith('/kits') || pathname === '/cart' || pathname === '/basket' || pathname === '/shelf';
-  const needsDeals = pathname.startsWith('/kits');
-  const needsOrders = pathname === '/orders' || pathname.startsWith('/orders/');
-  const needsBasket = pathname === '/cart' || pathname === '/basket' || pathname === '/shelf';
-  const needsShelf = isAdmin;
-  const needsPrints = pathname === '/' || pathname === '/prints' || pathname.startsWith('/prints/') || pathname === '/blueprints' || pathname === '/cart' || pathname === '/basket' || pathname === '/shelf';
-
-  return (!needsStories || datasets.stories)
-    && (!needsKits || datasets.kits)
-    && (!needsDeals || datasets.deals)
-    && (!needsOrders || datasets.orders)
-    && (!needsBasket || datasets.basket)
-    && (!needsShelf || datasets.shelf)
-    && (!needsPrints || datasets.prints);
-};
-
 const Layout = ({ children }) => {
   const location = useLocation();
   const { isAdmin, shippingSettings } = useStore();
@@ -136,9 +114,7 @@ const Layout = ({ children }) => {
 const RouterContent = () => {
   const location = useLocation();
   const checkPageReady = useStore((state) => state.checkPageReady);
-  const _loadedDatasets = useStore((state) => state._loadedDatasets);
   const isAdminView = useStore((state) => state.isAdminView);
-  const isAdmin = useStore((state) => state.isAdmin);
   const isKitsPath = location.pathname === '/kits' || location.pathname.startsWith('/kits/');
   const [hasVisitedKits, setHasVisitedKits] = useState(() => isKitsPath);
 
@@ -154,12 +130,9 @@ const RouterContent = () => {
     checkPageReady(location.pathname);
   }, [location.pathname, checkPageReady]);
 
-  // Derive loading state synchronously during render (no content flash)
-  // Route data renders its own lightweight loading state. Keep the app-wide
-  // overlay only until identity/profile bootstrap completes.
-  // For unknown routes (404), skip data loading gate entirely — render immediately
-  const isKnown = isKnownRoute(location.pathname);
-  const showLoading = isKnown && !isRouteDataReady(location.pathname, _loadedDatasets, isAdmin);
+  // Route components own their data loading shells. Keep them mounted while
+  // Firestore listeners warm up so visitors can see and use the page chrome
+  // immediately instead of waiting behind a full-screen data gate.
   const loadingDetails = getLoadingDetails({
     pathname: location.pathname,
     isAdminView
@@ -175,11 +148,6 @@ const RouterContent = () => {
 
   return (
     <>
-      {showLoading && (
-         <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-white/50 dark:bg-black/50 backdrop-blur-sm">
-            <LoadingState {...loadingDetails} />
-         </div>
-      )}
       <Suspense fallback={
         <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-white/50 backdrop-blur-sm dark:bg-black/50">
           <LoadingState {...loadingDetails} />

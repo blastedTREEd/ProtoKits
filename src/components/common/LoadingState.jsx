@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle2, Loader2 } from 'lucide-react';
+import UniversalImage from './UniversalImage';
 
 const LoadingChecklist = ({ steps }) => {
   const [visibleStepCount, setVisibleStepCount] = useState(steps.length > 0 ? 1 : 0);
@@ -48,8 +49,14 @@ export default function LoadingState({
 
   const content = (
     <div className={`flex w-full max-w-sm flex-col items-center justify-center gap-4 px-5 ${className}`}>
-      <div className="flex h-16 w-16 items-center justify-center">
-        <Loader2 className="h-9 w-9 animate-spin text-blue-600 dark:text-blue-400" />
+      <div className="relative flex h-16 w-16 items-center justify-center">
+        <UniversalImage
+          src="/snorlaxgarage.png"
+          alt=""
+          aria-hidden="true"
+          className="h-12 w-12 object-contain opacity-80"
+        />
+        <Loader2 className="absolute h-16 w-16 animate-spin text-blue-600/30 dark:text-blue-400/30" />
       </div>
 
       <div className="text-center">

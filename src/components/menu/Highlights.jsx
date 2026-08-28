@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Circle, Sparkles, Image as ImageIcon, Plus, BookImage, ChevronDown, ChevronUp, NotebookPen, Trash2 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
+import UniversalImage from '../common/UniversalImage';
 
 function getStoryTime(value) {
   if (!value) return 0;
@@ -338,7 +339,7 @@ export default function Highlights() {
                           : isDraftView ? `Edit story: ${storyLabel}` : `View story: ${storyLabel}`}
                       >
                         {image ? (
-                          <img
+                          <UniversalImage
                             src={image}
                             alt={storyLabel}
                             className="story-card-image h-full w-full object-cover transition-transform duration-700 lg:group-hover:scale-110"
