@@ -27,13 +27,16 @@ if (typeof window !== "undefined") {
   # App Check debug token removed from history
   }
 
-  // Fallback to a dummy key in development if VITE_RECAPTCHA_SITE_KEY is not defined yet
-  const siteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY || "6Lc_some_dummy_key_for_development_AAAAAA";
+  const siteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
 
-  appCheck = initializeAppCheck(app, {
-    provider: new ReCaptchaV3Provider(siteKey),
-    isTokenAutoRefreshEnabled: true,
-  });
+  if (siteKey) {
+    appCheck = initializeAppCheck(app, {
+      provider: new ReCaptchaV3Provider(siteKey),
+      isTokenAutoRefreshEnabled: true,
+    });
+  } else {
+    console.warn('Firebase App Check is not initialized because VITE_RECAPTCHA_SITE_KEY is missing.');
+  }
 }
 
 // Enforce local persistence so session survives redirect

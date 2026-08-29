@@ -29,7 +29,10 @@ function getStoryImage(story) {
 }
 
 export default function Highlights() {
-  const { stories, isAdmin, isAdminView, deleteStory } = useStore();
+  const stories = useStore((state) => state.stories);
+  const isAdmin = useStore((state) => state.isAdmin);
+  const isAdminView = useStore((state) => state.isAdminView);
+  const deleteStory = useStore((state) => state.deleteStory);
   const storiesStatus = useStore((state) => state._datasetStatus?.stories || 'loading');
   const canManageStories = isAdmin && isAdminView;
   const sectionRef = useRef(null);

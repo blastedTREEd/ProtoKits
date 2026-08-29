@@ -169,20 +169,18 @@ function randomizeFeedCards(cards, limit = 10) {
 }
 
 export default function BundleHighlights() {
-  const {
-    deals,
-    kits,
-    blueprints,
-    loadAllDeals,
-    isAdmin,
-    isAdminView,
-    addProjectToBasket,
-    setToastMessage,
-    setLoginModalOpen,
-    shippingSettings,
-    user,
-    _datasetStatus
-  } = useStore();
+  const deals = useStore((state) => state.deals);
+  const kits = useStore((state) => state.kits);
+  const blueprints = useStore((state) => state.blueprints);
+  const loadAllDeals = useStore((state) => state.loadAllDeals);
+  const isAdmin = useStore((state) => state.isAdmin);
+  const isAdminView = useStore((state) => state.isAdminView);
+  const addProjectToBasket = useStore((state) => state.addProjectToBasket);
+  const setToastMessage = useStore((state) => state.setToastMessage);
+  const setLoginModalOpen = useStore((state) => state.setLoginModalOpen);
+  const shippingSettings = useStore((state) => state.shippingSettings);
+  const user = useStore((state) => state.user);
+  const _datasetStatus = useStore((state) => state._datasetStatus);
   const navigate = useNavigate();
   const { isDarkMode, isSpectralMode } = useTheme();
   const [now, setNow] = useState(() => Date.now());

@@ -152,12 +152,20 @@ function getRouteKitStatus(kit, isAdmin, isAdminView) {
 }
 
 export default function Kits({ isActive = true }) {
-  const { 
-    isAdmin, isAdminView, kits: storeKits, deals, 
-    addKit,
-    user, isAnonymousUser, userOffers, notifyList, subscribeNotifyList, subscribeOrders, setLoginModalOpen, addToBasket,
-    shippingSettings
-  } = useStore();
+  const isAdmin = useStore((state) => state.isAdmin);
+  const isAdminView = useStore((state) => state.isAdminView);
+  const storeKits = useStore((state) => state.kits);
+  const deals = useStore((state) => state.deals);
+  const addKit = useStore((state) => state.addKit);
+  const user = useStore((state) => state.user);
+  const isAnonymousUser = useStore((state) => state.isAnonymousUser);
+  const userOffers = useStore((state) => state.userOffers);
+  const notifyList = useStore((state) => state.notifyList);
+  const subscribeNotifyList = useStore((state) => state.subscribeNotifyList);
+  const subscribeOrders = useStore((state) => state.subscribeOrders);
+  const setLoginModalOpen = useStore((state) => state.setLoginModalOpen);
+  const addToBasket = useStore((state) => state.addToBasket);
+  const shippingSettings = useStore((state) => state.shippingSettings);
 
   const { handlingFee, installmentFee, transferFee } = useMemo(() => {
     if (!shippingSettings) return { handlingFee: 0, installmentFee: 0, transferFee: 0 };

@@ -4,7 +4,6 @@ import { getRedirectResult } from 'firebase/auth';
 import { auth } from './firebase/firebase';
 import { ThemeProvider } from './context/ThemeContext';
 import Navbar from './components/menu/Navbar';
-import Stories from './components/menu/Stories';
 import Footer from './components/menu/Footer';
 import ScrollManager from './components/menu/ScrollManager';
 import Auth from './components/Auth';
@@ -83,7 +82,6 @@ const Layout = ({ children }) => {
     <div className="min-h-screen flex flex-col">
       {isKnownRoute(location.pathname) && (
         <>
-          <Stories isCompact={location.pathname !== "/"} />
           <Navbar isCompact />
         </>
       )}
@@ -264,27 +262,23 @@ export default function App() {
   const { fetchInitialData, setToastMessage } = useStore();
 
   useEffect(() => {
-    let cleanup = null;
-    let isUnmounted = false;
-    const handleAuthFlow = async () => {
-      try {
-        const result = await getRedirectResult(auth);
+    // Firestore's public listeners and the auth redirect can initialize in
+    // parallel. Waiting for getRedirectResult here made guest users wait for
+    // an auth operation before any public content could reach the UI.
+    const cleanup = fetchInitialData();
+
+    getRedirectResult(auth)
+      .then((result) => {
         if (result) {
           console.log("DEBUG: Redirect result success:", result.user);
           setToastMessage("Welcome Back!");
         }
-      } catch (error) {
+      })
+      .catch((error) => {
         console.error("DEBUG: Redirect login error:", error);
-      }
+      });
 
-      if (!isUnmounted) {
-        cleanup = fetchInitialData();
-      }
-    };
-
-    handleAuthFlow();
     return () => {
-      isUnmounted = true;
       if (cleanup) cleanup();
     };
   }, [fetchInitialData, setToastMessage]);
