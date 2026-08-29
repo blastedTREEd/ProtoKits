@@ -17,6 +17,7 @@ import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import LoadingState from '../components/common/LoadingState';
 import { getStandaloneUnitPrice } from '../utils/standalonePricing';
 import { getStockEta } from '../utils/stockDates';
+import { shouldChargeHandlingFee } from '../utils/paymentSettings';
 
 let DefaultIcon = L.icon({ iconUrl: markerIcon, shadowUrl: markerShadow, iconSize: [25, 41], iconAnchor: [12, 41] });
 L.Marker.prototype.options.icon = DefaultIcon;
@@ -517,7 +518,6 @@ export default function Orders() {
     province: '',
     zipCode: '',
     buyerPaid: '',
-    handlingFeePaid: ''
   });
   const [manualOrderData, setManualOrderData] = useState(getEmptyLegacyOrderData);
   useEffect(() => {
@@ -788,7 +788,22 @@ export default function Orders() {
     .filter(([, config]) => config !== false && config?.active !== false), [legacyShippingConfig]);
   const legacyBranchRequired = legacyShippingConfig?.requiredFields?.includes(13)
     || legacyShippingConfig?.suboptions?.[manualOrderData.shippingSuboption]?.requiredFields?.includes(13);
-  const legacyItemTotal = Math.max(0, Number(manualOrderData.buyerPaid || 0) - Number(manualOrderData.handlingFeePaid || 0));
+  const legacyHandlingFee = useMemo(() => {
+    if (!manualOrderData.shippingMethod) return 0;
+
+    const handlingEnabled = shouldChargeHandlingFee(
+      shippingSettings?.shippingMethods,
+      manualOrderData.shippingMethod,
+      manualOrderData.shippingSuboption || null
+    );
+    if (!handlingEnabled) return 0;
+
+    const configuredFee = shippingSettings?.paymentSettings?.handlingFee
+      ?? shippingSettings?.pickupDetails?.handlingFee
+      ?? 0;
+    return Math.max(0, Number(configuredFee) || 0);
+  }, [manualOrderData.shippingMethod, manualOrderData.shippingSuboption, shippingSettings]);
+  const legacyItemTotal = Math.max(0, Number(manualOrderData.buyerPaid || 0) - legacyHandlingFee);
   // Retained only while the former compact manual-order markup remains disabled below.
   const availableStocks = [];
 
@@ -1004,7 +1019,7 @@ export default function Orders() {
     e.preventDefault();
     const selectedItems = manualOrderData.selectedItems || [];
     const totalPaid = Number(manualOrderData.buyerPaid || 0);
-    const handlingFeePaid = Number(manualOrderData.handlingFeePaid || 0);
+    const handlingFeePaid = legacyHandlingFee;
     const itemRevenue = Math.max(0, totalPaid - handlingFeePaid);
     if (!selectedItems.length || !manualOrderData.shippingMethod || !manualOrderData.city.trim() || !manualOrderData.province.trim() || !manualOrderData.zipCode.trim() || totalPaid < handlingFeePaid) {
       alert('Add at least one stock, complete the shipping address, and make sure total paid covers the handling fee.');
@@ -1075,7 +1090,7 @@ export default function Orders() {
         lbcBranch: legacyBranchRequired ? manualOrderData.branch.trim() : null
       },
       paymentPlan: 'full',
-      paymentMethod: 'Legacy payment',
+      paymentMethod: 'Cash',
       totalPrice: itemRevenue,
       subtotal: itemRevenue,
       price: itemRevenue,
@@ -3070,7 +3085,7 @@ export default function Orders() {
                 <aside className="space-y-5">
                   <section className="rounded-2xl border border-black/10 p-5 dark:border-white/10"><h3 className="mb-4 text-[12px] font-black uppercase tracking-widest opacity-45">Shipping</h3><div className="space-y-3"><select required value={manualOrderData.shippingMethod} onChange={(event) => setManualOrderData(prev => ({ ...prev, shippingMethod: event.target.value, shippingSuboption: '', branch: '' }))} className="w-full rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10"><option value="">Select shipping option</option>{legacyShippingOptions.map(method => <option key={method} value={method}>{method}</option>)}</select>{legacySuboptions.length > 0 && <select required value={manualOrderData.shippingSuboption} onChange={(event) => setManualOrderData(prev => ({ ...prev, shippingSuboption: event.target.value, branch: '' }))} className="w-full rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10"><option value="">Select suboption</option>{legacySuboptions.map(([key, config]) => <option key={key} value={key}>{config.label || key}</option>)}</select>}</div></section>
                   <section className="rounded-2xl border border-black/10 p-5 dark:border-white/10"><h3 className="mb-4 text-[12px] font-black uppercase tracking-widest opacity-45">Delivery address</h3><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">{legacyBranchRequired && <input required value={manualOrderData.branch} onChange={(event) => setManualOrderData(prev => ({ ...prev, branch: event.target.value }))} placeholder="BRANCH" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" />}<input required value={manualOrderData.city} onChange={(event) => setManualOrderData(prev => ({ ...prev, city: event.target.value }))} placeholder="CITY" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /><input required value={manualOrderData.province} onChange={(event) => setManualOrderData(prev => ({ ...prev, province: event.target.value }))} placeholder="PROVINCE" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /><input required inputMode="numeric" value={manualOrderData.zipCode} onChange={(event) => setManualOrderData(prev => ({ ...prev, zipCode: event.target.value }))} placeholder="ZIP CODE" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /></div></section>
-                  <section className="rounded-2xl border border-blue-500/20 bg-blue-500/[0.04] p-5"><h3 className="mb-4 text-[12px] font-black uppercase tracking-widest text-blue-600">Payment summary</h3><label className="mb-3 block text-[10px] font-black uppercase tracking-widest opacity-45">Total paid by buyer<input required min="0" type="number" value={manualOrderData.buyerPaid} onChange={(event) => setManualOrderData(prev => ({ ...prev, buyerPaid: event.target.value }))} className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-3 text-[14px] font-black text-neutral-950 dark:border-white/10 dark:bg-black/20 dark:text-white" /></label><label className="block text-[10px] font-black uppercase tracking-widest opacity-45">Handling fee paid<input required min="0" type="number" value={manualOrderData.handlingFeePaid} onChange={(event) => setManualOrderData(prev => ({ ...prev, handlingFeePaid: event.target.value }))} className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-3 text-[14px] font-black text-neutral-950 dark:border-white/10 dark:bg-black/20 dark:text-white" /></label><div className="mt-4 flex items-center justify-between border-t border-blue-500/15 pt-4"><span className="text-[10px] font-black uppercase tracking-widest opacity-55">Distributed to items</span><span className="text-[18px] font-black text-blue-600">₱{legacyItemTotal.toLocaleString()}</span></div><p className="mt-3 text-[10px] font-bold leading-relaxed opacity-50">Total paid minus handling fee is proportionally saved as the selected stocks’ legacy sell price. Installment fees are excluded.</p></section>
+                  <section className="rounded-2xl border border-blue-500/20 bg-blue-500/[0.04] p-5"><h3 className="mb-4 text-[12px] font-black uppercase tracking-widest text-blue-600">Payment summary</h3><label className="mb-3 block text-[10px] font-black uppercase tracking-widest opacity-45">Total paid by buyer<input required min="0" type="number" value={manualOrderData.buyerPaid} onChange={(event) => setManualOrderData(prev => ({ ...prev, buyerPaid: event.target.value }))} className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-3 text-[14px] font-black text-neutral-950 dark:border-white/10 dark:bg-black/20 dark:text-white" /></label><div className="rounded-xl border border-blue-500/15 bg-blue-500/[0.04] p-3"><div className="flex items-center justify-between gap-3"><span className="text-[10px] font-black uppercase tracking-widest opacity-55">Detected handling fee</span><span className="text-[14px] font-black text-blue-600">₱{legacyHandlingFee.toLocaleString()}</span></div><p className="mt-1 text-[9px] font-bold uppercase tracking-wider opacity-45">Based on the selected shipping method and suboption</p></div><div className="mt-3 flex items-center justify-between"><span className="text-[10px] font-black uppercase tracking-widest opacity-55">Cash transfer fee</span><span className="text-[12px] font-black text-emerald-600 dark:text-emerald-400">₱0 · Not charged</span></div><div className="mt-4 flex items-center justify-between border-t border-blue-500/15 pt-4"><span className="text-[10px] font-black uppercase tracking-widest opacity-55">Distributed to items</span><span className="text-[18px] font-black text-blue-600">₱{legacyItemTotal.toLocaleString()}</span></div><p className="mt-3 text-[10px] font-bold leading-relaxed opacity-50">Total paid minus the detected handling fee is proportionally saved as the selected stocks’ legacy sell price. Legacy orders use cash payment and do not add a cash transfer fee.</p></section>
                 </aside>
               </div>
               <footer className="absolute inset-x-0 bottom-0 z-10 border-t border-black/5 bg-white/95 px-5 py-3 backdrop-blur dark:border-white/5 dark:bg-[#0a0a0a]/95 sm:px-8 lg:px-12"><div className="mx-auto flex max-w-7xl items-center justify-between gap-4"><button type="button" onClick={() => setShowManualOrderModal(false)} className="text-[11px] font-black uppercase tracking-widest opacity-50">Cancel</button><button type="submit" className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-[11px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-700 active:scale-95"><ArrowRight size={16} /> Create legacy order</button></div></footer>

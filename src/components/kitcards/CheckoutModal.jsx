@@ -10,7 +10,7 @@ import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
 import { useNavigate } from 'react-router-dom';
 import { FcGoogle } from 'react-icons/fc';
 import { useStore } from '../../store/useStore';
-import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
+import { getCheckoutPaymentFees, shouldChargeHandlingFee } from '../../utils/paymentSettings';
 import { useTheme } from '../../context/ThemeContext';
 import { auth, db, googleProvider } from '../../firebase/firebase';
 import { doc, deleteDoc } from 'firebase/firestore';
@@ -644,25 +644,8 @@ const isSubMethodEnabled = (methodConfig, subKey) => {
   return subVal !== false;
 };
 
-// Resolve whether the selected shipping method charges the handling fee.
-// Legacy handlingDiscount values are inverted only for backward compatibility;
-// newly saved settings use handlingFee directly.
-const getHandlingFeeSetting = (shippingMethods = {}, method, subKey = null) => {
-  const methodConfig = shippingMethods?.[method];
-  if (typeof methodConfig !== 'object' || methodConfig === null) return true;
-  const hasSuboptions = hasConfiguredSuboptions(methodConfig);
-  if (subKey) {
-    const rk = resolveSuboptionKey(methodConfig, subKey);
-    const subConfig = methodConfig.suboptions?.[rk];
-    if (subConfig?.handlingFee !== undefined) return subConfig.handlingFee === true;
-    if (subConfig?.handlingDiscount !== undefined) return subConfig.handlingDiscount !== true;
-    return true;
-  }
-  if (hasSuboptions) return true;
-  if (methodConfig.handlingFee !== undefined) return methodConfig.handlingFee === true;
-  if (methodConfig.handlingDiscount !== undefined) return methodConfig.handlingDiscount !== true;
-  return true;
-};
+// Keep CheckoutModal and legacy-order fee detection on the same rules.
+const getHandlingFeeSetting = shouldChargeHandlingFee;
 
 // Kept as a compatibility helper for shipping-option ranking and labels.
 // Handling fees are no longer represented as checkout discounts.
