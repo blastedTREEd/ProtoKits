@@ -469,10 +469,10 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
                 <div key={group.label} className="space-y-4">
                   {/* Month Divider / Group Header */}
                   <div className="sticky top-[-1.5rem] z-20 -mx-6 bg-[var(--color-surface)] px-6 py-2">
-                    <div className="flex items-center justify-between border-b border-white/5 pb-2">
-                      <div className="flex items-center gap-3">
+                    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-b border-white/5 pb-2 md:flex md:justify-between md:gap-3">
+                      <div className="flex min-w-0 items-center gap-2 md:gap-3">
                         <div className={`h-1.5 w-1.5 rounded-full ${group.label.includes('ON-HAND') ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-                        <h4 className="text-[11px] font-black uppercase tracking-[0.2em] opacity-60">
+                        <h4 className="min-w-0 flex-1 text-[10px] font-black uppercase leading-tight tracking-[0.16em] opacity-60 md:text-[11px] md:tracking-[0.2em]">
                           {group.label}
                         </h4>
                         
@@ -480,14 +480,14 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
                         <button
                           onClick={() => handlePayGroup(group)}
                           disabled={isSyncing || group.items.filter(item => Number(item.paid || 0) === 0).length === 0}
-                          className="ml-2 flex items-center gap-1 rounded-md bg-blue-600 px-2 py-0.5 text-[12px] font-black uppercase tracking-tight text-white transition-all hover:bg-blue-700 disabled:opacity-50"
+                          className="ml-1 flex shrink-0 items-center gap-1 rounded-md bg-blue-600 px-2 py-1 text-[10px] font-black uppercase leading-tight tracking-tight text-white transition-all hover:bg-blue-700 disabled:opacity-50 md:ml-2 md:py-0.5 md:text-[12px]"
                         >
                           <CheckSquare size={10} />
                           Paid All ({group.items.filter(item => Number(item.paid || 0) === 0).length})
                         </button>
                       </div>
-                      <div className="text-right">
-                        <span className="text-[12px] font-black uppercase tracking-widest opacity-30 mr-2">Monthly Total</span>
+                      <div className="min-w-0 text-right">
+                        <span className="mr-1 inline-block max-w-[4.5rem] align-middle text-[10px] font-black uppercase leading-tight tracking-[0.12em] opacity-30 md:mr-2 md:max-w-none md:text-[12px] md:tracking-widest">Monthly Total</span>
                         <span className={`text-[13px] font-black italic ${group.total > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
                           ₱{group.total.toLocaleString()}
                         </span>
@@ -503,17 +503,18 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
                       return (
                       <div
                         key={`${item.kitId}-${item.key}-${idx}`}
-                        className={`flex items-center gap-4 rounded-3xl border p-4 transition-all hover:scale-[1.01] ${getItemCardStyles(item)}`}
+                        className={`flex min-w-0 flex-col gap-3 rounded-3xl border p-3 transition-all hover:scale-[1.01] md:flex-row md:items-center md:gap-4 md:p-4 ${getItemCardStyles(item)}`}
                       >
-                        <div className="h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-black/10">
-                          <img
-                            src={item.kitImage}
-                            alt={item.kitName}
-                            className="h-full w-full object-cover"
-                          />
-                        </div>
-                        
-                        <div className="flex-1 min-w-0">
+                        <div className="flex min-w-0 flex-1 items-center gap-3 md:gap-4">
+                          <div className="h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-black/10">
+                            <img
+                              src={item.kitImage}
+                              alt={item.kitName}
+                              className="h-full w-full object-cover"
+                            />
+                          </div>
+
+                          <div className="min-w-0 flex-1">
                           <div className="min-w-0">
                             <h3 className="truncate text-xs font-black uppercase tracking-tight">
                               {item.kitName}
@@ -615,9 +616,10 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
                               </button>
                             </div>
                           </div>
+                          </div>
                         </div>
 
-                        <div className="shrink-0 text-right">
+                        <div className="w-full min-w-0 md:w-auto md:shrink-0 md:text-right">
                           <div className="flex items-baseline justify-end gap-2">
                           <p className="text-[10px] font-black uppercase tracking-widest opacity-40">{item.isRefundPending ? 'Refund Pending' : item.isPaidInFull ? 'Paid' : 'Balance'}</p>
                           <p className={`text-sm font-black italic ${item.isRefundPending ? 'text-purple-500' : item.isPaidInFull ? 'text-emerald-500' : item.balance > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
@@ -695,27 +697,27 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
         </div>
 
         {/* Footer / Total */}
-        <div className="shrink-0 border-t border-white/10 bg-black/5 p-6">
-          <div className="flex items-center justify-between">
-            <div className="flex flex-wrap items-center gap-8">
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-45">
+        <div className="shrink-0 border-t border-white/10 bg-black/5 p-4 md:p-6">
+          <div className="grid min-w-0 grid-cols-2 gap-x-4 gap-y-4 md:flex md:items-center md:justify-between md:gap-8">
+            <div className="flex min-w-0 flex-col gap-1 md:flex-row md:flex-wrap md:items-center md:gap-8">
+              <p className="text-[9px] font-black uppercase leading-tight tracking-[0.16em] opacity-45 md:text-[10px] md:tracking-[0.2em]">
                 Total Outstanding
               </p>
-              <h3 className={`text-2xl font-black italic tracking-tighter ${totalBalance > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
+              <h3 className={`text-xl font-black italic tracking-tighter md:text-2xl ${totalBalance > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
                 ₱{totalBalance.toLocaleString()}
               </h3>
             </div>
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-purple-500">
+            <div className="min-w-0">
+              <p className="text-[9px] font-black uppercase leading-tight tracking-[0.16em] text-purple-500 md:text-[10px] md:tracking-[0.2em]">
                 Pending Supplier Refund
               </p>
-              <h3 className="text-2xl font-black italic tracking-tighter text-purple-500">
+              <h3 className="text-xl font-black italic tracking-tighter text-purple-500 md:text-2xl">
                 ₱{pendingRefundTotal.toLocaleString()}
               </h3>
             </div>
-            <div className="flex items-center gap-2 rounded-2xl bg-blue-600/10 px-4 py-3 text-blue-500">
+            <div className="col-span-2 flex min-w-0 items-center justify-center gap-2 rounded-2xl bg-blue-600/10 px-3 py-3 text-blue-500 md:col-span-1 md:justify-start md:px-4">
               <AlertCircle size={18} />
-              <span className="text-[10px] font-black uppercase tracking-widest">
+              <span className="text-center text-[9px] font-black uppercase leading-tight tracking-[0.14em] md:text-left md:text-[10px] md:tracking-widest">
                 {balanceItems.length} Variants to settle
               </span>
             </div>
