@@ -779,7 +779,6 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       setClearanceOriginalOverrides({});
       setClearanceCurrentDiscounts({});
       setClearanceDiscounts({});
-      setClearanceRequiredOtherStocks({});
       setActiveEditId(null);
       setValidFrom('');
       setValidityDays(String(DEFAULT_BUNDLE_VALIDITY_DAYS));
@@ -998,7 +997,6 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       setClearanceOriginalOverrides({});
       setClearanceCurrentDiscounts({});
       setClearanceDiscounts({});
-      setClearanceRequiredOtherStocks({});
       setMobileTab('list');
     } catch (e) { 
       console.error(e); 
@@ -1434,14 +1432,13 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                     <input
                                       type="number"
                                       min="0"
+                                      max="9"
                                       step="1"
                                       value={clearanceRequiredOtherStocks[kit.id] ?? '1'}
-                                      onChange={(event) => setClearanceRequiredOtherStocks(prev => ({
-                                        ...prev,
-                                        [kit.id]: event.target.value === ''
-                                          ? ''
-                                          : String(Math.max(0, Math.floor(Number(event.target.value) || 0)))
-                                      }))}
+                                      onChange={(event) => {
+                                        const value = event.target.value.replace(/\D/g, '').slice(0, 1);
+                                        setClearanceRequiredOtherStocks(prev => ({ ...prev, [kit.id]: value }));
+                                      }}
                                       title="Number of other kits required for this kit's clearance discount"
                                       className="h-10 w-full appearance-none rounded-lg border border-amber-500/30 bg-amber-500/10 px-2 py-2 text-[12px] font-black text-amber-600 outline-none focus:border-amber-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                                     />
@@ -1451,8 +1448,12 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                     <input
                                       type="number"
                                       min="0"
+                                      max="9999"
                                       value={clearanceDiscounts[kit.id] ?? ''}
-                                      onChange={(event) => setClearanceDiscounts(prev => ({ ...prev, [kit.id]: event.target.value }))}
+                                      onChange={(event) => {
+                                        const value = event.target.value.replace(/\D/g, '').slice(0, 4);
+                                        setClearanceDiscounts(prev => ({ ...prev, [kit.id]: value }));
+                                      }}
                                       placeholder={`₱${Number(currentClearanceDiscount || 0).toLocaleString()}`}
                                       title="Type a discount amount to override the current discount"
                                       className="h-10 w-full appearance-none rounded-lg border border-[var(--color-border)] bg-black/5 px-2 py-2 text-[12px] font-black italic uppercase tracking-wider text-blue-500 outline-none placeholder:text-[10px] placeholder:font-black placeholder:italic placeholder:text-blue-500 focus:border-blue-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"

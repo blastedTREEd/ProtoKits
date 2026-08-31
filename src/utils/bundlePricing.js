@@ -93,8 +93,8 @@ export function getClearancePrice(costPrice = 0, sellPrice = 0, discountOverride
 
 // Clearance deals are shown as soon as an eligible kit is present, but each
 // kit's discount is only unlocked after its configured number of other stock
-// units is also selected. Older deals used one other kit implicitly, so keep that
-// behavior when the per-kit map and legacy field are both absent.
+// units is also selected. Older deals used one other kit implicitly, so keep
+// that behavior when the per-kit map and legacy field are both absent.
 export function getClearanceRequiredOtherStock(deal = {}, kitId = '') {
   const perKitCounts = deal?.requiredOtherStockCounts
     || deal?.requiredOtherStockByKit

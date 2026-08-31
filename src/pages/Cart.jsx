@@ -829,7 +829,11 @@ export default function Cart() {
     const best = candidates[0];
     return best
       ? {
-        prices: new Map(best.pricedRows.map((row) => [row.item.basketId, row.finalPrice])),
+        prices: new Map(
+          best.pricedRows
+            .filter((row) => row.isClearance && Number(row.clearanceDiscount || 0) > 0)
+            .map((row) => [row.item.basketId, row.finalPrice])
+        ),
         sourceBasketId: best.sourceBasketId || ''
       }
       : { prices: new Map(), sourceBasketId: '' };
@@ -863,7 +867,9 @@ export default function Cart() {
           .filter(Boolean)
       );
       if (![...eligibleKitIds].some((kitId) => selectedOnHandKitIds.has(kitId))) return;
-      selectedOnHandKitIds.forEach((kitId) => tagKitIds.add(kitId));
+      eligibleKitIds.forEach((kitId) => {
+        if (selectedOnHandKitIds.has(kitId)) tagKitIds.add(kitId);
+      });
     });
     return tagKitIds;
   }, [activeBasket, activeSelection, deals, kits, selectedBundleDeals]);

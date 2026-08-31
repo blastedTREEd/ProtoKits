@@ -3206,9 +3206,6 @@ const handleFinalizeOrder = async () => {
         && item.isBundleItem === true
         && item.isClearanceBundle !== true;
       const isPreOrderItem = isPreOrderKitItem(item, kits);
-      // Deal tags are reserved for discounts that were actually applied to
-      // this checkout line. A deal association or an unmet requirement must
-      // not render as a pending/red deal tag.
       const isAppliedBundleDeal = isBundleDealItem && isDiscounted;
       const isAppliedClearanceDeal = isClearanceDealItem && isDiscounted;
       const etaLabel = getStockEta(kit?.stocks?.[item?.stockKey] || item);
