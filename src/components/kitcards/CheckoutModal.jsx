@@ -19,7 +19,12 @@ import L from 'leaflet';
 import DynamicShippingForm from './DynamicShippingForm';
 import PolicyModal from '../menu/PolicyModal';
 import { getIntegerFeeShare, getStockStandaloneSellPrice, isBundleOrClearanceItem } from '../../utils/standalonePricing';
-import { getBundleDealPricing, getClearanceBundlePricing } from '../../utils/bundlePricing';
+import {
+  getBundleDealPricing,
+  getClearanceBundlePricing,
+  getClearanceKitIds,
+  isClearanceRequirementMet
+} from '../../utils/bundlePricing';
 import { getStockEta } from '../../utils/stockDates';
 import {
   formatAvailabilityDate,
@@ -185,15 +190,6 @@ const isOnhandKitItem = (item, kits = []) => {
   return isOnHandStock(stock, item?.status);
 };
 
-const getClearanceDealKitIds = (deal) => {
-  const explicitIds = normalizeDealKitIds(deal?.clearanceKitIds);
-  return explicitIds.length > 0
-    ? explicitIds
-    : normalizeDealKitIds(deal?.clearanceKitId).length > 0
-      ? normalizeDealKitIds(deal.clearanceKitId)
-      : normalizeDealKitIds(deal?.kitIds).slice(0, 1);
-};
-
 // Basket rows do not necessarily carry deal metadata that is attached by the
 // direct deal checkout path. Rebuild both bundle and clearance metadata from
 // the selected stocks so the checkout view is consistent regardless of where
@@ -331,7 +327,7 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
       return;
     }
 
-    const clearanceKitIds = Array.from(new Set(getClearanceDealKitIds(deal)));
+    const clearanceKitIds = Array.from(new Set(getClearanceKitIds(deal)));
 
     const clearanceRows = isClearanceDeal
       ? basketItems.filter(item => {
@@ -346,7 +342,11 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
       const item = itemByKitId.get(kitId);
       return item && isOnhandKitItem(item, kits);
     });
-    if (isClearanceDeal && (selectedClearanceKitIds.length === 0 || clearanceRows.length < 2)) return;
+    const selectedKitIds = clearanceRows.map(item => getCheckoutKitId(item));
+    const clearanceRequirementMet = selectedClearanceKitIds.some((kitId) => (
+      isClearanceRequirementMet(deal, selectedKitIds, kitId)
+    ));
+    if (isClearanceDeal && (selectedClearanceKitIds.length === 0 || !clearanceRequirementMet)) return;
 
     // A normal bundle always wins over clearance for the same kit. This
     // covers both basket rows already tagged by a bundle checkout and plain
@@ -3133,6 +3133,14 @@ const handleFinalizeOrder = async () => {
       deliveryData.zipCode
     ].filter(Boolean).join(', ');
 
+    const checkoutKitIds = new Set(
+      checkoutItems
+        .filter(item => !isProjectCheckoutItem(item))
+        .map(getCheckoutKitId)
+        .filter(Boolean)
+    );
+    const activeCheckoutDeals = (deals || []).filter(deal => isDealActiveForCheckout(deal));
+
     const handleSuboptionChange = (subKey) => {
       const subConfig = activeMethodConfig?.suboptions?.[subKey] || {};
       const hasPickup = checkUsesPickupPoint(checkoutData.shippingMethod, activeMethodConfig, subKey);
@@ -3210,14 +3218,39 @@ const handleFinalizeOrder = async () => {
         && item.isBundleItem === true
         && item.isClearanceBundle !== true;
       const isPreOrderItem = isPreOrderKitItem(item, kits);
+      const isAppliedBundleDeal = isBundleDealItem;
+      const isAppliedClearanceDeal = isClearanceDealItem;
+      const hasBundleOffer = !isProjectCheckoutItem(item)
+        && activeCheckoutDeals.some(deal => (
+          ['bundle', 'bundle_only', 'bundle_discount'].includes(deal.type)
+          && normalizeDealKitIds(deal.kitIds).length > 1
+          && normalizeDealKitIds(deal.kitIds).includes(String(itemKitId))
+        ));
+      const clearanceOfferDeal = !isProjectCheckoutItem(item) && !isPreOrderItem && isOnhandKitItem(item, kits)
+        ? activeCheckoutDeals.find(deal => (
+          deal.type === 'clearance'
+          && getClearanceKitIds(deal).some(kitId => checkoutKitIds.has(kitId))
+        ))
+        : null;
+      const hasClearanceOffer = Boolean(clearanceOfferDeal);
+      const isPendingClearanceOffer = hasClearanceOffer && !isAppliedClearanceDeal && !isAppliedBundleDeal;
       const etaLabel = getStockEta(kit?.stocks?.[item?.stockKey] || item);
       const dealTag = isBundleDealItem
         ? 'BUNDLE DEAL'
         : isClearanceDealItem
           ? 'CLEARANCE'
+          : hasBundleOffer
+            ? 'BUNDLE DEAL'
+            : hasClearanceOffer
+              ? 'CLEARANCE'
           : isPreOrderItem && etaLabel
             ? etaLabel
             : '';
+      const dealTagTone = (isAppliedBundleDeal || isAppliedClearanceDeal)
+        ? 'bg-emerald-600'
+        : hasBundleOffer || isPendingClearanceOffer
+          ? 'bg-red-600'
+          : 'bg-blue-600';
       return {
         id: item.basketId || item.stockKey || item.id || idx,
         image: displayImage,
@@ -3231,6 +3264,7 @@ const handleFinalizeOrder = async () => {
         isClearanceSource,
         isPreOrder: isPreOrderItem,
         dealTag,
+        dealTagTone,
         isClearanceDealItem,
         isDiscounted
       };
@@ -3436,8 +3470,8 @@ const handleFinalizeOrder = async () => {
                   <div key={`${row.id}-${idx}`} className="relative grid grid-cols-[5rem_minmax(0,1fr)_auto] gap-3 rounded-2xl border border-black/5 bg-white p-3 dark:border-white/5 dark:bg-neutral-900 lg:grid-cols-[18rem_minmax(0,1fr)_auto]">
                     {row.dealTag && (
                       <span className={`absolute left-0 bottom-5 z-10 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm ${
-                        row.isClearanceDealItem
-                          ? 'bg-emerald-600'
+                        row.dealTagTone
+                          ? row.dealTagTone
                           : row.isPreOrder
                             ? 'bg-blue-600'
                             : 'bg-emerald-600'

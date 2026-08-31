@@ -32,7 +32,7 @@ const getAvailableStockCount = (kit) => {
   return Object.values(kit?.stocks || {}).filter((stock) => !stock?.order?.orderId && !stock?.isReserved).length;
 };
 
-const DATASET_KEYS = ['userProfile', 'stories', 'kits', 'deals', 'orders', 'basket', 'shelf', 'prints'];
+const DATASET_KEYS = ['userProfile', 'stories', 'kits', 'printedProjects', 'deals', 'orders', 'basket', 'shelf', 'prints'];
 
 const createInitialDatasetState = (value) => DATASET_KEYS.reduce((result, key) => {
   result[key] = value;
@@ -643,6 +643,7 @@ export const useStore = create(
       garageInfo: null,
       rates: {},
       kits: [],
+      printedProjects: [],
       stories: [],
       methods: sortPrintMethods(DEFAULT_PRINT_METHODS),
       printers: [],
@@ -795,6 +796,7 @@ export const useStore = create(
           // missing or unavailable project slots, so kits must be ready before
           // the home route is released from its loading state.
           kits: pathname === '/' || pathname === '' || pathname.startsWith('/kits') || pathname === '/cart' || pathname === '/basket' || pathname === '/shelf',
+          printedProjects: pathname === '/prints' || pathname.startsWith('/prints/'),
           deals: pathname.startsWith('/kits'),
           orders: pathname === '/orders' || pathname.startsWith('/orders/'),
           basket: pathname === '/cart' || pathname === '/basket' || pathname === '/shelf',
@@ -902,7 +904,9 @@ export const useStore = create(
         if (req.kits && !ds.kits && !listenerKeys.kits) {
           const allKitsQuery = query(collection(db, "kits"), orderBy("lastUpdated", "desc"));
           const unsub = onSnapshot(allKitsQuery, (snap) => {
-            const allKits = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            const allKits = snap.docs
+              .map(doc => ({ id: doc.id, ...doc.data() }))
+              .filter((kit) => kit.productType !== 'printed-project' && kit.isPrintedProject !== true);
             set({ 
               kits: sortKitsByAvailability(allKits), 
               lastVisibleKit: snap.docs[snap.docs.length - 1]
@@ -915,6 +919,25 @@ export const useStore = create(
             get().markLoaded('kits', { status: 'error' });
           });
           markListener('kits');
+          unsubs.push(unsub);
+        }
+
+        // Printed projects use the kit stock schema for checkout/reservation,
+        // but are loaded separately so /prints does not download every kit.
+        if (req.printedProjects && !ds.printedProjects && !listenerKeys.printedProjects) {
+          const printedProjectsQuery = query(
+            collection(db, 'kits'),
+            where('productType', '==', 'printed-project')
+          );
+          const unsub = onSnapshot(printedProjectsQuery, (snap) => {
+            set({ printedProjects: docsToArray(snap) });
+            updateSnapshotDatasetStatus(get, 'printedProjects', snap);
+          }, (err) => {
+            console.error('SG LOG: Printed projects subscription error:', err);
+            markListener('printedProjects', false);
+            get().markLoaded('printedProjects', { status: 'error' });
+          });
+          markListener('printedProjects');
           unsubs.push(unsub);
         }
 
@@ -1149,7 +1172,9 @@ export const useStore = create(
         get().setDatasetStatus('kits', 'loading');
         try {
           const snap = await getDocs(query(collection(db, 'kits'), orderBy('lastUpdated', 'desc')));
-          const allKits = sortKitsByAvailability(snap.docs.map(kitDoc => ({ id: kitDoc.id, ...kitDoc.data() })));
+          const allKits = sortKitsByAvailability(snap.docs
+            .map(kitDoc => ({ id: kitDoc.id, ...kitDoc.data() }))
+            .filter((kit) => kit.productType !== 'printed-project' && kit.isPrintedProject !== true));
           set({ kits: allKits });
           get().markLoaded('kits', { status: allKits.length > 0 ? 'ready' : 'empty' });
           return allKits;
@@ -1157,6 +1182,7 @@ export const useStore = create(
           get().markLoaded('kits', { status: 'error' });
           throw error;
         }
+
       },
 
       loadAllDeals: async () => {
@@ -1394,8 +1420,15 @@ export const useStore = create(
         }
 
         if (fetchedKits.length > 0) {
+            const regularKits = fetchedKits.filter((kit) => (
+              kit.productType !== 'printed-project' && kit.isPrintedProject !== true
+            ));
+            const fetchedPrintedProjects = fetchedKits.filter((kit) => (
+              kit.productType === 'printed-project' || kit.isPrintedProject === true
+            ));
             set((state) => ({
-                kits: mergeKitsStable(state.kits, fetchedKits)
+                kits: mergeKitsStable(state.kits, regularKits),
+                printedProjects: mergeKitsStable(state.printedProjects, fetchedPrintedProjects)
             }));
         }
       },
@@ -1739,6 +1772,43 @@ export const useStore = create(
           matchingShelfDocs.forEach((shelfDoc) => batch.delete(shelfDoc.ref));
           await batch.commit();
         }
+      },
+
+      addPrintedProject: async (projectData) => {
+        const { user } = get();
+        if (!user?.uid) throw new Error('Admin account is required to add a printed project.');
+
+        const cleanProject = removeUndefinedValues(projectData || {});
+        const ref = doc(collection(db, 'kits'));
+        const record = {
+          ...cleanProject,
+          id: ref.id,
+          productType: 'printed-project',
+          isPrintedProject: true,
+          listingType: 'printed-project',
+          source: 'admin-printed-project',
+          canAddToBasket: true,
+          isPublished: true,
+          createdBy: user.uid,
+          createdAt: serverTimestamp(),
+          lastUpdated: serverTimestamp()
+        };
+
+        await setDoc(ref, record);
+        const localRecord = { ...cleanProject, id: ref.id };
+        set((state) => ({
+          printedProjects: [localRecord, ...(state.printedProjects || []).filter((item) => item.id !== ref.id)]
+        }));
+        return { id: ref.id };
+      },
+
+      deletePrintedProject: async (projectId) => {
+        if (!projectId) return;
+        await deleteDoc(doc(db, 'kits', projectId));
+        set((state) => ({
+          printedProjects: (state.printedProjects || []).filter((project) => project.id !== projectId),
+          kits: (state.kits || []).filter((kit) => kit.id !== projectId)
+        }));
       },
 
       updateStockPrice: async (kitId, stockKey, newPrice) => {

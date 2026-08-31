@@ -9,7 +9,12 @@ import { FaQuestion } from 'react-icons/fa';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
 import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
-import { getBundleDealPricing, getClearanceBundlePricing, getHighestCostStock } from '../../utils/bundlePricing';
+import {
+  getBundleDealPricing,
+  getClearanceBundlePricing,
+  getClearanceRequiredOtherStock,
+  getHighestCostStock
+} from '../../utils/bundlePricing';
 import { formatOfferCountdown, isOfferCheckoutActive } from '../../utils/offerUtils';
 import { getStockStandaloneSellPrice } from '../../utils/standalonePricing';
 import { getDealDiscountAmount, getDealGrabLabel, getDealSaveUpToLabel } from '../../utils/dealSavings';
@@ -2013,10 +2018,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                 (clearancePricing?.rows || []).map(row => [String(row.kitId), row])
                               );
                               const clearanceTotalDiscount = deal.type === 'clearance'
-                                ? getConfiguredClearanceDiscount(deal, kitId, allKits)
-                                : 0;
-                              const clearanceDisplayShare = deal.type === 'clearance'
-                                ? Math.floor(clearanceTotalDiscount / Math.max(1, includedKits.length + 1))
+                                ? Number(clearancePricing?.clearanceDiscountTotal || 0)
                                 : 0;
                               return (
                               <div
@@ -2040,7 +2042,9 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                   </div>
                                   <div className="shrink-0 pt-0.5 text-right">
                                     <p className={`text-[12px] font-black uppercase ${isDarkMode ? 'text-white' : 'text-neutral-900'} ${deal.type !== 'clearance' && getDealCountdownLabel(deal.validUntil) === 'LAST DAY' ? 'text-red-500' : ''}`}>
-                                      {deal.type === 'clearance' ? '+1 OR MORE KITS' : getDealCountdownLabel(deal.validUntil)}
+                                      {deal.type === 'clearance'
+                                        ? `+${getClearanceRequiredOtherStock(deal)} OR MORE KITS`
+                                        : getDealCountdownLabel(deal.validUntil)}
                                     </p>
                                   </div>
                                 </div>
@@ -2054,7 +2058,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                         ? Number(clearanceRow?.finalPrice ?? bundleKitPrice)
                                         : bundleKitPrice;
                                       const displayedClearanceDiscount = deal.type === 'clearance'
-                                        ? clearanceDisplayShare
+                                        ? Number(clearanceRow?.clearanceDiscount || 0)
                                         : 0;
                                       const stocks = Object.values(includedKit?.stocks || {});
                                       const sourceStock = getPreferredDealStock(stocks, deal.stockSource || 'onhand');
@@ -2133,11 +2137,13 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                           </div>
                                         </div>
                                         <div className="min-w-0 text-left">
-                                          <p className="line-clamp-1 text-[15px] font-bold uppercase leading-tight">+1 OR MORE KITS</p>
+                                          <p className="line-clamp-1 text-[15px] font-bold uppercase leading-tight">
+                                            +{getClearanceRequiredOtherStock(deal)} OR MORE KITS
+                                          </p>
                                           <div className="mt-1 flex items-baseline justify-between gap-2">
                                             <p className={`text-[16px] font-black italic ${isDarkMode ? 'text-white' : 'text-neutral-900'}`}>&#8369;???</p>
                                             <p className="text-[16px] font-black italic text-emerald-600">
-                                              UP TO &#8369;{Math.max(0, clearanceDisplayShare).toLocaleString()} OFF
+                                              UP TO &#8369;{Math.max(0, Number(clearanceTotalDiscount || 0)).toLocaleString()} OFF
                                             </p>
                                           </div>
                                         </div>

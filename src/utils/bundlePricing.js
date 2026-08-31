@@ -91,6 +91,35 @@ export function getClearancePrice(costPrice = 0, sellPrice = 0, discountOverride
   return Math.min(sell, getClearanceCostCeiling(cost));
 }
 
+// Clearance deals are shown as soon as an eligible kit is present, but the
+// discount is only unlocked after the configured number of other kits is also
+// selected. Older deals used one other kit implicitly, so keep that behavior
+// when the field is absent.
+export function getClearanceRequiredOtherStock(deal = {}) {
+  const configured = Number(deal?.requiredOtherStockCount);
+  return Number.isFinite(configured) ? Math.max(0, Math.floor(configured)) : 1;
+}
+
+export function getClearanceKitIds(deal = {}) {
+  const configuredIds = Array.isArray(deal?.clearanceKitIds) && deal.clearanceKitIds.length > 0
+    ? deal.clearanceKitIds
+    : deal?.clearanceKitId
+      ? [deal.clearanceKitId]
+      : (deal?.kitIds || []);
+  const explicitIds = Array.isArray(configuredIds) ? configuredIds : [configuredIds];
+  return [...new Set(explicitIds.map(id => String(id)).filter(Boolean))];
+}
+
+export function isClearanceRequirementMet(deal = {}, selectedKitIds = [], currentKitId = '') {
+  const eligibleKitIds = new Set(getClearanceKitIds(deal));
+  const currentId = String(currentKitId || '');
+  if (!currentId || !eligibleKitIds.has(currentId)) return false;
+
+  const selectedIds = new Set((selectedKitIds || []).map(id => String(id)).filter(Boolean));
+  selectedIds.delete(currentId);
+  return selectedIds.size >= getClearanceRequiredOtherStock(deal);
+}
+
 // Distribute a clearance pool in whole pesos while respecting each item's
 // cost-ceiling capacity. If an item reaches its ceiling, its remaining share
 // is redistributed to the other eligible items instead of becoming unused.

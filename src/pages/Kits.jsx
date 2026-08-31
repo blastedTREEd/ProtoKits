@@ -482,7 +482,11 @@ export default function Kits({ isActive = true }) {
       };
     };
 
-    let filtered = [...storeKits];
+    // Printed projects have their own storefront on /prints, even though
+    // they intentionally share the kit stock schema for checkout.
+    let filtered = [...storeKits].filter((kit) => (
+      kit?.productType !== 'printed-project' && kit?.isPrintedProject !== true
+    ));
 
     // Active accepted offers get their own Deals section card so users can
     // reach the limited checkout window quickly instead of finding them in

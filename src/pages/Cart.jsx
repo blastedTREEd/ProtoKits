@@ -9,7 +9,12 @@ import ListItemSkeleton from '../components/common/ListItemSkeleton';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
 import { isOfferCheckoutActive, valueToMillis } from '../utils/offerUtils';
 import { getIntegerFeeShare, getStockStandaloneSellPrice, isBundleOrClearanceItem } from '../utils/standalonePricing';
-import { getBundleDealPricing, getClearanceBundlePricing } from '../utils/bundlePricing';
+import {
+  getBundleDealPricing,
+  getClearanceBundlePricing,
+  getClearanceKitIds,
+  isClearanceRequirementMet
+} from '../utils/bundlePricing';
 import { getUnavailableDateSet, getUnavailableWeekdaySet, toDateKey } from '../utils/availabilitySchedule';
 import { getStockEta } from '../utils/stockDates';
 import UniversalImage from '../components/common/UniversalImage';
@@ -569,18 +574,19 @@ export default function Cart() {
     );
     const tagKitIds = new Set();
 
-    // Tags describe each complete bundle represented in the basket. The
-    // highest-discount complete bundle is still selected separately for
-    // pricing, but lower-discount bundles must remain visibly identifiable.
+    // Show a bundle tag as soon as an included kit is present in the basket.
+    // It is colored red below until every included kit is selected and the
+    // bundle pricing map can apply the actual discount.
     (deals || []).forEach((deal) => {
       if (!isBundleDealActive(deal, offerNow)) return;
       const bundleKitIds = [...new Set((deal.kitIds || []).map(String).filter(Boolean))];
       if (
         bundleKitIds.length > 1
-        && bundleKitIds.every((kitId) => basketKitIds.has(kitId))
         && bundleKitIds.some((kitId) => selectedKitIds.has(kitId))
       ) {
-        bundleKitIds.forEach((kitId) => tagKitIds.add(kitId));
+        bundleKitIds
+          .filter((kitId) => basketKitIds.has(kitId))
+          .forEach((kitId) => tagKitIds.add(kitId));
       }
     });
 
@@ -743,7 +749,7 @@ export default function Cart() {
 
   const selectedClearancePricing = useMemo(() => {
     const selectedItems = activeBasket.filter((item) => activeSelection.includes(item.basketId));
-    if (selectedItems.length < 2 || selectedBundleDeals.length > 0) return { prices: new Map(), sourceBasketId: '' };
+    if (selectedItems.length < 1 || selectedBundleDeals.length > 0) return { prices: new Map(), sourceBasketId: '' };
 
     const selectedRows = selectedItems.filter((item) => {
       if (item.type === 'project') return false;
@@ -770,16 +776,18 @@ export default function Cart() {
     const candidates = (deals || [])
       .filter((deal) => deal?.type === 'clearance' && deal.isActive !== false)
       .map((deal) => {
-        const configuredIds = Array.isArray(deal.clearanceKitIds) && deal.clearanceKitIds.length > 0
-          ? deal.clearanceKitIds
-          : deal.clearanceKitId
-            ? [deal.clearanceKitId]
-            : (deal.kitIds || []).slice(0, 1);
+        const configuredIds = getClearanceKitIds(deal);
         const selectedClearanceKitIds = [...new Set(configuredIds.map(String))]
           .filter((kitId) => rowsByKitId.get(kitId)?.isOnHand);
         if (selectedClearanceKitIds.length === 0) return null;
 
         const rows = [...rowsByKitId.values()];
+        const selectedKitIds = rows.map(row => row.kitId);
+        const clearanceRequirementMet = selectedClearanceKitIds.some((kitId) => (
+          isClearanceRequirementMet(deal, selectedKitIds, kitId)
+        ));
+        if (!clearanceRequirementMet) return null;
+
         const clearanceDiscountOverrides = { ...(deal.clearanceDiscounts || {}) };
         // Older and currently saved clearance records also persist the
         // authoritative per-kit amount under kitDiscounts. Use it whenever
@@ -797,9 +805,8 @@ export default function Cart() {
           const persistedDiscount = storedPriceDiscount || Number(storedDiscount || 0);
           if (persistedDiscount > 0) clearanceDiscountOverrides[kitId] = persistedDiscount;
         });
-        // Sum the selected kits' discount ceilings into the clearance pool,
-        // then distribute it across every selected row, including the
-        // additional "+1 or more" kit.
+        // Sum the selected eligible kits' discount ceilings into the
+        // clearance pool, then distribute it across every selected row.
         const selectedClearancePricing = getClearanceBundlePricing(
           rows,
           selectedClearanceKitIds,
@@ -1658,6 +1665,11 @@ export default function Cart() {
                   && Boolean(item.bundleId)
                   && activeBundleDealIds.has(String(item.bundleId))
                   && bundleDealTagKitIds.has(String(item.id));
+                const isBundleDealOffer = item.type !== 'project'
+                  && (bundleDealTagKitIds.has(String(item.id)) || isActiveBundleDealItem)
+                  && !hasSelectedClearancePrice;
+                const isBundleDealApplied = hasSelectedBundlePrice
+                  || (isActiveBundleDealItem && isBasketBundleFullySelected(item));
                 const isClearanceKit = item.type !== 'project'
                   && isSelected
                   && isOnHandStock(stock || item)
@@ -1667,9 +1679,7 @@ export default function Cart() {
                     || selectedClearanceTagKitIds.has(String(item.id))
                     || Boolean(item.isClearanceBundle)
                   );
-                const isBundleDealSelection = item.type !== 'project'
-                  && (bundleDealTagKitIds.has(String(item.id)) || isActiveBundleDealItem)
-                  && !hasSelectedClearancePrice;
+                const isClearanceDealApplied = hasSelectedClearancePrice;
                 const etaLabel = getStockEta(stock || item) || 'TBA';
                 const offerHoursLeft = item.offerId && isOfferCheckoutActive(item, offerNow)
                   ? getOfferHoursLeft(item, offerNow)
@@ -1685,11 +1695,10 @@ export default function Cart() {
                   ?? 0
                 );
                 const hasAppliedDeal = item.type !== 'project' && (
-                  isActiveBundleDealItem
-                  || Boolean(item.isClearanceBundle)
-                  || hasSelectedBundlePrice
+                  hasSelectedBundlePrice
                   || hasSelectedClearancePrice
-                  || isClearanceKit
+                  || isBundleDealApplied
+                  || isClearanceDealApplied
                 );
                 const showDealStrikethrough = hasAppliedDeal
                   && bundleStandaloneSellPrice > basketPriceComparison.displayPrice;
@@ -1718,12 +1727,12 @@ export default function Cart() {
                       <span className="absolute left-0 bottom-5 z-10 bg-emerald-600 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm">
                         {offerHoursLeft} HRS LEFT
                       </span>
-                    ) : isBundleDealSelection ? (
-                      <span className="absolute left-0 bottom-5 z-10 bg-emerald-600 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm">
+                    ) : isBundleDealOffer ? (
+                      <span className={`absolute left-0 bottom-5 z-10 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm ${isBundleDealApplied ? 'bg-emerald-600' : 'bg-red-600'}`}>
                         BUNDLE DEAL
                       </span>
                     ) : isClearanceKit ? (
-                      <span className="absolute left-0 bottom-5 z-10 bg-emerald-600 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm">
+                      <span className={`absolute left-0 bottom-5 z-10 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm ${isClearanceDealApplied ? 'bg-emerald-600' : 'bg-red-600'}`}>
                         CLEARANCE
                       </span>
                     ) : item.type !== 'project' && isPreOrder && etaLabel ? (

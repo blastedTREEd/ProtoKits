@@ -341,6 +341,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
   const [clearanceDiscounts, setClearanceDiscounts] = useState({});
   const [clearanceOriginalOverrides, setClearanceOriginalOverrides] = useState({});
   const [clearanceCurrentDiscounts, setClearanceCurrentDiscounts] = useState({});
+  const [clearanceRequiredOtherStock, setClearanceRequiredOtherStock] = useState('1');
   const [mutuallyExclusivePairRows, setMutuallyExclusivePairRows] = useState([]);
   const [isLoadingMutualKits, setIsLoadingMutualKits] = useState(false);
 
@@ -436,6 +437,9 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
         : {};
       setClearanceOriginalOverrides(originalClearanceOverrides);
       setClearanceCurrentDiscounts(currentClearanceDiscounts);
+      setClearanceRequiredOtherStock(mappedType === 'clearance'
+        ? String(Math.max(0, Math.floor(Number(dealToEdit.requiredOtherStockCount ?? 1) || 0)))
+        : '1');
       setClearanceDiscounts({});
       setMobileTab('creator');
     } else if (isOpen) {
@@ -456,6 +460,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       setClearanceOriginalOverrides({});
       setClearanceCurrentDiscounts({});
       setClearanceDiscounts({});
+      setClearanceRequiredOtherStock('1');
       setSelectedDealIds([]);
       setMobileTab('creator');
     }
@@ -703,6 +708,9 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       : {};
     setClearanceOriginalOverrides(originalClearanceOverrides);
     setClearanceCurrentDiscounts(currentClearanceDiscounts);
+    setClearanceRequiredOtherStock(mappedType === 'clearance'
+      ? String(Math.max(0, Math.floor(Number(deal.requiredOtherStockCount ?? 1) || 0)))
+      : '1');
     setClearanceDiscounts({});
     setSearchTerm('');
     setMobileTab('creator');
@@ -722,6 +730,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     setClearanceOriginalOverrides({});
     setClearanceCurrentDiscounts({});
     setClearanceDiscounts({});
+    setClearanceRequiredOtherStock('1');
     setActiveEditId(null);
     setValidFrom('');
     setValidityDays(String(DEFAULT_BUNDLE_VALIDITY_DAYS));
@@ -853,6 +862,13 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       bootlegKitIds: dealType === 'mutually_exclusive' ? mutuallyExclusiveGroups.bootleg.map(kit => kit.id) : [],
       mutuallyExclusivePairs,
     };
+
+    if (dealType === 'clearance') {
+      dealData.requiredOtherStockCount = Math.max(
+        0,
+        Math.floor(Number(clearanceRequiredOtherStock) || 0)
+      );
+    }
 
     if (dealType === 'bundle_only') {
       const publishDate = new Date();
@@ -1328,6 +1344,27 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                           </div>
                         </div>
 
+                        {dealType === 'clearance' && (
+                          <div className="space-y-2 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-4 text-left">
+                            <label className="block text-[11px] font-black uppercase tracking-widest text-amber-700 dark:text-amber-300">
+                              Required other stock (excluding current kit)
+                            </label>
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              value={clearanceRequiredOtherStock}
+                              onChange={(event) => setClearanceRequiredOtherStock(
+                                event.target.value === ''
+                                  ? ''
+                                  : String(Math.max(0, Math.floor(Number(event.target.value) || 0)))
+                              )}
+                              className="w-full appearance-none rounded-xl border border-amber-500/30 bg-white/60 px-3 py-2 text-sm font-black text-amber-700 outline-none focus:border-amber-500 dark:bg-black/20 dark:text-amber-300 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                            />
+                            <p className="text-[11px] font-bold leading-relaxed text-amber-600">The clearance discount unlocks only when this many other kits are selected.</p>
+                          </div>
+                        )}
+
                         {/* Inclusions */}
                          <div className={`${dealType === 'mutually_exclusive' ? 'hidden' : 'min-w-0 space-y-2'}`}>
                           <div className="flex items-center justify-between gap-3 px-2">
@@ -1529,14 +1566,14 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
              <div className="bg-blue-600/5 border border-blue-600/10 p-4 rounded-2xl text-left">
                 <p className="text-[12px] font-bold leading-relaxed opacity-70 italic">
                    {dealType === 'bundle_only' ? "Bundle deals use clearance-style pricing: the admin discount is distributed across the pre-bundled kits without pricing any item below its clearance cost ceiling." : dealType === 'clearance' ?
-                    "Clearance uses one master list of eligible kits. When selected with another on-hand kit in the basket, the strongest eligible clearance discount is distributed across the order." :
+                    "Clearance uses one master list of eligible kits. The discount unlocks after the required number of other on-hand kits is selected, then the strongest eligible clearance discount is distributed across the order." :
                     "Item A and Item B cannot be sold together. Automatic reserving & shelf synchronization will run reactively."}
                 </p>
              </div>
 
              <div className="flex gap-3">
                {activeEditId && (
-               <button onClick={() => { setActiveEditId(null); setDealName(''); setDiscountAmount(''); setSelectedKitIds([]); setValidFrom(''); setValidityDays(String(DEFAULT_BUNDLE_VALIDITY_DAYS)); setReactivationDelay(String(DEFAULT_REACTIVATION_DELAY)); setReactivationDelayUnit('hours'); setPreviewKitIds([]); setDraggedPreviewKitId(null); setClearanceKitIds([]); setClearanceOriginalOverrides({}); setClearanceCurrentDiscounts({}); setClearanceDiscounts({}); setMobileTab('list'); }} className="px-5 py-4 rounded-2xl bg-black/5 hover:bg-black/10 border border-[var(--color-border)] font-black uppercase text-[11px] tracking-widest transition-all">Cancel</button>
+               <button onClick={() => { setActiveEditId(null); setDealName(''); setDiscountAmount(''); setSelectedKitIds([]); setValidFrom(''); setValidityDays(String(DEFAULT_BUNDLE_VALIDITY_DAYS)); setReactivationDelay(String(DEFAULT_REACTIVATION_DELAY)); setReactivationDelayUnit('hours'); setPreviewKitIds([]); setDraggedPreviewKitId(null); setClearanceKitIds([]); setClearanceOriginalOverrides({}); setClearanceCurrentDiscounts({}); setClearanceDiscounts({}); setClearanceRequiredOtherStock('1'); setMobileTab('list'); }} className="px-5 py-4 rounded-2xl bg-black/5 hover:bg-black/10 border border-[var(--color-border)] font-black uppercase text-[11px] tracking-widest transition-all">Cancel</button>
                )}
                <button 
                   disabled={isSaving}
