@@ -1723,7 +1723,8 @@ export default function Cart() {
                     onClick={() => toggleSelectionGroup(item.basketIds)}
                     className={`${cardClasses} relative`}
                   >
-                    {item.type !== 'project' && offerHoursLeft > 0 ? (
+                    {!(isAdmin && isAdminView) && (
+                      item.type !== 'project' && offerHoursLeft > 0 ? (
                       <span className="absolute left-0 bottom-5 z-10 bg-emerald-600 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm">
                         {offerHoursLeft} HRS LEFT
                       </span>
@@ -1739,7 +1740,8 @@ export default function Cart() {
                       <span className="absolute left-0 bottom-5 z-10 bg-blue-600 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm">
                         {etaLabel}
                       </span>
-                    ) : null}
+                      ) : null
+                    )}
                     <div className="relative flex items-center justify-center">
                       {isUserProject ? (
                         <ProjectStatusGrid
