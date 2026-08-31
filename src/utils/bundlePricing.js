@@ -91,12 +91,21 @@ export function getClearancePrice(costPrice = 0, sellPrice = 0, discountOverride
   return Math.min(sell, getClearanceCostCeiling(cost));
 }
 
-// Clearance deals are shown as soon as an eligible kit is present, but the
-// discount is only unlocked after the configured number of other kits is also
-// selected. Older deals used one other kit implicitly, so keep that behavior
-// when the field is absent.
-export function getClearanceRequiredOtherStock(deal = {}) {
-  const configured = Number(deal?.requiredOtherStockCount);
+// Clearance deals are shown as soon as an eligible kit is present, but each
+// kit's discount is only unlocked after its configured number of other stock
+// units is also selected. Older deals used one other kit implicitly, so keep that
+// behavior when the per-kit map and legacy field are both absent.
+export function getClearanceRequiredOtherStock(deal = {}, kitId = '') {
+  const perKitCounts = deal?.requiredOtherStockCounts
+    || deal?.requiredOtherStockByKit
+    || deal?.clearanceRequiredOtherStockCounts;
+  const normalizedKitId = String(kitId || '');
+  const configuredPerKit = normalizedKitId && perKitCounts && typeof perKitCounts === 'object'
+    ? perKitCounts[normalizedKitId]
+    : undefined;
+  const configured = configuredPerKit !== undefined
+    ? Number(configuredPerKit)
+    : Number(deal?.requiredOtherStockCount);
   return Number.isFinite(configured) ? Math.max(0, Math.floor(configured)) : 1;
 }
 
@@ -115,9 +124,14 @@ export function isClearanceRequirementMet(deal = {}, selectedKitIds = [], curren
   const currentId = String(currentKitId || '');
   if (!currentId || !eligibleKitIds.has(currentId)) return false;
 
-  const selectedIds = new Set((selectedKitIds || []).map(id => String(id)).filter(Boolean));
-  selectedIds.delete(currentId);
-  return selectedIds.size >= getClearanceRequiredOtherStock(deal);
+  // Count selected stock units, not unique kit IDs. Every selected stock row
+  // can satisfy the requirement, while all rows belonging to the clearance
+  // kit itself are excluded.
+  const otherSelectedStockCount = (selectedKitIds || [])
+    .map(id => String(id))
+    .filter(id => id && id !== currentId)
+    .length;
+  return otherSelectedStockCount >= getClearanceRequiredOtherStock(deal, currentId);
 }
 
 // Distribute a clearance pool in whole pesos while respecting each item's

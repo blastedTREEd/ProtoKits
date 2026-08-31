@@ -2043,7 +2043,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                   <div className="shrink-0 pt-0.5 text-right">
                                     <p className={`text-[12px] font-black uppercase ${isDarkMode ? 'text-white' : 'text-neutral-900'} ${deal.type !== 'clearance' && getDealCountdownLabel(deal.validUntil) === 'LAST DAY' ? 'text-red-500' : ''}`}>
                                       {deal.type === 'clearance'
-                                        ? `+${getClearanceRequiredOtherStock(deal)} OR MORE KITS`
+                                        ? 'PER-KIT REQUIREMENTS'
                                         : getDealCountdownLabel(deal.validUntil)}
                                     </p>
                                   </div>
@@ -2121,6 +2121,11 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                                 </>
                                               )}
                                             </div>
+                                            {deal.type === 'clearance' && (
+                                              <p className="mt-1 text-[11px] font-black uppercase tracking-wider text-amber-600">
+                                                +{getClearanceRequiredOtherStock(deal, includedKit.id)} other kit{getClearanceRequiredOtherStock(deal, includedKit.id) === 1 ? '' : 's'} required
+                                              </p>
+                                            )}
                                           </div>
                                         </div>
                                       );
@@ -2138,7 +2143,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                         </div>
                                         <div className="min-w-0 text-left">
                                           <p className="line-clamp-1 text-[15px] font-bold uppercase leading-tight">
-                                            +{getClearanceRequiredOtherStock(deal)} OR MORE KITS
+                                            PER-KIT REQUIREMENTS
                                           </p>
                                           <div className="mt-1 flex items-baseline justify-between gap-2">
                                             <p className={`text-[16px] font-black italic ${isDarkMode ? 'text-white' : 'text-neutral-900'}`}>&#8369;???</p>

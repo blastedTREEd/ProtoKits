@@ -777,16 +777,19 @@ export default function Cart() {
       .filter((deal) => deal?.type === 'clearance' && deal.isActive !== false)
       .map((deal) => {
         const configuredIds = getClearanceKitIds(deal);
-        const selectedClearanceKitIds = [...new Set(configuredIds.map(String))]
+        const availableClearanceKitIds = [...new Set(configuredIds.map(String))]
           .filter((kitId) => rowsByKitId.get(kitId)?.isOnHand);
-        if (selectedClearanceKitIds.length === 0) return null;
+        if (availableClearanceKitIds.length === 0) return null;
 
         const rows = [...rowsByKitId.values()];
-        const selectedKitIds = rows.map(row => row.kitId);
-        const clearanceRequirementMet = selectedClearanceKitIds.some((kitId) => (
+        const selectedKitIds = selectedRows.flatMap((item) => Array.from(
+          { length: Math.max(1, Number(item.quantity) || 1) },
+          () => String(item.id)
+        ));
+        const selectedClearanceKitIds = availableClearanceKitIds.filter((kitId) => (
           isClearanceRequirementMet(deal, selectedKitIds, kitId)
         ));
-        if (!clearanceRequirementMet) return null;
+        if (selectedClearanceKitIds.length === 0) return null;
 
         const clearanceDiscountOverrides = { ...(deal.clearanceDiscounts || {}) };
         // Older and currently saved clearance records also persist the
@@ -805,29 +808,12 @@ export default function Cart() {
           const persistedDiscount = storedPriceDiscount || Number(storedDiscount || 0);
           if (persistedDiscount > 0) clearanceDiscountOverrides[kitId] = persistedDiscount;
         });
-        // Sum the selected eligible kits' discount ceilings into the
-        // clearance pool, then distribute it across every selected row.
-        const selectedClearancePricing = getClearanceBundlePricing(
-          rows,
-          selectedClearanceKitIds,
-          clearanceDiscountOverrides
-        );
-        const clearanceDistributionTotal = selectedClearancePricing.rows
-          .filter(row => row.isClearance)
-          .reduce((sum, row) => sum + Math.max(0, Math.round(Number(row.clearanceDiscount || 0))), 0);
+        // Only kits whose own requirement is met are clearance-priced. Other
+        // selected kits remain at their normal price.
         const clearancePricing = getClearanceBundlePricing(
           rows,
           selectedClearanceKitIds,
-          // The summed ceilings are already captured in the distribution total
-          // above. Clear row overrides here so the pool is split across all
-          // selected kits instead of fixing one row.
-          {},
-          clearanceDistributionTotal > 0
-            ? {
-              distributeAcrossRows: true,
-              distributionTotal: clearanceDistributionTotal
-            }
-            : undefined
+          clearanceDiscountOverrides
         );
         const pricedRows = clearancePricing.rows;
         const savings = pricedRows.reduce((sum, row) => sum + Math.max(0, row.refPrice - row.finalPrice), 0);

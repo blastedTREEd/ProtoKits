@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { X, Plus, Trash2, Gift, Lock, Ban, Search, ChevronRight, ChevronLeft, Loader2, Edit3, Calendar, Clock3, RefreshCw, CheckSquare, Square, Image as ImageIcon } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
-import { getClearanceBundlePricing, getClearanceCostCeiling, getBundleDealPricing, getBundleDiscountCapacity, getHighestCostStock } from '../../utils/bundlePricing';
+import { getClearanceBundlePricing, getClearanceCostCeiling, getClearanceRequiredOtherStock, getBundleDealPricing, getBundleDiscountCapacity, getHighestCostStock } from '../../utils/bundlePricing';
 
 /* ─── Image resolver ─── */
 function resolveImage(idOrUrl, imagesArray) {
@@ -341,7 +341,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
   const [clearanceDiscounts, setClearanceDiscounts] = useState({});
   const [clearanceOriginalOverrides, setClearanceOriginalOverrides] = useState({});
   const [clearanceCurrentDiscounts, setClearanceCurrentDiscounts] = useState({});
-  const [clearanceRequiredOtherStock, setClearanceRequiredOtherStock] = useState('1');
+  const [clearanceRequiredOtherStocks, setClearanceRequiredOtherStocks] = useState({});
   const [mutuallyExclusivePairRows, setMutuallyExclusivePairRows] = useState([]);
   const [isLoadingMutualKits, setIsLoadingMutualKits] = useState(false);
 
@@ -363,6 +363,13 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     ));
     return mutualDeals.find(deal => deal.isActive !== false) || mutualDeals[0] || null;
   }, [deals]);
+
+  const getClearanceRequirementMap = (deal, kitIds) => Object.fromEntries(
+    (kitIds || []).map((kitId) => [
+      kitId,
+      String(getClearanceRequiredOtherStock(deal, kitId))
+    ])
+  );
 
   const visibleDeals = useMemo(() => {
     return (deals || []).filter(deal => {
@@ -437,9 +444,9 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
         : {};
       setClearanceOriginalOverrides(originalClearanceOverrides);
       setClearanceCurrentDiscounts(currentClearanceDiscounts);
-      setClearanceRequiredOtherStock(mappedType === 'clearance'
-        ? String(Math.max(0, Math.floor(Number(dealToEdit.requiredOtherStockCount ?? 1) || 0)))
-        : '1');
+      setClearanceRequiredOtherStocks(mappedType === 'clearance'
+        ? getClearanceRequirementMap(dealToEdit, kids)
+        : {});
       setClearanceDiscounts({});
       setMobileTab('creator');
     } else if (isOpen) {
@@ -460,7 +467,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       setClearanceOriginalOverrides({});
       setClearanceCurrentDiscounts({});
       setClearanceDiscounts({});
-      setClearanceRequiredOtherStock('1');
+      setClearanceRequiredOtherStocks({});
       setSelectedDealIds([]);
       setMobileTab('creator');
     }
@@ -594,6 +601,12 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
           else delete nextDiscounts[id];
           return nextDiscounts;
         });
+        setClearanceRequiredOtherStocks(prevRequirements => {
+          const nextRequirements = { ...prevRequirements };
+          if (next.includes(id) && nextRequirements[id] === undefined) nextRequirements[id] = '1';
+          else if (!next.includes(id)) delete nextRequirements[id];
+          return nextRequirements;
+        });
         return next;
       });
       return;
@@ -708,9 +721,9 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       : {};
     setClearanceOriginalOverrides(originalClearanceOverrides);
     setClearanceCurrentDiscounts(currentClearanceDiscounts);
-    setClearanceRequiredOtherStock(mappedType === 'clearance'
-      ? String(Math.max(0, Math.floor(Number(deal.requiredOtherStockCount ?? 1) || 0)))
-      : '1');
+    setClearanceRequiredOtherStocks(mappedType === 'clearance'
+      ? getClearanceRequirementMap(deal, kids)
+      : {});
     setClearanceDiscounts({});
     setSearchTerm('');
     setMobileTab('creator');
@@ -730,7 +743,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     setClearanceOriginalOverrides({});
     setClearanceCurrentDiscounts({});
     setClearanceDiscounts({});
-    setClearanceRequiredOtherStock('1');
+    setClearanceRequiredOtherStocks({});
     setActiveEditId(null);
     setValidFrom('');
     setValidityDays(String(DEFAULT_BUNDLE_VALIDITY_DAYS));
@@ -766,6 +779,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       setClearanceOriginalOverrides({});
       setClearanceCurrentDiscounts({});
       setClearanceDiscounts({});
+      setClearanceRequiredOtherStocks({});
       setActiveEditId(null);
       setValidFrom('');
       setValidityDays(String(DEFAULT_BUNDLE_VALIDITY_DAYS));
@@ -864,10 +878,13 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     };
 
     if (dealType === 'clearance') {
-      dealData.requiredOtherStockCount = Math.max(
-        0,
-        Math.floor(Number(clearanceRequiredOtherStock) || 0)
-      );
+      const requiredOtherStockCounts = Object.fromEntries(selectedKitIds.map((kitId) => [
+        kitId,
+        Math.max(0, Math.floor(Number(clearanceRequiredOtherStocks[kitId] ?? 1) || 0))
+      ]));
+      dealData.requiredOtherStockCounts = requiredOtherStockCounts;
+      // Keep the old field for older clients that do not understand the map.
+      dealData.requiredOtherStockCount = requiredOtherStockCounts[selectedKitIds[0]] ?? 1;
     }
 
     if (dealType === 'bundle_only') {
@@ -981,6 +998,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       setClearanceOriginalOverrides({});
       setClearanceCurrentDiscounts({});
       setClearanceDiscounts({});
+      setClearanceRequiredOtherStocks({});
       setMobileTab('list');
     } catch (e) { 
       console.error(e); 
@@ -1064,6 +1082,10 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       id,
       deal.clearanceDiscounts?.[id] ?? ''
     ]));
+    const nextRequiredOtherStockCounts = Object.fromEntries(nextKitIds.map(id => [
+      id,
+      Math.max(0, Math.floor(Number(getClearanceRequiredOtherStock(deal, id)) || 0))
+    ]));
     const rows = getOrderedKits(kits, nextKitIds).map(kit => {
       const stock = getHighestOnhandStock(kit);
       return {
@@ -1081,6 +1103,8 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
         kitIds: nextKitIds,
         clearanceKitIds: nextKitIds,
         clearanceDiscounts: nextDiscounts,
+        requiredOtherStockCounts: nextRequiredOtherStockCounts,
+        requiredOtherStockCount: nextRequiredOtherStockCounts[nextKitIds[0]] ?? 1,
         previewKitIds: nextKitIds,
         bundlePrice: summary.bundlePrice,
         totalCost: summary.totalCost,
@@ -1104,6 +1128,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
         setSelectedKitIds(nextKitIds);
         setClearanceKitIds(nextKitIds);
         setClearanceDiscounts(nextDiscounts);
+        setClearanceRequiredOtherStocks(nextRequiredOtherStockCounts);
         setPreviewKitIds(nextKitIds);
       }
     } catch (error) {
@@ -1345,24 +1370,9 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                         </div>
 
                         {dealType === 'clearance' && (
-                          <div className="space-y-2 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-4 text-left">
-                            <label className="block text-[11px] font-black uppercase tracking-widest text-amber-700 dark:text-amber-300">
-                              Required other stock (excluding current kit)
-                            </label>
-                            <input
-                              type="number"
-                              min="0"
-                              step="1"
-                              value={clearanceRequiredOtherStock}
-                              onChange={(event) => setClearanceRequiredOtherStock(
-                                event.target.value === ''
-                                  ? ''
-                                  : String(Math.max(0, Math.floor(Number(event.target.value) || 0)))
-                              )}
-                              className="w-full appearance-none rounded-xl border border-amber-500/30 bg-white/60 px-3 py-2 text-sm font-black text-amber-700 outline-none focus:border-amber-500 dark:bg-black/20 dark:text-amber-300 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                            />
-                            <p className="text-[11px] font-bold leading-relaxed text-amber-600">The clearance discount unlocks only when this many other kits are selected.</p>
-                          </div>
+                          <p className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-4 text-[11px] font-bold leading-relaxed text-amber-600">
+                            Set the required other stock and optional discount override separately for each eligible kit below. A kit receives its clearance discount only when its own requirement is met.
+                          </p>
                         )}
 
                         {/* Inclusions */}
@@ -1418,15 +1428,37 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                 )}
                               </div>
                               {dealType === 'clearance' && (
-                                <input
-                                  type="number"
-                                  min="0"
-                                  value={clearanceDiscounts[kit.id] ?? ''}
-                                  onChange={(event) => setClearanceDiscounts(prev => ({ ...prev, [kit.id]: event.target.value }))}
-                                  placeholder={`₱${Number(currentClearanceDiscount || 0).toLocaleString()}`}
-                                  title="Type a discount amount to override the current discount"
-                                  className="h-10 w-28 shrink-0 appearance-none rounded-lg border border-[var(--color-border)] bg-black/5 px-3 py-2 text-[12px] font-black italic uppercase tracking-wider text-blue-500 outline-none placeholder:text-[12px] placeholder:font-black placeholder:italic placeholder:text-blue-500 focus:border-blue-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                                />
+                                <div className="flex shrink-0 items-end gap-1.5">
+                                  <label className="flex w-10 flex-col gap-1 text-[9px] font-black uppercase tracking-wider text-amber-600">
+                                    Req.
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="1"
+                                      value={clearanceRequiredOtherStocks[kit.id] ?? '1'}
+                                      onChange={(event) => setClearanceRequiredOtherStocks(prev => ({
+                                        ...prev,
+                                        [kit.id]: event.target.value === ''
+                                          ? ''
+                                          : String(Math.max(0, Math.floor(Number(event.target.value) || 0)))
+                                      }))}
+                                      title="Number of other kits required for this kit's clearance discount"
+                                      className="h-10 w-full appearance-none rounded-lg border border-amber-500/30 bg-amber-500/10 px-2 py-2 text-[12px] font-black text-amber-600 outline-none focus:border-amber-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                    />
+                                  </label>
+                                  <label className="flex w-20 flex-col gap-1 text-[9px] font-black uppercase tracking-wider text-blue-500">
+                                    Discount
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      value={clearanceDiscounts[kit.id] ?? ''}
+                                      onChange={(event) => setClearanceDiscounts(prev => ({ ...prev, [kit.id]: event.target.value }))}
+                                      placeholder={`₱${Number(currentClearanceDiscount || 0).toLocaleString()}`}
+                                      title="Type a discount amount to override the current discount"
+                                      className="h-10 w-full appearance-none rounded-lg border border-[var(--color-border)] bg-black/5 px-2 py-2 text-[12px] font-black italic uppercase tracking-wider text-blue-500 outline-none placeholder:text-[10px] placeholder:font-black placeholder:italic placeholder:text-blue-500 focus:border-blue-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                    />
+                                  </label>
+                                </div>
                               )}
                               <button
                                 type="button"
@@ -1573,7 +1605,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
 
              <div className="flex gap-3">
                {activeEditId && (
-               <button onClick={() => { setActiveEditId(null); setDealName(''); setDiscountAmount(''); setSelectedKitIds([]); setValidFrom(''); setValidityDays(String(DEFAULT_BUNDLE_VALIDITY_DAYS)); setReactivationDelay(String(DEFAULT_REACTIVATION_DELAY)); setReactivationDelayUnit('hours'); setPreviewKitIds([]); setDraggedPreviewKitId(null); setClearanceKitIds([]); setClearanceOriginalOverrides({}); setClearanceCurrentDiscounts({}); setClearanceDiscounts({}); setClearanceRequiredOtherStock('1'); setMobileTab('list'); }} className="px-5 py-4 rounded-2xl bg-black/5 hover:bg-black/10 border border-[var(--color-border)] font-black uppercase text-[11px] tracking-widest transition-all">Cancel</button>
+               <button onClick={() => { setActiveEditId(null); setDealName(''); setDiscountAmount(''); setSelectedKitIds([]); setValidFrom(''); setValidityDays(String(DEFAULT_BUNDLE_VALIDITY_DAYS)); setReactivationDelay(String(DEFAULT_REACTIVATION_DELAY)); setReactivationDelayUnit('hours'); setPreviewKitIds([]); setDraggedPreviewKitId(null); setClearanceKitIds([]); setClearanceOriginalOverrides({}); setClearanceCurrentDiscounts({}); setClearanceDiscounts({}); setClearanceRequiredOtherStocks({}); setMobileTab('list'); }} className="px-5 py-4 rounded-2xl bg-black/5 hover:bg-black/10 border border-[var(--color-border)] font-black uppercase text-[11px] tracking-widest transition-all">Cancel</button>
                )}
                <button 
                   disabled={isSaving}
@@ -1836,6 +1868,11 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                 <span className="block truncate text-[12px] font-black uppercase">{k.name}</span>
                                 <span className="block truncate text-[12px] font-bold uppercase opacity-40">{[k.brand, k.specs?.line].filter(Boolean).join(' / ') || 'No brand or line'}</span>
                               </div>
+                              {deal.type === 'clearance' && (
+                                <span className="shrink-0 text-[11px] font-black uppercase tracking-wider text-amber-600">
+                                  REQ. {getClearanceRequiredOtherStock(deal, k.id)}
+                                </span>
+                              )}
                               {deal.type === 'clearance' && clearanceDiscount > 0 && (
                                 <span className="shrink-0 text-[12px] font-black italic text-emerald-500">
                                   ₱{clearanceDiscount.toLocaleString()} OFF
