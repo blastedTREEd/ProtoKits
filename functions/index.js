@@ -1,4 +1,6 @@
 const { onDocumentUpdated } = require('firebase-functions/v2/firestore');
+const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { defineSecret } = require('firebase-functions/params');
 const { logger } = require('firebase-functions');
 const admin = require('firebase-admin');
@@ -14,6 +16,11 @@ const SMTP_PASSWORD = defineSecret('SMTP_PASSWORD');
 const EMAIL_FROM = defineSecret('EMAIL_FROM');
 const ADMIN_NOTIFICATION_EMAIL = defineSecret('ADMIN_NOTIFICATION_EMAIL');
 const APP_BASE_URL = defineSecret('APP_BASE_URL');
+
+const ACCOUNT_INACTIVITY_DAYS = 30;
+const ACCOUNT_DELETION_GRACE_DAYS = 30;
+const ACCOUNT_DELETION_TOTAL_DAYS = ACCOUNT_INACTIVITY_DAYS + ACCOUNT_DELETION_GRACE_DAYS;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const FUNCTION_OPTIONS = {
   document: 'orders/{orderId}',
@@ -137,9 +144,312 @@ const sendEmail = async ({ eventKey, type, orderId, to, subject, text, html }) =
     logger.info('Email sent', { eventKey, type, orderId, messageId: result.messageId });
   } catch (error) {
     logger.error('Email delivery failed', { eventKey, type, orderId, error: error.message });
+    await db.collection('emailEvents').doc(eventKey).delete().catch((cleanupError) => {
+      logger.error('Failed to release email event claim', {
+        eventKey,
+        type,
+        orderId,
+        error: cleanupError.message
+      });
+    });
     throw error;
   }
 };
+
+const toMillis = (value) => {
+  if (value && typeof value.toMillis === 'function') return value.toMillis();
+  if (value && typeof value.toDate === 'function') return value.toDate().getTime();
+  if (value && Number.isFinite(Number(value.seconds))) return Number(value.seconds) * 1000;
+  const parsed = new Date(value || 0).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const getAccountLastLoginMillis = (data = {}) => (
+  toMillis(data.lastLoginAt || data.lastActivityAt || data.createdAt)
+);
+
+const hasValidatedReceipt = (order = {}) => {
+  const status = String(order.status || '').toLowerCase();
+  if (['validating', 'declined', 'cancelled', 'completed'].includes(status)) return false;
+  return hasValue(order.receipt) || hasValue(order.balanceReceipt);
+};
+
+const getUserDeletionBlockers = async (uid) => {
+  const ordersSnapshot = await db.collection('orders').where('userId', '==', uid).get();
+  let validatedReceiptOrders = 0;
+
+  ordersSnapshot.docs.forEach((orderDoc) => {
+    const order = orderDoc.data() || {};
+    if (hasValidatedReceipt(order)) validatedReceiptOrders += 1;
+  });
+
+  return { validatedReceiptOrders };
+};
+
+const deleteUserAccountData = async (uid) => {
+  if (!uid) throw new Error('A user UID is required.');
+
+  try {
+    await admin.auth().deleteUser(uid);
+  } catch (error) {
+    if (error?.code !== 'auth/user-not-found') throw error;
+  }
+
+  await db.recursiveDelete(db.doc(`users/${uid}`));
+  await db.recursiveDelete(db.doc(`projectVaults/${uid}`));
+
+  const huntsSnapshot = await db.collection('hunts').where('uid', '==', uid).get();
+  if (!huntsSnapshot.empty) {
+    const batch = db.batch();
+    huntsSnapshot.docs.forEach((huntDoc) => batch.delete(huntDoc.ref));
+    await batch.commit();
+  }
+};
+
+const accountDeletionEmail = ({ displayName, deletionDate, isUserRequested = false }) => ({
+  subject: 'Your SnorlaxGarage account is scheduled for deletion',
+  text: [
+    `Hi ${displayName || 'there'},`,
+    '',
+    isUserRequested
+      ? 'Your request to delete your SnorlaxGarage account has been received.'
+      : 'We have not seen a login to your SnorlaxGarage account for 30 days.',
+    `Your account is now scheduled for deletion on ${deletionDate}.`,
+    'Log in again within the next 30 days to cancel the deletion and keep your account.',
+    '',
+    'Your completed order records are retained for business and legal record-keeping.'
+  ].join('\n'),
+  html: `
+    <p>Hi ${escapeHtml(displayName || 'there')},</p>
+    <p>${isUserRequested
+      ? 'Your request to delete your SnorlaxGarage account has been received.'
+      : 'We have not seen a login to your SnorlaxGarage account for <strong>30 days</strong>.'}</p>
+    <p>Your account is now scheduled for deletion on <strong>${escapeHtml(deletionDate)}</strong>.</p>
+    <p>Log in again within the next <strong>30 days</strong> to cancel the deletion and keep your account.</p>
+    <p>Your completed order records are retained for business and legal record-keeping.</p>
+  `
+});
+
+exports.adminDeleteUserAccount = onCall({ region: 'asia-southeast1' }, async (request) => {
+  if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Admin authentication is required.');
+
+  const adminSnapshot = await db.doc(`admins/${request.auth.uid}`).get();
+  if (!adminSnapshot.exists) throw new HttpsError('permission-denied', 'Admin access is required.');
+
+  const targetUid = String(request.data?.uid || '').trim();
+  if (!targetUid) throw new HttpsError('invalid-argument', 'A target user UID is required.');
+  if (targetUid === request.auth.uid) throw new HttpsError('failed-precondition', 'The signed-in admin account cannot be deleted here.');
+
+  const targetAdminSnapshot = await db.doc(`admins/${targetUid}`).get();
+  if (targetAdminSnapshot.exists) throw new HttpsError('failed-precondition', 'Admin accounts must be removed through the admin access process.');
+
+  try {
+    await deleteUserAccountData(targetUid);
+    logger.info('User account deleted by admin', { targetUid, adminUid: request.auth.uid });
+    return { success: true, uid: targetUid };
+  } catch (error) {
+    logger.error('Admin user deletion failed', { targetUid, error: error.message });
+    throw new HttpsError('internal', 'The user account could not be deleted.');
+  }
+});
+
+exports.requestUserAccountDeletion = onCall({
+  region: 'asia-southeast1',
+  secrets: [SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, EMAIL_FROM]
+}, async (request) => {
+  if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Sign in before requesting account deletion.');
+  if (request.auth.token.firebase?.sign_in_provider === 'anonymous') {
+    throw new HttpsError('failed-precondition', 'Guest accounts cannot request account deletion.');
+  }
+
+  const uid = request.auth.uid;
+  const adminSnapshot = await db.doc(`admins/${uid}`).get();
+  if (adminSnapshot.exists) throw new HttpsError('failed-precondition', 'Admin accounts are protected from this request flow.');
+
+  const deletionBlockers = await getUserDeletionBlockers(uid);
+  if (deletionBlockers.validatedReceiptOrders > 0) {
+    throw new HttpsError(
+      'failed-precondition',
+      'Account deletion cannot be requested because this account has an order with a validated receipt.'
+    );
+  }
+
+  const userRef = db.doc(`users/${uid}`);
+  const userSnapshot = await userRef.get();
+  const userData = userSnapshot.data() || {};
+  const existingDeletionMillis = toMillis(userData.deletionScheduledAt);
+  if (toMillis(userData.deletionRequestedAt) && existingDeletionMillis) {
+    return {
+      success: true,
+      alreadyRequested: true,
+      deletionDate: new Date(existingDeletionMillis).toISOString()
+    };
+  }
+
+  const requestedMillis = Date.now();
+  const deletionMillis = requestedMillis + (ACCOUNT_DELETION_GRACE_DAYS * DAY_MS);
+  await userRef.set({
+    deletionRequestedAt: admin.firestore.Timestamp.fromMillis(requestedMillis),
+    deletionScheduledAt: admin.firestore.Timestamp.fromMillis(deletionMillis),
+    deletionNoticeSentAt: admin.firestore.FieldValue.delete(),
+    deletionReason: 'user_requested'
+  }, { merge: true });
+
+  let email = userData.email || userData.userDetails?.email || '';
+  if (!hasValue(email)) email = (await admin.auth().getUser(uid)).email || '';
+
+  if (hasValue(email)) {
+    const deletionDate = new Date(deletionMillis).toLocaleDateString('en-PH', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      timeZone: 'Asia/Manila'
+    });
+    try {
+      await sendEmail({
+        eventKey: `account-deletion-request-${uid}-${requestedMillis}`,
+        type: 'account_deletion_requested',
+        orderId: uid,
+        to: email,
+        ...accountDeletionEmail({
+          displayName: userData.displayName || 'there',
+          deletionDate,
+          isUserRequested: true
+        })
+      });
+      await userRef.set({ email, deletionNoticeSentAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+    } catch (error) {
+      logger.error('Account deletion request email failed; scheduled worker will retry', { uid, error: error.message });
+    }
+  } else {
+    logger.warn('Account deletion requested without an email address', { uid });
+  }
+
+  return { success: true, alreadyRequested: false, deletionDate: new Date(deletionMillis).toISOString() };
+});
+
+exports.processInactiveAccounts = onSchedule({
+  schedule: 'every day 03:00',
+  timeZone: 'Asia/Manila',
+  region: 'asia-southeast1',
+  secrets: [SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, EMAIL_FROM]
+}, async () => {
+  const now = Date.now();
+  const usersSnapshot = await db.collection('users').get();
+
+  for (const userDoc of usersSnapshot.docs) {
+    const data = userDoc.data() || {};
+    const uid = userDoc.id;
+    try {
+      const adminSnapshot = await db.doc(`admins/${uid}`).get();
+      if (adminSnapshot.exists) continue;
+
+      const requestedMillis = toMillis(data.deletionRequestedAt);
+      const configuredDeletionMillis = toMillis(data.deletionScheduledAt);
+      if (requestedMillis) {
+        const deletionMillis = configuredDeletionMillis || requestedMillis + (ACCOUNT_DELETION_GRACE_DAYS * DAY_MS);
+        if (now >= deletionMillis) {
+          const deletionBlockers = await getUserDeletionBlockers(uid);
+          if (deletionBlockers.validatedReceiptOrders > 0) {
+            logger.warn('Requested account deletion paused because the user has a validated receipt on a non-completed order', { uid, deletionBlockers });
+            continue;
+          }
+          await deleteUserAccountData(uid);
+          logger.info('Requested user account deleted', { uid, requestedMillis, deletionMillis });
+          continue;
+        }
+        if (data.deletionNoticeSentAt) continue;
+
+        let email = data.email || data.userDetails?.email || '';
+        if (!hasValue(email)) email = (await admin.auth().getUser(uid)).email || '';
+        if (!hasValue(email)) {
+          logger.warn('Requested account has no email for deletion notice', { uid });
+          continue;
+        }
+        const deletionDate = new Date(deletionMillis).toLocaleDateString('en-PH', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          timeZone: 'Asia/Manila'
+        });
+        await sendEmail({
+          eventKey: `account-deletion-request-${uid}-${requestedMillis}`,
+          type: 'account_deletion_requested',
+          orderId: uid,
+          to: email,
+          ...accountDeletionEmail({
+            displayName: data.displayName || 'there',
+            deletionDate,
+            isUserRequested: true
+          })
+        });
+        await userDoc.ref.set({
+          email,
+          deletionNoticeSentAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+        continue;
+      }
+
+      const lastLoginMillis = getAccountLastLoginMillis(data);
+      if (!lastLoginMillis) continue;
+
+      const countdownStartMillis = lastLoginMillis + (ACCOUNT_INACTIVITY_DAYS * DAY_MS);
+      const deletionMillis = lastLoginMillis + (ACCOUNT_DELETION_TOTAL_DAYS * DAY_MS);
+
+      if (now >= deletionMillis) {
+        const deletionBlockers = await getUserDeletionBlockers(uid);
+        if (deletionBlockers.validatedReceiptOrders > 0) {
+          logger.warn('Inactive account deletion paused because the user has a validated receipt on a non-completed order', { uid, deletionBlockers });
+          continue;
+        }
+        await deleteUserAccountData(uid);
+        logger.info('Inactive user account deleted', { uid, lastLoginMillis, deletionMillis });
+        continue;
+      }
+
+      if (now < countdownStartMillis || data.deletionNoticeSentAt) continue;
+
+      const deletionDate = new Date(deletionMillis).toLocaleDateString('en-PH', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        timeZone: 'Asia/Manila'
+      });
+      let email = data.email || data.userDetails?.email || '';
+      if (!hasValue(email)) {
+        try {
+          email = (await admin.auth().getUser(uid)).email || '';
+        } catch (error) {
+          if (error?.code !== 'auth/user-not-found') throw error;
+        }
+      }
+
+      if (!hasValue(email)) {
+        logger.warn('Inactive user has no email for deletion notice', { uid });
+        continue;
+      }
+
+      const eventKey = `account-deletion-${uid}-${lastLoginMillis}`;
+      await sendEmail({
+        eventKey,
+        type: 'account_deletion_started',
+        orderId: uid,
+        to: email,
+        ...accountDeletionEmail({
+          displayName: data.displayName || 'there',
+          deletionDate
+        })
+      });
+      await userDoc.ref.set({
+        email,
+        deletionNoticeSentAt: admin.firestore.FieldValue.serverTimestamp(),
+        deletionScheduledAt: admin.firestore.Timestamp.fromMillis(deletionMillis)
+      }, { merge: true });
+    } catch (error) {
+      logger.error('Inactive account processing failed', { uid, error: error.message });
+    }
+  }
+});
 
 const adminReceiptEmail = (orderId, order) => {
   const summary = buildOrderSummary(orderId, order);

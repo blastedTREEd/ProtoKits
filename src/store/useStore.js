@@ -2316,6 +2316,7 @@ export const useStore = create(
           uid: sgUser.uid,
           displayName: (sgUser.displayName || "Anonymous").toUpperCase(),
           photoURL: sgUser.photoURL || '',
+          email: sgUser.email || '',
           role: isAnonymousUser ? 'guest' : 'customer',
           createdAt: new Date().toISOString()
         };
@@ -2335,12 +2336,29 @@ export const useStore = create(
         get().markLoaded('userProfile');
         if (onSyncComplete) onSyncComplete();
 
+        // A successful non-anonymous sign-in resets the inactivity lifecycle.
+        // Clearing the notice fields cancels an active deletion countdown.
+        if (!isAnonymousUser) {
+          void setDoc(userRef, {
+            ...(sgUser.email ? { email: sgUser.email } : {}),
+            lastLoginAt: serverTimestamp(),
+            deletionNoticeSentAt: deleteField(),
+            deletionScheduledAt: deleteField(),
+            deletionRequestedAt: deleteField(),
+            deletionReason: deleteField()
+          }, { merge: true }).catch((error) => (
+            console.error("SG LOG: Login activity update failed:", error)
+          ));
+        }
+
         if (!userData) {
           void setDoc(userRef, {
             uid: sgUser.uid,
             displayName: (sgUser.displayName || "Anonymous").toUpperCase(),
             photoURL: sgUser.photoURL || '',
+            email: sgUser.email || '',
             role: 'customer',
+            lastLoginAt: serverTimestamp(),
             createdAt: serverTimestamp()
           }, { merge: true }).catch((error) => console.error("SG LOG: Initial profile creation failed:", error));
         }
@@ -2372,7 +2390,15 @@ export const useStore = create(
               get().processPendingBasket();
             } else {
               console.log("DEBUG: User doc does not exist, creating initial doc for UID:", sgUser.uid);
-              const initial = { uid: sgUser.uid, displayName: (sgUser.displayName || "Anonymous").toUpperCase(), photoURL: sgUser.photoURL, role: 'customer', createdAt: serverTimestamp() };
+              const initial = {
+                uid: sgUser.uid,
+                displayName: (sgUser.displayName || "Anonymous").toUpperCase(),
+                photoURL: sgUser.photoURL,
+                email: sgUser.email || '',
+                role: 'customer',
+                ...(!isAnonymousUser ? { lastLoginAt: serverTimestamp() } : {}),
+                createdAt: serverTimestamp()
+              };
               void setDoc(userRef, initial, { merge: true })
                 .catch((error) => console.error("SG LOG: Initial profile creation failed:", error));
               set({ user: { ...initial, createdAt: new Date().toISOString() }, isAdmin: isActuallyAdmin });

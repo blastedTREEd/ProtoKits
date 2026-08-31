@@ -69,7 +69,7 @@ if (typeof window !== 'undefined' && 'scrollRestoration' in window.history) {
 }
 
 // Known route prefixes — used to skip loading/auth gating on 404 pages
-const KNOWN_PATHS = ['/', '/kits', '/prints', '/blueprints', '/about-us', '/orders', '/cart', '/basket', '/checkout', '/shelf', '/notify-list', '/users-dashboard', '/privacy-policy', '/terms-of-use', '/data-deletion', '/shipping-policy', '/payment-and-refund-policy'];
+const KNOWN_PATHS = ['/', '/kits', '/prints', '/blueprints', '/about-us', '/orders', '/cart', '/basket', '/checkout', '/shelf', '/notify-list', '/users-dashboard', '/privacy-policy', '/terms-of-use', '/data-deletion', '/delete-account', '/shipping-policy', '/payment-and-refund-policy'];
 const isKnownRoute = (pathname) => KNOWN_PATHS.some(p => p === '/' ? pathname === '/' : pathname === p || pathname.startsWith(p + '/'));
 
 const Layout = ({ children }) => {
@@ -190,6 +190,7 @@ const RouterContent = () => {
             <Route path="/privacy-policy" element={<PrivacyPolicy />} />
             <Route path="/terms-of-use" element={<TermsOfUse />} />
             <Route path="/data-deletion" element={<Deletion />} />
+            <Route path="/delete-account" element={<Deletion />} />
             <Route path="/shipping-policy" element={<ShippingPolicy />} />
             <Route path="/payment-and-refund-policy" element={<PaymentAndRefundPolicy />} />
             <Route path="*" element={<NotFound />} />

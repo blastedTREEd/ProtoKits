@@ -15,7 +15,7 @@ const policyComponents = {
     Component: lazy(() => import('../../pages/TermsOfUse'))
   },
   deletion: {
-    title: 'Data Deletion',
+    title: 'Delete Account',
     icon: Trash2,
     Component: lazy(() => import('../../pages/Deletion'))
   },

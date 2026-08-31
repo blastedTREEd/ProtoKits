@@ -60,7 +60,7 @@ export default function Footer() {
               <button onClick={() => openPolicy('terms')} className="text-left text-[13px] uppercase tracking-widest transition-colors hover:text-blue-600">Terms of Use</button>
           </div>
           <div className="flex flex-col gap-2">
-              <button onClick={() => openPolicy('deletion')} className="text-left text-[13px] uppercase tracking-widest transition-colors hover:text-blue-600">Data Deletion</button>
+              <button onClick={() => openPolicy('deletion')} className="text-left text-[13px] uppercase tracking-widest transition-colors hover:text-blue-600">Delete Account</button>
               <button onClick={() => openPolicy('shipping')} className="text-left text-[13px] uppercase tracking-widest transition-colors hover:text-blue-600">Shipping Policy</button>
               <button onClick={() => openPolicy('payment')} className="text-left text-[13px] uppercase tracking-widest transition-colors hover:text-blue-600">Payment &amp; Refund</button>
           </div>

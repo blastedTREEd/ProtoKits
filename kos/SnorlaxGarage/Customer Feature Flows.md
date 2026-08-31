@@ -8,6 +8,12 @@ Visitors can browse public catalog and print information without signing in. Acc
 
 The profile and navbar surfaces provide access to account settings, dark mode, offers, policies, notifications, and the user's order history. Guests retain a local basket and limited browser-local notification state; account-only features such as orders, hunts, and Project Vault require a signed-in account.
 
+The **Delete Account** policy lets a signed-in customer request account deletion. The request sends a confirmation email, starts a 30-day grace period, and logs the customer out. Logging in again during that period cancels the request. Accounts that remain inactive for 30 days follow the same email-plus-30-day-grace flow.
+
+The deletion request is unavailable while the customer has an order with at least one validated receipt that is not yet `Completed`. Final automatic deletion is also paused while that non-completed order remains associated with the account.
+
+At final deletion, the Firebase Auth account, user profile, basket, saved Project Vault projects, and user-owned `hunts` notification/offer-watch records are removed. Order history and completed order records are retained for business and legal record-keeping.
+
 ## 2. Kit shopping
 
 The Kits page presents catalog products and their physical stock availability. A product card can expose:

@@ -68,9 +68,32 @@ Multiple components render options conditionally based on the user's role:
 
 The same principle applies to business data elsewhere: conditional rendering improves the interface, but Firestore rules must still enforce the actual authorization boundary.
 
+## 5. Account deletion lifecycle
+
+The **Delete Account** policy supports two ways to start the deletion countdown:
+
+- A signed-in customer can submit a deletion request from the policy page. The request starts a 30-day grace period, sends a confirmation email, and signs the customer out.
+- An account with no login for 30 days receives an email and enters the same 30-day grace period.
+
+Logging in again during the grace period clears the deletion request and cancels the countdown. After the grace period expires, the trusted scheduled function deletes the Firebase Authentication account and the user-owned data listed below. Admin accounts are excluded from automatic deletion, and the admin dashboard has a protected immediate-deletion callable for customer accounts.
+
+Deletion cannot be requested or finalized while the customer has an order with at least one validated receipt that is not yet `Completed`. The scheduled deletion worker pauses final deletion while that non-completed order remains associated with the account.
+
+### Data deleted at final deletion
+
+1. The user's Firebase Authentication account.
+2. The `users/{uid}` profile document, including its legacy profile fields and legacy basket field.
+3. The `users/{uid}/basket` subcollection and its basket items.
+4. The `projectVaults/{uid}` document and any descendants containing saved Project Vault projects.
+5. Documents in the top-level `hunts` collection whose `uid` matches the customer, including notification and offer-watch records.
+
+### Data retained
+
+Order documents are intentionally retained, including completed order history and payment/order records needed for business and legal record-keeping. Shared catalog content such as kits, stories, deals, and project listings is not deleted. The deletion email event records are also system audit records and are not part of the user's customer data deletion scope.
+
 ---
 
-## 5. Current authorization review items
+## 6. Current authorization review items
 
 The repository audit found two rules that need explicit security review before the system is described as fully locked down:
 
@@ -81,7 +104,7 @@ These are implementation findings, not claims that the UI is intentionally publi
 
 ---
 
-## 🔐 5. Firebase Credential Handling
+## 🔐 7. Firebase Credential Handling
 
 The React/Vite client uses only the Firebase browser SDK and its public web-client configuration in `src/firebase/firebase.js`. Browser configuration identifies the Firebase project but does not grant administrative access by itself.
 
