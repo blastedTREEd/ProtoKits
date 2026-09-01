@@ -1,9 +1,13 @@
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import { 
   User, Phone, Home, Building2, Map, Hash, Navigation, MapPin, Sparkles, MapPinSearch
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-leaflet';
 import { motion } from 'framer-motion';
+import {
+  lookupPhilippineAddressByZipCode,
+  lookupPhilippineZipCodeByCityAndProvince
+} from '../../utils/philippineAddress';
 
 const MAP_MAX_PIN_ZOOM = 19;
 
@@ -89,6 +93,8 @@ export default function DynamicShippingForm({
     updateDeliveryData(prev => ({ ...prev, phoneNumber: cleaned }));
   };
 
+  const addressLookupSequence = useRef(0);
+
   const capitalizeWords = useCallback((str) => {
     if (!str) return "";
     const romanRegex = /^(i|ii|iii|iv|v|vi|vii|viii|ix|x|xi|xii|xiii|xiv|xv|xvi|xvii|xviii|xix|xx)$/i;
@@ -136,26 +142,59 @@ export default function DynamicShippingForm({
   }, [performReverseGeocoding, setAddressStatus, updateDeliveryData]);
 
   const handleZipLookup = useCallback(async (zip) => {
-    if (zip.length === 4) {
-      try {
-        const res = await fetch(`https://nominatim.openstreetmap.org/search?postalcode=${zip}&country=Philippines&format=json&addressdetails=1`);
-        const data = await res.json();
-        if (data && data.length > 0) {
-          const addr = data[0].address;
-          updateDeliveryData(prev => ({
-            ...prev,
-            barangay: "", 
-            city: addr.city || addr.town || addr.municipality || addr.village || prev.city,
-            province: addr.state || addr.region || prev.province,
-            ...(addressStatus.isPinConfirmed ? {} : {
-              lat: parseFloat(data[0].lat),
-              lng: parseFloat(data[0].lon)
-            })
-          }));
-        }
-      } catch (err) { console.error("ZIP lookup failed", err); }
-    }
+    const lookupSequence = ++addressLookupSequence.current;
+    if (zip.length !== 4) return;
+
+    try {
+      const result = await lookupPhilippineAddressByZipCode(zip);
+      if (!result || lookupSequence !== addressLookupSequence.current) return;
+
+      updateDeliveryData(prev => ({
+        ...prev,
+        barangay: "",
+        city: result.city || prev.city,
+        province: result.province || prev.province,
+        ...(addressStatus.isPinConfirmed ? {} : {
+          lat: result.lat,
+          lng: result.lng
+        })
+      }));
+    } catch (err) { console.error("ZIP lookup failed", err); }
   }, [updateDeliveryData, addressStatus.isPinConfirmed]);
+
+  const handleLocationChange = useCallback((field, value) => {
+    addressLookupSequence.current += 1;
+    updateDeliveryData(prev => ({
+      ...prev,
+      [field]: capitalizeWords(value),
+      zipCode: ''
+    }));
+  }, [capitalizeWords, updateDeliveryData]);
+
+  const { city: deliveryCity, province: deliveryProvince, zipCode: deliveryZipCode } = deliveryData;
+  useEffect(() => {
+    const city = String(deliveryCity || '').trim();
+    const province = String(deliveryProvince || '').trim();
+    if (deliveryZipCode || city.length < 3 || province.length < 3) return undefined;
+
+    const timer = setTimeout(async () => {
+      const lookupSequence = ++addressLookupSequence.current;
+      try {
+        const zipCode = await lookupPhilippineZipCodeByCityAndProvince(city, province);
+        if (!zipCode || lookupSequence !== addressLookupSequence.current) return;
+
+        updateDeliveryData(prev => (
+          prev.zipCode || prev.city?.trim() !== city || prev.province?.trim() !== province
+            ? prev
+            : { ...prev, zipCode }
+        ));
+      } catch (err) {
+        console.warn('City/province ZIP lookup failed', err);
+      }
+    }, 700);
+
+    return () => clearTimeout(timer);
+  }, [deliveryCity, deliveryProvince, deliveryZipCode, updateDeliveryData]);
 
   const handleBranchFocus = () => {
     const prefix = getBranchPrefix(courierName);
@@ -381,9 +420,9 @@ export default function DynamicShippingForm({
                 whileTap={{ scale: 0.99 }}
                 whileFocus={{ scale: 1.01 }}
                 transition={{ duration: 0.1 }}
-                placeholder="City" 
+                placeholder="City / Town"
                 value={deliveryData.city || ''} 
-                onChange={(e) => updateDeliveryData(prev => ({...prev, city: capitalizeWords(e.target.value)}))} 
+                onChange={(e) => handleLocationChange('city', e.target.value)}
                 className={`${inputClass} ${!validationState.city ? 'border-red-500 !border-2' : ''}`} 
               />
             </div>
@@ -397,7 +436,7 @@ export default function DynamicShippingForm({
                 transition={{ duration: 0.1 }}
                 placeholder="Province" 
                 value={deliveryData.province || ''} 
-                onChange={(e) => updateDeliveryData(prev => ({...prev, province: capitalizeWords(e.target.value)}))} 
+                onChange={(e) => handleLocationChange('province', e.target.value)}
                 className={`${inputClass} ${!validationState.province ? 'border-red-500 !border-2' : ''}`} 
               />
             </div>

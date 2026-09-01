@@ -8,6 +8,10 @@ import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
 import L from 'leaflet';
 import ShippingOptions from './ShippingOptions';
+import {
+  lookupPhilippineAddressByZipCode,
+  lookupPhilippineZipCodeByCityAndProvince
+} from '../../utils/philippineAddress';
 
 import 'leaflet/dist/leaflet.css';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
@@ -478,14 +482,23 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
         }
 
         // 2. Lookup City/Province via ZIP
-        if (zipCode?.length === 4 && (!city || !province)) {
-          const res = await performGeocoding(zipCode);
+        if (zipCode?.length === 4) {
+          const res = await lookupPhilippineAddressByZipCode(zipCode);
           if (res) {
             handleAddressChange({ city: res.city, province: res.province });
             setLastGeocoded({ ...currentAddress, city: res.city, province: res.province });
           }
         } 
-        // 3. Lookup Coordinates via Address fields
+        // 3. Lookup ZIP via City/Province. Keep this independent from
+        // coordinate lookup so Santa/Sta./Santo/Sto. aliases are supported.
+        else if (!zipCode && city?.length > 2 && province?.length > 2) {
+          const generatedZipCode = await lookupPhilippineZipCodeByCityAndProvince(city, province);
+          if (generatedZipCode) {
+            handleAddressChange({ zipCode: generatedZipCode });
+            setLastGeocoded({ ...currentAddress, zipCode: generatedZipCode });
+          }
+        }
+        // 4. Lookup Coordinates via Address fields
         else if (barangay?.length > 2 && city?.length > 2) {
           const query = `${barangay}, ${city}, ${province || ''}`;
           const res = await performGeocoding(query);
@@ -607,7 +620,7 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="relative text-left"><Sparkles className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="Landmark" value={formData.landmark} onChange={(e) => handleAddressChange({ landmark: e.target.value })} onBlur={(e) => handleBlur('landmark', e.target.value)} className={inputClass} /></div>
-          <div className="relative text-left"><Hash className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="Zip Code" value={formData.zipCode} onChange={(e) => handleAddressChange({ zipCode: e.target.value })} className={inputClass} /></div>
+          <div className="relative text-left"><Hash className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="Zip Code" inputMode="numeric" pattern="[0-9]{4}" maxLength={4} value={formData.zipCode} onChange={(e) => handleAddressChange({ zipCode: e.target.value.replace(/\D/g, '').slice(0, 4) })} className={inputClass} /></div>
         </div>
         {!isMeetup && (
           <div className="relative text-left"><Home className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input required placeholder="House No. (Required)" value={formData.houseNo} onChange={(e) => handleAddressChange({ houseNo: e.target.value })} onBlur={(e) => handleBlur('houseNo', e.target.value)} className={inputClass} /></div>
@@ -615,8 +628,8 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
         <div className="relative text-left"><Building2 className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder={isMeetup ? 'Street (Optional)' : 'Street'} value={formData.houseDetails} onChange={(e) => handleAddressChange({ houseDetails: e.target.value })} onBlur={(e) => handleBlur('houseDetails', e.target.value)} className={inputClass} /></div>
         <div className="relative text-left"><Map className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="Subdivision (Optional)" value={formData.subdivision} onChange={(e) => handleAddressChange({ subdivision: e.target.value })} onBlur={(e) => handleBlur('subdivision', e.target.value)} className={inputClass} /></div>
         <div className="relative text-left"><MapPin className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="Barangay" value={formData.barangay} onChange={(e) => handleAddressChange({ barangay: e.target.value })} onBlur={(e) => handleBlur('barangay', e.target.value)} className={inputClass} /></div>
-        <div className="relative text-left"><Building2 className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="City" value={formData.city} onChange={(e) => handleAddressChange({ city: e.target.value })} onBlur={(e) => handleBlur('city', e.target.value)} className={inputClass} /></div>
-        <div className="relative text-left"><Map className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="Province" value={formData.province} onChange={(e) => handleAddressChange({ province: e.target.value })} onBlur={(e) => handleBlur('province', e.target.value)} className={inputClass} /></div>
+        <div className="relative text-left"><Building2 className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="City / Town" value={formData.city} onChange={(e) => handleAddressChange({ city: e.target.value, zipCode: '' })} onBlur={(e) => handleBlur('city', e.target.value)} className={inputClass} /></div>
+        <div className="relative text-left"><Map className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="Province" value={formData.province} onChange={(e) => handleAddressChange({ province: e.target.value, zipCode: '' })} onBlur={(e) => handleBlur('province', e.target.value)} className={inputClass} /></div>
 
         <div
           className="h-48 w-full overflow-hidden rounded-2xl"

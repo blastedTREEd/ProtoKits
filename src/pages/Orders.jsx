@@ -18,6 +18,10 @@ import LoadingState from '../components/common/LoadingState';
 import { getStandaloneUnitPrice } from '../utils/standalonePricing';
 import { getStockEta } from '../utils/stockDates';
 import { shouldChargeHandlingFee } from '../utils/paymentSettings';
+import {
+  lookupPhilippineAddressByZipCode,
+  lookupPhilippineZipCodeByCityAndProvince
+} from '../utils/philippineAddress';
 
 let DefaultIcon = L.icon({ iconUrl: markerIcon, shadowUrl: markerShadow, iconSize: [25, 41], iconAnchor: [12, 41] });
 L.Marker.prototype.options.icon = DefaultIcon;
@@ -508,6 +512,7 @@ export default function Orders() {
   const [customerTrackingLink, setCustomerTrackingLink] = useState('');
   const [claimantBalance, setClaimantBalance] = useState('');
   const [shippingFeeInput, setShippingFeeInput] = useState('');
+  const legacyAddressLookupSequence = useRef(0);
   const getEmptyLegacyOrderData = () => ({
     search: '',
     selectedItems: [],
@@ -520,6 +525,66 @@ export default function Orders() {
     buyerPaid: '',
   });
   const [manualOrderData, setManualOrderData] = useState(getEmptyLegacyOrderData);
+
+  const handleLegacyZipCodeChange = useCallback(async (event) => {
+    const zipCode = event.target.value.replace(/\D/g, '').slice(0, 4);
+    const lookupSequence = ++legacyAddressLookupSequence.current;
+    setManualOrderData((previous) => ({ ...previous, zipCode }));
+
+    if (zipCode.length !== 4) return;
+
+    try {
+      const address = await lookupPhilippineAddressByZipCode(zipCode);
+      if (!address || lookupSequence !== legacyAddressLookupSequence.current) return;
+
+      setManualOrderData((previous) => ({
+        ...previous,
+        city: address.city || previous.city,
+        province: address.province || previous.province,
+        zipCode
+      }));
+    } catch (error) {
+      console.warn('Legacy order ZIP lookup failed:', error);
+    }
+  }, []);
+
+  const handleLegacyLocationChange = useCallback((field, value) => {
+    legacyAddressLookupSequence.current += 1;
+    setManualOrderData((previous) => ({
+      ...previous,
+      [field]: value,
+      // The previous zip belongs to the previous city/province pair.
+      zipCode: ''
+    }));
+  }, []);
+
+  useEffect(() => {
+    if (!showManualOrderModal) return undefined;
+
+    const city = String(manualOrderData.city || '').trim();
+    const province = String(manualOrderData.province || '').trim();
+    if (manualOrderData.zipCode || city.length < 3 || province.length < 3) return undefined;
+
+    const timer = setTimeout(async () => {
+      const lookupSequence = ++legacyAddressLookupSequence.current;
+      try {
+        const zipCode = await lookupPhilippineZipCodeByCityAndProvince(city, province);
+        if (!zipCode || lookupSequence !== legacyAddressLookupSequence.current) return;
+
+        setManualOrderData((previous) => {
+          if (previous.zipCode || previous.city.trim() !== city || previous.province.trim() !== province) {
+            return previous;
+          }
+          return { ...previous, zipCode };
+        });
+      } catch (error) {
+        console.warn('Legacy order city/province ZIP lookup failed:', error);
+      }
+    }, 700);
+
+    return () => clearTimeout(timer);
+  }, [manualOrderData.city, manualOrderData.province, manualOrderData.zipCode, showManualOrderModal]);
+
   useEffect(() => {
     loadPrintResources();
   }, [loadPrintResources]);
@@ -1021,8 +1086,8 @@ export default function Orders() {
     const totalPaid = Number(manualOrderData.buyerPaid || 0);
     const handlingFeePaid = legacyHandlingFee;
     const itemRevenue = Math.max(0, totalPaid - handlingFeePaid);
-    if (!selectedItems.length || !manualOrderData.shippingMethod || !manualOrderData.city.trim() || !manualOrderData.province.trim() || !manualOrderData.zipCode.trim() || totalPaid < handlingFeePaid) {
-      alert('Add at least one stock, complete the shipping address, and make sure total paid covers the handling fee.');
+    if (!selectedItems.length || !manualOrderData.shippingMethod || !manualOrderData.city.trim() || !manualOrderData.province.trim() || !/^\d{4}$/.test(manualOrderData.zipCode.trim()) || totalPaid < handlingFeePaid) {
+      alert('Add at least one stock, complete the city/province/4-digit ZIP address, and make sure total paid covers the handling fee.');
       return;
     }
     if (legacyBranchRequired && !manualOrderData.branch.trim()) {
@@ -3084,7 +3149,7 @@ export default function Orders() {
 
                 <aside className="space-y-5">
                   <section className="rounded-2xl border border-black/10 p-5 dark:border-white/10"><h3 className="mb-4 text-[12px] font-black uppercase tracking-widest opacity-45">Shipping</h3><div className="space-y-3"><select required value={manualOrderData.shippingMethod} onChange={(event) => setManualOrderData(prev => ({ ...prev, shippingMethod: event.target.value, shippingSuboption: '', branch: '' }))} className="w-full rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10"><option value="">Select shipping option</option>{legacyShippingOptions.map(method => <option key={method} value={method}>{method}</option>)}</select>{legacySuboptions.length > 0 && <select required value={manualOrderData.shippingSuboption} onChange={(event) => setManualOrderData(prev => ({ ...prev, shippingSuboption: event.target.value, branch: '' }))} className="w-full rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10"><option value="">Select suboption</option>{legacySuboptions.map(([key, config]) => <option key={key} value={key}>{config.label || key}</option>)}</select>}</div></section>
-                  <section className="rounded-2xl border border-black/10 p-5 dark:border-white/10"><h3 className="mb-4 text-[12px] font-black uppercase tracking-widest opacity-45">Delivery address</h3><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">{legacyBranchRequired && <input required value={manualOrderData.branch} onChange={(event) => setManualOrderData(prev => ({ ...prev, branch: event.target.value }))} placeholder="BRANCH" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" />}<input required value={manualOrderData.city} onChange={(event) => setManualOrderData(prev => ({ ...prev, city: event.target.value }))} placeholder="CITY" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /><input required value={manualOrderData.province} onChange={(event) => setManualOrderData(prev => ({ ...prev, province: event.target.value }))} placeholder="PROVINCE" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /><input required inputMode="numeric" value={manualOrderData.zipCode} onChange={(event) => setManualOrderData(prev => ({ ...prev, zipCode: event.target.value }))} placeholder="ZIP CODE" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /></div></section>
+                  <section className="rounded-2xl border border-black/10 p-5 dark:border-white/10"><h3 className="mb-4 text-[12px] font-black uppercase tracking-widest opacity-45">Delivery address</h3><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">{legacyBranchRequired && <input required value={manualOrderData.branch} onChange={(event) => setManualOrderData(prev => ({ ...prev, branch: event.target.value }))} placeholder="BRANCH" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" />}<input required value={manualOrderData.city} onChange={(event) => handleLegacyLocationChange('city', event.target.value)} placeholder="CITY / TOWN" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /><input required value={manualOrderData.province} onChange={(event) => handleLegacyLocationChange('province', event.target.value)} placeholder="PROVINCE" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /><input required inputMode="numeric" pattern="[0-9]{4}" maxLength={4} value={manualOrderData.zipCode} onChange={handleLegacyZipCodeChange} placeholder="ZIP CODE" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /></div><p className="mt-3 text-[10px] font-bold uppercase tracking-wider opacity-45">Enter the city/town and province to generate the ZIP code, or enter a 4-digit ZIP code to fill them automatically.</p></section>
                   <section className="rounded-2xl border border-blue-500/20 bg-blue-500/[0.04] p-5"><h3 className="mb-4 text-[12px] font-black uppercase tracking-widest text-blue-600">Payment summary</h3><label className="mb-3 block text-[10px] font-black uppercase tracking-widest opacity-45">Total paid by buyer<input required min="0" type="number" value={manualOrderData.buyerPaid} onChange={(event) => setManualOrderData(prev => ({ ...prev, buyerPaid: event.target.value }))} className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-3 text-[14px] font-black text-neutral-950 dark:border-white/10 dark:bg-black/20 dark:text-white" /></label><div className="rounded-xl border border-blue-500/15 bg-blue-500/[0.04] p-3"><div className="flex items-center justify-between gap-3"><span className="text-[10px] font-black uppercase tracking-widest opacity-55">Detected handling fee</span><span className="text-[14px] font-black text-blue-600">₱{legacyHandlingFee.toLocaleString()}</span></div><p className="mt-1 text-[9px] font-bold uppercase tracking-wider opacity-45">Based on the selected shipping method and suboption</p></div><div className="mt-3 flex items-center justify-between"><span className="text-[10px] font-black uppercase tracking-widest opacity-55">Cash transfer fee</span><span className="text-[12px] font-black text-emerald-600 dark:text-emerald-400">₱0 · Not charged</span></div><div className="mt-4 flex items-center justify-between border-t border-blue-500/15 pt-4"><span className="text-[10px] font-black uppercase tracking-widest opacity-55">Distributed to items</span><span className="text-[18px] font-black text-blue-600">₱{legacyItemTotal.toLocaleString()}</span></div><p className="mt-3 text-[10px] font-bold leading-relaxed opacity-50">Total paid minus the detected handling fee is proportionally saved as the selected stocks’ legacy sell price. Legacy orders use cash payment and do not add a cash transfer fee.</p></section>
                 </aside>
               </div>

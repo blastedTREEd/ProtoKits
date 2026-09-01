@@ -11,6 +11,10 @@ import { useNavigate } from 'react-router-dom';
 import { FcGoogle } from 'react-icons/fc';
 import { useStore } from '../../store/useStore';
 import { getCheckoutPaymentFees, shouldChargeHandlingFee } from '../../utils/paymentSettings';
+import {
+  lookupPhilippineAddressByZipCode,
+  lookupPhilippineZipCodeByCityAndProvince
+} from '../../utils/philippineAddress';
 import { useTheme } from '../../context/ThemeContext';
 import { auth, db, googleProvider } from '../../firebase/firebase';
 import { doc, deleteDoc } from 'firebase/firestore';
@@ -2158,18 +2162,16 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       const updatedData = { ...deliveryDataRef.current };
 
       // 1. ZIP -> City/Province Lookup
-      if (updatedData.zipCode?.length === 4 && (!updatedData.city || !updatedData.province)) {
+      if (updatedData.zipCode?.length === 4) {
         console.log("Triggering ZIP -> City/Province lookup for:", updatedData.zipCode);
         try {
-          const res = await fetch(`https://nominatim.openstreetmap.org/search?postalcode=${updatedData.zipCode}&country=Philippines&format=json&addressdetails=1`);
-          const data = await res.json();
-          if (data && data.length > 0) {
-            const addr = data[0].address;
-            updatedData.city = addr.city || addr.town || addr.municipality || addr.village || updatedData.city;
-            updatedData.province = addr.state || addr.region || updatedData.province;
+          const result = await lookupPhilippineAddressByZipCode(updatedData.zipCode);
+          if (result) {
+            updatedData.city = result.city || updatedData.city;
+            updatedData.province = result.province || updatedData.province;
             if (!addressStatus.isPinConfirmed) {
-              updatedData.lat = parseFloat(data[0].lat);
-              updatedData.lng = parseFloat(data[0].lon);
+              updatedData.lat = result.lat;
+              updatedData.lng = result.lng;
             }
             hasChanges = true;
             console.log("ZIP -> City/Province updated:", updatedData.city, updatedData.province);
@@ -2180,20 +2182,15 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       else if (!updatedData.zipCode && updatedData.city?.length > 2 && updatedData.province?.length > 2) {
         console.log("Triggering Location -> ZIP lookup for:", updatedData.barangay, updatedData.city, updatedData.province);
         try {
-          // Include barangay in query if available
-          const query = `${updatedData.barangay ? updatedData.barangay + ', ' : ''}${updatedData.city}, ${updatedData.province}, Philippines`;
-          const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&addressdetails=1&limit=5`);
-          const data = await res.json();
-          
-          console.log("Location -> ZIP response:", data);
-          
-          const resultWithZip = data.find(item => item.address && item.address.postcode && item.address.postcode.length === 4);
-          
-          if (resultWithZip) {
-            updatedData.zipCode = resultWithZip.address.postcode;
+          const zipCode = await lookupPhilippineZipCodeByCityAndProvince(updatedData.city, updatedData.province);
+          if (zipCode) {
+            updatedData.zipCode = zipCode;
             if (!addressStatus.isPinConfirmed) {
-              updatedData.lat = parseFloat(resultWithZip.lat);
-              updatedData.lng = parseFloat(resultWithZip.lon);
+              const result = await lookupPhilippineAddressByZipCode(zipCode);
+              if (result) {
+                updatedData.lat = result.lat;
+                updatedData.lng = result.lng;
+              }
             }
             hasChanges = true;
             console.log("Location -> ZIP updated:", updatedData.zipCode);
