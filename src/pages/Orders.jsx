@@ -35,6 +35,68 @@ function resolveImage(idOrUrl, imagesArray) {
   return match?.url || '';
 }
 
+const hasRecordedAmount = (value) => value !== undefined && value !== null && value !== '' && Number.isFinite(Number(value));
+
+const getLegacyItemCapital = (item, kits) => {
+  const quantity = Math.max(1, Number(item?.quantity) || 1);
+  const kit = (kits || []).find((candidate) => String(candidate?.id) === String(item?.kitId || item?.id));
+  const stock = kit?.stocks?.[item?.stockKey];
+  const rawCost = stock?.costPrice ?? item?.costPrice ?? kit?.costPrice;
+
+  return {
+    amount: hasRecordedAmount(rawCost) ? Math.max(0, Number(rawCost)) * quantity : 0,
+    known: hasRecordedAmount(rawCost)
+  };
+};
+
+const calculateLegacyFinancials = (revenue, items, kits) => {
+  const normalizedItems = Array.isArray(items) ? items : [];
+  const itemCapital = normalizedItems.map((item) => getLegacyItemCapital(item, kits));
+  const hasCostData = normalizedItems.length > 0 && itemCapital.every(({ known }) => known);
+  const transactionRevenue = Math.max(0, Number(revenue) || 0);
+  const capitalCost = itemCapital.reduce((sum, item) => sum + item.amount, 0);
+
+  return {
+    available: hasCostData,
+    revenue: transactionRevenue,
+    capitalCost: hasCostData ? capitalCost : null,
+    capitalRegained: hasCostData ? Math.min(transactionRevenue, capitalCost) : null,
+    profit: hasCostData ? transactionRevenue - capitalCost : null
+  };
+};
+
+const getLegacyOrderItems = (order) => {
+  if (Array.isArray(order?.items) && order.items.length > 0) return order.items;
+  if (!order?.kitId && !order?.selectedKitId) return [];
+
+  return [{
+    id: order.selectedKitId || order.kitId,
+    stockKey: order.selectedStockKey,
+    costPrice: order.costPrice,
+    quantity: order.quantity || 1
+  }];
+};
+
+const getLegacyOrderFinancials = (order, kits) => {
+  if (!order?.legacyOrder && order?.orderSource !== 'legacy') return null;
+
+  const revenue = order.buyerPaid ?? order.totalPrice ?? order.price;
+  const storedCapitalCost = order.legacyCapitalCost;
+  if (order.legacyFinancialsAvailable === true && hasRecordedAmount(storedCapitalCost)) {
+    const capitalCost = Math.max(0, Number(storedCapitalCost));
+    const transactionRevenue = Math.max(0, Number(revenue) || 0);
+    return {
+      available: true,
+      revenue: transactionRevenue,
+      capitalCost,
+      capitalRegained: Math.min(transactionRevenue, capitalCost),
+      profit: transactionRevenue - capitalCost
+    };
+  }
+
+  return calculateLegacyFinancials(revenue, getLegacyOrderItems(order), kits);
+};
+
 function createPaymentReviewId() {
   return globalThis.crypto?.randomUUID?.()
     || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -869,6 +931,9 @@ export default function Orders() {
     return Math.max(0, Number(configuredFee) || 0);
   }, [manualOrderData.shippingMethod, manualOrderData.shippingSuboption, shippingSettings]);
   const legacyItemTotal = Math.max(0, Number(manualOrderData.buyerPaid || 0) - legacyHandlingFee);
+  const legacyFinancials = useMemo(() => (
+    calculateLegacyFinancials(Number(manualOrderData.buyerPaid || 0), manualOrderData.selectedItems, kits)
+  ), [kits, manualOrderData.buyerPaid, manualOrderData.selectedItems]);
   // Retained only while the former compact manual-order markup remains disabled below.
   const availableStocks = [];
 
@@ -1113,6 +1178,10 @@ export default function Orders() {
       remaining -= allocatedPrice;
       return { ...entry, allocatedPrice };
     });
+    const transactionFinancials = calculateLegacyFinancials(totalPaid, allocatedItems.map(({ stock, ...entry }) => ({
+      ...entry,
+      costPrice: stock.costPrice
+    })), kits);
 
     const orderId = `#LG-${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 90 + 10)}`;
     const suboption = legacyShippingConfig?.suboptions?.[manualOrderData.shippingSuboption];
@@ -1132,6 +1201,7 @@ export default function Orders() {
         price: allocatedPrice,
         sellPrice: allocatedPrice,
         originalSellPrice: originalPrice,
+        costPrice: hasRecordedAmount(stock.costPrice) ? Math.max(0, Number(stock.costPrice)) : null,
         quantity: 1,
         image: kit.image || null,
         images: kit.images || null,
@@ -1164,6 +1234,10 @@ export default function Orders() {
       handlingFee: handlingFeePaid,
       installmentFee: 0,
       transferFee: 0,
+      legacyFinancialsAvailable: transactionFinancials.available,
+      legacyCapitalCost: transactionFinancials.capitalCost,
+      legacyCapitalRegained: transactionFinancials.capitalRegained,
+      legacyProfit: transactionFinancials.profit,
       date: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
       createdAt: createdTime
     };
@@ -1649,6 +1723,7 @@ export default function Orders() {
   );
   const selectedLogistics = selectedOrder ? getBuyerAddressDetails(selectedOrder) : {};
   const selectedTotals = selectedOrder ? getOrderTotals(selectedOrder) : {};
+  const selectedLegacyFinancials = selectedOrder ? getLegacyOrderFinancials(selectedOrder, kits) : null;
   const hasStlWithDesignService = selectedOrder?.items?.some(item => 
     item.type === 'project' && 
     item.projectData?.method?.name?.toUpperCase() === 'STL' && 
@@ -2500,6 +2575,29 @@ export default function Orders() {
                 <span>₱{selectedTotals.balance.toLocaleString()}</span>
               </div>
             ) : null}
+
+            {selectedLegacyFinancials && (
+              <div className="mt-4 rounded-2xl border border-blue-500/15 bg-blue-500/[0.04] p-4">
+                <h4 className="mb-3 text-[10px] font-black uppercase tracking-widest text-blue-600">Legacy payment summary</h4>
+                {selectedLegacyFinancials.available ? (
+                  <div className="grid grid-cols-2 gap-3 text-[11px] font-black uppercase tracking-wider">
+                    <div>
+                      <span className="block opacity-45">Capital regained</span>
+                      <span className="mt-1 block text-violet-600 dark:text-violet-400">₱{selectedLegacyFinancials.capitalRegained.toLocaleString()}</span>
+                    </div>
+                    <div>
+                      <span className="block opacity-45">Profit / loss</span>
+                      <span className={`mt-1 block ${selectedLegacyFinancials.profit < 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                        {selectedLegacyFinancials.profit < 0 ? '-₱' : '₱'}{Math.abs(selectedLegacyFinancials.profit).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-[10px] font-bold leading-relaxed opacity-50">Profit and capital are unavailable because this legacy order has no recorded stock cost.</p>
+                )}
+                <p className="mt-3 text-[10px] font-bold leading-relaxed opacity-50">Uses the buyer-paid amount and recorded stock capital. Handling is included in legacy transaction proceeds.</p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -3152,7 +3250,31 @@ export default function Orders() {
                 <aside className="space-y-5">
                   <section className="rounded-2xl border border-black/10 p-5 dark:border-white/10"><h3 className="mb-4 text-[12px] font-black uppercase tracking-widest opacity-45">Shipping</h3><div className="space-y-3"><select required value={manualOrderData.shippingMethod} onChange={(event) => setManualOrderData(prev => ({ ...prev, shippingMethod: event.target.value, shippingSuboption: '', branch: '' }))} className="w-full rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10"><option value="">Select shipping option</option>{legacyShippingOptions.map(method => <option key={method} value={method}>{method}</option>)}</select>{legacySuboptions.length > 0 && <select required value={manualOrderData.shippingSuboption} onChange={(event) => setManualOrderData(prev => ({ ...prev, shippingSuboption: event.target.value, branch: '' }))} className="w-full rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10"><option value="">Select suboption</option>{legacySuboptions.map(([key, config]) => <option key={key} value={key}>{config.label || key}</option>)}</select>}</div></section>
                   <section className="rounded-2xl border border-black/10 p-5 dark:border-white/10"><h3 className="mb-4 text-[12px] font-black uppercase tracking-widest opacity-45">Delivery address</h3><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">{legacyBranchRequired && <input required value={manualOrderData.branch} onChange={(event) => setManualOrderData(prev => ({ ...prev, branch: event.target.value }))} placeholder="BRANCH" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" />}<input required value={manualOrderData.city} onChange={(event) => handleLegacyLocationChange('city', event.target.value)} placeholder="CITY / TOWN" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /><input required value={manualOrderData.province} onChange={(event) => handleLegacyLocationChange('province', event.target.value)} placeholder="PROVINCE" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /><input required inputMode="numeric" pattern="[0-9]{4}" maxLength={4} value={manualOrderData.zipCode} onChange={handleLegacyZipCodeChange} placeholder="ZIP CODE" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /></div><p className="mt-3 text-[10px] font-bold uppercase tracking-wider opacity-45">Enter the city/town and province to generate the ZIP code, or enter a 4-digit ZIP code to fill them automatically.</p></section>
-                  <section className="rounded-2xl border border-blue-500/20 bg-blue-500/[0.04] p-5"><h3 className="mb-4 text-[12px] font-black uppercase tracking-widest text-blue-600">Payment summary</h3><label className="mb-3 block text-[10px] font-black uppercase tracking-widest opacity-45">Total paid by buyer<input required min="0" type="number" value={manualOrderData.buyerPaid} onChange={(event) => setManualOrderData(prev => ({ ...prev, buyerPaid: event.target.value }))} className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-3 text-[14px] font-black text-neutral-950 dark:border-white/10 dark:bg-black/20 dark:text-white" /></label><div className="rounded-xl border border-blue-500/15 bg-blue-500/[0.04] p-3"><div className="flex items-center justify-between gap-3"><span className="text-[10px] font-black uppercase tracking-widest opacity-55">Detected handling fee</span><span className="text-[14px] font-black text-blue-600">₱{legacyHandlingFee.toLocaleString()}</span></div><p className="mt-1 text-[9px] font-bold uppercase tracking-wider opacity-45">Based on the selected shipping method and suboption</p></div><div className="mt-3 flex items-center justify-between"><span className="text-[10px] font-black uppercase tracking-widest opacity-55">Cash transfer fee</span><span className="text-[12px] font-black text-emerald-600 dark:text-emerald-400">₱0 · Not charged</span></div><div className="mt-4 flex items-center justify-between border-t border-blue-500/15 pt-4"><span className="text-[10px] font-black uppercase tracking-widest opacity-55">Distributed to items</span><span className="text-[18px] font-black text-blue-600">₱{legacyItemTotal.toLocaleString()}</span></div><p className="mt-3 text-[10px] font-bold leading-relaxed opacity-50">Total paid minus the detected handling fee is proportionally saved as the selected stocks’ legacy sell price. Legacy orders use cash payment and do not add a cash transfer fee.</p></section>
+                  <section className="rounded-2xl border border-blue-500/20 bg-blue-500/[0.04] p-5">
+                    <h3 className="mb-4 text-[12px] font-black uppercase tracking-widest text-blue-600">Payment summary</h3>
+                    <label className="mb-3 block text-[10px] font-black uppercase tracking-widest opacity-45">
+                      Total paid by buyer
+                      <input required min="0" type="number" value={manualOrderData.buyerPaid} onChange={(event) => setManualOrderData(prev => ({ ...prev, buyerPaid: event.target.value }))} className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-3 text-[14px] font-black text-neutral-950 dark:border-white/10 dark:bg-black/20 dark:text-white" />
+                    </label>
+                    <div className="rounded-xl border border-blue-500/15 bg-blue-500/[0.04] p-3">
+                      <div className="flex items-center justify-between gap-3"><span className="text-[10px] font-black uppercase tracking-widest opacity-55">Detected handling fee</span><span className="text-[14px] font-black text-blue-600">₱{legacyHandlingFee.toLocaleString()}</span></div>
+                      <p className="mt-1 text-[9px] font-bold uppercase tracking-wider opacity-45">Based on the selected shipping method and suboption</p>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between"><span className="text-[10px] font-black uppercase tracking-widest opacity-55">Cash transfer fee</span><span className="text-[12px] font-black text-emerald-600 dark:text-emerald-400">₱0 · Not charged</span></div>
+                    <div className="mt-4 flex items-center justify-between border-t border-blue-500/15 pt-4"><span className="text-[10px] font-black uppercase tracking-widest opacity-55">Distributed to items</span><span className="text-[18px] font-black text-blue-600">₱{legacyItemTotal.toLocaleString()}</span></div>
+                    <div className="mt-4 grid gap-2 border-t border-blue-500/15 pt-4 sm:grid-cols-2">
+                      <div className="rounded-xl border border-violet-500/15 bg-violet-500/[0.06] p-3">
+                        <span className="block text-[9px] font-black uppercase tracking-widest opacity-55">Capital regained</span>
+                        <span className="mt-1 block text-[16px] font-black text-violet-600 dark:text-violet-400">{legacyFinancials.available ? `₱${legacyFinancials.capitalRegained.toLocaleString()}` : '—'}</span>
+                      </div>
+                      <div className={`rounded-xl border p-3 ${legacyFinancials.available && legacyFinancials.profit < 0 ? 'border-red-500/15 bg-red-500/[0.06]' : 'border-emerald-500/15 bg-emerald-500/[0.06]'}`}>
+                        <span className="block text-[9px] font-black uppercase tracking-widest opacity-55">Profit / loss</span>
+                        <span className={`mt-1 block text-[16px] font-black ${legacyFinancials.available && legacyFinancials.profit < 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{legacyFinancials.available ? `${legacyFinancials.profit < 0 ? '-₱' : '₱'}${Math.abs(legacyFinancials.profit).toLocaleString()}` : '—'}</span>
+                      </div>
+                    </div>
+                    <p className="mt-3 text-[10px] font-bold leading-relaxed opacity-50">Capital regained is the portion of the buyer payment that covers recorded stock cost. Profit/loss is buyer-paid minus stock capital; handling is included in legacy transaction proceeds. Values appear once selected stocks have recorded costs.</p>
+                    <p className="mt-2 text-[10px] font-bold leading-relaxed opacity-50">Total paid minus the detected handling fee is proportionally saved as the selected stocks’ legacy sell price. Legacy orders use cash payment and do not add a cash transfer fee.</p>
+                  </section>
                 </aside>
               </div>
               <footer className="absolute inset-x-0 bottom-0 z-10 border-t border-black/5 bg-white/95 px-5 py-3 backdrop-blur dark:border-white/5 dark:bg-[#0a0a0a]/95 sm:px-8 lg:px-12"><div className="mx-auto flex max-w-7xl items-center justify-between gap-4"><button type="button" onClick={() => setShowManualOrderModal(false)} className="text-[11px] font-black uppercase tracking-widest opacity-50">Cancel</button><button type="submit" className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-[11px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-700 active:scale-95"><ArrowRight size={16} /> Create legacy order</button></div></footer>
