@@ -47,6 +47,16 @@ function formatStoryDate(value) {
   });
 }
 
+function getStoryDestination(story) {
+  return story?.destination || [story?.city || story?.town, story?.province].filter(Boolean).join(', ');
+}
+
+function getStoryItems(items) {
+  if (Array.isArray(items)) return items.filter(Boolean);
+  const value = String(items || '').trim();
+  return value ? value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean) : [];
+}
+
 export default function Stories({ isCompact, hideImmediately = false, hideAnimatedCards = false }) {
   // Kunin ang actual data mula sa Zustand store (DB)
   const { stories, kits, blueprints, isAdmin, isAdminView, setStoriesHeight } = useStore();
@@ -159,7 +169,7 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
         id: `story:${story.id}`,
         type: 'story',
         targetId: story.id,
-        image: story.image || story.backgroundImage || '/snorlaxgarage.png',
+        image: story.backgroundImage || story.image || '/snorlaxgarage.png',
         label: story.label || 'Garage Story',
         story
       }));
@@ -691,23 +701,25 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
                     {activeStory.description}
                   </p>
                 )}
-                {(activeStory.destination || activeStory.items) && (
+                {(getStoryDestination(activeStory) || getStoryItems(activeStory.items).length > 0) && (
                   <dl className="mt-4 space-y-3 border-t border-white/20 pt-4 md:border-black/10 md:dark:border-white/10">
-                    {activeStory.destination && (
+                    {getStoryDestination(activeStory) && (
                       <div className="flex items-start gap-3">
                         <MapPin size={16} className="mt-0.5 shrink-0 text-garage-blue" />
                         <div className="min-w-0">
                           <dt className="text-[9px] font-black uppercase tracking-[0.18em] text-white/50 md:text-neutral-400 md:dark:text-white/50">Destination</dt>
-                          <dd className="mt-0.5 text-sm font-semibold leading-snug text-white md:text-neutral-700 md:dark:text-white">{activeStory.destination}</dd>
+                          <dd className="mt-0.5 text-sm font-semibold leading-snug text-white md:text-neutral-700 md:dark:text-white">{getStoryDestination(activeStory)}</dd>
                         </div>
                       </div>
                     )}
-                    {activeStory.items && (
+                    {getStoryItems(activeStory.items).length > 0 && (
                       <div className="flex items-start gap-3">
                         <Package size={16} className="mt-0.5 shrink-0 text-garage-blue" />
                         <div className="min-w-0">
                           <dt className="text-[9px] font-black uppercase tracking-[0.18em] text-white/50 md:text-neutral-400 md:dark:text-white/50">Items</dt>
-                          <dd className="mt-0.5 text-sm font-semibold leading-snug text-white md:text-neutral-700 md:dark:text-white">{activeStory.items}</dd>
+                          <dd className="mt-0.5 space-y-1 text-sm font-semibold leading-snug text-white md:text-neutral-700 md:dark:text-white">
+                            {getStoryItems(activeStory.items).map((item, index) => <div key={`${item}-${index}`}>{item}</div>)}
+                          </dd>
                         </div>
                       </div>
                     )}

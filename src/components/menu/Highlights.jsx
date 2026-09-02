@@ -28,6 +28,11 @@ function getStoryImage(story) {
   return story.backgroundImage || story.image || story.stickers?.find((sticker) => sticker.src)?.src || '';
 }
 
+function getStoryDestination(story) {
+  const structuredDestination = [story?.city || story?.town, story?.province].filter(Boolean).join(', ');
+  return structuredDestination || String(story?.destination || '').trim();
+}
+
 export default function Highlights() {
   const stories = useStore((state) => state.stories);
   const isAdmin = useStore((state) => state.isAdmin);
@@ -327,7 +332,7 @@ export default function Highlights() {
                 const isSelected = selectedStoryIds.has(story.id);
                 const storyLabel = story.label || 'Untitled garage story';
                 const storyDateLabel = formatStoryDate(story.storyDate || story.createdAt || story.lastUpdated);
-                const storyDestination = String(story.destination || '').trim() || 'Garage Story';
+                const storyDestination = getStoryDestination(story) || 'Garage Story';
 
                 return (
                   <div

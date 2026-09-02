@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Maximize2, X, Plus, Upload, Image as ImageIcon, Loader2, Save, RotateCw, ZoomIn, BookImage, VenetianMask, Type as TypeOutline, Palette, ALargeSmall, BookOpen, Book, Hand, ChevronLeft, Calendar } from 'lucide-react';
+import { Maximize2, X, Plus, Upload, Image as ImageIcon, Loader2, Save, RotateCw, ZoomIn, BookImage, VenetianMask, Type as TypeOutline, Palette, ALargeSmall, BookOpen, Book, Hand, ChevronLeft, Calendar, Building2, MapPin } from 'lucide-react';
 import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
@@ -25,6 +25,65 @@ function getCurrentLocalDateTime() {
 
 function getStoryBackgroundImage(story) {
   return story?.backgroundImage || story?.image || '';
+}
+
+function normalizeStoryItems(items) {
+  if (Array.isArray(items)) {
+    const normalized = items.map((item) => String(item || '').trim());
+    return normalized.length > 0 ? normalized : [''];
+  }
+
+  const value = String(items || '').trim();
+  return value ? value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean) : [''];
+}
+
+function normalizeStoryLocation(story) {
+  const city = String(story?.city || story?.town || story?.cityTown || '').trim();
+  const province = String(story?.province || '').trim();
+  if (city || province) return { city, province };
+
+  const destination = String(story?.destination || '').trim();
+  const [legacyCity = '', ...legacyProvince] = destination.split(',');
+  return {
+    city: legacyCity.trim(),
+    province: legacyProvince.join(',').trim()
+  };
+}
+
+function normalizeStorySticker(sticker, index) {
+  return {
+    id: sticker?.id || `sticker-${index}`,
+    src: String(sticker?.src || ''),
+    scale: Number.isFinite(Number(sticker?.scale)) ? Number(sticker.scale) : 1,
+    rotation: Number.isFinite(Number(sticker?.rotation)) ? Number(sticker.rotation) : 0,
+    position: {
+      x: Number.isFinite(Number(sticker?.position?.x)) ? Number(sticker.position.x) : 0,
+      y: Number.isFinite(Number(sticker?.position?.y)) ? Number(sticker.position.y) : 0
+    },
+    zoom: Number.isFinite(Number(sticker?.zoom)) ? Number(sticker.zoom) : 1,
+    imageOffset: {
+      x: Number.isFinite(Number(sticker?.imageOffset?.x)) ? Number(sticker.imageOffset.x) : 0,
+      y: Number.isFinite(Number(sticker?.imageOffset?.y)) ? Number(sticker.imageOffset.y) : 0
+    },
+    type: sticker?.type === 'mask' ? 'mask' : 'polaroid'
+  };
+}
+
+function normalizeStoryText(text, index) {
+  return {
+    id: text?.id || `text-${index}`,
+    text: String(text?.text || ''),
+    color: String(text?.color || '#ffffff'),
+    fontSize: Number.isFinite(Number(text?.fontSize)) ? Number(text.fontSize) : 12,
+    fontFamily: String(text?.fontFamily || 'sans-serif'),
+    fontWeight: String(text?.fontWeight || 'bold'),
+    rotation: Number.isFinite(Number(text?.rotation)) ? Number(text.rotation) : 0,
+    scale: Number.isFinite(Number(text?.scale)) ? Number(text.scale) : 1,
+    position: {
+      x: Number.isFinite(Number(text?.position?.x)) ? Number(text.position.x) : 0,
+      y: Number.isFinite(Number(text?.position?.y)) ? Number(text.position.y) : 0
+    }
+  };
 }
 
 async function compressImage(dataUrl, maxWidth = STORY_BACKGROUND_MAX_SIZE, quality = STORY_IMAGE_QUALITY) {
@@ -78,8 +137,9 @@ export default function StoryEditorModal({ isOpen, onClose }) {
   // Form states
   const [label, setLabel] = useState('');
   const [description, setDescription] = useState('');
-  const [destination, setDestination] = useState('');
-  const [items, setItems] = useState('');
+  const [city, setCity] = useState('');
+  const [province, setProvince] = useState('');
+  const [items, setItems] = useState(['']);
   const [storyDate, setStoryDate] = useState(() => getCurrentLocalDateTime());
   const [value, setValue] = useState(() => getRandomStoryColor()); // Glow color used by story cards
   const [isSavingDraft, setIsSavingDraft] = useState(false);
@@ -872,8 +932,9 @@ const handleBgPointerDown = (e) => {
     setEditingStory(null);
     setLabel('');
     setDescription('');
-    setDestination('');
-    setItems('');
+    setCity('');
+    setProvince('');
+    setItems(['']);
     setStoryDate(getCurrentLocalDateTime());
     setValue(getRandomStoryColor());
     setBackgroundImage('');
@@ -899,8 +960,10 @@ const handleBgPointerDown = (e) => {
     setEditingStory(story);
     setLabel(story.label || '');
     setDescription(story.description || '');
-    setDestination(story.destination || '');
-    setItems(story.items || '');
+    const location = normalizeStoryLocation(story);
+    setCity(location.city);
+    setProvince(location.province);
+    setItems(normalizeStoryItems(story.items));
     setStoryDate(story.storyDate || getCurrentLocalDateTime());
     setValue(story.value || getRandomStoryColor());
     
@@ -910,11 +973,13 @@ const handleBgPointerDown = (e) => {
     setBgOffset(story.bgOffset || { x: 0, y: 0 });
     setBgImageSize(story.bgImageSize || null);
     setIsBgSelected(false);
-    setStickers(story.stickers || []);
-    setTexts(story.texts || []);
+    const normalizedStickers = (story.stickers || []).map(normalizeStorySticker).filter((sticker) => sticker.src);
+    const normalizedTexts = (story.texts || []).map(normalizeStoryText);
+    setStickers(normalizedStickers);
+    setTexts(normalizedTexts);
     
-    setSelectedStickerIndex(story.stickers?.length > 0 ? 0 : null);
-    setSelectedTextIndex(story.texts?.length > 0 ? 0 : null);
+    setSelectedStickerIndex(normalizedStickers.length > 0 ? 0 : null);
+    setSelectedTextIndex(normalizedTexts.length > 0 ? 0 : null);
     setActiveDesktopTool(null);
     setShowColorPaletteIdx(null);
     setEditorView('canvas');
@@ -941,8 +1006,10 @@ const handleBgPointerDown = (e) => {
   const storyPayload = useMemo(() => ({
     label: label.trim(),
     description: description.trim(),
-    destination: destination.trim(),
-    items: items.trim(),
+    city: city.trim(),
+    province: province.trim(),
+    destination: [city.trim(), province.trim()].filter(Boolean).join(', '),
+    items: items.map((item) => item.trim()).filter(Boolean),
     storyDate: storyDate || getCurrentLocalDateTime(),
     value,
     backgroundImage,
@@ -950,9 +1017,9 @@ const handleBgPointerDown = (e) => {
     bgZoom,
     bgRotation,
     bgOffset,
-    stickers,
-    texts
-  }), [label, description, destination, items, storyDate, value, backgroundImage, bgImageSize, bgZoom, bgRotation, bgOffset, stickers, texts]);
+    stickers: stickers.map(normalizeStorySticker),
+    texts: texts.map(normalizeStoryText)
+  }), [label, description, city, province, items, storyDate, value, backgroundImage, bgImageSize, bgZoom, bgRotation, bgOffset, stickers, texts]);
 
   const estimatedStorySize = useMemo(() => {
     try {
@@ -1040,6 +1107,23 @@ const handleBgPointerDown = (e) => {
     setSelectedTextIndex(texts.length); 
     setSelectedStickerIndex(null); 
     setActiveDesktopTool(null);
+  };
+
+  const updateStoryItem = (index, value) => {
+    setItems((previousItems) => previousItems.map((item, itemIndex) => (
+      itemIndex === index ? value : item
+    )));
+  };
+
+  const addStoryItem = () => {
+    setItems((previousItems) => [...previousItems, '']);
+  };
+
+  const removeStoryItem = (index) => {
+    setItems((previousItems) => {
+      const nextItems = previousItems.filter((_, itemIndex) => itemIndex !== index);
+      return nextItems.length > 0 ? nextItems : [''];
+    });
   };
 
 const handleSave = async (e, isPublish) => { // Gawin nating explicit boolean ang isPublish
@@ -1170,27 +1254,32 @@ const renderEditorFormButtons = () => (
     className="pointer-events-auto relative flex h-full min-h-0 w-full flex-col overflow-hidden border-x border-t bg-white text-neutral-900 shadow-2xl dark:border-white/5 dark:bg-neutral-900 dark:text-white lg:h-auto lg:max-h-[95vh] lg:max-w-5xl lg:rounded-[2.5rem] lg:border lg:p-5"
   >
 
-            {/* MOBILE STICKY/ABSOLUTE HEADER */}
-            <div className={`${isSplitLayout ? 'hidden' : 'sticky'} top-0 z-[220] w-full h-0 overflow-visible`}>
-              <div className="absolute top-4 left-4 flex justify-start items-center">
-                  <button 
-                    type="button" 
-                    onClick={(e) => { e.stopPropagation(); setEditorView((view) => (view === 'canvas' ? 'details' : 'canvas')); }} 
-                    className="p-2 rounded-full backdrop-blur-md border transition-all shadow-lg bg-black/25 text-white border-white/10 hover:bg-black/40 z-[250]"
-                  >
-                    {editorView === 'canvas' ? <BookOpen size={20} /> : <Book size={20} />}
-                  </button>
+            {/* MOBILE HEADER */}
+            <div className={`${isSplitLayout ? 'hidden' : 'flex'} sticky top-0 z-[220] min-h-[76px] w-full shrink-0 items-center gap-3 border-b border-neutral-100 bg-white px-4 py-3 dark:border-white/5 dark:bg-neutral-900`}>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setEditorView((view) => (view === 'canvas' ? 'details' : 'canvas')); }}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-neutral-200 bg-neutral-50 text-neutral-700 shadow-sm transition-colors hover:border-garage-blue hover:text-garage-blue dark:border-white/10 dark:bg-white/5 dark:text-white"
+                aria-label={editorView === 'canvas' ? 'Show story details' : 'Show story canvas'}
+              >
+                {editorView === 'canvas' ? <BookOpen size={20} /> : <Book size={20} />}
+              </button>
+              <div className="min-w-0 flex-1 text-left">
+                <h2 className="truncate text-xl font-black italic uppercase leading-none tracking-tighter text-neutral-900 dark:text-white">
+                  {mode === 'add' ? 'BUILD STORY' : 'EDIT STORY'}
+                </h2>
+                <span className="mt-1 block truncate text-[8px] font-bold uppercase tracking-widest text-neutral-400">
+                  {mode === 'add' ? 'Upload a background, then add custom layers' : 'Modify background, stickers and texts'}
+                </span>
               </div>
-              <div className="absolute top-4 right-4 flex justify-end items-center">
-                <button 
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); resetForm(); onClose(); }} 
-                  className="p-2 rounded-full backdrop-blur-md border transition-all shadow-lg bg-black/25 text-white border-white/10 hover:bg-black/40 z-[250]"
-                  aria-label="Close story editor"
-                >
-                  <X size={20} />
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); resetForm(); onClose(); }}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-neutral-200 bg-neutral-50 text-neutral-600 shadow-sm transition-colors hover:border-red-500 hover:text-red-500 dark:border-white/10 dark:bg-white/5 dark:text-white"
+                aria-label="Close story editor"
+              >
+                <X size={20} />
+              </button>
             </div>
 
             {/* DESKTOP ABSOLUTE CLOSE BUTTON */}
@@ -1205,7 +1294,7 @@ const renderEditorFormButtons = () => (
               </button>
             </div>
 
-            <div className="flex p-6 pb-4 border-b border-neutral-100 dark:border-white/5 items-center justify-between z-10 shrink-0">
+            <div className={`${isSplitLayout ? 'flex' : 'hidden'} p-6 pb-4 border-b border-neutral-100 dark:border-white/5 items-center justify-between z-10 shrink-0`}>
               <div className="flex flex-col text-left">
                 <h2 className="text-2xl font-black italic uppercase tracking-tighter text-neutral-900 dark:text-white leading-none">
                   {mode === 'add' ? 'BUILD STORY' : 'EDIT STORY'}
@@ -1228,7 +1317,7 @@ const renderEditorFormButtons = () => (
                       style={{ touchAction: 'none' }}
                     >
                       <div className="absolute top-16 md:top-4 right-4 z-[140] flex flex-col gap-2" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
-                        <button type="button" onClick={() => bgFileInputRef.current?.click()} className="w-10 h-10 rounded-full bg-white/95 dark:bg-neutral-900/90 border border-black/10 dark:border-white/10 shadow-lg flex items-center justify-center text-neutral-900 dark:text-white hover:text-garage-blue"><BookImage size={18} /></button>
+                        <button type="button" onClick={() => bgFileInputRef.current?.click()} title={backgroundImage ? 'Replace background image' : 'Upload background image'} aria-label={backgroundImage ? 'Replace background image' : 'Upload background image'} className="w-10 h-10 rounded-full bg-white/95 dark:bg-neutral-900/90 border border-black/10 dark:border-white/10 shadow-lg flex items-center justify-center text-neutral-900 dark:text-white hover:text-garage-blue"><BookImage size={18} /></button>
                         {backgroundImage && (
                           <>
                             <button type="button" onClick={() => { setUploadType('polaroid'); setTimeout(() => stickerFileInputRef.current?.click(), 50); }} className="w-10 h-10 rounded-full bg-white/95 dark:bg-neutral-900/90 border shadow-lg flex items-center justify-center text-emerald-500"><ImageIcon size={18} /></button>
@@ -1428,14 +1517,56 @@ const renderEditorFormButtons = () => (
                         <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="ENTER STORY DESCRIPTION" rows={3} className="w-full p-4 rounded-2xl bg-neutral-50 dark:bg-white/5 border text-xs focus:outline-none focus:border-garage-blue resize-none" maxLength={300} />
                       </div>
 
-                      <div className="space-y-1">
+                      <div className="space-y-2">
                         <label className="text-[10px] font-black uppercase tracking-wider text-neutral-400">Destination</label>
-                        <input type="text" value={destination} onChange={(e) => setDestination(e.target.value)} placeholder="E.G. SANTA ROSA, LAGUNA" className="w-full p-4 rounded-2xl bg-neutral-50 dark:bg-white/5 border text-xs font-semibold focus:outline-none focus:border-garage-blue" maxLength={120} />
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <div className="relative">
+                            <Building2 size={15} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-blue-600" />
+                            <input type="text" value={city} onChange={(e) => setCity(e.target.value)} placeholder="City / Town" className="w-full rounded-2xl border bg-neutral-50 p-4 pl-11 text-xs font-semibold focus:outline-none focus:border-garage-blue dark:bg-white/5" maxLength={80} />
+                          </div>
+                          <div className="relative">
+                            <MapPin size={15} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-blue-600" />
+                            <input type="text" value={province} onChange={(e) => setProvince(e.target.value)} placeholder="Province" className="w-full rounded-2xl border bg-neutral-50 p-4 pl-11 text-xs font-semibold focus:outline-none focus:border-garage-blue dark:bg-white/5" maxLength={80} />
+                          </div>
+                        </div>
                       </div>
 
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-black uppercase tracking-wider text-neutral-400">Items</label>
-                        <input type="text" value={items} onChange={(e) => setItems(e.target.value)} placeholder="E.G. HG GUNDAM VIDAR" className="w-full p-4 rounded-2xl bg-neutral-50 dark:bg-white/5 border text-xs font-semibold focus:outline-none focus:border-garage-blue" maxLength={180} />
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <label className="text-[10px] font-black uppercase tracking-wider text-neutral-400">Kit Items</label>
+                          <button
+                            type="button"
+                            onClick={addStoryItem}
+                            className="inline-flex items-center gap-1 rounded-full border border-blue-500/20 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-widest text-blue-600 transition-colors hover:bg-blue-600 hover:text-white"
+                          >
+                            <Plus size={12} strokeWidth={3} />
+                            Add item
+                          </button>
+                        </div>
+                        <div className="space-y-2">
+                          {items.map((item, index) => (
+                            <div key={`story-item-${index}`} className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                value={item}
+                                onChange={(e) => updateStoryItem(index, e.target.value)}
+                                placeholder={index === 0 ? 'E.G. HG GUNDAM VIDAR' : 'ADD ANOTHER KIT OR ITEM'}
+                                className="w-full rounded-2xl border bg-neutral-50 p-4 text-xs font-semibold focus:outline-none focus:border-garage-blue dark:bg-white/5"
+                                maxLength={120}
+                              />
+                              {items.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeStoryItem(index)}
+                                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-red-500/20 text-red-500 transition-colors hover:bg-red-500 hover:text-white"
+                                  aria-label={`Remove item ${index + 1}`}
+                                >
+                                  <X size={15} />
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
                       </div>
 
                       <div className="space-y-1">

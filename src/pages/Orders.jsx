@@ -2634,7 +2634,9 @@ export default function Orders() {
         ) : (
           <div className="flex-grow max-w-7xl mx-auto w-full p-4 md:p-8 pb-24 md:pb-8">
             {isLoading ? (
-              <LoadingState message="Loading orders..." />
+              <div className="flex min-h-[calc(100dvh-180px)] w-full items-center justify-center sm:min-h-[calc(100dvh-120px)]">
+                <LoadingState message="Loading orders..." className="py-0" />
+              </div>
             ) : (
               <div className="space-y-3">
               {visibleOrders.length === 0 && (

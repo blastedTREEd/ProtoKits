@@ -2061,11 +2061,28 @@ export const useStore = create(
 
       updateStory: async (storyId, patch) => {
         const storyRef = doc(db, "stories", storyId);
-        await updateDoc(storyRef, { ...patch, lastUpdated: serverTimestamp() });
+        const replacesLegacyImage = Boolean(patch?.backgroundImage);
+        const firestorePatch = {
+          ...patch,
+          ...(replacesLegacyImage ? { image: deleteField() } : {}),
+          lastUpdated: serverTimestamp()
+        };
+        // Merge keeps edits resilient when a story was created by an older
+        // client or its local cache no longer has the complete document.
+        await setDoc(storyRef, firestorePatch, { merge: true });
         const lastUpdated = new Date().toISOString();
         set((state) => ({
           stories: (state.stories || []).map((story) =>
-            story.id === storyId ? { ...story, ...patch, id: storyId, lastUpdated } : story
+            story.id === storyId
+              ? {
+                  ...(replacesLegacyImage
+                    ? Object.fromEntries(Object.entries(story).filter(([key]) => key !== 'image'))
+                    : story),
+                  ...patch,
+                  id: storyId,
+                  lastUpdated
+                }
+              : story
           )
         }));
       },
