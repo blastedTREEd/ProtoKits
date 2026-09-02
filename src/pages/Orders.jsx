@@ -497,6 +497,24 @@ export default function Orders() {
   const [isMultiSelectEnabled, setIsMultiSelectEnabled] = useState(false);
   const [expandedOrderItems, setExpandedOrderItems] = useState({});
   const [completedReversalExpiredIds, setCompletedReversalExpiredIds] = useState(() => new Set());
+  const [isMiniNavVisible, setIsMiniNavVisible] = useState(true);
+
+  useEffect(() => {
+    const handleHide = () => setIsMiniNavVisible(false);
+    const handleShow = () => setIsMiniNavVisible(true);
+    const handleBottomNavVisibilityChange = (event) => {
+      setIsMiniNavVisible(Boolean(event.detail?.visible));
+    };
+
+    window.addEventListener('hideNavbar', handleHide);
+    window.addEventListener('showNavbar', handleShow);
+    window.addEventListener('bottomNavVisibilityChange', handleBottomNavVisibilityChange);
+    return () => {
+      window.removeEventListener('hideNavbar', handleHide);
+      window.removeEventListener('showNavbar', handleShow);
+      window.removeEventListener('bottomNavVisibilityChange', handleBottomNavVisibilityChange);
+    };
+  }, []);
 
   const closeSelectedOrder = useCallback(() => {
     setSelectedOrder(null);
@@ -3069,7 +3087,7 @@ export default function Orders() {
 
         {/* ── STICKY FOOTER ── */}
         {isAdminMode && !isLoading && !selectedOrder && (
-          <div className="sticky bottom-0 z-[88] w-full h-[60px] bg-white/80 dark:bg-[#0a0a0a]/80 backdrop-blur-xl border-t border-black/5 dark:border-white/5 shadow-[0_-4px_24px_rgba(0,0,0,0.06)]">
+          <div className={`sticky z-[95] w-full h-[60px] bg-white/80 dark:bg-[#0a0a0a]/80 backdrop-blur-xl border-t border-black/5 dark:border-white/5 shadow-[0_-4px_24px_rgba(0,0,0,0.06)] transition-[bottom] duration-300 ${isMiniNavVisible ? 'bottom-[56px] sm:bottom-0' : 'bottom-0'}`}>
             <div className="max-w-7xl mx-auto px-4 md:px-8 h-full flex items-center justify-between gap-4">
 
               {/* LEFT: Select All (only when multi-select is active and there are orders) */}
