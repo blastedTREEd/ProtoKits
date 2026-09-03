@@ -15,6 +15,20 @@ export const compactImageReference = (value) => {
   return null;
 };
 
+// Kits keep the selected grid image in `image` as either a URL or an image ID.
+// Resolve that one image without ever copying the kit's gallery into an order.
+export const resolveGridImage = (kit = {}, fallback = '') => {
+  const images = Array.isArray(kit.images) ? kit.images : [];
+  const imageReference = kit.image;
+  const selectedImage = images.find((image) => image?.id === imageReference && image?.isGridImage)
+    || images.find((image) => image?.isGridImage)
+    || images.find((image) => image?.id === imageReference);
+  const candidate = selectedImage?.url || imageReference || fallback;
+
+  if (typeof candidate === 'string') return candidate;
+  return candidate?.url || '';
+};
+
 const compactNestedImageFields = (value) => {
   if (Array.isArray(value)) {
     return value.map((entry) => compactNestedImageFields(entry));
@@ -44,9 +58,15 @@ export const compactOrderProjectData = (projectData) => (
 
 export const compactOrderItem = (item = {}) => {
   const { images: _images, ...rest } = item;
+  const image = isEmbeddedImage(item.image)
+    ? item.image
+    : compactImageReference(item.image);
   const compact = {
     ...rest,
-    image: compactImageReference(item.image)
+    // `image` is now the one compacted grid image attached to this order
+    // item. Preserve it even when it is a compressed data URL; galleries are
+    // still removed above.
+    image: image || null
   };
 
   if (item.projectData) {

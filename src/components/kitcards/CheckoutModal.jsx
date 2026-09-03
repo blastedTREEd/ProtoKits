@@ -37,7 +37,11 @@ import {
   getUnavailableWeekdaySet,
   toDateKey
 } from '../../utils/availabilitySchedule';
-import { compactImageReference, compactOrderProjectData } from '../../utils/orderPayload';
+import {
+  compactOrderProjectData,
+  isEmbeddedImage,
+  resolveGridImage
+} from '../../utils/orderPayload';
 
 // --- LEAFLET CSS & ICON FIX ---
 import 'leaflet/dist/leaflet.css';
@@ -2535,14 +2539,18 @@ const handleFinalizeOrder = async () => {
         expirationDate.setHours(20, 0, 0, 0);
       }
 
-      const orderData = {
-        orderId,
-        userId: user?.uid || null,
-        buyerName: checkoutName,
-        isMaintenanceOrder: isOrderInvalidForMaintenance || false,
-        items: allocatedCheckoutItems.map((item, index) => {
+      const orderItems = await Promise.all(allocatedCheckoutItems.map(async (item, index) => {
           const distributedFee = distributedOrderFees[index] || { handling: 0, transfer: 0, total: 0 };
           const checkoutKit = isProjectCheckoutItem(item) ? null : findCheckoutKit(kits, item);
+          const gridImage = isProjectCheckoutItem(item)
+            ? item.image
+            : resolveGridImage(checkoutKit, item.image);
+          // Keep one small, durable image snapshot on the order. The full
+          // gallery remains on the kit and is never copied into Firestore.
+          const image = isEmbeddedImage(gridImage)
+            ? await compressImage(gridImage, 640, 640, 0.65)
+            : gridImage;
+
           return ({
           id: item.id,
           name: `${item.brand || ''} ${item.specs?.line || ''} ${item.name}`.trim(),
@@ -2552,9 +2560,7 @@ const handleFinalizeOrder = async () => {
             ? 0
             : getStockStandaloneSellPrice(item, checkoutKit),
           quantity: item.quantity || 1,
-          // Kit orders store only the kit's master/grid image reference. The
-          // full gallery remains on the kit document and is not copied here.
-          image: compactImageReference(isProjectCheckoutItem(item) ? item.image : (checkoutKit?.image || item.image)),
+          image,
           appliedHandlingFee: item.appliedHandlingFee || 0,
           appliedInstallmentFee: item.appliedInstallmentFee || 0,
           appliedTransferFee: item.appliedTransferFee || 0,
@@ -2575,14 +2581,21 @@ const handleFinalizeOrder = async () => {
           freeShippingMethod: item.freeShippingMethod || 'All',
           freeShippingSuboption: item.freeShippingSuboption || 'All',
           // FIX: Prevents undefined crash on projects since they don't use shelf stock keys
-          stockKey: item.stockKey || null, 
+          stockKey: item.stockKey || null,
           stockSource: item.stockSource || null,
           costPrice: isProjectCheckoutItem(item) ? 0 : toCheckoutNumber(item.costPrice),
           type: isProjectCheckoutItem(item) ? 'project' : 'kit',
           projectData: isProjectCheckoutItem(item) ? compactOrderProjectData(item.projectData) : null,
           productionJobs: isProjectCheckoutItem(item) ? (item.projectData?.productionJobs || item.projectData?.projectDetails?.flatMap(detail => detail.productionJobs || []) || []) : []
           });
-        }),
+        }));
+
+      const orderData = {
+        orderId,
+        userId: user?.uid || null,
+        buyerName: checkoutName,
+        isMaintenanceOrder: isOrderInvalidForMaintenance || false,
+        items: orderItems,
         status: initialStatus,
         isPreOrder,
         hasProjects,

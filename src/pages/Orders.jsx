@@ -22,7 +22,11 @@ import {
   lookupPhilippineAddressByZipCode,
   lookupPhilippineZipCodeByCityAndProvince
 } from '../utils/philippineAddress';
-import { compactImageReference } from '../utils/orderPayload';
+import {
+  compactImageReference,
+  isEmbeddedImage,
+  resolveGridImage
+} from '../utils/orderPayload';
 import PhilippineAddressSuggestions from '../components/common/PhilippineAddressSuggestions';
 
 let DefaultIcon = L.icon({ iconUrl: markerIcon, shadowUrl: markerShadow, iconSize: [25, 41], iconAnchor: [12, 41] });
@@ -452,6 +456,9 @@ const getShippingFlags = (order) => {
     needsTracking: (isLbc || isLalamoveSeller || isSpx) && !usesPickupPoint && !isMeetup
   };
 };
+
+const isSelfPickupShippingMethod = (method) => /self[\s-]*pickup/i.test(String(method || ''));
+const isSellerMeetupShippingMethod = (method) => /seller[\s-]*meetup/i.test(String(method || ''));
 
 const getConfiguredPickupPoint = (shippingSettings, mode) => (
   (shippingSettings?.pickupDetails?.['pickup-point']?.places || [])
@@ -991,6 +998,22 @@ export default function Orders() {
   ), [shippingSettings?.shippingMethods, manualOrderData.shippingMethod]);
   const legacySuboptions = useMemo(() => Object.entries(legacyShippingConfig.suboptions || {})
     .filter(([, config]) => config !== false && config?.active !== false), [legacyShippingConfig]);
+  const isLegacySelfPickup = isSelfPickupShippingMethod(manualOrderData.shippingMethod);
+  const isLegacySellerMeetup = isSellerMeetupShippingMethod(manualOrderData.shippingMethod);
+  const actualPinPickupPoint = useMemo(() => (
+    isLegacySelfPickup ? getConfiguredPickupPoint(shippingSettings, 'actual-pin') : null
+  ), [isLegacySelfPickup, shippingSettings]);
+  const sellerMeetupPoint = useMemo(() => {
+    if (!isLegacySellerMeetup) return null;
+    const places = (shippingSettings?.pickupDetails?.meetup?.places || [])
+      .filter(place => place?.isActive !== false);
+    return places.find(place => place?.pickupAddressMode === 'actual-pin') || places[0] || null;
+  }, [isLegacySellerMeetup, shippingSettings]);
+  const configuredLegacyAddressPoint = actualPinPickupPoint || sellerMeetupPoint;
+  const legacyAutoAddressPoint = configuredLegacyAddressPoint
+    && [configuredLegacyAddressPoint.city, configuredLegacyAddressPoint.province, configuredLegacyAddressPoint.zipCode].some(Boolean)
+    ? configuredLegacyAddressPoint
+    : null;
   const legacyHandlingFee = useMemo(() => {
     if (!manualOrderData.shippingMethod) return 0;
 
@@ -1012,6 +1035,62 @@ export default function Orders() {
   ), [kits, manualOrderData.buyerPaid, manualOrderData.selectedItems]);
   // Retained only while the former compact manual-order markup remains disabled below.
   const availableStocks = [];
+
+  useEffect(() => {
+    if (!showManualOrderModal || (!isLegacySelfPickup && !isLegacySellerMeetup) || !legacyAutoAddressPoint) return undefined;
+
+    let isActive = true;
+    const fillLegacyLocalAddress = async () => {
+      let city = String(legacyAutoAddressPoint.city || '').trim();
+      let province = String(legacyAutoAddressPoint.province || '').trim();
+      let zipCode = String(legacyAutoAddressPoint.zipCode || '').trim();
+
+      if ((!city || !province) && zipCode) {
+        const address = await lookupPhilippineAddressByZipCode(zipCode);
+        city = city || String(address?.city || '').trim();
+        province = province || String(address?.province || '').trim();
+      }
+      if (!zipCode && city && province) {
+        zipCode = await lookupPhilippineZipCodeByCityAndProvince(city, province);
+      }
+      if (!isActive) return;
+
+      setManualOrderData((previous) => {
+        const next = {
+          ...previous,
+          city,
+          province,
+          zipCode
+        };
+        if (previous.city === city && previous.province === province && previous.zipCode === zipCode) {
+          return previous;
+        }
+        return next;
+      });
+    };
+
+    fillLegacyLocalAddress().catch((error) => {
+      console.warn('Legacy local-order address fill failed:', error);
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, [isLegacySelfPickup, isLegacySellerMeetup, legacyAutoAddressPoint, showManualOrderModal]);
+
+  const handleLegacyShippingMethodChange = useCallback((event) => {
+    const shippingMethod = event.target.value;
+    setManualOrderData((previous) => ({
+      ...previous,
+      shippingMethod,
+      shippingSuboption: '',
+      ...(isSelfPickupShippingMethod(shippingMethod) || isSellerMeetupShippingMethod(shippingMethod) ? {
+        city: '',
+        province: '',
+        zipCode: ''
+      } : {})
+    }));
+  }, []);
 
   const handleFileSelect = (e, isBalance = false) => {
     const file = e.target.files[0];
@@ -1260,13 +1339,13 @@ export default function Orders() {
       ? `${manualOrderData.shippingMethod} (${suboption?.label || manualOrderData.shippingSuboption})`
       : manualOrderData.shippingMethod;
     const createdTime = new Date().toISOString();
-    const orderData = {
-      orderId,
-      userId: user?.uid,
-      legacyOrder: true,
-      isManualOrder: false,
-      orderSource: 'legacy',
-      items: allocatedItems.map(({ kit, stock, stockKey, originalPrice, allocatedPrice }) => ({
+    const orderItems = await Promise.all(allocatedItems.map(async ({ kit, stock, stockKey, originalPrice, allocatedPrice }) => {
+      const gridImage = resolveGridImage(kit);
+      const image = isEmbeddedImage(gridImage)
+        ? await compressImage(gridImage, 640, 640, 0.65)
+        : gridImage;
+
+      return {
         id: kit.id,
         name: `${kit.brand || ''} ${kit.specs?.line || ''} ${kit.name || ''}`.trim(),
         price: allocatedPrice,
@@ -1283,11 +1362,20 @@ export default function Orders() {
         issue: stock.issue || '',
         issueDescription: stock.issueDescription || '',
         quantity: 1,
-        image: compactImageReference(kit.image),
+        image,
         stockKey,
         status: stock.status || 'ONHAND',
         type: 'kit'
-      })),
+      };
+    }));
+
+    const orderData = {
+      orderId,
+      userId: user?.uid,
+      legacyOrder: true,
+      isManualOrder: false,
+      orderSource: 'legacy',
+      items: orderItems,
       kitId: allocatedItems[0]?.kit.id,
       productId: allocatedItems[0]?.kit.id,
       selectedStockKey: allocatedItems[0]?.stockKey,
@@ -3373,8 +3461,8 @@ export default function Orders() {
                 </div>
 
                 <aside className="space-y-5">
-                  <section className="rounded-2xl border border-black/10 p-5 dark:border-white/10"><h3 className="mb-4 text-[12px] font-black uppercase tracking-widest opacity-45">Shipping</h3><div className="space-y-3"><select required value={manualOrderData.shippingMethod} onChange={(event) => setManualOrderData(prev => ({ ...prev, shippingMethod: event.target.value, shippingSuboption: '' }))} className="w-full rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10"><option value="">Select shipping option</option>{legacyShippingOptions.map(method => <option key={method} value={method}>{method}</option>)}</select>{legacySuboptions.length > 0 && <select required value={manualOrderData.shippingSuboption} onChange={(event) => setManualOrderData(prev => ({ ...prev, shippingSuboption: event.target.value }))} className="w-full rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10"><option value="">Select suboption</option>{legacySuboptions.map(([key, config]) => <option key={key} value={key}>{config.label || key}</option>)}</select>}</div></section>
-                  <section className="rounded-2xl border border-black/10 p-5 dark:border-white/10"><h3 className="mb-4 text-[12px] font-black uppercase tracking-widest opacity-45">Delivery address</h3><PhilippineAddressSuggestions idPrefix="legacy-address" province={manualOrderData.province} /><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1"><input list="legacy-address-provinces" required value={manualOrderData.province} onChange={(event) => handleLegacyLocationChange('province', event.target.value)} placeholder="PROVINCE" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /><input list="legacy-address-cities" required value={manualOrderData.city} onChange={(event) => handleLegacyLocationChange('city', event.target.value)} placeholder="CITY / TOWN" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /><input required inputMode="numeric" pattern="[0-9]{4}" maxLength={4} value={manualOrderData.zipCode} onChange={handleLegacyZipCodeChange} placeholder="ZIP CODE" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /></div><p className="mt-3 text-[10px] font-bold uppercase tracking-wider opacity-45">Enter the province first, then city/town to generate the ZIP code, or enter a 4-digit ZIP code to fill them automatically.</p></section>
+                  <section className="rounded-2xl border border-black/10 p-5 dark:border-white/10"><h3 className="mb-4 text-[12px] font-black uppercase tracking-widest opacity-45">Shipping</h3><div className="space-y-3"><select required value={manualOrderData.shippingMethod} onChange={handleLegacyShippingMethodChange} className="w-full rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10"><option value="">Select shipping option</option>{legacyShippingOptions.map(method => <option key={method} value={method}>{method}</option>)}</select>{legacySuboptions.length > 0 && <select required value={manualOrderData.shippingSuboption} onChange={(event) => setManualOrderData(prev => ({ ...prev, shippingSuboption: event.target.value }))} className="w-full rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10"><option value="">Select suboption</option>{legacySuboptions.map(([key, config]) => <option key={key} value={key}>{config.label || key}</option>)}</select>}</div></section>
+                  <section className="rounded-2xl border border-black/10 p-5 dark:border-white/10"><h3 className="mb-4 text-[12px] font-black uppercase tracking-widest opacity-45">Delivery address</h3><PhilippineAddressSuggestions idPrefix="legacy-address" province={manualOrderData.province} /><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1"><input list="legacy-address-provinces" required disabled={Boolean(legacyAutoAddressPoint)} value={manualOrderData.province} onChange={(event) => handleLegacyLocationChange('province', event.target.value)} placeholder="PROVINCE" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10" /><input list="legacy-address-cities" required disabled={Boolean(legacyAutoAddressPoint)} value={manualOrderData.city} onChange={(event) => handleLegacyLocationChange('city', event.target.value)} placeholder="CITY / TOWN" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10" /><input required disabled={Boolean(legacyAutoAddressPoint)} inputMode="numeric" pattern="[0-9]{4}" maxLength={4} value={manualOrderData.zipCode} onChange={handleLegacyZipCodeChange} placeholder="ZIP CODE" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10" /></div>{legacyAutoAddressPoint ? <p className="mt-3 text-[10px] font-bold uppercase tracking-wider text-blue-600">{isLegacySellerMeetup ? 'Seller meetup address filled from the configured meetup place.' : 'Self-pickup address filled from the active pickup point tagged as Actual Pin.'}</p> : <p className="mt-3 text-[10px] font-bold uppercase tracking-wider opacity-45">Enter the province first, then city/town to generate the ZIP code, or enter a 4-digit ZIP code to fill them automatically.</p>}</section>
                   <section className="rounded-2xl border border-blue-500/20 bg-blue-500/[0.04] p-5">
                     <h3 className="mb-4 text-[12px] font-black uppercase tracking-widest text-blue-600">Payment summary</h3>
                     <label className="mb-3 block text-[10px] font-black uppercase tracking-widest opacity-45">
