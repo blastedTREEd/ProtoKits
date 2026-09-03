@@ -2662,6 +2662,40 @@ export const useStore = create(
         await deleteDoc(orderRef);
       },
 
+      reverseLegacyOrder: async (orderDocId) => {
+        const { kits, isAdmin, orders } = get();
+        if (!isAdmin) {
+          throw new Error('Only administrators can reverse legacy orders.');
+        }
+
+        let order = (orders || []).find((candidate) => candidate.id === orderDocId);
+        if (!order) {
+          const snap = await getDoc(doc(db, 'orders', orderDocId));
+          if (snap.exists()) order = { id: snap.id, ...snap.data() };
+        }
+
+        const isLegacyOrder = Boolean(
+          order?.legacyOrder
+          || order?.orderSource === 'legacy'
+          || String(order?.orderId || '').toUpperCase().startsWith('#LG-')
+        );
+        if (!order || !isLegacyOrder || order.status === 'Cancelled') {
+          throw new Error('Only an active legacy order can be reversed.');
+        }
+
+        const orderRef = doc(db, 'orders', orderDocId);
+        await updateDoc(orderRef, {
+          status: 'Cancelled',
+          cancelledAt: serverTimestamp(),
+          lastUpdated: serverTimestamp()
+        });
+
+        // Release first so a failed inventory write leaves a cancelled record
+        // that the existing cleanup path can retry safely.
+        await releaseOrderStocks(orderDocId, order, kits);
+        await deleteDoc(orderRef);
+      },
+
 
 
       updateFilament: async (id, patch, newId) => { 

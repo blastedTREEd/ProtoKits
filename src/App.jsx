@@ -263,6 +263,47 @@ export default function App() {
   const { fetchInitialData, setToastMessage } = useStore();
 
   useEffect(() => {
+    // Prevent the mouse wheel from incrementing/decrementing number fields.
+    // Keep this at the app root so dynamically rendered inputs are covered.
+    const preventNumberWheelChange = (event) => {
+      const target = event.target;
+      if (target?.tagName === 'INPUT' && (target.type === 'number' || ['numeric', 'decimal'].includes(target.inputMode))) {
+        event.preventDefault();
+      }
+    };
+
+    const preventNegativeNumberInput = (event) => {
+      const target = event.target;
+      if (target?.tagName !== 'INPUT' || (target.type !== 'number' && !['numeric', 'decimal'].includes(target.inputMode))) return;
+
+      // Block a leading minus while typing, and strip it from pasted values.
+      if (event.type === 'beforeinput' && event.data?.includes('-') && (target.selectionStart ?? 0) === 0) {
+        event.preventDefault();
+        return;
+      }
+
+      if (target.value.startsWith('-')) {
+        target.value = target.value.slice(1);
+      }
+    };
+
+    document.addEventListener('wheel', preventNumberWheelChange, {
+      capture: true,
+      passive: false
+    });
+    document.addEventListener('beforeinput', preventNegativeNumberInput, true);
+    document.addEventListener('input', preventNegativeNumberInput, true);
+    document.addEventListener('change', preventNegativeNumberInput, true);
+
+    return () => {
+      document.removeEventListener('wheel', preventNumberWheelChange, true);
+      document.removeEventListener('beforeinput', preventNegativeNumberInput, true);
+      document.removeEventListener('input', preventNegativeNumberInput, true);
+      document.removeEventListener('change', preventNegativeNumberInput, true);
+    };
+  }, []);
+
+  useEffect(() => {
     // Firestore's public listeners and the auth redirect can initialize in
     // parallel. Waiting for getRedirectResult here made guest users wait for
     // an auth operation before any public content could reach the UI.

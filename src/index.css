@@ -33,7 +33,20 @@
     @apply bg-[var(--color-bg)] text-[var(--color-text-main)] transition-colors duration-500;
   }
 
-  /* Hides arrows/spinners in number inputs */
+  /* Hide number-input arrows/spinners everywhere in the app. */
+  input[type='number'] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+
+  input[type='number']::-webkit-inner-spin-button,
+  input[type='number']::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  /* Keep this utility for any dynamically rendered or non-number input that
+     opts into the same behavior. */
   .no-spinner::-webkit-inner-spin-button,
   .no-spinner::-webkit-outer-spin-button {
     -webkit-appearance: none;

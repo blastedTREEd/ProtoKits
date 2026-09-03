@@ -37,6 +37,34 @@ function resolveImage(idOrUrl, imagesArray) {
 
 const hasRecordedAmount = (value) => value !== undefined && value !== null && value !== '' && Number.isFinite(Number(value));
 
+const getLegacyKitDetails = (kit) => ({
+  id: kit?.id || null,
+  name: kit?.name || '',
+  brand: kit?.brand || '',
+  series: kit?.series || '',
+  specs: { ...(kit?.specs || {}) },
+  description: kit?.description || '',
+  image: kit?.image || null,
+  images: Array.isArray(kit?.images) ? kit.images : [],
+  jpPrice: hasRecordedAmount(kit?.jpPrice) ? Number(kit.jpPrice) : null,
+  phPrice: hasRecordedAmount(kit?.phPrice) ? Number(kit.phPrice) : null,
+  dimensions: kit?.dimensions || kit?.boxDimensions || null
+});
+
+const getLegacyStockDetails = (stock, stockKey) => ({
+  stockKey: stockKey || null,
+  status: stock?.status || '',
+  eta: getStockEta(stock) || '',
+  boxCondition: stock?.boxCondition || '',
+  kitCondition: stock?.kitCondition || '',
+  condition: Array.isArray(stock?.condition) ? [...stock.condition] : (stock?.condition || ''),
+  issue: stock?.issue || '',
+  issueDescription: stock?.issueDescription || '',
+  sellPrice: hasRecordedAmount(stock?.sellPrice) ? Number(stock.sellPrice) : null,
+  costPrice: hasRecordedAmount(stock?.costPrice) ? Number(stock.costPrice) : null,
+  minDownpayment: hasRecordedAmount(stock?.minDownpayment) ? Number(stock.minDownpayment) : null
+});
+
 const getLegacyItemCapital = (item, kits) => {
   const quantity = Math.max(1, Number(item?.quantity) || 1);
   const kit = (kits || []).find((candidate) => String(candidate?.id) === String(item?.kitId || item?.id));
@@ -78,7 +106,12 @@ const getLegacyOrderItems = (order) => {
 };
 
 const getLegacyOrderFinancials = (order, kits) => {
-  if (!order?.legacyOrder && order?.orderSource !== 'legacy') return null;
+  const isLegacyOrder = Boolean(
+    order?.legacyOrder
+    || order?.orderSource === 'legacy'
+    || String(order?.orderId || '').toUpperCase().startsWith('#LG-')
+  );
+  if (!isLegacyOrder) return null;
 
   const revenue = order.buyerPaid ?? order.totalPrice ?? order.price;
   const storedCapitalCost = order.legacyCapitalCost;
@@ -476,7 +509,7 @@ export default function Orders() {
   const location = useLocation();
   const navigate = useNavigate();
   const { orderId: routeOrderId } = useParams();
-  const { user, isAdmin, isAdminView, kits, shelf, assignStockToOrder, cancelOrder, confirmOrderPayment, uploadReceipt, updateOrderDetails, updateOrderStatus, rates, orders, usersList, createOrder, deleteOrder, reverseCompletedOrder, isLoading, subscribeOrders, subscribeUsersList, loadPrintResources, shippingSettings, garageInfo, cleanUpCancelledOrders, setToastMessage } = useStore();
+  const { user, isAdmin, isAdminView, kits, shelf, assignStockToOrder, cancelOrder, confirmOrderPayment, uploadReceipt, updateOrderDetails, updateOrderStatus, rates, orders, usersList, createOrder, deleteOrder, reverseCompletedOrder, reverseLegacyOrder, isLoading, subscribeOrders, subscribeUsersList, loadPrintResources, shippingSettings, garageInfo, cleanUpCancelledOrders, setToastMessage } = useStore();
   const isAdminMode = isAdmin && isAdminView;
   
   // Dynamically get the QR for whatever payment method the selected order uses
@@ -598,7 +631,6 @@ export default function Orders() {
     selectedItems: [],
     shippingMethod: '',
     shippingSuboption: '',
-    branch: '',
     city: '',
     province: '',
     zipCode: '',
@@ -931,8 +963,6 @@ export default function Orders() {
   ), [shippingSettings?.shippingMethods, manualOrderData.shippingMethod]);
   const legacySuboptions = useMemo(() => Object.entries(legacyShippingConfig.suboptions || {})
     .filter(([, config]) => config !== false && config?.active !== false), [legacyShippingConfig]);
-  const legacyBranchRequired = legacyShippingConfig?.requiredFields?.includes(13)
-    || legacyShippingConfig?.suboptions?.[manualOrderData.shippingSuboption]?.requiredFields?.includes(13);
   const legacyHandlingFee = useMemo(() => {
     if (!manualOrderData.shippingMethod) return 0;
 
@@ -1173,11 +1203,6 @@ export default function Orders() {
       alert('Add at least one stock, complete the city/province/4-digit ZIP address, and make sure total paid covers the handling fee.');
       return;
     }
-    if (legacyBranchRequired && !manualOrderData.branch.trim()) {
-      alert('A branch is required for the selected shipping option.');
-      return;
-    }
-
     const liveItems = selectedItems.map((entry) => {
       const kit = (kits || []).find((candidate) => candidate.id === entry.kitId);
       const stock = kit?.stocks?.[entry.stockKey];
@@ -1220,6 +1245,15 @@ export default function Orders() {
         sellPrice: allocatedPrice,
         originalSellPrice: originalPrice,
         costPrice: hasRecordedAmount(stock.costPrice) ? Math.max(0, Number(stock.costPrice)) : null,
+        kitDetails: getLegacyKitDetails(kit),
+        stockDetails: getLegacyStockDetails(stock, stockKey),
+        brand: kit.brand || '',
+        series: kit.series || '',
+        specs: { ...(kit.specs || {}) },
+        boxCondition: stock.boxCondition || '',
+        kitCondition: stock.kitCondition || '',
+        issue: stock.issue || '',
+        issueDescription: stock.issueDescription || '',
         quantity: 1,
         image: kit.image || null,
         images: kit.images || null,
@@ -1231,7 +1265,11 @@ export default function Orders() {
       productId: allocatedItems[0]?.kit.id,
       selectedStockKey: allocatedItems[0]?.stockKey,
       item: allocatedItems.map(({ kit }) => kit.name).join(', '),
-      status: 'Preparing',
+      // Legacy sales are historical transactions, so they are complete as
+      // soon as they are recorded. Admins can still reverse them while the
+      // completed-order reversal window is open.
+      status: 'Completed',
+      completedAt: createdTime,
       isPreOrder: allocatedItems.some(({ stock }) => String(stock.status).toUpperCase() === 'PRE-ORDER'),
       shippingMethodKey: manualOrderData.shippingMethod,
       shippingSuboptionKey: manualOrderData.shippingSuboption || null,
@@ -1239,11 +1277,8 @@ export default function Orders() {
       receiverDetails: {
         city: manualOrderData.city.trim(),
         province: manualOrderData.province.trim(),
-        zipCode: manualOrderData.zipCode.trim(),
-        lbcBranch: legacyBranchRequired ? manualOrderData.branch.trim() : null
+        zipCode: manualOrderData.zipCode.trim()
       },
-      paymentPlan: 'full',
-      paymentMethod: 'Cash',
       totalPrice: itemRevenue,
       subtotal: itemRevenue,
       price: itemRevenue,
@@ -1513,6 +1548,19 @@ export default function Orders() {
     }
   }, [closeSelectedOrder, reverseCompletedOrder, selectedOrder?.id, setToastMessage]);
 
+  const handleReverseLegacyOrder = useCallback(async (orderId) => {
+    if (!window.confirm('Cancel and reverse this legacy transaction? The order will be deleted and its stock will be released back to public inventory.')) return;
+
+    try {
+      await reverseLegacyOrder(orderId);
+      setToastMessage('Legacy transaction cancelled, reversed, and stock released.');
+      if (selectedOrder?.id === orderId) closeSelectedOrder();
+    } catch (error) {
+      console.error('SG LOG: Failed to reverse legacy order:', error);
+      setToastMessage(error?.message || 'Could not reverse the legacy transaction.');
+    }
+  }, [closeSelectedOrder, reverseLegacyOrder, selectedOrder?.id, setToastMessage]);
+
   const isReadyForPickupStatus = (status) => ['Ready for Pickup', 'Ready for Meetup'].includes(status);
   const canShowExactPickupDetails = (order, paymentVerified) => {
     if (isAdminMode) return true;
@@ -1742,6 +1790,11 @@ export default function Orders() {
   const selectedLogistics = selectedOrder ? getBuyerAddressDetails(selectedOrder) : {};
   const selectedTotals = selectedOrder ? getOrderTotals(selectedOrder) : {};
   const selectedLegacyFinancials = selectedOrder ? getLegacyOrderFinancials(selectedOrder, kits) : null;
+  const isSelectedLegacyOrder = Boolean(
+    selectedOrder?.legacyOrder
+    || selectedOrder?.orderSource === 'legacy'
+    || String(selectedOrder?.orderId || '').toUpperCase().startsWith('#LG-')
+  );
   const hasStlWithDesignService = selectedOrder?.items?.some(item => 
     item.type === 'project' && 
     item.projectData?.method?.name?.toUpperCase() === 'STL' && 
@@ -2174,13 +2227,30 @@ export default function Orders() {
           <h3 className="text-[13px] font-black uppercase tracking-widest mb-4 text-left">Items Breakdown</h3>
           <div className="space-y-4">
             {detailItems.map((item, idx) => {
-              const kit = kits.find(k => k.id === item.id || k.id === item.productId || k.name === item.name);
+              const currentKit = kits.find(k => k.id === item.id || k.id === item.productId || k.name === item.name);
+              const kit = currentKit || item.kitDetails || null;
+              const stock = currentKit?.stocks?.[item.stockKey] || item.stockDetails || {};
+              const kitMeta = item.kitDetails || kit || {};
+              const stockMeta = item.stockDetails || stock;
+              const legacyConditionValues = Array.isArray(stockMeta.condition)
+                ? stockMeta.condition
+                : stockMeta.condition
+                  ? [stockMeta.condition]
+                  : [];
               const displayImage = item.type === 'project'
                 ? (item.projectData?.image || item.image)
                 : resolveImage(item.image || kit?.image, item.images || kit?.images);
 
-              const displayGrade = item.grade || item.specs?.line || kit?.specs?.line || 'LINE';
-              const displayBrand = item.brand || kit?.brand || '';
+              const displayGrade = item.grade || item.specs?.line || kitMeta.specs?.line || kit?.specs?.line || 'LINE';
+              const displayBrand = item.brand || kitMeta.brand || kit?.brand || '';
+              const displaySeries = item.series || kitMeta.series || kit?.series || '';
+              const displayScale = item.scale || item.specs?.scale || kitMeta.specs?.scale || kit?.specs?.scale || '';
+              const displayBoxCondition = item.boxCondition || stockMeta.boxCondition || stock?.boxCondition || legacyConditionValues[0] || '';
+              const displayKitCondition = item.kitCondition || stockMeta.kitCondition || stock?.kitCondition || legacyConditionValues[1] || '';
+              const displayStockStatus = item.status || stockMeta.status || stock?.status || '';
+              const displayEta = stockMeta.eta || getStockEta(stock) || '';
+              const displayIssue = item.issue || stockMeta.issue || stock?.issue || '';
+              const displayIssueDescription = item.issueDescription || stockMeta.issueDescription || stock?.issueDescription || '';
               
               const rawName = (item.name || item.item || '').replace(/\s*\(Pre-Order\)\s*$/i, '');
               let cleanName = rawName;
@@ -2261,6 +2331,25 @@ export default function Orders() {
                     </div>
                   </div>
 
+                  {isSelectedLegacyOrder && (displaySeries || displayScale || displayStockStatus || displayEta || displayBoxCondition || displayKitCondition || displayIssue || displayIssueDescription) && (
+                    <div className="rounded-2xl border border-blue-500/15 bg-blue-500/[0.04] p-3 text-left">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-blue-600">Kit details</p>
+                      {(displaySeries || displayScale || displayStockStatus || displayEta) && (
+                        <p className="mt-1 text-[10px] font-black uppercase tracking-wider opacity-70">
+                          {[displaySeries, displayScale, displayStockStatus, displayEta].filter(Boolean).join(' / ')}
+                        </p>
+                      )}
+                      {(displayBoxCondition || displayKitCondition) && (
+                        <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] font-black uppercase tracking-wider">
+                          {displayBoxCondition && <span className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-amber-700 dark:text-amber-300">Box: {displayBoxCondition}</span>}
+                          {displayKitCondition && <span className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-emerald-700 dark:text-emerald-300">Kit: {displayKitCondition}</span>}
+                        </div>
+                      )}
+                      {displayIssue && <p className="mt-2 text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400">Issue: {displayIssue}</p>}
+                      {displayIssueDescription && <p className="mt-1 text-[10px] font-bold leading-relaxed opacity-60">{displayIssueDescription}</p>}
+                    </div>
+                  )}
+
                   {/* 3D Design Service & Complexity Controls */}
                   {item.projectData?.selectedDesignService && (() => {
                     const designServices = rates?.['design-services'] || {};
@@ -2318,7 +2407,16 @@ export default function Orders() {
           <div className="space-y-4 text-left order-2 lg:order-1">
             <h3 className="text-[13px] font-black uppercase tracking-widest mb-2">Payment Details</h3>
             
-            {selectedOrder.paymentMethod === 'Cash' && !isOrderFromMaintenance ? (
+            {isSelectedLegacyOrder ? (
+              <div className="p-6 bg-emerald-500/5 rounded-3xl border border-emerald-500/15 flex flex-col items-center text-center gap-3 w-full">
+                <CheckCircle2 className="text-emerald-500" size={32} />
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Legacy Transaction Recorded</h4>
+                <p className="text-xs font-bold opacity-80 max-w-sm">
+                  Payment plan, payment method, and receipt validation are not required for legacy orders.
+                </p>
+                <p className="text-sm font-black text-emerald-600">₱{Number(selectedOrder.buyerPaid || 0).toLocaleString()} recorded</p>
+              </div>
+            ) : selectedOrder.paymentMethod === 'Cash' && !isOrderFromMaintenance ? (
               <div className="p-6 bg-blue-500/5 rounded-3xl border border-blue-500/10 flex flex-col items-center text-center gap-3 w-full animate-in fade-in duration-300">
                 <Store className="text-blue-500 animate-pulse" size={32} />
                 <h4 className="text-[10px] font-black uppercase tracking-widest text-blue-600">Cash Payment</h4>
@@ -2512,7 +2610,7 @@ export default function Orders() {
                 )}
               </div>
 
-              {((isAdminMode && canAdminCancel && !showQrContainer) || (!isAdminMode && canCustomerCancel)) && (
+              {((isAdminMode && canAdminCancel && !showQrContainer && !isSelectedLegacyOrder) || (!isAdminMode && canCustomerCancel)) && (
                 <button 
                   onClick={() => handleCancelOrder(selectedOrder.id)}
                   className="w-full py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all mt-2"
@@ -2707,7 +2805,16 @@ export default function Orders() {
               onClick={() => handleReverseCompletedOrder(selectedOrder.id)}
               className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 shadow-lg shadow-red-600/20 flex items-center gap-1.5"
             >
-              <Undo2 size={14} /> Reverse & Release Stock
+              <Undo2 size={14} /> {isSelectedLegacyOrder ? 'Reverse Legacy Transaction' : 'Reverse & Release Stock'}
+            </button>
+          )}
+
+          {isAdminMode && isSelectedLegacyOrder && !['Cancelled', 'Completed'].includes(selectedOrder.status) && (
+            <button
+              onClick={() => handleReverseLegacyOrder(selectedOrder.id)}
+              className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 shadow-lg shadow-red-600/20 flex items-center gap-1.5"
+            >
+              <Undo2 size={14} /> Cancel &amp; Reverse Legacy Transaction
             </button>
           )}
 
@@ -2781,6 +2888,11 @@ export default function Orders() {
 
                 const o = row.order;
                 const isSelected = selectedOrders.includes(o.id);
+                const isLegacyOrder = Boolean(
+                  o.legacyOrder
+                  || o.orderSource === 'legacy'
+                  || String(o.orderId || '').toUpperCase().startsWith('#LG-')
+                );
                 const orderItems = Array.isArray(o.items) && o.items.length > 0 ? o.items : [o];
                 const { total: orderGrandTotal } = getOrderTotals(o);
                 const isCardInvalid = Boolean(o.isMaintenanceOrder);
@@ -3049,7 +3161,7 @@ export default function Orders() {
                         <span className="inline-flex whitespace-nowrap text-[12px] font-black px-2 py-0.5 rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400 uppercase tracking-wider">
                           {shippingMethodLabel}
                         </span>
-                        {o.paymentPlan && o.paymentPlan !== 'full' ? (
+                        {!isLegacyOrder && (o.paymentPlan && o.paymentPlan !== 'full' ? (
                           <span className="inline-flex whitespace-nowrap text-[12px] font-black px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-500 uppercase tracking-wider">
                             {o.paymentPlan === 'partial' ? 'Partial' : o.paymentPlan === 'reservation' ? 'Reservation' : 'Installment'}
                           </span>
@@ -3057,8 +3169,8 @@ export default function Orders() {
                           <span className="inline-flex whitespace-nowrap text-[12px] font-black px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 uppercase tracking-wider">
                             Full Pay
                           </span>
-                        )}
-                        {o.paymentMethod && (
+                        ))}
+                        {!isLegacyOrder && o.paymentMethod && (
                           <span className={`inline-flex whitespace-nowrap text-[12px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider ${
                             o.paymentMethod === 'GCash' ? 'bg-blue-500/10 text-blue-500' :
                             o.paymentMethod === 'Cash'  ? 'bg-amber-500/10 text-amber-600' :
@@ -3251,7 +3363,7 @@ export default function Orders() {
                         {filteredLegacyStockChoices.map(({ kit, stockKey, stock }) => {
                           const selected = manualOrderData.selectedItems.some(item => item.kitId === kit.id && item.stockKey === stockKey);
                           const image = resolveImage(kit.image, kit.images) || '/snorlaxgarage.png';
-                          return <button key={`${kit.id}:${stockKey}`} type="button" disabled={selected} onClick={() => setManualOrderData(prev => ({ ...prev, selectedItems: [...prev.selectedItems, { kitId: kit.id, stockKey, name: kit.name, image, costPrice: Number(stock.costPrice || 0), meta: [kit.brand, kit.specs?.line, stock.status].filter(Boolean).join(' • ') }] }))} className="flex w-full items-center gap-3 rounded-xl border border-black/5 bg-white p-2 text-left transition hover:border-blue-400 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/5 dark:bg-white/[0.03]">
+                          return <button key={`${kit.id}:${stockKey}`} type="button" disabled={selected} onClick={() => setManualOrderData(prev => ({ ...prev, selectedItems: [...prev.selectedItems, { kitId: kit.id, stockKey, name: kit.name, image, costPrice: Number(stock.costPrice || 0), meta: [kit.brand, kit.specs?.line, stock.status].filter(Boolean).join(' • '), kitDetails: getLegacyKitDetails(kit), stockDetails: getLegacyStockDetails(stock, stockKey) }] }))} className="flex w-full items-center gap-3 rounded-xl border border-black/5 bg-white p-2 text-left transition hover:border-blue-400 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/5 dark:bg-white/[0.03]">
                             <img src={image} alt="" className="h-12 w-16 rounded-lg object-cover" /><span className="min-w-0 flex-1"><span className="block truncate text-[12px] font-black uppercase">{kit.name}</span><span className="block truncate text-[10px] font-bold uppercase tracking-wider opacity-45">{[kit.brand, kit.specs?.line, stock.status, getStockEta(stock)].filter(Boolean).join(' • ')}</span></span><span className="shrink-0 text-right leading-tight"><span className="block text-[12px] font-black text-emerald-600">SELL ₱{Number(stock.sellPrice || kit.sellPrice || 0).toLocaleString()}</span><span className="block text-[10px] font-black opacity-50">COST ₱{Number(stock.costPrice || 0).toLocaleString()}</span></span>
                           </button>;
                         })}
@@ -3266,8 +3378,8 @@ export default function Orders() {
                 </div>
 
                 <aside className="space-y-5">
-                  <section className="rounded-2xl border border-black/10 p-5 dark:border-white/10"><h3 className="mb-4 text-[12px] font-black uppercase tracking-widest opacity-45">Shipping</h3><div className="space-y-3"><select required value={manualOrderData.shippingMethod} onChange={(event) => setManualOrderData(prev => ({ ...prev, shippingMethod: event.target.value, shippingSuboption: '', branch: '' }))} className="w-full rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10"><option value="">Select shipping option</option>{legacyShippingOptions.map(method => <option key={method} value={method}>{method}</option>)}</select>{legacySuboptions.length > 0 && <select required value={manualOrderData.shippingSuboption} onChange={(event) => setManualOrderData(prev => ({ ...prev, shippingSuboption: event.target.value, branch: '' }))} className="w-full rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10"><option value="">Select suboption</option>{legacySuboptions.map(([key, config]) => <option key={key} value={key}>{config.label || key}</option>)}</select>}</div></section>
-                  <section className="rounded-2xl border border-black/10 p-5 dark:border-white/10"><h3 className="mb-4 text-[12px] font-black uppercase tracking-widest opacity-45">Delivery address</h3><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">{legacyBranchRequired && <input required value={manualOrderData.branch} onChange={(event) => setManualOrderData(prev => ({ ...prev, branch: event.target.value }))} placeholder="BRANCH" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" />}<input required value={manualOrderData.city} onChange={(event) => handleLegacyLocationChange('city', event.target.value)} placeholder="CITY / TOWN" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /><input required value={manualOrderData.province} onChange={(event) => handleLegacyLocationChange('province', event.target.value)} placeholder="PROVINCE" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /><input required inputMode="numeric" pattern="[0-9]{4}" maxLength={4} value={manualOrderData.zipCode} onChange={handleLegacyZipCodeChange} placeholder="ZIP CODE" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /></div><p className="mt-3 text-[10px] font-bold uppercase tracking-wider opacity-45">Enter the city/town and province to generate the ZIP code, or enter a 4-digit ZIP code to fill them automatically.</p></section>
+                  <section className="rounded-2xl border border-black/10 p-5 dark:border-white/10"><h3 className="mb-4 text-[12px] font-black uppercase tracking-widest opacity-45">Shipping</h3><div className="space-y-3"><select required value={manualOrderData.shippingMethod} onChange={(event) => setManualOrderData(prev => ({ ...prev, shippingMethod: event.target.value, shippingSuboption: '' }))} className="w-full rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10"><option value="">Select shipping option</option>{legacyShippingOptions.map(method => <option key={method} value={method}>{method}</option>)}</select>{legacySuboptions.length > 0 && <select required value={manualOrderData.shippingSuboption} onChange={(event) => setManualOrderData(prev => ({ ...prev, shippingSuboption: event.target.value }))} className="w-full rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10"><option value="">Select suboption</option>{legacySuboptions.map(([key, config]) => <option key={key} value={key}>{config.label || key}</option>)}</select>}</div></section>
+                  <section className="rounded-2xl border border-black/10 p-5 dark:border-white/10"><h3 className="mb-4 text-[12px] font-black uppercase tracking-widest opacity-45">Delivery address</h3><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1"><input required value={manualOrderData.city} onChange={(event) => handleLegacyLocationChange('city', event.target.value)} placeholder="CITY / TOWN" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /><input required value={manualOrderData.province} onChange={(event) => handleLegacyLocationChange('province', event.target.value)} placeholder="PROVINCE" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /><input required inputMode="numeric" pattern="[0-9]{4}" maxLength={4} value={manualOrderData.zipCode} onChange={handleLegacyZipCodeChange} placeholder="ZIP CODE" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /></div><p className="mt-3 text-[10px] font-bold uppercase tracking-wider opacity-45">Enter the city/town and province to generate the ZIP code, or enter a 4-digit ZIP code to fill them automatically.</p></section>
                   <section className="rounded-2xl border border-blue-500/20 bg-blue-500/[0.04] p-5">
                     <h3 className="mb-4 text-[12px] font-black uppercase tracking-widest text-blue-600">Payment summary</h3>
                     <label className="mb-3 block text-[10px] font-black uppercase tracking-widest opacity-45">
