@@ -37,6 +37,21 @@ function resolveImage(idOrUrl, imagesArray) {
 
 const hasRecordedAmount = (value) => value !== undefined && value !== null && value !== '' && Number.isFinite(Number(value));
 
+const isLegacyOrderRecord = (order) => Boolean(
+  order?.legacyOrder
+  || order?.orderSource === 'legacy'
+  || String(order?.orderId || '').toUpperCase().startsWith('#LG-')
+);
+
+const generateSgOrderId = (existingOrders = []) => {
+  const existingIds = new Set(existingOrders.map((order) => String(order?.orderId || '').toUpperCase()));
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const candidate = `#SG-${Math.floor(Math.random() * 9000) + 1000}`;
+    if (!existingIds.has(candidate)) return candidate;
+  }
+  return `#SG-${String(Date.now()).slice(-4)}`;
+};
+
 const getLegacyKitDetails = (kit) => ({
   id: kit?.id || null,
   name: kit?.name || '',
@@ -106,12 +121,7 @@ const getLegacyOrderItems = (order) => {
 };
 
 const getLegacyOrderFinancials = (order, kits) => {
-  const isLegacyOrder = Boolean(
-    order?.legacyOrder
-    || order?.orderSource === 'legacy'
-    || String(order?.orderId || '').toUpperCase().startsWith('#LG-')
-  );
-  if (!isLegacyOrder) return null;
+  if (!isLegacyOrderRecord(order)) return null;
 
   const revenue = order.buyerPaid ?? order.totalPrice ?? order.price;
   const storedCapitalCost = order.legacyCapitalCost;
@@ -509,7 +519,7 @@ export default function Orders() {
   const location = useLocation();
   const navigate = useNavigate();
   const { orderId: routeOrderId } = useParams();
-  const { user, isAdmin, isAdminView, kits, shelf, assignStockToOrder, cancelOrder, confirmOrderPayment, uploadReceipt, updateOrderDetails, updateOrderStatus, rates, orders, usersList, createOrder, deleteOrder, reverseCompletedOrder, reverseLegacyOrder, isLoading, subscribeOrders, subscribeUsersList, loadPrintResources, shippingSettings, garageInfo, cleanUpCancelledOrders, setToastMessage } = useStore();
+  const { user, isAdmin, isAdminView, kits, shelf, assignStockToOrder, cancelOrder, confirmOrderPayment, uploadReceipt, updateOrderDetails, updateOrderStatus, rates, orders, usersList, createOrder, deleteOrder, reverseCompletedOrder, reverseLegacyOrder, migrateLegacyOrderIds, isLoading, subscribeOrders, subscribeUsersList, loadPrintResources, shippingSettings, garageInfo, cleanUpCancelledOrders, setToastMessage } = useStore();
   const isAdminMode = isAdmin && isAdminView;
   
   // Dynamically get the QR for whatever payment method the selected order uses
@@ -531,6 +541,7 @@ export default function Orders() {
   const [expandedOrderItems, setExpandedOrderItems] = useState({});
   const [completedReversalExpiredIds, setCompletedReversalExpiredIds] = useState(() => new Set());
   const [isMiniNavVisible, setIsMiniNavVisible] = useState(true);
+  const legacyOrderMigrationStarted = useRef(false);
 
   useEffect(() => {
     const handleHide = () => setIsMiniNavVisible(false);
@@ -559,6 +570,22 @@ export default function Orders() {
     setSelectedOrders([]);
     setIsMultiSelectEnabled(false);
   }, [activeTab]);
+
+  useEffect(() => {
+    if (!isAdminMode || isLoading || legacyOrderMigrationStarted.current) return;
+
+    legacyOrderMigrationStarted.current = true;
+    migrateLegacyOrderIds()
+      .then((migratedCount) => {
+        if (migratedCount > 0) {
+          setToastMessage(`Updated ${migratedCount} legacy order number${migratedCount === 1 ? '' : 's'} to SG format.`);
+        }
+      })
+      .catch((error) => {
+        legacyOrderMigrationStarted.current = false;
+        console.error('SG LOG: Legacy order number migration failed:', error);
+      });
+  }, [isAdminMode, isLoading, migrateLegacyOrderIds, setToastMessage]);
 
   // Periodically releases cancelled stock and lets the admin retention window expire.
   useEffect(() => {
@@ -1226,7 +1253,7 @@ export default function Orders() {
       costPrice: stock.costPrice
     })), kits);
 
-    const orderId = `#LG-${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 90 + 10)}`;
+    const orderId = generateSgOrderId(orders);
     const suboption = legacyShippingConfig?.suboptions?.[manualOrderData.shippingSuboption];
     const shippingMethod = manualOrderData.shippingSuboption
       ? `${manualOrderData.shippingMethod} (${suboption?.label || manualOrderData.shippingSuboption})`
@@ -1766,20 +1793,29 @@ export default function Orders() {
 
   const activeTabData = tabData.find((tab) => tab.id === activeTab) || tabData[0];
   const visibleOrders = activeTabData?.orders || [];
-  const visibleInvalidOrders = visibleOrders.filter(order => order.isMaintenanceOrder);
+  const visibleInvalidOrders = visibleOrders.filter(order => order.isMaintenanceOrder && !isLegacyOrderRecord(order));
   const orderRows = (() => {
     const validOrders = [];
     const invalidOrders = [];
+    const legacyOrders = [];
 
     visibleOrders.forEach((order) => {
-      (order.isMaintenanceOrder ? invalidOrders : validOrders).push(order);
+      if (isLegacyOrderRecord(order)) {
+        legacyOrders.push(order);
+      } else if (order.isMaintenanceOrder) {
+        invalidOrders.push(order);
+      } else {
+        validOrders.push(order);
+      }
     });
 
     return [
       ...(validOrders.length > 0 ? [{ type: 'separator', key: 'valid', label: 'Valid Orders' }] : []),
       ...validOrders.map((order) => ({ type: 'order', key: order.id, order })),
       ...(invalidOrders.length > 0 ? [{ type: 'separator', key: 'invalid', label: 'Invalid Orders' }] : []),
-      ...invalidOrders.map((order) => ({ type: 'order', key: order.id, order }))
+      ...invalidOrders.map((order) => ({ type: 'order', key: order.id, order })),
+      ...(legacyOrders.length > 0 ? [{ type: 'separator', key: 'legacy', label: 'Legacy Orders' }] : []),
+      ...legacyOrders.map((order) => ({ type: 'order', key: order.id, order }))
     ];
   })();
   const selectedShippingFlags = selectedOrder ? getShippingFlags(selectedOrder) : {};
@@ -1790,11 +1826,7 @@ export default function Orders() {
   const selectedLogistics = selectedOrder ? getBuyerAddressDetails(selectedOrder) : {};
   const selectedTotals = selectedOrder ? getOrderTotals(selectedOrder) : {};
   const selectedLegacyFinancials = selectedOrder ? getLegacyOrderFinancials(selectedOrder, kits) : null;
-  const isSelectedLegacyOrder = Boolean(
-    selectedOrder?.legacyOrder
-    || selectedOrder?.orderSource === 'legacy'
-    || String(selectedOrder?.orderId || '').toUpperCase().startsWith('#LG-')
-  );
+  const isSelectedLegacyOrder = isLegacyOrderRecord(selectedOrder);
   const hasStlWithDesignService = selectedOrder?.items?.some(item => 
     item.type === 'project' && 
     item.projectData?.method?.name?.toUpperCase() === 'STL' && 
@@ -2229,28 +2261,13 @@ export default function Orders() {
             {detailItems.map((item, idx) => {
               const currentKit = kits.find(k => k.id === item.id || k.id === item.productId || k.name === item.name);
               const kit = currentKit || item.kitDetails || null;
-              const stock = currentKit?.stocks?.[item.stockKey] || item.stockDetails || {};
               const kitMeta = item.kitDetails || kit || {};
-              const stockMeta = item.stockDetails || stock;
-              const legacyConditionValues = Array.isArray(stockMeta.condition)
-                ? stockMeta.condition
-                : stockMeta.condition
-                  ? [stockMeta.condition]
-                  : [];
               const displayImage = item.type === 'project'
                 ? (item.projectData?.image || item.image)
                 : resolveImage(item.image || kit?.image, item.images || kit?.images);
 
               const displayGrade = item.grade || item.specs?.line || kitMeta.specs?.line || kit?.specs?.line || 'LINE';
               const displayBrand = item.brand || kitMeta.brand || kit?.brand || '';
-              const displaySeries = item.series || kitMeta.series || kit?.series || '';
-              const displayScale = item.scale || item.specs?.scale || kitMeta.specs?.scale || kit?.specs?.scale || '';
-              const displayBoxCondition = item.boxCondition || stockMeta.boxCondition || stock?.boxCondition || legacyConditionValues[0] || '';
-              const displayKitCondition = item.kitCondition || stockMeta.kitCondition || stock?.kitCondition || legacyConditionValues[1] || '';
-              const displayStockStatus = item.status || stockMeta.status || stock?.status || '';
-              const displayEta = stockMeta.eta || getStockEta(stock) || '';
-              const displayIssue = item.issue || stockMeta.issue || stock?.issue || '';
-              const displayIssueDescription = item.issueDescription || stockMeta.issueDescription || stock?.issueDescription || '';
               
               const rawName = (item.name || item.item || '').replace(/\s*\(Pre-Order\)\s*$/i, '');
               let cleanName = rawName;
@@ -2330,25 +2347,6 @@ export default function Orders() {
                       )}
                     </div>
                   </div>
-
-                  {isSelectedLegacyOrder && (displaySeries || displayScale || displayStockStatus || displayEta || displayBoxCondition || displayKitCondition || displayIssue || displayIssueDescription) && (
-                    <div className="rounded-2xl border border-blue-500/15 bg-blue-500/[0.04] p-3 text-left">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-blue-600">Kit details</p>
-                      {(displaySeries || displayScale || displayStockStatus || displayEta) && (
-                        <p className="mt-1 text-[10px] font-black uppercase tracking-wider opacity-70">
-                          {[displaySeries, displayScale, displayStockStatus, displayEta].filter(Boolean).join(' / ')}
-                        </p>
-                      )}
-                      {(displayBoxCondition || displayKitCondition) && (
-                        <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] font-black uppercase tracking-wider">
-                          {displayBoxCondition && <span className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-amber-700 dark:text-amber-300">Box: {displayBoxCondition}</span>}
-                          {displayKitCondition && <span className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-emerald-700 dark:text-emerald-300">Kit: {displayKitCondition}</span>}
-                        </div>
-                      )}
-                      {displayIssue && <p className="mt-2 text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400">Issue: {displayIssue}</p>}
-                      {displayIssueDescription && <p className="mt-1 text-[10px] font-bold leading-relaxed opacity-60">{displayIssueDescription}</p>}
-                    </div>
-                  )}
 
                   {/* 3D Design Service & Complexity Controls */}
                   {item.projectData?.selectedDesignService && (() => {
@@ -2888,11 +2886,7 @@ export default function Orders() {
 
                 const o = row.order;
                 const isSelected = selectedOrders.includes(o.id);
-                const isLegacyOrder = Boolean(
-                  o.legacyOrder
-                  || o.orderSource === 'legacy'
-                  || String(o.orderId || '').toUpperCase().startsWith('#LG-')
-                );
+                const isLegacyOrder = isLegacyOrderRecord(o);
                 const orderItems = Array.isArray(o.items) && o.items.length > 0 ? o.items : [o];
                 const { total: orderGrandTotal } = getOrderTotals(o);
                 const isCardInvalid = Boolean(o.isMaintenanceOrder);

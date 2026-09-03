@@ -489,6 +489,24 @@ const getOrderTimestampMs = (value) => {
 const COMPLETED_ORDER_REVERSAL_WINDOW_MS = 24 * 60 * 60 * 1000;
 const CANCELLED_ORDER_DELETE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
+const isLegacyOrderRecord = (order) => Boolean(
+  order?.legacyOrder
+  || order?.orderSource === 'legacy'
+  || String(order?.orderId || '').toUpperCase().startsWith('#LG-')
+);
+
+const generateSgOrderId = (usedIds) => {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const candidate = `#SG-${Math.floor(Math.random() * 9000) + 1000}`;
+    if (!usedIds.has(candidate)) {
+      usedIds.add(candidate);
+      return candidate;
+    }
+  }
+
+  throw new Error('Unable to generate a unique SG order number.');
+};
+
 const releaseStockTarget = async (kitId, stockKey, orderDocId, order = {}) => {
   const kitRef = doc(db, 'kits', kitId);
   const kitSnap = await getDoc(kitRef);
@@ -2694,6 +2712,81 @@ export const useStore = create(
         // that the existing cleanup path can retry safely.
         await releaseOrderStocks(orderDocId, order, kits);
         await deleteDoc(orderRef);
+      },
+
+      migrateLegacyOrderIds: async () => {
+        const { isAdmin } = get();
+        if (!isAdmin) throw new Error('Only administrators can migrate legacy order numbers.');
+
+        const ordersSnap = await getDocs(collection(db, 'orders'));
+        const orders = docsToArray(ordersSnap);
+        const legacyOrders = orders.filter((order) => (
+          isLegacyOrderRecord(order)
+          && String(order.orderId || '').toUpperCase().startsWith('#LG-')
+        ));
+        if (legacyOrders.length === 0) return 0;
+
+        const usedIds = new Set(orders.map((order) => String(order.orderId || '').toUpperCase()).filter(Boolean));
+        const replacements = legacyOrders.map((order) => ({
+          order,
+          newOrderId: generateSgOrderId(usedIds)
+        }));
+        const kitsSnap = await getDocs(collection(db, 'kits'));
+        const writes = [];
+
+        replacements.forEach(({ order, newOrderId }) => {
+          writes.push({
+            ref: doc(db, 'orders', order.id),
+            data: { orderId: newOrderId, lastUpdated: serverTimestamp() }
+          });
+        });
+
+        const kitUpdates = new Map();
+        kitsSnap.docs.forEach((kitDoc) => {
+          const stocks = kitDoc.data().stocks || {};
+          Object.entries(stocks).forEach(([stockKey, stock]) => {
+            const linkedOrder = stock?.order;
+            if (!linkedOrder) return;
+
+            const replacement = replacements.find(({ order }) => (
+              linkedOrder.orderDocId === order.id || linkedOrder.orderId === order.orderId
+            ));
+            if (!replacement) return;
+
+            const update = kitUpdates.get(kitDoc.id) || { ref: kitDoc.ref, data: {} };
+            update.data[`stocks.${stockKey}.order`] = {
+              ...linkedOrder,
+              orderId: replacement.newOrderId,
+              orderDocId: replacement.order.id,
+              isLegacyOrder: true
+            };
+            kitUpdates.set(kitDoc.id, update);
+          });
+        });
+
+        kitUpdates.forEach((update) => {
+          writes.push(update);
+        });
+
+        // Firestore batches are limited to 500 writes. Keep a margin for
+        // future metadata updates while migrating large order histories.
+        for (let index = 0; index < writes.length; index += 450) {
+          const batch = writeBatch(db);
+          writes.slice(index, index + 450).forEach(({ ref, data }) => {
+            batch.update(ref, data);
+          });
+          await batch.commit();
+        }
+
+        const replacementByDocId = new Map(replacements.map(({ order, newOrderId }) => [order.id, newOrderId]));
+        set((state) => ({
+          orders: (state.orders || []).map((order) => replacementByDocId.has(order.id)
+            ? { ...order, orderId: replacementByDocId.get(order.id) }
+            : order)
+        }));
+
+        console.info(`SG LOG: Migrated ${replacements.length} legacy order number${replacements.length === 1 ? '' : 's'} to #SG-#### format.`);
+        return replacements.length;
       },
 
 
