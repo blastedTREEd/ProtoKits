@@ -50,6 +50,57 @@ function normalizeStoryLocation(story) {
   };
 }
 
+function normalizeStoryOrderIds(story) {
+  const orderIds = story?.orderIds || story?.linkedOrderIds || [];
+  return Array.isArray(orderIds)
+    ? orderIds.map((orderId) => String(orderId || '').trim()).filter(Boolean)
+    : [];
+}
+
+function getStoryOrderItems(order) {
+  const orderItems = Array.isArray(order?.items) && order.items.length > 0
+    ? order.items
+    : [order];
+
+  return orderItems
+    .map((item) => (
+      item?.name
+      || item?.item
+      || item?.kitDetails?.name
+      || item?.projectData?.projectName
+      || item?.projectData?.name
+      || item?.itemName
+      || [item?.brand, item?.specs?.line, item?.kitName].filter(Boolean).join(' ')
+    ))
+    .map((itemName) => String(itemName || '').trim())
+    .filter(Boolean);
+}
+
+function getStoryOrderLocation(order) {
+  const details = order?.receiverDetails
+    || order?.deliveryData
+    || order?.shippingAddress
+    || order?.address
+    || {};
+
+  return {
+    city: String(details.city || details.town || details.cityTown || order?.city || order?.town || '').trim(),
+    province: String(details.province || order?.province || '').trim()
+  };
+}
+
+function getStoryOrderPaidAmount(order) {
+  return Number(order?.buyerPaid ?? order?.paidAmount ?? order?.amountPaid ?? 0) || 0;
+}
+
+function getStoryOrderTimestamp(order) {
+  const value = order?.createdAt || order?.lastUpdated || order?.date;
+  if (typeof value?.toMillis === 'function') return value.toMillis();
+  if (typeof value?.seconds === 'number') return value.seconds * 1000;
+  const timestamp = new Date(value || 0).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
 function normalizeStorySticker(sticker, index) {
   return {
     id: sticker?.id || `sticker-${index}`,
@@ -129,7 +180,15 @@ function readFileAsDataUrl(file) {
 
 export default function StoryEditorModal({ isOpen, onClose }) {
   const { isDarkMode } = useTheme();
-  const { addStory, updateStory } = useStore();
+  const {
+    addStory,
+    updateStory,
+    orders,
+    isAdmin,
+    user,
+    subscribeOrders
+  } = useStore();
+  const ordersStatus = useStore((state) => state._datasetStatus?.orders || 'loading');
 
   const [mode, setMode] = useState('add'); // 'add' or 'edit'
   const [editingStory, setEditingStory] = useState(null);
@@ -140,6 +199,8 @@ export default function StoryEditorModal({ isOpen, onClose }) {
   const [city, setCity] = useState('');
   const [province, setProvince] = useState('');
   const [items, setItems] = useState(['']);
+  const [selectedOrderIds, setSelectedOrderIds] = useState([]);
+  const [orderSearch, setOrderSearch] = useState('');
   const [storyDate, setStoryDate] = useState(() => getCurrentLocalDateTime());
   const [value, setValue] = useState(() => getRandomStoryColor()); // Glow color used by story cards
   const [isSavingDraft, setIsSavingDraft] = useState(false);
@@ -182,6 +243,7 @@ export default function StoryEditorModal({ isOpen, onClose }) {
   const bgFileInputRef = useRef(null);
   const stickerFileInputRef = useRef(null);
   const canvasRef = useRef(null);
+  const appliedOrderSelectionRef = useRef('');
 
   // const [activeHandle, setActiveHandle] = useState(null); 
 
@@ -285,6 +347,15 @@ export default function StoryEditorModal({ isOpen, onClose }) {
       window.scrollTo(0, scrollY);
     };
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !isAdmin || typeof subscribeOrders !== 'function') return undefined;
+
+    return subscribeOrders({
+      uid: user?.uid,
+      isAdminMode: true
+    });
+  }, [isAdmin, isOpen, subscribeOrders, user?.uid]);
 
   useEffect(() => {
     const checkDevice = () => {
@@ -935,6 +1006,9 @@ const handleBgPointerDown = (e) => {
     setCity('');
     setProvince('');
     setItems(['']);
+    setSelectedOrderIds([]);
+    setOrderSearch('');
+    appliedOrderSelectionRef.current = '';
     setStoryDate(getCurrentLocalDateTime());
     setValue(getRandomStoryColor());
     setBackgroundImage('');
@@ -964,6 +1038,9 @@ const handleBgPointerDown = (e) => {
     setCity(location.city);
     setProvince(location.province);
     setItems(normalizeStoryItems(story.items));
+    setSelectedOrderIds(normalizeStoryOrderIds(story));
+    setOrderSearch('');
+    appliedOrderSelectionRef.current = '';
     setStoryDate(story.storyDate || getCurrentLocalDateTime());
     setValue(story.value || getRandomStoryColor());
     
@@ -986,6 +1063,66 @@ const handleBgPointerDown = (e) => {
     
     setMode('edit');
   }, []);
+
+  const selectableOrders = useMemo(() => (
+    [...(orders || [])]
+      .filter((order) => order?.id)
+      .sort((a, b) => getStoryOrderTimestamp(b) - getStoryOrderTimestamp(a))
+  ), [orders]);
+
+  const filteredOrders = useMemo(() => {
+    const query = orderSearch.trim().toLowerCase();
+    if (!query) return selectableOrders;
+
+    return selectableOrders.filter((order) => {
+      const location = getStoryOrderLocation(order);
+      const searchableText = [
+        order.orderId,
+        order.id,
+        order.buyerName,
+        order.status,
+        location.city,
+        location.province,
+        ...getStoryOrderItems(order)
+      ].filter(Boolean).join(' ').toLowerCase();
+      return searchableText.includes(query);
+    });
+  }, [orderSearch, selectableOrders]);
+
+  const applySelectedOrders = useCallback((orderIds, sourceOrders = orders) => {
+    const selectedOrders = (sourceOrders || []).filter((order) => (
+      orderIds.includes(String(order.id)) || orderIds.includes(String(order.orderId || ''))
+    ));
+    const selectedItems = [...new Set(selectedOrders.flatMap(getStoryOrderItems))];
+    const selectedLocations = selectedOrders.map(getStoryOrderLocation);
+    const cities = [...new Set(selectedLocations.map((location) => location.city).filter(Boolean))];
+    const provinces = [...new Set(selectedLocations.map((location) => location.province).filter(Boolean))];
+
+    setItems(selectedItems.length > 0 ? selectedItems : ['']);
+    setCity(cities.join(', '));
+    setProvince(provinces.join(', '));
+  }, [orders]);
+
+  const handleOrderSelectionChange = useCallback((orderId) => {
+    const normalizedOrderId = String(orderId);
+    const nextOrderIds = selectedOrderIds.includes(normalizedOrderId)
+      ? selectedOrderIds.filter((id) => id !== normalizedOrderId)
+      : [...selectedOrderIds, normalizedOrderId];
+
+    setSelectedOrderIds(nextOrderIds);
+    appliedOrderSelectionRef.current = nextOrderIds.join('|');
+    applySelectedOrders(nextOrderIds);
+  }, [applySelectedOrders, selectedOrderIds]);
+
+  useEffect(() => {
+    if (!isOpen || selectedOrderIds.length === 0 || selectableOrders.length === 0) return;
+
+    const selectionKey = selectedOrderIds.join('|');
+    if (appliedOrderSelectionRef.current === selectionKey) return;
+
+    applySelectedOrders(selectedOrderIds, selectableOrders);
+    appliedOrderSelectionRef.current = selectionKey;
+  }, [applySelectedOrders, isOpen, selectableOrders, selectedOrderIds]);
 
   useEffect(() => {
     const handleOpenRequest = (event) => {
@@ -1010,6 +1147,7 @@ const handleBgPointerDown = (e) => {
     province: province.trim(),
     destination: [city.trim(), province.trim()].filter(Boolean).join(', '),
     items: items.map((item) => item.trim()).filter(Boolean),
+    orderIds: selectedOrderIds,
     storyDate: storyDate || getCurrentLocalDateTime(),
     value,
     backgroundImage,
@@ -1019,7 +1157,7 @@ const handleBgPointerDown = (e) => {
     bgOffset,
     stickers: stickers.map(normalizeStorySticker),
     texts: texts.map(normalizeStoryText)
-  }), [label, description, city, province, items, storyDate, value, backgroundImage, bgImageSize, bgZoom, bgRotation, bgOffset, stickers, texts]);
+  }), [label, description, city, province, items, selectedOrderIds, storyDate, value, backgroundImage, bgImageSize, bgZoom, bgRotation, bgOffset, stickers, texts]);
 
   const estimatedStorySize = useMemo(() => {
     try {
@@ -1516,6 +1654,88 @@ const renderEditorFormButtons = () => (
                         <label className="text-[10px] font-black uppercase tracking-wider text-neutral-400">Description</label>
                         <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="ENTER STORY DESCRIPTION" rows={3} className="w-full p-4 rounded-2xl bg-neutral-50 dark:bg-white/5 border text-xs focus:outline-none focus:border-garage-blue resize-none" maxLength={300} />
                       </div>
+
+                      {isAdmin && (
+                        <div className="space-y-2 rounded-2xl border border-blue-500/20 bg-blue-500/[0.03] p-3 dark:bg-blue-500/[0.06]">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <label className="text-[10px] font-black uppercase tracking-wider text-blue-600 dark:text-blue-400">Link Orders</label>
+                              <p className="mt-1 text-[9px] font-bold uppercase tracking-wider text-neutral-400">
+                                Select orders to fill the story items and destination.
+                              </p>
+                            </div>
+                            {selectedOrderIds.length > 0 && (
+                              <span className="shrink-0 rounded-full bg-blue-600 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-white">
+                                {selectedOrderIds.length} selected
+                              </span>
+                            )}
+                          </div>
+
+                          <input
+                            type="search"
+                            value={orderSearch}
+                            onChange={(event) => setOrderSearch(event.target.value)}
+                            placeholder="SEARCH ORDER NO., CUSTOMER, ITEM OR LOCATION"
+                            className="w-full rounded-xl border bg-white p-3 text-[10px] font-black uppercase tracking-wider focus:outline-none focus:border-blue-500 dark:border-white/10 dark:bg-white/5"
+                          />
+
+                          <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+                            {ordersStatus === 'loading' && selectableOrders.length === 0 ? (
+                              <div className="flex items-center justify-center gap-2 py-6 text-[10px] font-black uppercase tracking-wider text-neutral-400">
+                                <Loader2 size={14} className="animate-spin" /> Loading orders...
+                              </div>
+                            ) : ordersStatus === 'error' && selectableOrders.length === 0 ? (
+                              <p className="py-4 text-center text-[10px] font-black uppercase tracking-wider text-red-500">Orders unavailable</p>
+                            ) : filteredOrders.length === 0 ? (
+                              <p className="py-4 text-center text-[10px] font-black uppercase tracking-wider text-neutral-400">No matching orders</p>
+                            ) : (
+                              filteredOrders.map((order) => {
+                                const orderItems = getStoryOrderItems(order);
+                                const orderLocation = getStoryOrderLocation(order);
+                                const isSelected = selectedOrderIds.includes(String(order.id))
+                                  || selectedOrderIds.includes(String(order.orderId || ''));
+
+                                return (
+                                  <label
+                                    key={order.id}
+                                    className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors ${isSelected
+                                      ? 'border-blue-500 bg-blue-500/10'
+                                      : 'border-black/5 bg-white hover:border-blue-500/40 dark:border-white/10 dark:bg-white/[0.03]'
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      onChange={() => handleOrderSelectionChange(order.id)}
+                                      className="mt-1 h-4 w-4 shrink-0 accent-blue-600"
+                                    />
+                                    <span className="min-w-0 flex-1">
+                                      <span className="flex flex-wrap items-center justify-between gap-2">
+                                        <span className="truncate text-[11px] font-black uppercase tracking-wider text-blue-600 dark:text-blue-400">
+                                          {order.orderId || order.id}
+                                        </span>
+                                        <span className="shrink-0 text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                                          Paid ₱{getStoryOrderPaidAmount(order).toLocaleString()}
+                                        </span>
+                                      </span>
+                                      <span className="mt-1 block truncate text-[10px] font-black uppercase tracking-wider text-neutral-700 dark:text-neutral-200">
+                                        {order.buyerName || 'Unnamed customer'}
+                                      </span>
+                                      <span className="mt-1 block text-[9px] font-bold uppercase leading-relaxed tracking-wider text-neutral-500 dark:text-neutral-400">
+                                        {orderItems.length > 0 ? orderItems.join(' • ') : 'No item names recorded'}
+                                      </span>
+                                      <span className="mt-1 block text-[9px] font-bold uppercase tracking-wider text-neutral-400">
+                                        {[orderLocation.city, orderLocation.province].filter(Boolean).join(', ') || 'No city/province recorded'}
+                                        {order.status ? ` • ${order.status}` : ''}
+                                      </span>
+                                    </span>
+                                  </label>
+                                );
+                              })
+                            )}
+                          </div>
+                        </div>
+                      )}
 
                       <div className="space-y-2">
                         <label className="text-[10px] font-black uppercase tracking-wider text-neutral-400">Destination</label>
