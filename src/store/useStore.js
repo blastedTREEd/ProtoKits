@@ -2737,7 +2737,12 @@ export const useStore = create(
         replacements.forEach(({ order, newOrderId }) => {
           writes.push({
             ref: doc(db, 'orders', order.id),
-            data: { orderId: newOrderId, lastUpdated: serverTimestamp() }
+            data: {
+              orderId: newOrderId,
+              legacyOrder: true,
+              orderSource: 'legacy',
+              lastUpdated: serverTimestamp()
+            }
           });
         });
 
@@ -2781,7 +2786,12 @@ export const useStore = create(
         const replacementByDocId = new Map(replacements.map(({ order, newOrderId }) => [order.id, newOrderId]));
         set((state) => ({
           orders: (state.orders || []).map((order) => replacementByDocId.has(order.id)
-            ? { ...order, orderId: replacementByDocId.get(order.id) }
+            ? {
+              ...order,
+              orderId: replacementByDocId.get(order.id),
+              legacyOrder: true,
+              orderSource: 'legacy'
+            }
             : order)
         }));
 
