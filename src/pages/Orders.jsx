@@ -22,6 +22,8 @@ import {
   lookupPhilippineAddressByZipCode,
   lookupPhilippineZipCodeByCityAndProvince
 } from '../utils/philippineAddress';
+import { compactImageReference } from '../utils/orderPayload';
+import PhilippineAddressSuggestions from '../components/common/PhilippineAddressSuggestions';
 
 let DefaultIcon = L.icon({ iconUrl: markerIcon, shadowUrl: markerShadow, iconSize: [25, 41], iconAnchor: [12, 41] });
 L.Marker.prototype.options.icon = DefaultIcon;
@@ -59,8 +61,7 @@ const getLegacyKitDetails = (kit) => ({
   series: kit?.series || '',
   specs: { ...(kit?.specs || {}) },
   description: kit?.description || '',
-  image: kit?.image || null,
-  images: Array.isArray(kit?.images) ? kit.images : [],
+  image: compactImageReference(kit?.image),
   jpPrice: hasRecordedAmount(kit?.jpPrice) ? Number(kit.jpPrice) : null,
   phPrice: hasRecordedAmount(kit?.phPrice) ? Number(kit.phPrice) : null,
   dimensions: kit?.dimensions || kit?.boxDimensions || null
@@ -1282,8 +1283,7 @@ export default function Orders() {
         issue: stock.issue || '',
         issueDescription: stock.issueDescription || '',
         quantity: 1,
-        image: kit.image || null,
-        images: kit.images || null,
+        image: compactImageReference(kit.image),
         stockKey,
         status: stock.status || 'ONHAND',
         type: 'kit'
@@ -2280,6 +2280,7 @@ export default function Orders() {
                 cleanName = cleanName.replace(gradeRegex, '');
               }
               cleanName = cleanName.trim() || rawName;
+              const displayTitle = [displayBrand, cleanName].filter(Boolean).join(' ').trim() || cleanName;
 
               const sellPrice = Number(item.sellPrice || item.price || 0);
               const installmentFee = Number(item.appliedInstallmentFee || 0);
@@ -2320,10 +2321,10 @@ export default function Orders() {
                       </div>
                       <div className="min-w-0 text-left">
                         <p className="text-sm font-black uppercase leading-tight truncate text-neutral-900 dark:text-white">
-                          {cleanName}
+                          {displayTitle}
                         </p>
                         <p className="text-xs font-bold text-neutral-900 dark:text-white mt-1 uppercase">
-                          {displayGrade} {displayBrand ? `/ ${displayBrand}` : ''}
+                          {displayGrade}
                         </p>
                         <p className="text-xs font-black uppercase text-blue-600 dark:text-blue-500 mt-0.5">
                           x{item.quantity || 1}
@@ -3373,7 +3374,7 @@ export default function Orders() {
 
                 <aside className="space-y-5">
                   <section className="rounded-2xl border border-black/10 p-5 dark:border-white/10"><h3 className="mb-4 text-[12px] font-black uppercase tracking-widest opacity-45">Shipping</h3><div className="space-y-3"><select required value={manualOrderData.shippingMethod} onChange={(event) => setManualOrderData(prev => ({ ...prev, shippingMethod: event.target.value, shippingSuboption: '' }))} className="w-full rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10"><option value="">Select shipping option</option>{legacyShippingOptions.map(method => <option key={method} value={method}>{method}</option>)}</select>{legacySuboptions.length > 0 && <select required value={manualOrderData.shippingSuboption} onChange={(event) => setManualOrderData(prev => ({ ...prev, shippingSuboption: event.target.value }))} className="w-full rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10"><option value="">Select suboption</option>{legacySuboptions.map(([key, config]) => <option key={key} value={key}>{config.label || key}</option>)}</select>}</div></section>
-                  <section className="rounded-2xl border border-black/10 p-5 dark:border-white/10"><h3 className="mb-4 text-[12px] font-black uppercase tracking-widest opacity-45">Delivery address</h3><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1"><input required value={manualOrderData.city} onChange={(event) => handleLegacyLocationChange('city', event.target.value)} placeholder="CITY / TOWN" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /><input required value={manualOrderData.province} onChange={(event) => handleLegacyLocationChange('province', event.target.value)} placeholder="PROVINCE" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /><input required inputMode="numeric" pattern="[0-9]{4}" maxLength={4} value={manualOrderData.zipCode} onChange={handleLegacyZipCodeChange} placeholder="ZIP CODE" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /></div><p className="mt-3 text-[10px] font-bold uppercase tracking-wider opacity-45">Enter the city/town and province to generate the ZIP code, or enter a 4-digit ZIP code to fill them automatically.</p></section>
+                  <section className="rounded-2xl border border-black/10 p-5 dark:border-white/10"><h3 className="mb-4 text-[12px] font-black uppercase tracking-widest opacity-45">Delivery address</h3><PhilippineAddressSuggestions idPrefix="legacy-address" province={manualOrderData.province} /><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1"><input list="legacy-address-provinces" required value={manualOrderData.province} onChange={(event) => handleLegacyLocationChange('province', event.target.value)} placeholder="PROVINCE" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /><input list="legacy-address-cities" required value={manualOrderData.city} onChange={(event) => handleLegacyLocationChange('city', event.target.value)} placeholder="CITY / TOWN" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /><input required inputMode="numeric" pattern="[0-9]{4}" maxLength={4} value={manualOrderData.zipCode} onChange={handleLegacyZipCodeChange} placeholder="ZIP CODE" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10" /></div><p className="mt-3 text-[10px] font-bold uppercase tracking-wider opacity-45">Enter the province first, then city/town to generate the ZIP code, or enter a 4-digit ZIP code to fill them automatically.</p></section>
                   <section className="rounded-2xl border border-blue-500/20 bg-blue-500/[0.04] p-5">
                     <h3 className="mb-4 text-[12px] font-black uppercase tracking-widest text-blue-600">Payment summary</h3>
                     <label className="mb-3 block text-[10px] font-black uppercase tracking-widest opacity-45">

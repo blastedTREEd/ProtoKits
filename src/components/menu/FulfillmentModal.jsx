@@ -12,6 +12,7 @@ import {
   lookupPhilippineAddressByZipCode,
   lookupPhilippineZipCodeByCityAndProvince
 } from '../../utils/philippineAddress';
+import PhilippineAddressSuggestions from '../common/PhilippineAddressSuggestions';
 
 import 'leaflet/dist/leaflet.css';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
@@ -600,6 +601,7 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
 
     return (
       <div className="space-y-4 rounded-3xl border border-garage-blue/15 bg-garage-blue/[0.03] p-4 md:p-6">
+        <PhilippineAddressSuggestions idPrefix="fulfillment-address" province={formData.province} />
         <div className="flex items-center justify-between gap-3">
           <div>
             <h4 className="text-[14px] font-black uppercase italic text-garage-blue">
@@ -628,8 +630,8 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
         <div className="relative text-left"><Building2 className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder={isMeetup ? 'Street (Optional)' : 'Street'} value={formData.houseDetails} onChange={(e) => handleAddressChange({ houseDetails: e.target.value })} onBlur={(e) => handleBlur('houseDetails', e.target.value)} className={inputClass} /></div>
         <div className="relative text-left"><Map className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="Subdivision (Optional)" value={formData.subdivision} onChange={(e) => handleAddressChange({ subdivision: e.target.value })} onBlur={(e) => handleBlur('subdivision', e.target.value)} className={inputClass} /></div>
         <div className="relative text-left"><MapPin className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="Barangay" value={formData.barangay} onChange={(e) => handleAddressChange({ barangay: e.target.value })} onBlur={(e) => handleBlur('barangay', e.target.value)} className={inputClass} /></div>
-        <div className="relative text-left"><Building2 className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="City / Town" value={formData.city} onChange={(e) => handleAddressChange({ city: e.target.value, zipCode: '' })} onBlur={(e) => handleBlur('city', e.target.value)} className={inputClass} /></div>
-        <div className="relative text-left"><Map className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="Province" value={formData.province} onChange={(e) => handleAddressChange({ province: e.target.value, zipCode: '' })} onBlur={(e) => handleBlur('province', e.target.value)} className={inputClass} /></div>
+        <div className="relative text-left"><Map className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input list="fulfillment-address-provinces" placeholder="Province" value={formData.province} onChange={(e) => handleAddressChange({ province: e.target.value, zipCode: '' })} onBlur={(e) => handleBlur('province', e.target.value)} className={inputClass} /></div>
+        <div className="relative text-left"><Building2 className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input list="fulfillment-address-cities" placeholder="City / Town" value={formData.city} onChange={(e) => handleAddressChange({ city: e.target.value, zipCode: '' })} onBlur={(e) => handleBlur('city', e.target.value)} className={inputClass} /></div>
 
         <div
           className="h-48 w-full overflow-hidden rounded-2xl"

@@ -37,6 +37,7 @@ import {
   getUnavailableWeekdaySet,
   toDateKey
 } from '../../utils/availabilitySchedule';
+import { compactImageReference, compactOrderProjectData } from '../../utils/orderPayload';
 
 // --- LEAFLET CSS & ICON FIX ---
 import 'leaflet/dist/leaflet.css';
@@ -2541,6 +2542,7 @@ const handleFinalizeOrder = async () => {
         isMaintenanceOrder: isOrderInvalidForMaintenance || false,
         items: allocatedCheckoutItems.map((item, index) => {
           const distributedFee = distributedOrderFees[index] || { handling: 0, transfer: 0, total: 0 };
+          const checkoutKit = isProjectCheckoutItem(item) ? null : findCheckoutKit(kits, item);
           return ({
           id: item.id,
           name: `${item.brand || ''} ${item.specs?.line || ''} ${item.name}`.trim(),
@@ -2548,10 +2550,11 @@ const handleFinalizeOrder = async () => {
           sellPrice: isBundleOrClearanceItem(item) ? (item.price || 0) : (item.sellPrice || item.price || 0),
           originalSellPrice: isProjectCheckoutItem(item)
             ? 0
-            : getStockStandaloneSellPrice(item, findCheckoutKit(kits, item)),
+            : getStockStandaloneSellPrice(item, checkoutKit),
           quantity: item.quantity || 1,
-          image: item.image || null,
-          images: item.images || null,
+          // Kit orders store only the kit's master/grid image reference. The
+          // full gallery remains on the kit document and is not copied here.
+          image: compactImageReference(isProjectCheckoutItem(item) ? item.image : (checkoutKit?.image || item.image)),
           appliedHandlingFee: item.appliedHandlingFee || 0,
           appliedInstallmentFee: item.appliedInstallmentFee || 0,
           appliedTransferFee: item.appliedTransferFee || 0,
@@ -2576,7 +2579,7 @@ const handleFinalizeOrder = async () => {
           stockSource: item.stockSource || null,
           costPrice: isProjectCheckoutItem(item) ? 0 : toCheckoutNumber(item.costPrice),
           type: isProjectCheckoutItem(item) ? 'project' : 'kit',
-          projectData: isProjectCheckoutItem(item) ? (item.projectData || null) : null,
+          projectData: isProjectCheckoutItem(item) ? compactOrderProjectData(item.projectData) : null,
           productionJobs: isProjectCheckoutItem(item) ? (item.projectData?.productionJobs || item.projectData?.projectDetails?.flatMap(detail => detail.productionJobs || []) || []) : []
           });
         }),
@@ -3172,6 +3175,8 @@ const handleFinalizeOrder = async () => {
       const rawName = (item.name || item.item || item.projectData?.projectName || `Item ${idx + 1}`)
         .replace(/\s*\(Pre-Order\)\s*$/i, '')
         .replace(/\s*\((?:Bundle|Clearance) Item\)\s*$/i, '');
+      const hasBrandInName = displayBrand && rawName.toLowerCase().startsWith(displayBrand.trim().toLowerCase());
+      const displayName = [!hasBrandInName && displayBrand, rawName].filter(Boolean).join(' ').trim() || rawName;
       const quantity = Number(item.quantity) || 1;
       const itemInstallmentFee = Number(item.appliedInstallmentFee || 0);
       const displayInstallmentFee = isReservationPlan ? itemInstallmentFee : 0;
@@ -3218,8 +3223,8 @@ const handleFinalizeOrder = async () => {
       return {
         id: item.basketId || item.stockKey || item.id || idx,
         image: displayImage,
-        name: rawName,
-        meta: [displayGrade, displayBrand, isProjectCheckoutItem(item) ? 'PROJECT' : item.status].filter(Boolean).join(' / '),
+        name: displayName,
+        meta: [displayGrade, isProjectCheckoutItem(item) ? 'PROJECT' : item.status].filter(Boolean).join(' / '),
         quantity,
         unitPrice,
         linePrice,

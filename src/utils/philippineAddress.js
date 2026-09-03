@@ -1,3 +1,5 @@
+import { PHILIPPINE_ZIP_CODE_ROWS } from './philippineZipCodes.js';
+
 const PHILIPPINES = 'Philippines';
 
 // Nominatim often returns an administrative boundary for a municipality
@@ -101,9 +103,27 @@ const METRO_MANILA_ZIP_FALLBACKS = new Map([
   ['ncr|santacruznorth', '1014']
 ]);
 
+// Keep municipality-level fallbacks for locations where Nominatim's
+// administrative boundary does not carry a postcode.
+const MUNICIPALITY_ZIP_FALLBACKS = new Map([
+  ['cavite|dasmarinas', '4114'],
+  ['nuevaecija|cabanatuan', '3100'],
+  ['zamboangadelsur|zamboanga', '7000']
+]);
+
+// Common user-entered/administrative name variants that otherwise prevent a
+// verified geocoder result from matching the selected city and province.
+const LOCATION_NAME_ALIASES = new Map([
+  ['caranatuan', 'cabanatuan'],
+  ['cabanatuancity', 'cabanatuan'],
+  ['ncr', 'metromanila'],
+  ['nationalcapitalregion', 'metromanila']
+]);
+
 export const normalizePhilippineZipCode = (value) => String(value || '').match(/\b\d{4}\b/)?.[0] || '';
 
-const normalizeLocationName = (value) => String(value || '')
+const normalizeLocationName = (value) => {
+  const normalized = String(value || '')
   .normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '')
   .toLowerCase()
@@ -111,8 +131,34 @@ const normalizeLocationName = (value) => String(value || '')
   // "Province of Cavite" while users enter "San Jose" or "Cavite".
   .replace(/\b(city|municipality|province)\s+of\b/g, '')
   .replace(/\b(city|municipality|province)\b/g, '')
+  .replace(/\([^)]*\)/g, '')
   .replace(/[^a-z0-9]+/g, '')
   .trim();
+  return LOCATION_NAME_ALIASES.get(normalized) || normalized;
+};
+
+const PHILIPPINE_ZIP_CODE_MAP = new Map();
+PHILIPPINE_ZIP_CODE_ROWS.forEach(([province, city, zipCode]) => {
+  const key = `${normalizeLocationName(province)}|${normalizeLocationName(city)}`;
+  if (!PHILIPPINE_ZIP_CODE_MAP.has(key)) PHILIPPINE_ZIP_CODE_MAP.set(key, zipCode);
+});
+
+export const getPhilippineProvinceOptions = () => [...new Set(
+  PHILIPPINE_ZIP_CODE_ROWS.map(([province]) => province).filter(Boolean)
+)].sort((a, b) => a.localeCompare(b));
+
+export const getPhilippineCityOptions = (province = '') => {
+  const normalizedProvince = normalizeLocationName(province);
+  if (!normalizedProvince) return [];
+
+  const options = new Map();
+  PHILIPPINE_ZIP_CODE_ROWS.forEach(([rowProvince, city, zipCode]) => {
+    if (normalizeLocationName(rowProvince) !== normalizedProvince || !city || !zipCode) return;
+    const key = normalizeLocationName(city);
+    if (!options.has(key)) options.set(key, { city, zipCode });
+  });
+  return [...options.values()].sort((a, b) => a.city.localeCompare(b.city));
+};
 
 const getLocationVariants = (value) => {
   const location = String(value || '').trim().replace(/\s+/g, ' ');
@@ -164,6 +210,14 @@ const getMetroManilaZipFallback = (city, province) => {
     .map((cityName) => METRO_MANILA_ZIP_FALLBACKS.get(`${provinceName}|${cityName}`))
     .find(Boolean) || '';
 };
+
+const getMunicipalityZipFallback = (city, province) => (
+  MUNICIPALITY_ZIP_FALLBACKS.get(`${normalizeLocationName(province)}|${normalizeLocationName(city)}`) || ''
+);
+
+const getOfficialPhilippineZipFallback = (city, province) => (
+  PHILIPPINE_ZIP_CODE_MAP.get(`${normalizeLocationName(province)}|${normalizeLocationName(city)}`) || ''
+);
 
 const isLocationMatch = (value, variants) => {
   const normalizedValue = normalizeLocationName(value);
@@ -234,6 +288,13 @@ export const lookupPhilippineZipCodeByCityAndProvince = async (city, province) =
   const metroFallback = getMetroManilaZipFallback(city, province);
   if (metroFallback) return metroFallback;
 
+  // Prefer verified local municipality mappings so known Philippine ZIPs do
+  // not depend on a live geocoder response.
+  const localFallback = getSanPrefixZipFallback(city, province)
+    || getMunicipalityZipFallback(city, province)
+    || getOfficialPhilippineZipFallback(city, province);
+  if (localFallback) return localFallback;
+
   const findVerifiedResult = (results) => results.find((item) => {
     const address = item?.address || {};
     const resultCityNames = getResultCityNames(address);
@@ -252,29 +313,41 @@ export const lookupPhilippineZipCodeByCityAndProvince = async (city, province) =
   });
 
   for (const cityVariant of cityVariants) {
-    const result = findVerifiedResult(await fetchNominatimResults(new URLSearchParams({
-      city: cityVariant,
-      state: province,
-      country: PHILIPPINES,
-      format: 'json',
-      addressdetails: '1',
-      limit: '10'
-    })));
+    let results = [];
+    try {
+      results = await fetchNominatimResults(new URLSearchParams({
+        city: cityVariant,
+        state: province,
+        country: PHILIPPINES,
+        format: 'json',
+        addressdetails: '1',
+        limit: '10'
+      }));
+    } catch (error) {
+      console.warn('SG LOG: City/province ZIP lookup unavailable; using local fallbacks.', error);
+    }
+    const result = findVerifiedResult(results);
     if (result) return normalizePhilippineZipCode(result.address.postcode);
   }
 
   // Retry unstructured searches for OSM entries that ignore city/state fields.
   for (const cityVariant of cityVariants) {
-    const result = findVerifiedResult(await fetchNominatimResults(new URLSearchParams({
-      q: `${cityVariant}, ${province}, ${PHILIPPINES}`,
-      format: 'json',
-      addressdetails: '1',
-      limit: '10'
-    })));
+    let results = [];
+    try {
+      results = await fetchNominatimResults(new URLSearchParams({
+        q: `${cityVariant}, ${province}, ${PHILIPPINES}`,
+        format: 'json',
+        addressdetails: '1',
+        limit: '10'
+      }));
+    } catch (error) {
+      console.warn('SG LOG: Unstructured ZIP lookup unavailable; using local fallbacks.', error);
+    }
+    const result = findVerifiedResult(results);
     if (result) return normalizePhilippineZipCode(result.address.postcode);
   }
 
   // Administrative boundaries frequently have no postcode in OSM. Fall back
   // to the province-qualified postal mappings for those locations.
-  return getSanPrefixZipFallback(city, province);
+  return '';
 };

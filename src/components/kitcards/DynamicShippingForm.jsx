@@ -8,6 +8,7 @@ import {
   lookupPhilippineAddressByZipCode,
   lookupPhilippineZipCodeByCityAndProvince
 } from '../../utils/philippineAddress';
+import PhilippineAddressSuggestions from '../common/PhilippineAddressSuggestions';
 
 const MAP_MAX_PIN_ZOOM = 19;
 
@@ -235,6 +236,7 @@ export default function DynamicShippingForm({
 
   return (
     <div className="space-y-3 animate-in fade-in duration-300 text-left">
+      <PhilippineAddressSuggestions idPrefix="checkout-address" province={deliveryData.province} />
       {/* Row 1: Name */}
       {isRequired(1) && (
         <div className="relative">
@@ -410,9 +412,24 @@ export default function DynamicShippingForm({
         </div>
       )}
 
-      {/* Row 7: City & Province */}
+      {/* Row 7: Province & City */}
       {(isRequired(10) || isRequired(11)) && (
         <div className={`grid gap-2 ${isRequired(10) && isRequired(11) ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          {isRequired(11) && (
+            <div className="relative text-left">
+              <MapPin className="absolute left-3.5 top-3 text-blue-600" size={16} />
+              <motion.input 
+                whileTap={{ scale: 0.99 }}
+                whileFocus={{ scale: 1.01 }}
+                transition={{ duration: 0.1 }}
+                placeholder="Province"
+                list="checkout-address-provinces"
+                value={deliveryData.province || ''}
+                onChange={(e) => handleLocationChange('province', e.target.value)}
+                className={`${inputClass} ${!validationState.province ? 'border-red-500 !border-2' : ''}`}
+              />
+            </div>
+          )}
           {isRequired(10) && (
             <div className="relative text-left">
               <Navigation className="absolute left-3.5 top-3 text-blue-600" size={16} />
@@ -421,23 +438,10 @@ export default function DynamicShippingForm({
                 whileFocus={{ scale: 1.01 }}
                 transition={{ duration: 0.1 }}
                 placeholder="City / Town"
-                value={deliveryData.city || ''} 
+                list="checkout-address-cities"
+                value={deliveryData.city || ''}
                 onChange={(e) => handleLocationChange('city', e.target.value)}
-                className={`${inputClass} ${!validationState.city ? 'border-red-500 !border-2' : ''}`} 
-              />
-            </div>
-          )}
-          {isRequired(11) && (
-            <div className="relative text-left">
-              <MapPin className="absolute left-3.5 top-3 text-blue-600" size={16} />
-              <motion.input 
-                whileTap={{ scale: 0.99 }}
-                whileFocus={{ scale: 1.01 }}
-                transition={{ duration: 0.1 }}
-                placeholder="Province" 
-                value={deliveryData.province || ''} 
-                onChange={(e) => handleLocationChange('province', e.target.value)}
-                className={`${inputClass} ${!validationState.province ? 'border-red-500 !border-2' : ''}`} 
+                className={`${inputClass} ${!validationState.city ? 'border-red-500 !border-2' : ''}`}
               />
             </div>
           )}

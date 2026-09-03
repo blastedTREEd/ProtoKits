@@ -12,6 +12,7 @@ import {
 } from '../utils/stockConditions';
 import { normalizeFeederRecord, normalizePrinterRecord, normalizePrinterStatus } from '../utils/printerCompatibility';
 import { getStockEta } from '../utils/stockDates';
+import { compactOrderPayload, getPayloadByteSize } from '../utils/orderPayload';
 
 const getKitTimestamp = (kit) => {
   const timestamps = [
@@ -3108,18 +3109,26 @@ export const useStore = create(
       createOrder: async (oData) => {
         const { user } = get();
         const ref = doc(collection(db, "orders"));
-        const order = { 
+        const order = compactOrderPayload({
           ...oData, 
           userId: oData.userId || user?.uid || null, 
           id: ref.id, 
           createdAt: oData.createdAt || serverTimestamp(), 
           lastUpdated: serverTimestamp() 
-        };
+        });
         
         // Sanitize object: remove undefined values
         Object.keys(order).forEach(key => order[key] === undefined && delete order[key]);
         
-        console.log("SG DEBUG: Sanitized order object:", order);
+        const payloadBytes = getPayloadByteSize(order);
+        // Leave headroom for Firestore's encoded field overhead; the SDK's
+        // limit is 1 MiB, while this preflight uses the serialized payload.
+        const firestoreDocumentSafeLimit = 950 * 1024;
+        if (payloadBytes >= firestoreDocumentSafeLimit) {
+          throw new Error('This order contains too much data to save. Remove some items or images and try again.');
+        }
+
+        console.log(`SG DEBUG: Sanitized order object (${payloadBytes} bytes):`, order);
         await setDoc(ref, order);
         return ref.id;
       },

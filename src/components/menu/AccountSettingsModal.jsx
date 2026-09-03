@@ -12,6 +12,7 @@ import {
   lookupPhilippineAddressByZipCode,
   lookupPhilippineZipCodeByCityAndProvince
 } from '../../utils/philippineAddress';
+import PhilippineAddressSuggestions from '../common/PhilippineAddressSuggestions';
 import L from 'leaflet';
 
 import 'leaflet/dist/leaflet.css';
@@ -403,6 +404,7 @@ export default function AccountSettingsModal({ isOpen, onClose }) {
                 </div>
                 ) : (
                 <div className="space-y-4">
+                  <PhilippineAddressSuggestions idPrefix="account-address" province={formData.province} />
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="relative text-left"><User className="absolute left-4 top-3.5 text-blue-600" size={18} /><input placeholder="Receiver's Name" value={formData.receiverName} onChange={(e) => setFormData(p => ({...p, receiverName: e.target.value}))} onBlur={(e) => handleBlur('receiverName', e.target.value)} className={inputClass} /></div>
                     <div className="relative text-left"><Phone className="absolute left-4 top-3.5 text-blue-600" size={18} /><input placeholder="Mobile No." value={formData.phoneNumber} onChange={(e) => setFormData(p => ({...p, phoneNumber: e.target.value}))} className={inputClass} /></div>
@@ -434,8 +436,8 @@ export default function AccountSettingsModal({ isOpen, onClose }) {
                   <div className="relative text-left"><MapPin className="absolute left-4 top-3.5 text-blue-600" size={18} /><input placeholder="Barangay" value={formData.barangay} onChange={(e) => setFormData(p => ({...p, barangay: e.target.value}))} onBlur={(e) => handleBlur('barangay', e.target.value)} className={inputClass} /></div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="relative text-left"><Building2 className="absolute left-4 top-3.5 text-blue-600" size={18} /><input placeholder="City / Town" value={formData.city} onChange={(e) => setFormData(p => ({...p, city: e.target.value, zipCode: ''}))} onBlur={(e) => handleBlur('city', e.target.value)} className={inputClass} /></div>
-                    <div className="relative text-left"><Map className="absolute left-4 top-3.5 text-blue-600" size={18} /><input placeholder="Province" value={formData.province} onChange={(e) => setFormData(p => ({...p, province: e.target.value, zipCode: ''}))} onBlur={(e) => handleBlur('province', e.target.value)} className={inputClass} /></div>
+                    <div className="relative text-left"><Map className="absolute left-4 top-3.5 text-blue-600" size={18} /><input list="account-address-provinces" placeholder="Province" value={formData.province} onChange={(e) => setFormData(p => ({...p, province: e.target.value, zipCode: ''}))} onBlur={(e) => handleBlur('province', e.target.value)} className={inputClass} /></div>
+                    <div className="relative text-left"><Building2 className="absolute left-4 top-3.5 text-blue-600" size={18} /><input list="account-address-cities" placeholder="City / Town" value={formData.city} onChange={(e) => setFormData(p => ({...p, city: e.target.value, zipCode: ''}))} onBlur={(e) => handleBlur('city', e.target.value)} className={inputClass} /></div>
                   </div>
                   
                   <div 
