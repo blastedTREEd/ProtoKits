@@ -550,6 +550,8 @@ export default function Orders() {
   const [completedReversalExpiredIds, setCompletedReversalExpiredIds] = useState(() => new Set());
   const [isMiniNavVisible, setIsMiniNavVisible] = useState(true);
   const legacyOrderMigrationStarted = useRef(false);
+  const ordersListReturnRef = useRef(null);
+  const pendingOrdersScrollRestoreRef = useRef(null);
 
   useEffect(() => {
     const handleHide = () => setIsMiniNavVisible(false);
@@ -568,12 +570,47 @@ export default function Orders() {
     };
   }, []);
 
+  const openOrderFromList = useCallback((order) => {
+    ordersListReturnRef.current = {
+      tabId: activeTab,
+      scrollY: window.scrollY
+    };
+    setSelectedOrder(order);
+  }, [activeTab]);
+
   const closeSelectedOrder = useCallback(() => {
+    if (!location.pathname.startsWith('/orders/')) {
+      pendingOrdersScrollRestoreRef.current = ordersListReturnRef.current;
+    }
     setSelectedOrder(null);
     if (location.pathname.startsWith('/orders/')) {
       navigate('/orders', { replace: true });
     }
   }, [location.pathname, navigate]);
+
+  useEffect(() => {
+    if (selectedOrder || !pendingOrdersScrollRestoreRef.current) return undefined;
+
+    const returnState = pendingOrdersScrollRestoreRef.current;
+    pendingOrdersScrollRestoreRef.current = null;
+    ordersListReturnRef.current = null;
+
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        window.scrollTo({
+          top: Math.max(0, Number(returnState.scrollY) || 0),
+          left: 0,
+          behavior: 'instant'
+        });
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame) window.cancelAnimationFrame(secondFrame);
+    };
+  }, [selectedOrder]);
   useEffect(() => {
     setSelectedOrders([]);
     setIsMultiSelectEnabled(false);
@@ -3145,8 +3182,7 @@ export default function Orders() {
                       if (isMultiSelectEnabled) {
                         toggleOrderSelection(e, o);
                       } else {
-                        setSelectedOrder(o);
-                        navigate(`/orders/${encodeURIComponent(o.orderId || o.id)}`);
+                        openOrderFromList(o);
                       }
                     }}
                     className={`p-3 rounded-2xl border-2 flex flex-col gap-3 transition-all duration-200 ${
