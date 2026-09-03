@@ -2223,9 +2223,8 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       // Final ZIP/Location existence validation
       if (updatedData.zipCode?.length === 4) {
         try {
-          const res = await fetch(`https://nominatim.openstreetmap.org/search?postalcode=${updatedData.zipCode}&country=Philippines&format=json`);
-          const data = await res.json();
-          newValidation.zipCode = data.length > 0;
+          const result = await lookupPhilippineAddressByZipCode(updatedData.zipCode);
+          newValidation.zipCode = Boolean(result);
         } catch (e) { console.warn("ZIP validation error", e); }
       }
       

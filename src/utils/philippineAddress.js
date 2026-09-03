@@ -1,11 +1,115 @@
 const PHILIPPINES = 'Philippines';
 
+// Nominatim often returns an administrative boundary for a municipality
+// without a postcode. Keep the PHLPost municipality mappings for the
+// San-prefixed locations affected by that response shape. The province is
+// part of each key because names such as San Mateo and San Jose are reused.
+const SAN_PREFIX_ZIP_FALLBACKS = new Map([
+  ['abra|sanisidro', '2809'],
+  ['abra|sanjuan', '2823'],
+  ['abra|sanquintin', '2808'],
+  ['agusandelsur|sanfrancisco', '8501'],
+  ['agusandelsur|sanluis', '8511'],
+  ['aurora|sanluis', '3201'],
+  ['batangas|sanjose', '4227'],
+  ['batangas|sanjuan', '4226'],
+  ['batangas|sanluis', '4210'],
+  ['batangas|sannicolas', '4207'],
+  ['batangas|sanpascual', '4204'],
+  ['bukidnon|sanfernando', '8711'],
+  ['bulacan|sanildefonso', '3010'],
+  ['bulacan|sanjosedelmonte', '3023'],
+  ['bulacan|sanmiguel', '3011'],
+  ['bulacan|sanrafael', '3008'],
+  ['camarinesnorte|sanlorenzoruiz', '4610'],
+  ['camarinesnorte|sanvicente', '4609'],
+  ['camarinessur|sanfernando', '4415'],
+  ['camarinessur|sanjose', '4423'],
+  ['catanduanes|sanandres', '4810'],
+  ['catanduanes|sanmiguel', '4802'],
+  ['davaodelnorte|sanisidro', '8121'],
+  ['davaooriental|sanisidro', '8209'],
+  ['dinagatislands|sanjose', '8427'],
+  ['isabela|sanagustin', '3314'],
+  ['isabela|sanguillermo', '3308'],
+  ['isabela|sanisidro', '3310'],
+  ['isabela|sanmanuel', '3317'],
+  ['isabela|sanmariano', '3332'],
+  ['isabela|sanmateo', '3318'],
+  ['isabela|sanpablo', '3329'],
+  ['laguna|sanpablo', '4000'],
+  ['laguna|sanpedro', '4023'],
+  ['masbate|sanfernando', '5416'],
+  ['masbate|sanjacinto', '5417'],
+  ['masbate|sanpascual', '5420'],
+  ['nuevaecija|sanantonio', '3108'],
+  ['nuevaecija|sanisidro', '3106'],
+  ['nuevaecija|sanjose', '3121'],
+  ['nuevaecija|sanleonardo', '3102'],
+  ['occidentalmindoro|sanjose', '5100'],
+  ['orientalmindoro|santeodoro', '5202'],
+  ['palawan|sanvicente', '5309'],
+  ['pampanga|sanfernando', '2000'],
+  ['pampanga|sanluis', '2014'],
+  ['pampanga|sansimon', '2015'],
+  ['pangasinan|sancarlos', '2420'],
+  ['pangasinan|sanfabian', '2433'],
+  ['pangasinan|sanjacinto', '2431'],
+  ['pangasinan|sanmanuel', '2438'],
+  ['pangasinan|sannicolas', '2447'],
+  ['pangasinan|sanquintin', '2444'],
+  ['quezon|sanandres', '4314'],
+  ['quezon|sanantonio', '4324'],
+  ['quezon|sanfrancisco', '4315'],
+  ['quezon|sannarciso', '4313'],
+  ['rizal|sanmateo', '1850'],
+  ['romblon|sanagustin', '5501'],
+  ['romblon|sanandres', '5504'],
+  ['romblon|sanfernando', '5513'],
+  ['romblon|sanjose', '5510'],
+  ['samar|sanjorge', '6707'],
+  ['samar|sanjosedebuan', '6723'],
+  ['samar|sansebastian', '6714'],
+  ['surigaodelnorte|sanbenito', '8423'],
+  ['surigaodelnorte|sanfrancisco', '8401'],
+  ['surigaodelnorte|sanisidro', '8421'],
+  ['surigaodelsur|sanagustin', '8305'],
+  ['surigaodelsur|sanmiguel', '8301'],
+  ['tarlac|sanclemente', '2305'],
+  ['tarlac|sanjose', '2318'],
+  ['tarlac|sanmanuel', '2309'],
+  ['zambales|sanantonio', '2206'],
+  ['zambales|sanfelipe', '2204'],
+  ['zambales|sanmarcelino', '2207'],
+  ['zambales|sannarciso', '2205']
+]);
+
+// Some Metro Manila districts are returned by Nominatim as suburbs of the
+// city, and some districts have more than one postal area.
+const METRO_MANILA_ZIP_FALLBACKS = new Map([
+  ['manila|santacruz', '1003'],
+  ['manila|santacruzsouth', '1003'],
+  ['manila|santacruznorth', '1014'],
+  ['metromanila|santacruz', '1003'],
+  ['metromanila|santacruzsouth', '1003'],
+  ['metromanila|santacruznorth', '1014'],
+  ['nationalcapitalregion|santacruz', '1003'],
+  ['nationalcapitalregion|santacruzsouth', '1003'],
+  ['nationalcapitalregion|santacruznorth', '1014'],
+  ['ncr|santacruz', '1003'],
+  ['ncr|santacruzsouth', '1003'],
+  ['ncr|santacruznorth', '1014']
+]);
+
 export const normalizePhilippineZipCode = (value) => String(value || '').match(/\b\d{4}\b/)?.[0] || '';
 
 const normalizeLocationName = (value) => String(value || '')
   .normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '')
   .toLowerCase()
+  // Geocoding results commonly return names such as "City of San Jose" or
+  // "Province of Cavite" while users enter "San Jose" or "Cavite".
+  .replace(/\b(city|municipality|province)\s+of\b/g, '')
   .replace(/\b(city|municipality|province)\b/g, '')
   .replace(/[^a-z0-9]+/g, '')
   .trim();
@@ -42,6 +146,25 @@ const getLocationVariants = (value) => {
   return [...variants];
 };
 
+const getSanPrefixZipFallback = (city, province) => {
+  const cityName = normalizeLocationName(city);
+  if (!cityName.startsWith('san')) return '';
+
+  const provinceName = normalizeLocationName(province)
+    .replace(/camsur$/, '')
+    .replace(/province$/, '');
+  return SAN_PREFIX_ZIP_FALLBACKS.get(`${provinceName}|${cityName}`) || '';
+};
+
+const getMetroManilaZipFallback = (city, province) => {
+  const provinceName = normalizeLocationName(province);
+  if (!['manila', 'metromanila', 'nationalcapitalregion', 'ncr'].includes(provinceName)) return '';
+  return getLocationVariants(city)
+    .map(normalizeLocationName)
+    .map((cityName) => METRO_MANILA_ZIP_FALLBACKS.get(`${provinceName}|${cityName}`))
+    .find(Boolean) || '';
+};
+
 const isLocationMatch = (value, variants) => {
   const normalizedValue = normalizeLocationName(value);
   return Boolean(normalizedValue) && variants.some((variant) => (
@@ -54,7 +177,10 @@ const getResultCityNames = (address = {}) => [
   address.town,
   address.municipality,
   address.village,
-  address.city_district
+  address.city_district,
+  address.suburb,
+  address.quarter,
+  address.neighbourhood
 ].filter(Boolean);
 
 const getResultProvinceNames = (address = {}) => [
@@ -102,11 +228,27 @@ export const lookupPhilippineZipCodeByCityAndProvince = async (city, province) =
   const provinceVariants = getLocationVariants(province);
   if (!cityVariants.length || !provinceVariants.length) return '';
 
+  // Santa Cruz, Manila has two postal areas and the city/province form does
+  // not include enough detail to choose between them. Use the standard
+  // Santa Cruz South code unless North/South is explicitly entered.
+  const metroFallback = getMetroManilaZipFallback(city, province);
+  if (metroFallback) return metroFallback;
+
   const findVerifiedResult = (results) => results.find((item) => {
     const address = item?.address || {};
+    const resultCityNames = getResultCityNames(address);
+    const resultProvinceNames = getResultProvinceNames(address);
+    const provinceMatches = resultProvinceNames.some((resultProvince) => (
+      isLocationMatch(resultProvince, provinceVariants)
+    )) || (
+      provinceVariants.some((variant) => ['manila', 'metromanila', 'nationalcapitalregion', 'ncr'].includes(normalizeLocationName(variant)))
+      && [...resultCityNames, ...resultProvinceNames].some((resultLocation) => (
+        ['manila', 'metromanila', 'nationalcapitalregion', 'ncr', 'capitaldistrict'].includes(normalizeLocationName(resultLocation))
+      ))
+    );
     return normalizePhilippineZipCode(address.postcode)
-      && getResultCityNames(address).some((resultCity) => isLocationMatch(resultCity, cityVariants))
-      && getResultProvinceNames(address).some((resultProvince) => isLocationMatch(resultProvince, provinceVariants));
+      && resultCityNames.some((resultCity) => isLocationMatch(resultCity, cityVariants))
+      && provinceMatches;
   });
 
   for (const cityVariant of cityVariants) {
@@ -132,5 +274,7 @@ export const lookupPhilippineZipCodeByCityAndProvince = async (city, province) =
     if (result) return normalizePhilippineZipCode(result.address.postcode);
   }
 
-  return '';
+  // Administrative boundaries frequently have no postcode in OSM. Fall back
+  // to the province-qualified postal mappings for those locations.
+  return getSanPrefixZipFallback(city, province);
 };
