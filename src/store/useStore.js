@@ -4003,6 +4003,14 @@ export const useStore = create(
             continue;
           }
 
+          if (isFlexiBundleDeal(deal)) {
+            // FLEXI-BUNDLE is a master eligibility list, not one atomic
+            // bundle. Each kit is shown and sold independently, so the stock
+            // state of one kit must never deactivate the entire list.
+            // Individual kit visibility is handled by the storefront.
+            continue;
+          }
+
           const isFulfillable = dealKitIds.every(dealKitId => {
             const dealKit = kits.find(k => k.id === dealKitId);
             if (!dealKit) return false;

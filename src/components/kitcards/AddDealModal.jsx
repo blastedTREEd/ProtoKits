@@ -1121,7 +1121,9 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       dealData.stockSource = 'onhand';
     }
 
-    // Check if all included kits have purchasable stock — auto-deactivate if not
+    // Normal bundle deals require every included kit to be available. Flexi-
+    // Bundle is a shared eligibility list whose kits are sold independently,
+    // so an unavailable kit must not deactivate the whole list.
     if (dealType === 'bundle_only' || isClearanceStrategy) {
       const unfulfillableKits = selectedKitIds.filter(kidId => {
         const kit = kits.find(k => k.id === kidId);
@@ -1138,10 +1140,13 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
               isActive: !unfulfillableKits.includes(kitId)
             }])
           );
-        } else {
+          alert(`Warning: The following kits have no available stock, so their CLEARANCE entries will be saved as inactive:\n${names}`);
+        } else if (dealType === 'bundle_only') {
           dealData.isActive = false;
+          alert(`Warning: The following kits have no available stock, so this bundle deal will be saved as INACTIVE:\n${names}`);
+        } else {
+          alert(`Notice: The following FLEXI-BUNDLE kits have no available stock and will be hidden until stock returns. The other kits remain available:\n${names}`);
         }
-        alert(`Warning: The following kits have no available stock, so this deal will be saved as INACTIVE:\n${names}`);
       }
     }
 
@@ -1458,7 +1463,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
           <div className={`w-full lg:w-6/12 min-h-0 p-4 lg:p-6 lg:border-r border-[var(--color-border)] space-y-5 overflow-y-auto custom-scrollbar ${mobileTab === 'creator' ? 'block' : 'hidden lg:block'}`}>
              <div className="space-y-2 text-left">
                 <label className="text-[12px] font-black uppercase tracking-widest opacity-40 ml-2">Select Strategy</label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                    <button onClick={() => { setDealType('bundle_only'); setDealName(''); setActiveEditId(null); setSelectedKitIds([]); setMutuallyExclusivePairRows([]); setClearanceKitIds([]); setClearanceOriginalOverrides({}); setClearanceCurrentDiscounts({}); setClearanceDiscounts({}); }} className={`py-3 rounded-2xl border flex flex-col items-center gap-1 transition-all ${dealType === 'bundle_only' ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg' : 'bg-black/5 border-[var(--color-border)] opacity-60'}`}>
                       <Lock size={16} /> <span className="text-[11px] font-black uppercase">Bundle Deal</span>
                    </button>
