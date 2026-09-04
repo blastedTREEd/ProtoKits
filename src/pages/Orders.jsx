@@ -5,9 +5,9 @@ import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
 import { 
   ClipboardList, Plus, MapPin, Package, PackageOpen, ShieldCheck, X, CheckCircle2, 
-  ChevronRight, ChevronDown, Clock, Store, Truck, Tag, Trash2, AlertCircle,
+  ChevronLeft, ChevronRight, ChevronDown, Clock, Calendar, Store, Truck, Tag, Trash2, AlertCircle,
   Camera, Upload, QrCode, ArrowRight, Eye, Download, ListTodo, Flag,
-  XCircle, Wallet, MapPinSearch, ClockFading, PrinterCheck, Undo2, Pause, Play
+  XCircle, Wallet, MapPinSearch, ClockFading, PrinterCheck, Undo2, Pause, Play, Copy, ExternalLink
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -28,6 +28,7 @@ import {
   resolveGridImage
 } from '../utils/orderPayload';
 import PhilippineAddressSuggestions from '../components/common/PhilippineAddressSuggestions';
+import { getProjectScheduleDates } from '../components/calculator/GarageCalendar';
 
 let DefaultIcon = L.icon({ iconUrl: markerIcon, shadowUrl: markerShadow, iconSize: [25, 41], iconAnchor: [12, 41] });
 L.Marker.prototype.options.icon = DefaultIcon;
@@ -357,7 +358,7 @@ function CompletedReversalTimer({ order, onExpire, children }) {
         : deadline - Date.now();
 
       if (!deadline && !isPaused) {
-        setTimeLeft('PERMANENT');
+        setTimeLeft(isLegacyOrderRecord(order) ? 'EXPIRED' : 'PERMANENT');
         if (!hasExpiredRef.current) {
           hasExpiredRef.current = true;
           onExpire?.();
@@ -366,7 +367,7 @@ function CompletedReversalTimer({ order, onExpire, children }) {
       }
 
       if (diff <= 0) {
-        setTimeLeft('PERMANENT');
+        setTimeLeft(isLegacyOrderRecord(order) ? 'EXPIRED' : 'PERMANENT');
         if (!hasExpiredRef.current) {
           hasExpiredRef.current = true;
           onExpire?.();
@@ -396,6 +397,149 @@ function CompletedReversalTimer({ order, onExpire, children }) {
 
   return children(timeLeft);
 }
+
+const toLocalDateKey = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const parseLocalDateKey = (value) => {
+  const [year, month, day] = String(value || '').split('-').map(Number);
+  if (![year, month, day].every(Number.isFinite)) return null;
+  return new Date(year, month - 1, day);
+};
+
+function MeetupCalendarPicker({ value, onChange }) {
+  const today = useMemo(() => {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    return date;
+  }, []);
+  const selectedDate = parseLocalDateKey(value);
+  const [viewDate, setViewDate] = useState(() => (
+    selectedDate || new Date(today.getFullYear(), today.getMonth(), 1)
+  ));
+
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells = [];
+  for (let index = 0; index < firstDay; index += 1) cells.push(null);
+  for (let day = 1; day <= daysInMonth; day += 1) cells.push(new Date(year, month, day));
+
+  return (
+    <div className="rounded-2xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.03]">
+      <div className="mb-3 flex items-center justify-between">
+        <button type="button" onClick={() => setViewDate(new Date(year, month - 1, 1))} className="rounded-lg p-2 transition hover:bg-black/10 dark:hover:bg-white/10" aria-label="Previous month">
+          <ChevronLeft size={15} />
+        </button>
+        <span className="text-[11px] font-black uppercase tracking-widest">
+          {viewDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+        </span>
+        <button type="button" onClick={() => setViewDate(new Date(year, month + 1, 1))} className="rounded-lg p-2 transition hover:bg-black/10 dark:hover:bg-white/10" aria-label="Next month">
+          <ChevronRight size={15} />
+        </button>
+      </div>
+      <div className="mb-1 grid grid-cols-7 gap-1 text-center text-[9px] font-black uppercase opacity-45">
+        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label) => <span key={label}>{label}</span>)}
+      </div>
+      <div className="grid grid-cols-7 gap-1">
+        {cells.map((date, index) => {
+          if (!date) return <span key={`empty-${index}`} className="aspect-square" />;
+          const dateKey = toLocalDateKey(date);
+          const isPast = date < today;
+          const isSelected = value === dateKey;
+          return (
+            <button
+              type="button"
+              key={dateKey}
+              disabled={isPast}
+              onClick={() => onChange(dateKey)}
+              className={`aspect-square rounded-lg text-[11px] font-black transition ${isSelected ? 'bg-blue-600 text-white shadow-md' : isPast ? 'cursor-not-allowed opacity-25' : 'hover:bg-blue-600/15'}`}
+            >
+              {date.getDate()}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+const buildQuarterHourOptions = () => Array.from({ length: 24 * 4 }, (_, index) => {
+  const hours = Math.floor(index / 4);
+  const minutes = (index % 4) * 15;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+});
+
+const getEndTimeForWindow = (startTime, durationMinutes = 15) => {
+  const [hours, minutes] = String(startTime || '').split(':').map(Number);
+  if (![hours, minutes].every(Number.isFinite)) return '';
+  const totalMinutes = (hours * 60) + minutes + durationMinutes;
+  return `${String(Math.floor((totalMinutes % 1440) / 60)).padStart(2, '0')}:${String(totalMinutes % 60).padStart(2, '0')}`;
+};
+
+const formatTrackingTime = (value) => {
+  const [hours, minutes] = String(value || '').split(':').map(Number);
+  if (![hours, minutes].every(Number.isFinite)) return value || '';
+  const date = new Date(2000, 0, 1, hours, minutes);
+  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+};
+
+const isTrackingUrl = (value) => /^https?:\/\//i.test(String(value || '').trim());
+
+const getConfirmedTrackingValue = (order) => {
+  if (order?.trackingNo && order.trackingNoConfirmed !== false) {
+    return { value: String(order.trackingNo).trim(), source: 'admin' };
+  }
+  if (order?.customerTrackingLink && order.customerTrackingLinkConfirmed !== false) {
+    return { value: String(order.customerTrackingLink).trim(), source: 'customer' };
+  }
+  return { value: '', source: '' };
+};
+
+const formatClockMinutes = (minutes) => {
+  const normalized = ((Number(minutes) % 1440) + 1440) % 1440;
+  const date = new Date(2000, 0, 1, Math.floor(normalized / 60), normalized % 60);
+  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+};
+
+const getPrintingPickupSchedule = (order, projectItems, rates, availabilitySchedule) => {
+  const printStartMins = Math.round(Number(rates?.['labor-cost']?.printStartTime ?? 9) * 60);
+  const scheduleByDate = new Map();
+
+  projectItems.forEach((item) => {
+    const dates = getProjectScheduleDates(order, item, availabilitySchedule, 'printing');
+    const dailySchedule = item?.projectData?.totals?.timeline?.schedule || [];
+    dates.forEach((dateKey, index) => {
+      const dayNumber = index + 1;
+      const dailyMinutes = dailySchedule
+        .filter((entry) => Number(entry?.day) === dayNumber)
+        .reduce((longest, entry) => Math.max(
+          longest,
+          Number(entry?.maxPrinterMins ?? entry?.totalMins ?? 0)
+        ), 0);
+      const endMinutes = printStartMins + dailyMinutes;
+      const existing = scheduleByDate.get(dateKey);
+      scheduleByDate.set(dateKey, {
+        dateKey,
+        startMinutes: existing ? Math.min(existing.startMinutes, printStartMins) : printStartMins,
+        endMinutes: existing ? Math.max(existing.endMinutes, endMinutes) : endMinutes
+      });
+    });
+  });
+
+  return [...scheduleByDate.values()]
+    .sort((a, b) => a.dateKey.localeCompare(b.dateKey))
+    .map(({ dateKey, startMinutes, endMinutes }) => ({
+      dateKey,
+      startTime: formatClockMinutes(startMinutes),
+      endTime: formatClockMinutes(endMinutes)
+    }));
+};
 
 function CancelledOrderTimer({ order, onExpire, children }) {
   const [timeLeft, setTimeLeft] = useState('');
@@ -734,6 +878,8 @@ export default function Orders() {
 
   const [trackingRef, setTrackingRef] = useState('');
   const [customerTrackingLink, setCustomerTrackingLink] = useState('');
+  const [meetupDate, setMeetupDate] = useState('');
+  const [meetupStartTime, setMeetupStartTime] = useState('09:00');
   const [claimantBalance, setClaimantBalance] = useState('');
   const [shippingFeeInput, setShippingFeeInput] = useState('');
   const [legacyZipCoordinates, setLegacyZipCoordinates] = useState(null);
@@ -853,6 +999,9 @@ export default function Orders() {
     if (selectedOrder) {
       setTrackingRef(selectedOrder.trackingNo || '');
       setCustomerTrackingLink(selectedOrder.customerTrackingLink || selectedOrder.trackingLink || '');
+      const meetupSchedule = selectedOrder.meetupSchedule || {};
+      setMeetupDate(meetupSchedule.date || selectedOrder.meetupPreferredDate || '');
+      setMeetupStartTime(meetupSchedule.startTime || selectedOrder.meetupPreferredStartTime || '09:00');
       setClaimantBalance(selectedOrder.claimantBalance || '');
       setShippingFeeInput(selectedOrder.shippingFee ?? '');
     }
@@ -1008,11 +1157,12 @@ export default function Orders() {
     if (routeOrderId || !notificationOrderId || orders.length === 0) return;
     const notificationOrder = orders.find((order) => order.id === notificationOrderId);
     if (!notificationOrder) return;
+    if (!isAdminMode && isLegacyOrderRecord(notificationOrder)) return;
 
     moveOrderToTargetTab(notificationOrder);
     setSelectedOrder(notificationOrder);
     navigate(`/orders/${encodeURIComponent(notificationOrder.orderId || notificationOrder.id)}`, { replace: true, state: null });
-  }, [location.pathname, moveOrderToTargetTab, navigate, notificationOrderId, orders, routeOrderId]);
+  }, [isAdminMode, location.pathname, moveOrderToTargetTab, navigate, notificationOrderId, orders, routeOrderId]);
 
   useEffect(() => {
     if (!routeOrderId || isLoading) return;
@@ -1035,7 +1185,7 @@ export default function Orders() {
     ));
 
     const canViewRouteOrder = Boolean(routeOrder && (
-      isAdminMode || routeOrder.userId === user.uid
+      isAdminMode || (!isLegacyOrderRecord(routeOrder) && routeOrder.userId === user.uid)
     ));
 
     if (!canViewRouteOrder) {
@@ -1263,6 +1413,7 @@ export default function Orders() {
     }
     const patch = {
       trackingNo: trackingRef,
+      trackingNoConfirmed: true,
       claimantBalance: claimantBalance,
       shippingFee: Number(shippingFeeInput) || 0,
       dispatchedAt: new Date().toISOString()
@@ -1283,9 +1434,16 @@ export default function Orders() {
     }
     try {
       const trackingInfo = customerTrackingLink.trim();
-      await updateOrderDetails(selectedOrder.id, { customerTrackingLink: trackingInfo });
+      await updateOrderDetails(selectedOrder.id, {
+        customerTrackingLink: trackingInfo,
+        customerTrackingLinkConfirmed: true
+      });
       alert("Courier tracking information saved!");
-      setSelectedOrder(prev => ({ ...prev, customerTrackingLink: trackingInfo }));
+      setSelectedOrder(prev => ({
+        ...prev,
+        customerTrackingLink: trackingInfo,
+        customerTrackingLinkConfirmed: true
+      }));
     } catch (e) {
       console.error(e);
       alert("Failed to save tracking information.");
@@ -1538,6 +1696,52 @@ export default function Orders() {
     } catch (error) {
       console.error('SG LOG: Legacy order creation failed:', error);
       alert(error?.message || 'Could not create the legacy order.');
+    }
+  };
+
+  const handleCopyTrackingValue = useCallback(async (value) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setToastMessage('Tracking number copied.');
+    } catch (error) {
+      console.error('SG LOG: Failed to copy tracking details:', error);
+      setToastMessage('Could not copy tracking details.');
+    }
+  }, [setToastMessage]);
+
+  const handleSaveMeetupSchedule = async () => {
+    if (!selectedOrder || !meetupDate || !meetupStartTime) {
+      alert('Select a meetup date and preferred time first.');
+      return;
+    }
+
+    const endTime = getEndTimeForWindow(meetupStartTime, 15);
+    const meetupSchedule = {
+      date: meetupDate,
+      startTime: meetupStartTime,
+      endTime,
+      durationMinutes: 15,
+      confirmedAt: new Date().toISOString()
+    };
+
+    try {
+      await updateOrderDetails(selectedOrder.id, {
+        meetupSchedule,
+        meetupPreferredDate: meetupDate,
+        meetupPreferredStartTime: meetupStartTime,
+        meetupPreferredEndTime: endTime
+      });
+      setSelectedOrder(prev => ({
+        ...prev,
+        meetupSchedule,
+        meetupPreferredDate: meetupDate,
+        meetupPreferredStartTime: meetupStartTime,
+        meetupPreferredEndTime: endTime
+      }));
+      setToastMessage('Meetup window confirmed.');
+    } catch (error) {
+      console.error('SG LOG: Failed to save meetup schedule:', error);
+      setToastMessage('Could not save the meetup window.');
     }
   };
   const handleRequestBalance = async (orderId) => {
@@ -2088,6 +2292,20 @@ export default function Orders() {
     selectedShippingMethod,
     selectedShippingSuboption !== 'N/A' ? selectedShippingSuboption : ''
   ].filter(Boolean).join(' - ') || 'N/A';
+  const isSelectedSellerMeetup = Boolean(
+    selectedShippingFlags.isMeetup && isSellerMeetupShippingMethod(selectedShippingMethodDisplay)
+  );
+  const selectedPrintingProjects = (selectedOrder?.items || []).filter((item) => (
+    item?.type === 'project'
+    && String(item?.projectData?.method?.name || '').trim().toUpperCase() === 'STL'
+  ));
+  const isSelectedPrintingSelfPickup = Boolean(selectedShippingFlags.isSelfPickup && selectedPrintingProjects.length > 0);
+  const selectedTracking = getConfirmedTrackingValue(selectedOrder);
+  const canCopyOrOpenTracking = Boolean(
+    selectedTracking.value
+    && ((selectedTracking.source === 'admin' && !isAdminMode)
+      || (selectedTracking.source === 'customer' && isAdminMode))
+  );
   const hasStlWithDesignService = selectedOrder?.items?.some(item => 
     item.type === 'project' && 
     item.projectData?.method?.name?.toUpperCase() === 'STL' && 
@@ -2153,9 +2371,12 @@ export default function Orders() {
     }, 0) || selectedTotals.itemTotal || Number(selectedOrder.totalPrice || selectedOrder.price || 0);
     const isBalanceApplicable = ['reservation', 'partial', 'pre-order'].includes(selectedOrder.paymentPlan) || selectedOrder.isPreOrder || selectedTotals.balance > 0;
     const isFirstReceiptValidated = hasValidatedFirstReceipt(selectedOrder);
-    const showTrackingSection = isFirstReceiptValidated && ((
-      selectedIsSelfBooking && !['Completed', 'Cancelled'].includes(selectedOrder.status)
-    ) || activeTab === 'to_ship' || ['Preparing', 'Ready for Pickup', 'Ready for Meetup', 'Arrived', 'To Ship'].includes(selectedOrder.status));
+    const isCourierShipping = !selectedShippingFlags.isMeetup
+      && !selectedShippingFlags.isSelfPickup
+      && Boolean(selectedShippingMethod && selectedShippingMethod !== 'N/A');
+    const showTrackingSection = isFirstReceiptValidated
+      && isCourierShipping
+      && (activeTab === 'to_ship' || ['Preparing', 'Ready for Pickup', 'Ready for Meetup', 'Arrived', 'To Ship', 'Shipped', 'Dispatched', 'In Transit'].includes(selectedOrder.status));
     const isReservationOrPartial = ['reservation', 'partial'].includes(String(selectedOrder.paymentPlan || '').toLowerCase()) || selectedOrder.isReservation || selectedOrder.isPartial;
     const isBalValidated = selectedOrder.balanceReceipt && selectedOrder.status !== 'Validating';
 
@@ -2236,19 +2457,17 @@ export default function Orders() {
                 >
                   {(timeLeft) => {
                     const isLegacyCountdownPaused = isSelectedLegacyOrder && selectedOrder.legacyCountdownPaused === true;
-                    const isLegacyCountdownAction = isAdminMode && isSelectedLegacyOrder && timeLeft !== 'PERMANENT';
+                    const isLegacyCountdownActive = isSelectedLegacyOrder && timeLeft && timeLeft !== 'EXPIRED' && timeLeft !== 'PERMANENT';
+                    const isLegacyCountdownAction = isAdminMode && isLegacyCountdownActive;
+                    const isLegacyCountdownExpired = isSelectedLegacyOrder && timeLeft === 'EXPIRED';
                     const badge = (
                       <div className={`px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest leading-none border flex items-center gap-1.5 whitespace-nowrap ${detailUI.className}`}>
                         {isLegacyCountdownAction
                           ? (isLegacyCountdownPaused ? <Play size={13} /> : <Pause size={13} />)
-                          : isAdminMode && timeLeft !== 'PERMANENT' ? <Undo2 size={13} /> : null}
+                          : isAdminMode && timeLeft && timeLeft !== 'PERMANENT' && !isLegacyCountdownExpired ? <Undo2 size={13} /> : null}
                         {detailUI.icon}
-                        <span>{detailDisplayStatus}</span>
-                        <span className="opacity-90">({timeLeft === 'PERMANENT'
-                          ? 'PERMANENT'
-                          : isLegacyCountdownPaused
-                            ? `${timeLeft} PAUSED`
-                            : `${timeLeft} TO REVERSE`})</span>
+                        <span>{isLegacyCountdownActive ? `COMPLETE IN ${timeLeft}` : detailDisplayStatus}</span>
+                        {!isSelectedLegacyOrder && <span className="opacity-90">({timeLeft === 'PERMANENT' ? 'PERMANENT' : `${timeLeft} TO REVERSE`})</span>}
                       </div>
                     );
                     return isLegacyCountdownAction ? (
@@ -2260,7 +2479,7 @@ export default function Orders() {
                       >
                         {badge}
                       </button>
-                    ) : isAdminMode && timeLeft !== 'PERMANENT' ? (
+                    ) : isAdminMode && timeLeft && timeLeft !== 'PERMANENT' ? (
                       <button
                         type="button"
                         title="Reverse and release stock"
@@ -2387,135 +2606,82 @@ export default function Orders() {
               </span>
             </div>
 
+            {/* Seller meetup: customer/admin can confirm a 15-minute waiting window. */}
+            {isSelectedSellerMeetup && !isSelectedLegacyOrder && (
+              <div className="pt-2 border-t border-black/5 dark:border-white/5 flex flex-col gap-3">
+                <span className="inline-flex items-center gap-2 text-[13px] font-black uppercase tracking-wider"><Calendar size={15} /> Meetup Window</span>
+                <p className="text-[11px] font-bold uppercase tracking-wide opacity-55">Select the preferred date and time. The confirmed window lasts 15 minutes.</p>
+                <MeetupCalendarPicker key={selectedOrder.id} value={meetupDate} onChange={setMeetupDate} />
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest opacity-60">
+                    Preferred start time
+                    <select value={meetupStartTime} onChange={(event) => setMeetupStartTime(event.target.value)} className="rounded-xl border border-black/10 bg-white p-3 text-xs font-black text-blue-600 dark:border-white/10 dark:bg-[#121212]">
+                      {buildQuarterHourOptions().map((time) => <option key={time} value={time}>{formatTrackingTime(time)}</option>)}
+                    </select>
+                  </label>
+                  <div className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest opacity-60">
+                    Waiting window ends
+                    <div className="rounded-xl border border-black/10 bg-black/[0.03] p-3 text-xs font-black text-blue-600 dark:border-white/10 dark:bg-white/[0.03]">
+                      {formatTrackingTime(getEndTimeForWindow(meetupStartTime, 15))}
+                    </div>
+                  </div>
+                </div>
+                {meetupDate && <p className="text-[12px] font-black uppercase text-blue-600">{meetupDate} · {formatTrackingTime(meetupStartTime)}–{formatTrackingTime(getEndTimeForWindow(meetupStartTime, 15))}</p>}
+                {!['Completed', 'Cancelled'].includes(selectedOrder.status) && (
+                  <button type="button" onClick={handleSaveMeetupSchedule} className="w-full rounded-xl bg-blue-600 py-3 text-[12px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/20 transition-all active:scale-95">Confirm Meetup Window</button>
+                )}
+              </div>
+            )}
+
+            {/* Self-pickup: show the daily printing schedule for STL projects. */}
+            {isSelectedPrintingSelfPickup && !isSelectedLegacyOrder && (
+              <div className="pt-2 border-t border-black/5 dark:border-white/5 flex flex-col gap-2">
+                <span className="text-[13px] font-black uppercase tracking-wider">Pickup Schedule</span>
+                <p className="text-[11px] font-bold uppercase tracking-wide opacity-55">Pickup becomes available after the daily printing schedule finishes.</p>
+                {getPrintingPickupSchedule(selectedOrder, selectedPrintingProjects, rates, shippingSettings?.availabilitySchedule).map((entry) => (
+                  <div key={`${entry.dateKey}-${entry.startTime}`} className="flex items-center justify-between gap-3 rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.03]">
+                    <span className="text-[12px] font-black uppercase text-blue-600">{entry.dateKey}</span>
+                    <span className="text-[12px] font-black uppercase">{entry.startTime}–{entry.endTime}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Tracking / Inputs */}
             {showTrackingSection && !isSelectedLegacyOrder && (
-              <div className="pt-2 border-t border-black/5 dark:border-white/5 flex flex-col">
-                <span className="text-[13px] font-black uppercase mb-2 tracking-wider">Courier Tracking Info</span>
-                {/* Admin: Tracking input when no tracking saved yet */}
-                {isAdminMode && !selectedIsSelfBooking && selectedOrder.status !== 'Cancelled' && !selectedOrder.trackingNo ? (
+              <div className="pt-2 border-t border-black/5 dark:border-white/5 flex flex-col gap-3">
+                <span className="text-[13px] font-black uppercase tracking-wider">Tracking Details</span>
+                {isAdminMode && !selectedIsSelfBooking && !['Completed', 'Cancelled'].includes(selectedOrder.status) ? (
                   <div className="space-y-3">
-                    <input 
-                      className="w-full p-3 rounded-xl border bg-white dark:bg-[#121212] border-black/10 dark:border-white/10 text-xs font-black uppercase"
-                      value={trackingRef}
-                      onChange={(e) => setTrackingRef(e.target.value.toUpperCase())}
-                      placeholder={selectedShippingFlags.isLbc ? 'LBC TRACKING NO.' : 'TRACKING NO. / COURIER URL'}
-                    />
-                    {selectedShippingFlags.needsAdminShipping && (
-                      <input 
-                        type="number"
-                        className="w-full p-3 rounded-xl border bg-white dark:bg-[#121212] border-black/10 dark:border-white/10 text-xs font-black"
-                        value={shippingFeeInput}
-                        onChange={(e) => setShippingFeeInput(e.target.value)}
-                        placeholder="SHIPPING FEE"
-                      />
-                    )}
-                    {selectedShippingFlags.isLbc && (
-                      <input 
-                        className="w-full p-3 rounded-xl border bg-white dark:bg-[#121212] border-black/10 dark:border-white/10 text-xs font-black"
-                        value={claimantBalance}
-                        onChange={(e) => setClaimantBalance(e.target.value)}
-                        placeholder="CLAIMANT BALANCE"
-                      />
-                    )}
-                    <button 
-                      onClick={handleSaveShippingDetails}
-                      className="w-full py-3 bg-blue-600 text-white rounded-xl text-[12px] font-black uppercase tracking-widest shadow-lg shadow-blue-600/20 active:scale-95 transition-all"
-                    >
-                      Save Tracking & Mark In Transit
-                    </button>
+                    <input className="w-full rounded-xl border border-black/10 bg-white p-3 text-xs font-black uppercase dark:border-white/10 dark:bg-[#121212]" value={trackingRef} onChange={(event) => setTrackingRef(event.target.value.toUpperCase())} placeholder={selectedShippingFlags.isLbc ? 'LBC TRACKING NO.' : 'TRACKING NO. / COURIER URL'} />
+                    {selectedShippingFlags.needsAdminShipping && <input type="number" className="w-full rounded-xl border border-black/10 bg-white p-3 text-xs font-black dark:border-white/10 dark:bg-[#121212]" value={shippingFeeInput} onChange={(event) => setShippingFeeInput(event.target.value)} placeholder="SHIPPING FEE" />}
+                    {selectedShippingFlags.isLbc && <input className="w-full rounded-xl border border-black/10 bg-white p-3 text-xs font-black dark:border-white/10 dark:bg-[#121212]" value={claimantBalance} onChange={(event) => setClaimantBalance(event.target.value)} placeholder="CLAIMANT BALANCE" />}
+                    <button type="button" onClick={handleSaveShippingDetails} className="w-full rounded-xl bg-blue-600 py-3 text-[12px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/20 transition-all active:scale-95">Confirm Tracking Details &amp; Mark In Transit</button>
                   </div>
-
-                ) : !isAdminMode && selectedIsSelfBooking && !['Completed', 'Cancelled'].includes(selectedOrder.status) ? (
-                  selectedOrder.status !== 'Ready for Pickup' ? (
-                    <div>
-                      <p className="text-[13px] font-black uppercase leading-tight text-amber-600 dark:text-amber-500">
-                        * Please arrange your booking once the order is ready for pickup.
-                      </p>
+                ) : selectedIsSelfBooking && !isAdminMode && selectedOrder.status === 'Ready for Pickup' && !selectedTracking.value ? (
+                  <div className="space-y-3">
+                    <input type="text" className="w-full rounded-xl border border-black/10 bg-white p-3 text-xs font-semibold dark:border-white/10 dark:bg-[#121212]" placeholder="TRACKING NO. / COURIER URL" value={customerTrackingLink} onChange={(event) => setCustomerTrackingLink(event.target.value)} />
+                    <button type="button" onClick={handleSaveCustomerTrackingLink} className="w-full rounded-xl bg-blue-600 py-3 text-[12px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/20 transition-all active:scale-95">Confirm Tracking Details</button>
+                  </div>
+                ) : selectedIsSelfBooking && !isAdminMode && selectedOrder.status !== 'Ready for Pickup' && !selectedTracking.value ? (
+                  <p className="text-[13px] font-black uppercase leading-tight text-amber-600 dark:text-amber-500">Please wait until the order is ready for pickup.</p>
+                ) : selectedIsSelfBooking && isAdminMode && !selectedTracking.value ? (
+                  <p className="text-[13px] font-black uppercase leading-tight text-amber-600 dark:text-amber-500">PENDING</p>
+                ) : selectedTracking.value ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      {isTrackingUrl(selectedTracking.value) && canCopyOrOpenTracking ? (
+                        <a href={selectedTracking.value} target="_blank" rel="noopener noreferrer" className="inline-flex min-w-0 items-center gap-2 break-all text-[14px] font-black text-blue-600 hover:underline"><ExternalLink size={15} /> <span className="break-all">Open tracking link</span></a>
+                      ) : (
+                        <span className="min-w-0 break-all text-[14px] font-black uppercase text-blue-600 dark:text-blue-500">{selectedTracking.value}</span>
+                      )}
+                      {canCopyOrOpenTracking && !isTrackingUrl(selectedTracking.value) && <button type="button" onClick={() => handleCopyTrackingValue(selectedTracking.value)} className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-blue-600/20 px-2.5 py-2 text-[10px] font-black uppercase tracking-widest text-blue-600 transition hover:bg-blue-600/10"><Copy size={13} /> Copy</button>}
                     </div>
-                  ) : (
-                  /* Customer: tracking input for courier self-booking once ready */
-                  <div className="space-y-3">
-                    {selectedOrder.customerTrackingLink && (
-                      /^https?:\/\//i.test(selectedOrder.customerTrackingLink) ? (
-                        <a 
-                          href={selectedOrder.customerTrackingLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="block break-all text-[14px] font-black text-blue-600 hover:underline"
-                        >
-                          {selectedOrder.customerTrackingLink}
-                        </a>
-                      ) : (
-                        <p className="break-all text-[14px] font-black uppercase text-blue-600 dark:text-blue-500">
-                          {selectedOrder.customerTrackingLink}
-                        </p>
-                      )
-                    )}
-                    <input 
-                      type="text"
-                      className="w-full p-3 rounded-xl border bg-white dark:bg-[#121212] border-black/10 dark:border-white/10 text-xs font-semibold"
-                      placeholder="TRACKING NO. / COURIER URL"
-                      value={customerTrackingLink}
-                      onChange={(e) => setCustomerTrackingLink(e.target.value)}
-                    />
-                    <button 
-                      onClick={handleSaveCustomerTrackingLink}
-                      className="w-full py-3 bg-blue-600 text-white rounded-xl text-[12px] font-black uppercase tracking-widest shadow-lg shadow-blue-600/20 active:scale-95 transition-all"
-                    >
-                      {selectedOrder.customerTrackingLink ? 'Update Tracking Info' : 'Save Tracking Info'}
-                    </button>
-                  </div>
-                  )
-
-                ) : (
-                  /* Read-only: Display tracking info */
-                  <div className="space-y-1">
-                    {selectedOrder.trackingNo ? (
-                      /^https?:\/\//i.test(selectedOrder.trackingNo) ? (
-                        <a 
-                          href={selectedOrder.trackingNo}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-[14px] font-black text-blue-600 hover:underline break-all block"
-                        >
-                          {selectedOrder.trackingNo}
-                        </a>
-                      ) : (
-                        <p className="text-[14px] font-black uppercase text-blue-600 dark:text-blue-500">
-                          {selectedOrder.trackingNo}
-                        </p>
-                      )
-                    ) : selectedOrder.customerTrackingLink ? (
-                      /^https?:\/\//i.test(selectedOrder.customerTrackingLink) ? (
-                        <a 
-                          href={selectedOrder.customerTrackingLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="block break-all text-[14px] font-black text-blue-600 hover:underline"
-                        >
-                          {selectedOrder.customerTrackingLink}
-                        </a>
-                      ) : (
-                        <p className="break-all text-[14px] font-black uppercase text-blue-600 dark:text-blue-500">
-                          {selectedOrder.customerTrackingLink}
-                        </p>
-                      )
-                    ) : (
-                      <p className="text-[14px] font-black uppercase text-blue-600 dark:text-blue-500">
-                        {selectedOrder.status === 'Cancelled' ? 'N/A' : 'Pending'}
-                      </p>
-                    )}
-                    {selectedShippingFlags.needsAdminShipping && (
-                      <p className="text-[14px] font-bold">
-                        Shipping Fee: {selectedTotals.shippingFee === 0 ? (
-                          <span className="text-amber-600 dark:text-amber-500 uppercase font-black">Not Included</span>
-                        ) : (
-                          `₱${selectedTotals.shippingFee.toLocaleString()}`
-                        )}
-                      </p>
-                    )}
+                    {selectedShippingFlags.needsAdminShipping && <p className="text-[14px] font-bold">Shipping Fee: {selectedTotals.shippingFee === 0 ? <span className="font-black uppercase text-amber-600 dark:text-amber-500">Not Included</span> : `₱${selectedTotals.shippingFee.toLocaleString()}`}</p>}
                     {selectedOrder.claimantBalance && <p className="text-[14px] font-bold">Claimant Balance: ₱{Number(selectedOrder.claimantBalance || 0).toLocaleString()}</p>}
                   </div>
+                ) : (
+                  <p className="text-[13px] font-black uppercase leading-tight text-amber-600 dark:text-amber-500">Please wait.</p>
                 )}
               </div>
             )}
@@ -3216,19 +3382,17 @@ export default function Orders() {
                   >
                     {(timeLeft) => {
                       const isLegacyCountdownPaused = isLegacyOrder && o.legacyCountdownPaused === true;
-                      const isLegacyCountdownAction = isAdminMode && isLegacyOrder && timeLeft !== 'PERMANENT';
+                      const isLegacyCountdownActive = isLegacyOrder && timeLeft && timeLeft !== 'EXPIRED' && timeLeft !== 'PERMANENT';
+                      const isLegacyCountdownAction = isAdminMode && isLegacyCountdownActive;
+                      const isLegacyCountdownExpired = isLegacyOrder && timeLeft === 'EXPIRED';
                       const badge = (
                         <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-black uppercase leading-none tracking-widest shadow-md whitespace-nowrap ${cardUI.className}`}>
                           {isLegacyCountdownAction
                             ? (isLegacyCountdownPaused ? <Play size={12} /> : <Pause size={12} />)
-                            : isAdminMode && timeLeft !== 'PERMANENT' ? <Undo2 size={12} /> : null}
+                            : isAdminMode && timeLeft && timeLeft !== 'PERMANENT' && !isLegacyCountdownExpired ? <Undo2 size={12} /> : null}
                           {cardUI.icon}
-                          <span>{cardDisplayStatus}</span>
-                          <span className="opacity-90">({timeLeft === 'PERMANENT'
-                            ? 'PERMANENT'
-                            : isLegacyCountdownPaused
-                              ? `${timeLeft} PAUSED`
-                              : `${timeLeft} TO REVERSE`})</span>
+                          <span>{isLegacyCountdownActive ? `COMPLETE IN ${timeLeft}` : cardDisplayStatus}</span>
+                          {!isLegacyOrder && <span className="opacity-90">({timeLeft === 'PERMANENT' ? 'PERMANENT' : `${timeLeft} TO REVERSE`})</span>}
                         </span>
                       );
                       return isLegacyCountdownAction ? (
@@ -3240,7 +3404,7 @@ export default function Orders() {
                         >
                           {badge}
                         </button>
-                      ) : isAdminMode && timeLeft !== 'PERMANENT' ? (
+                      ) : isAdminMode && timeLeft && timeLeft !== 'PERMANENT' ? (
                         <button
                           type="button"
                           title="Reverse and release stock"
