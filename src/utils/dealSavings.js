@@ -1,10 +1,12 @@
 const toAmount = (value) => Math.max(0, Math.round(Number(value) || 0));
 
+const isClearancePricingDeal = (deal) => deal?.type === 'clearance' || deal?.type === 'flexi_bundle';
+
 export const getDealDiscountAmount = (deal) => {
   if (!deal) return 0;
 
   const configuredClearanceDiscount = toAmount(deal.clearanceDiscountTotal);
-  if (deal.type === 'clearance' && configuredClearanceDiscount > 0) {
+  if (isClearancePricingDeal(deal) && configuredClearanceDiscount > 0) {
     return configuredClearanceDiscount;
   }
 

@@ -17,6 +17,7 @@ import {
 } from '../utils/bundlePricing';
 import { getUnavailableDateSet, getUnavailableWeekdaySet, toDateKey } from '../utils/availabilitySchedule';
 import { getStockEta } from '../utils/stockDates';
+import { isFlexiBundleDeal, isPerKitClearanceDeal, getActiveClearanceKitIds } from '../utils/dealTypes';
 import UniversalImage from '../components/common/UniversalImage';
 import {
   getPrinterFeeders,
@@ -774,9 +775,9 @@ export default function Cart() {
       }));
 
     const candidates = (deals || [])
-      .filter((deal) => deal?.type === 'clearance' && deal.isActive !== false)
+      .filter((deal) => (isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)) && deal.isActive !== false)
       .map((deal) => {
-        const configuredIds = getClearanceKitIds(deal);
+        const configuredIds = getActiveClearanceKitIds(deal, getClearanceKitIds(deal));
         const availableClearanceKitIds = [...new Set(configuredIds.map(String))]
           .filter((kitId) => rowsByKitId.get(kitId)?.isOnHand);
         if (availableClearanceKitIds.length === 0) return null;
@@ -860,9 +861,9 @@ export default function Cart() {
 
     const tagKitIds = new Set();
     (deals || []).forEach((deal) => {
-      if (deal?.type !== 'clearance' || deal.isActive === false) return;
+      if ((!isFlexiBundleDeal(deal) && !isPerKitClearanceDeal(deal)) || deal.isActive === false) return;
       const eligibleKitIds = new Set(
-        (deal.clearanceKitIds?.length ? deal.clearanceKitIds : deal.kitIds || [])
+        getActiveClearanceKitIds(deal, deal.clearanceKitIds?.length ? deal.clearanceKitIds : deal.kitIds || [])
           .map(String)
           .filter(Boolean)
       );
@@ -873,6 +874,16 @@ export default function Cart() {
     });
     return tagKitIds;
   }, [activeBasket, activeSelection, deals, kits, selectedBundleDeals]);
+
+  const selectedClearanceLabelByKitId = useMemo(() => {
+    const labels = new Map();
+    (deals || []).forEach((deal) => {
+      if ((!isFlexiBundleDeal(deal) && !isPerKitClearanceDeal(deal)) || deal.isActive === false) return;
+      getActiveClearanceKitIds(deal, deal.clearanceKitIds?.length ? deal.clearanceKitIds : deal.kitIds || [])
+        .forEach((kitId) => labels.set(String(kitId), isFlexiBundleDeal(deal) ? 'FLEXI-BUNDLE' : 'CLEARANCE'));
+    });
+    return labels;
+  }, [deals]);
 
   const selectedBundlePriceByBasketId = useMemo(() => {
     const prices = new Map();
@@ -1726,7 +1737,9 @@ export default function Cart() {
                       </span>
                     ) : isClearanceKit ? (
                       <span className={`absolute left-0 bottom-5 z-10 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm ${isClearanceDealApplied ? 'bg-emerald-600' : 'bg-red-600'}`}>
-                        CLEARANCE
+                        {String(item.bundleName || '').toUpperCase().includes('FLEXI')
+                          ? 'FLEXI-BUNDLE'
+                          : selectedClearanceLabelByKitId.get(String(item.id)) || 'CLEARANCE'}
                       </span>
                     ) : item.type !== 'project' && isPreOrder && etaLabel ? (
                       <span className="absolute left-0 bottom-5 z-10 bg-blue-600 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm">

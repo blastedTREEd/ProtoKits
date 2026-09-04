@@ -39,6 +39,15 @@ const getStatusDetails = (notification) => {
     };
   }
 
+  if (notification?.notificationKind === 'admin_legacy_completion') {
+    return {
+      message: notification.message || 'A legacy order has been completed.',
+      icon: CheckCircle2,
+      accent: 'bg-emerald-500',
+      iconClass: 'bg-emerald-500/10 text-emerald-600'
+    };
+  }
+
   if (notification?.notificationKind === 'offer_released') {
     return {
       message: notification.message || 'Your offer was accepted and the item was released.',

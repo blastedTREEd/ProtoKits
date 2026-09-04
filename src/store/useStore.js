@@ -13,6 +13,7 @@ import {
 import { normalizeFeederRecord, normalizePrinterRecord, normalizePrinterStatus } from '../utils/printerCompatibility';
 import { getStockEta } from '../utils/stockDates';
 import { compactOrderPayload, getPayloadByteSize } from '../utils/orderPayload';
+import { isFlexiBundleDeal, isPerKitClearanceDeal } from '../utils/dealTypes';
 
 const getKitTimestamp = (kit) => {
   const timestamps = [
@@ -1220,6 +1221,36 @@ export const useStore = create(
           get().markLoaded('deals', { status: 'error' });
           throw error;
         }
+      },
+
+      migrateLegacyClearanceDealsToFlexiBundle: async () => {
+        const { deals, isAdmin, isAdminView } = get();
+        if (!isAdmin || !isAdminView) return 0;
+
+        const legacyClearanceDeals = (deals || []).filter((deal) => (
+          deal?.type === 'clearance' && !isPerKitClearanceDeal(deal)
+        ));
+        if (legacyClearanceDeals.length === 0) return 0;
+
+        const batch = writeBatch(db);
+        legacyClearanceDeals.forEach((deal) => {
+          batch.update(doc(db, 'deals', deal.id), {
+            type: 'flexi_bundle',
+            name: 'FLEXI-BUNDLE',
+            lastUpdated: serverTimestamp()
+          });
+        });
+        await batch.commit();
+
+        set((state) => ({
+          deals: (state.deals || []).map((deal) => (
+            legacyClearanceDeals.some((legacyDeal) => legacyDeal.id === deal.id)
+              ? { ...deal, type: 'flexi_bundle', name: 'FLEXI-BUNDLE' }
+              : deal
+          ))
+        }));
+
+        return legacyClearanceDeals.length;
       },
 
 
@@ -2663,8 +2694,16 @@ export const useStore = create(
           throw new Error('Only completed orders can be reversed.');
         }
 
+        const now = Date.now();
+        const isLegacyCountdownPaused = isLegacyOrderRecord(order) && order.legacyCountdownPaused === true;
+        const pausedRemainingMs = Number(order.legacyCountdownRemainingMs);
+        const configuredLegacyDeadline = getOrderTimestampMs(order.legacyCountdownDeadline);
         const completedAt = getOrderTimestampMs(order.completedAt || order.lastUpdated || order.createdAt);
-        if (completedAt && Date.now() >= completedAt + COMPLETED_ORDER_REVERSAL_WINDOW_MS) {
+        const reversalDeadline = configuredLegacyDeadline || (completedAt ? completedAt + COMPLETED_ORDER_REVERSAL_WINDOW_MS : 0);
+        const isPausedWithTimeRemaining = isLegacyCountdownPaused
+          && Number.isFinite(pausedRemainingMs)
+          && pausedRemainingMs > 0;
+        if (!isPausedWithTimeRemaining && reversalDeadline && now >= reversalDeadline) {
           throw new Error('This completed order is now a permanent record.');
         }
 
@@ -3893,7 +3932,8 @@ export const useStore = create(
           d.type === 'bundle'
           || d.type === 'bundle_only'
           || d.type === 'bundle_discount'
-          || d.type === 'clearance'
+          || isFlexiBundleDeal(d)
+          || isPerKitClearanceDeal(d)
         ));
         if (bundleDeals.length === 0) {
           get().scheduleBundleDealRestart(Number.NaN);
@@ -3904,10 +3944,64 @@ export const useStore = create(
         let nextRestartAt = Number.POSITIVE_INFINITY;
 
         for (const deal of bundleDeals) {
-          const dealKitIds = deal.type === 'clearance' && deal.clearanceKitIds?.length
+          const isPerKitClearance = isPerKitClearanceDeal(deal);
+          const dealKitIds = (isFlexiBundleDeal(deal) || isPerKitClearance) && deal.clearanceKitIds?.length
             ? deal.clearanceKitIds
             : (deal.kitIds || []);
           if (dealKitIds.length === 0) continue;
+
+          if (isPerKitClearance) {
+            // CLEARANCE keeps the old clearance pricing rules but owns one
+            // bundle-style validity/restart window per eligible kit.
+            for (const dealKitId of dealKitIds) {
+              const kit = kits.find(candidate => candidate.id === dealKitId);
+              const stocks = Object.values(kit?.stocks || {});
+              const isKitFulfillable = Boolean(kit) && stocks.some(stock => isBundlePurchasableStock(stock, deal.stockSource || 'onhand'));
+              const schedule = deal.clearanceKitSchedules?.[dealKitId] || {};
+              const currentActive = schedule.isActive !== false;
+              const validFromMs = getDealDateMillis(schedule.validFrom);
+              const validUntilMs = getDealDateMillis(schedule.validUntil);
+              const isExpired = validUntilMs > 0 && validUntilMs <= now;
+              const restartAt = validUntilMs > 0
+                ? validUntilMs + getBundleDealReactivationDelayMs(schedule)
+                : 0;
+
+              if (restartAt > now) nextRestartAt = Math.min(nextRestartAt, restartAt);
+
+              const schedulePath = (field) => `clearanceKitSchedules.${dealKitId}.${field}`;
+              const updateSchedule = async (updates, logMessage) => {
+                try {
+                  await updateDoc(doc(db, 'deals', deal.id), {
+                    ...Object.fromEntries(Object.entries(updates).map(([field, value]) => [schedulePath(field), value])),
+                    lastUpdated: serverTimestamp()
+                  });
+                } catch (err) {
+                  console.error(`SG LOG: Error ${logMessage} for clearance kit:`, err);
+                }
+              };
+
+              if (isExpired && now < restartAt) {
+                if (currentActive) await updateSchedule({ isActive: false }, 'auto-deactivating expired clearance');
+              } else if (isExpired && isKitFulfillable) {
+                const restartedAt = new Date(now);
+                const restartedUntil = new Date(now + getBundleDealValidityMs(schedule));
+                const validityDurationDays = Math.max(1, Math.round(getBundleDealValidityMs(schedule) / (24 * 60 * 60 * 1000)));
+                await updateSchedule({
+                  isActive: true,
+                  validFrom: formatDealDateValue(restartedAt),
+                  validUntil: formatDealDateValue(restartedUntil),
+                  validityDays: validityDurationDays
+                }, 'restarting expired clearance');
+              } else if (isExpired && currentActive) {
+                await updateSchedule({ isActive: false }, 'auto-deactivating unavailable clearance');
+              } else if (!isExpired && validFromMs > 0 && validFromMs <= now && isKitFulfillable && !currentActive) {
+                await updateSchedule({ isActive: true }, 'auto-activating clearance');
+              } else if (!isKitFulfillable && currentActive) {
+                await updateSchedule({ isActive: false }, 'auto-deactivating unavailable clearance');
+              }
+            }
+            continue;
+          }
 
           const isFulfillable = dealKitIds.every(dealKitId => {
             const dealKit = kits.find(k => k.id === dealKitId);

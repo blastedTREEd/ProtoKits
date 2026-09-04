@@ -7,7 +7,7 @@ import {
   ClipboardList, Plus, MapPin, Package, PackageOpen, ShieldCheck, X, CheckCircle2, 
   ChevronRight, ChevronDown, Clock, Store, Truck, Tag, Trash2, AlertCircle,
   Camera, Upload, QrCode, ArrowRight, Eye, Download, ListTodo, Flag,
-  XCircle, Wallet, MapPinSearch, ClockFading, PrinterCheck, Undo2
+  XCircle, Wallet, MapPinSearch, ClockFading, PrinterCheck, Undo2, Pause, Play
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -264,8 +264,21 @@ const getTimestampMs = (value) => {
 };
 
 const getCompletedOrderReversalDeadline = (order) => {
+  const configuredDeadline = getTimestampMs(order?.legacyCountdownDeadline);
+  if (configuredDeadline) return configuredDeadline;
+
   const completedAt = getTimestampMs(order?.completedAt || order?.lastUpdated || order?.createdAt);
   return completedAt ? completedAt + COMPLETED_ORDER_REVERSAL_WINDOW_MS : 0;
+};
+
+const getCompletedOrderReversalRemainingMs = (order, now = Date.now()) => {
+  if (order?.legacyCountdownPaused === true) {
+    const pausedRemaining = Number(order.legacyCountdownRemainingMs);
+    if (Number.isFinite(pausedRemaining)) return Math.max(0, pausedRemaining);
+  }
+
+  const deadline = getCompletedOrderReversalDeadline(order);
+  return deadline ? Math.max(0, deadline - now) : 0;
 };
 
 function DeletionTimer({ completedAt, onExpire, onDelete, children }) {
@@ -330,7 +343,13 @@ function CompletedReversalTimer({ order, onExpire, children }) {
   useEffect(() => {
     const calculateTime = () => {
       const deadline = getCompletedOrderReversalDeadline(order);
-      if (!deadline) {
+      const isPaused = order?.legacyCountdownPaused === true;
+      const pausedRemaining = Number(order?.legacyCountdownRemainingMs);
+      const diff = isPaused && Number.isFinite(pausedRemaining)
+        ? pausedRemaining
+        : deadline - Date.now();
+
+      if (!deadline && !isPaused) {
         setTimeLeft('PERMANENT');
         if (!hasExpiredRef.current) {
           hasExpiredRef.current = true;
@@ -339,7 +358,6 @@ function CompletedReversalTimer({ order, onExpire, children }) {
         return;
       }
 
-      const diff = deadline - Date.now();
       if (diff <= 0) {
         setTimeLeft('PERMANENT');
         if (!hasExpiredRef.current) {
@@ -1759,6 +1777,45 @@ export default function Orders() {
     }
   }, [closeSelectedOrder, reverseLegacyOrder, selectedOrder?.id, setToastMessage]);
 
+  const handleToggleLegacyCountdown = useCallback(async (order) => {
+    if (!isAdminMode || !order || !isLegacyOrderRecord(order) || order.status !== 'Completed') return;
+
+    const now = Date.now();
+    const isPaused = order.legacyCountdownPaused === true;
+    const remainingMs = isPaused
+      ? Number(order.legacyCountdownRemainingMs)
+      : getCompletedOrderReversalRemainingMs(order, now);
+
+    if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
+      markCompletedReversalExpired(order.id);
+      setToastMessage('This completed legacy order is already a permanent record.');
+      return;
+    }
+
+    const patch = isPaused
+      ? {
+          legacyCountdownPaused: false,
+          legacyCountdownRemainingMs: null,
+          legacyCountdownDeadline: new Date(now + remainingMs).toISOString()
+        }
+      : {
+          legacyCountdownPaused: true,
+          legacyCountdownRemainingMs: Math.ceil(remainingMs),
+          legacyCountdownDeadline: new Date(now + remainingMs).toISOString()
+        };
+
+    try {
+      await updateOrderDetails(order.id, patch);
+      setSelectedOrder((previous) => (
+        previous?.id === order.id ? { ...previous, ...patch } : previous
+      ));
+      setToastMessage(isPaused ? 'Legacy order countdown resumed.' : 'Legacy order countdown paused.');
+    } catch (error) {
+      console.error('SG LOG: Failed to toggle legacy countdown:', error);
+      setToastMessage(error?.message || 'Could not update the legacy order countdown.');
+    }
+  }, [isAdminMode, markCompletedReversalExpired, setToastMessage, updateOrderDetails]);
+
   const isReadyForPickupStatus = (status) => ['Ready for Pickup', 'Ready for Meetup'].includes(status);
   const canShowExactPickupDetails = (order, paymentVerified) => {
     if (isAdminMode) return true;
@@ -2093,10 +2150,10 @@ export default function Orders() {
       (selectedOrder.status === 'Reserved' && selPaymentPlan === 'reservation') ||
       (selectedOrder.status === 'Arrived' && selPaymentPlan === 'partial' && selectedOrder.balanceRequestedAt)
     ) && calculateBalance(selectedOrder) > 0 && !selectedOrder.balanceReceipt;
-    const completedReversalDeadline = getCompletedOrderReversalDeadline(selectedOrder);
+    const completedReversalRemainingMs = getCompletedOrderReversalRemainingMs(selectedOrder);
     const isCompletedReversalAvailable = selectedOrder.status === 'Completed'
       && !completedReversalExpiredIds.has(selectedOrder.id)
-      && completedReversalDeadline > Date.now();
+      && completedReversalRemainingMs > 0;
 
     return (
       <div className="w-full min-h-screen text-neutral-900 dark:text-white bg-white dark:bg-[#0a0a0a]">
@@ -2162,15 +2219,32 @@ export default function Orders() {
                   onExpire={() => markCompletedReversalExpired(selectedOrder.id)}
                 >
                   {(timeLeft) => {
+                    const isLegacyCountdownPaused = isSelectedLegacyOrder && selectedOrder.legacyCountdownPaused === true;
+                    const isLegacyCountdownAction = isAdminMode && isSelectedLegacyOrder && timeLeft !== 'PERMANENT';
                     const badge = (
                       <div className={`px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest leading-none border flex items-center gap-1.5 whitespace-nowrap ${detailUI.className}`}>
-                        {isAdminMode && timeLeft !== 'PERMANENT' && <Undo2 size={13} />}
+                        {isLegacyCountdownAction
+                          ? (isLegacyCountdownPaused ? <Play size={13} /> : <Pause size={13} />)
+                          : isAdminMode && timeLeft !== 'PERMANENT' ? <Undo2 size={13} /> : null}
                         {detailUI.icon}
                         <span>{detailDisplayStatus}</span>
-                        <span className="opacity-90">({timeLeft === 'PERMANENT' ? 'PERMANENT' : `${timeLeft} TO REVERSE`})</span>
+                        <span className="opacity-90">({timeLeft === 'PERMANENT'
+                          ? 'PERMANENT'
+                          : isLegacyCountdownPaused
+                            ? `${timeLeft} PAUSED`
+                            : `${timeLeft} TO REVERSE`})</span>
                       </div>
                     );
-                    return isAdminMode && timeLeft !== 'PERMANENT' ? (
+                    return isLegacyCountdownAction ? (
+                      <button
+                        type="button"
+                        title={isLegacyCountdownPaused ? 'Resume legacy order countdown' : 'Pause legacy order countdown'}
+                        onClick={(event) => { event.stopPropagation(); handleToggleLegacyCountdown(selectedOrder); }}
+                        className="rounded-full focus:outline-none focus:ring-2 focus:ring-amber-500/60"
+                      >
+                        {badge}
+                      </button>
+                    ) : isAdminMode && timeLeft !== 'PERMANENT' ? (
                       <button
                         type="button"
                         title="Reverse and release stock"
@@ -3125,15 +3199,32 @@ export default function Orders() {
                     onExpire={() => markCompletedReversalExpired(o.id)}
                   >
                     {(timeLeft) => {
+                      const isLegacyCountdownPaused = isLegacyOrder && o.legacyCountdownPaused === true;
+                      const isLegacyCountdownAction = isAdminMode && isLegacyOrder && timeLeft !== 'PERMANENT';
                       const badge = (
                         <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-black uppercase leading-none tracking-widest shadow-md whitespace-nowrap ${cardUI.className}`}>
-                          {isAdminMode && timeLeft !== 'PERMANENT' && <Undo2 size={12} />}
+                          {isLegacyCountdownAction
+                            ? (isLegacyCountdownPaused ? <Play size={12} /> : <Pause size={12} />)
+                            : isAdminMode && timeLeft !== 'PERMANENT' ? <Undo2 size={12} /> : null}
                           {cardUI.icon}
                           <span>{cardDisplayStatus}</span>
-                          <span className="opacity-90">({timeLeft === 'PERMANENT' ? 'PERMANENT' : `${timeLeft} TO REVERSE`})</span>
+                          <span className="opacity-90">({timeLeft === 'PERMANENT'
+                            ? 'PERMANENT'
+                            : isLegacyCountdownPaused
+                              ? `${timeLeft} PAUSED`
+                              : `${timeLeft} TO REVERSE`})</span>
                         </span>
                       );
-                      return isAdminMode && timeLeft !== 'PERMANENT' ? (
+                      return isLegacyCountdownAction ? (
+                        <button
+                          type="button"
+                          title={isLegacyCountdownPaused ? 'Resume legacy order countdown' : 'Pause legacy order countdown'}
+                          onClick={(event) => { event.stopPropagation(); handleToggleLegacyCountdown(o); }}
+                          className="rounded-full focus:outline-none focus:ring-2 focus:ring-amber-500/60"
+                        >
+                          {badge}
+                        </button>
+                      ) : isAdminMode && timeLeft !== 'PERMANENT' ? (
                         <button
                           type="button"
                           title="Reverse and release stock"

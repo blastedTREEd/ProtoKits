@@ -11,6 +11,12 @@ export const getNotificationActivityTime = (order) => (
   notificationValueToMillis(order?.lastUpdated) || notificationValueToMillis(order?.createdAt)
 );
 
+export const isLegacyOrderRecord = (order) => Boolean(
+  order?.legacyOrder
+  || order?.orderSource === 'legacy'
+  || String(order?.orderId || '').toUpperCase().startsWith('#LG-')
+);
+
 export const getNotificationVersion = (order) => (
   order?.notificationVersion
   || `${getNotificationActivityTime(order)}:${String(order?.status || '').trim().toLowerCase()}`

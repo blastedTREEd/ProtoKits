@@ -29,6 +29,7 @@ import {
   getClearanceKitIds,
   isClearanceRequirementMet
 } from '../../utils/bundlePricing';
+import { isFlexiBundleDeal, isPerKitClearanceDeal, getActiveClearanceKitIds } from '../../utils/dealTypes';
 import { getStockEta } from '../../utils/stockDates';
 import {
   formatAvailabilityDate,
@@ -142,12 +143,12 @@ const parseDealDate = (value, endOfDay = false) => {
 };
 
 const isDealActiveForCheckout = (deal, now = Date.now()) => {
-  if (!deal || !['bundle', 'bundle_only', 'bundle_discount', 'clearance'].includes(deal.type)) return false;
+  if (!deal || !['bundle', 'bundle_only', 'bundle_discount', 'clearance', 'flexi_bundle'].includes(deal.type)) return false;
   if (deal.isActive === false) return false;
 
-  // Clearance is a permanent eligibility list. Bundle deals still honor
+  // FLEXI-BUNDLE is a permanent eligibility list. Bundle deals still honor
   // their configured validity window.
-  if (deal.type !== 'clearance') {
+  if (!isFlexiBundleDeal(deal) && !isPerKitClearanceDeal(deal)) {
     const validFrom = parseDealDate(deal.validFrom);
     const validUntil = parseDealDate(deal.validUntil, true);
     if (validFrom && validFrom.getTime() > now) return false;
@@ -286,7 +287,7 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
   const normalBundleCandidates = [];
 
   activeDeals.forEach(deal => {
-    const isClearanceDeal = deal.type === 'clearance';
+    const isClearanceDeal = isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal);
     if (!isClearanceDeal) {
       if (!['bundle', 'bundle_only', 'bundle_discount'].includes(deal.type)) return;
 
@@ -336,7 +337,7 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
       return;
     }
 
-    const clearanceKitIds = Array.from(new Set(getClearanceKitIds(deal)));
+    const clearanceKitIds = Array.from(new Set(getActiveClearanceKitIds(deal, getClearanceKitIds(deal))));
 
     const clearanceRows = isClearanceDeal
       ? basketItems.filter(item => {
@@ -486,13 +487,13 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
   const clearancePricedKitIds = best.rows
     .filter(row => row.isClearance)
     .map(row => row.kitId);
-  const bundleSize = deal.type === 'clearance'
+  const bundleSize = isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)
     ? clearancePricedKitIds.length
     : best.rows.length;
-  const clearanceSourceKitId = deal.type === 'clearance'
+  const clearanceSourceKitId = isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)
     ? clearancePricedKitIds[0] || ''
     : '';
-  const unusedClearanceDiscount = deal.type === 'clearance'
+  const unusedClearanceDiscount = isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)
     ? Math.max(0, Number(best.unusedClearanceDiscount || 0))
     : 0;
 
@@ -502,7 +503,7 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
       !row
       || isProjectCheckoutItem(item)
       || item.offerPrice
-      || (deal.type === 'clearance' && !row.isClearance)
+      || ((isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)) && !row.isClearance)
     ) return item;
 
     return {
@@ -510,8 +511,8 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
       name: String(item.name || row.kit?.name || '').replace(/\s*\((?:Bundle|Clearance) Item\)\s*$/i, ''),
       isBundleItem: true,
       bundleId: deal.id,
-      bundleName: deal.name || (deal.type === 'clearance' ? 'Clearance Deal' : 'Bundle Deal'),
-      isClearanceBundle: deal.type === 'clearance',
+      bundleName: deal.name || (isFlexiBundleDeal(deal) ? 'FLEXI-BUNDLE' : isPerKitClearanceDeal(deal) ? 'CLEARANCE' : 'Bundle Deal'),
+      isClearanceBundle: isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal),
       clearanceKitIds: clearancePricedKitIds,
       bundleSize,
       bundleFeeShare: 0,
@@ -1590,6 +1591,10 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       0
     )
   ), [checkoutItems]);
+
+  const clearancePromotionLabel = checkoutItems.some((item) => (
+    item.isClearanceBundle === true && String(item.bundleName || '').toUpperCase().includes('FLEXI')
+  )) ? 'FLEXI-BUNDLE' : 'CLEARANCE';
 
   const isHandlingFeeDiscounted = handlingFeeDiscount > 0 && orderFees.handling > 0;
   const isCashTransferFeeDiscounted = cashTransferFeeDiscount > 0 && orderFees.transfer > 0;
@@ -3226,7 +3231,7 @@ const handleFinalizeOrder = async () => {
       const dealTag = isAppliedBundleDeal
         ? 'BUNDLE DEAL'
         : isAppliedClearanceDeal
-          ? 'CLEARANCE'
+          ? (String(item.bundleName || '').toUpperCase().includes('FLEXI') ? 'FLEXI-BUNDLE' : 'CLEARANCE')
           : isPreOrderItem && etaLabel
             ? etaLabel
             : '';
@@ -3507,7 +3512,7 @@ const handleFinalizeOrder = async () => {
                   <div className="flex justify-between text-emerald-200"><span>Bundle Discount</span><span>-₱{bundleDiscount.toLocaleString()}</span></div>
                 )}
                 {clearanceDiscount > 0 && (
-                  <div className="flex justify-between text-emerald-200"><span>Clearance Discount</span><span>-₱{clearanceDiscount.toLocaleString()}</span></div>
+                  <div className="flex justify-between text-emerald-200"><span>{clearancePromotionLabel} Discount</span><span>-₱{clearanceDiscount.toLocaleString()}</span></div>
                 )}
                 {unusedClearanceDiscount > 0 && (
                   <div className="flex justify-between text-amber-200"><span>ADD MORE TO USE</span><span>₱{unusedClearanceDiscount.toLocaleString()}</span></div>
@@ -4377,7 +4382,7 @@ const handleFinalizeOrder = async () => {
                       )}
                       {clearanceDiscount > 0 && (
                         <div className="flex justify-between uppercase font-black text-emerald-300">
-                          <span>Clearance Discount</span>
+                          <span>{clearancePromotionLabel} Discount</span>
                           <span>-₱{clearanceDiscount.toLocaleString()}</span>
                         </div>
                       )}

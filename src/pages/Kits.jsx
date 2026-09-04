@@ -19,6 +19,7 @@ import { getBundleDealPricing, getClearanceBundlePricing, getHighestCostStock } 
 import { isOfferCheckoutActive } from '../utils/offerUtils';
 import { getDealGrabLabel } from '../utils/dealSavings';
 import { getStockEta } from '../utils/stockDates';
+import { isFlexiBundleDeal, isPerKitClearanceDeal, getActiveClearanceKitIds, getClearanceDisplayLabel } from '../utils/dealTypes';
 import UniversalImage from '../components/common/UniversalImage';
 
 // --- Spectral gradient helpers (mirrored from ProductCard) ---
@@ -156,7 +157,7 @@ function getClearanceKitIds(deal) {
 }
 
 function getAvailableClearanceKitIds(deal, kits) {
-  const kitIds = getClearanceKitIds(deal);
+  const kitIds = getActiveClearanceKitIds(deal, getClearanceKitIds(deal));
   if (!kitIds.length) return [];
 
   return kitIds.filter((kitId) => {
@@ -177,7 +178,7 @@ function isClearanceDealFulfillable(deal, kits) {
 function getFulfillableClearanceKitIds(deals, kits) {
   const ids = new Set();
   (deals || []).forEach((deal) => {
-    if (deal?.type !== 'clearance') return;
+    if ((!isFlexiBundleDeal(deal) && !isPerKitClearanceDeal(deal)) || deal.isActive === false) return;
     if (isClearanceDealFulfillable(deal, kits)) {
       getAvailableClearanceKitIds(deal, kits).forEach((kitId) => ids.add(String(kitId)));
     }
@@ -445,10 +446,10 @@ export default function Kits({ isActive = true }) {
 
     const clearanceSearchTextByKitId = new Map();
     (deals || []).forEach(deal => {
-      if (deal?.type !== 'clearance') return;
+      if (!isFlexiBundleDeal(deal) && !isPerKitClearanceDeal(deal)) return;
 
-      const dealSearchText = `clearance clearance deal ${deal.name || ''}`;
-      (deal.clearanceKitIds?.length ? deal.clearanceKitIds : deal.kitIds || []).forEach(kitId => {
+      const dealSearchText = `${getClearanceDisplayLabel(deal).toLowerCase()} clearance deal ${deal.name || ''}`;
+      getActiveClearanceKitIds(deal, deal.clearanceKitIds?.length ? deal.clearanceKitIds : deal.kitIds || []).forEach(kitId => {
         clearanceSearchTextByKitId.set(
           kitId,
           `${clearanceSearchTextByKitId.get(kitId) || ''} ${dealSearchText}`
@@ -786,7 +787,7 @@ export default function Kits({ isActive = true }) {
   // --- Grupo-grupo ang kits ayon sa status para sa section dividers ---
   const activeClearanceDeals = useMemo(() => {
     const clearanceDeals = (deals || []).filter((deal) => (
-      deal?.type === 'clearance'
+      (isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)) && deal.isActive !== false
     ));
     const fulfillable = clearanceDeals.filter((deal) => (
       isClearanceDealFulfillable(deal, storeKits)
@@ -857,10 +858,10 @@ export default function Kits({ isActive = true }) {
     // Mutually exclusive deals have no deal card — hide from kits grid
     // Clearance is rendered as its participating kit cards in the Deals
     // section, not as a standalone multi-kit deal card.
-    const visible = deals.filter(d => d?.type !== 'mutually_exclusive' && d?.type !== 'clearance');
+    const visible = deals.filter(d => d?.type !== 'mutually_exclusive' && !isFlexiBundleDeal(d) && !isPerKitClearanceDeal(d));
     // Auto-hide unfulfillable deals: every kit must have at least one available stock
     const fulfillable = visible.filter(d => {
-      if (d?.type !== 'bundle_discount' && d?.type !== 'bundle_only' && d?.type !== 'clearance') return true;
+      if (d?.type !== 'bundle_discount' && d?.type !== 'bundle_only') return true;
       return (d.kitIds || []).every(kitId => {
         const kit = (storeKits || []).find(k => k.id === kitId);
         if (!kit) return false;
@@ -973,8 +974,9 @@ export default function Kits({ isActive = true }) {
     });
 
     let pricedRows;
-    if (deal.type === 'clearance') {
-      pricedRows = getClearanceBundlePricing(kitPrices, deal.clearanceKitIds || [], deal.clearanceDiscounts || {}).rows;
+    const isClearanceDeal = isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal);
+    if (isClearanceDeal) {
+      pricedRows = getClearanceBundlePricing(kitPrices, getActiveClearanceKitIds(deal, deal.clearanceKitIds || deal.kitIds || []), deal.clearanceDiscounts || {}).rows;
     } else {
       const normalTotal = kitPrices.reduce((sum, row) => sum + row.refPrice, 0);
       const discountAmount = Number(deal.discountAmount ?? Math.max(0, normalTotal - Number(deal.bundlePrice || 0))) || 0;
@@ -991,9 +993,9 @@ export default function Kits({ isActive = true }) {
         name: kit?.name,
         isBundleItem: true,
         bundleId: deal.id,
-        bundleName: deal.name || (deal.type === 'clearance' ? 'Clearance Deal' : 'Bundle Deal'),
-        isClearanceBundle: deal.type === 'clearance',
-        clearanceKitIds: deal.clearanceKitIds || [],
+        bundleName: deal.name || (isFlexiBundleDeal(deal) ? 'FLEXI-BUNDLE' : isPerKitClearanceDeal(deal) ? 'CLEARANCE' : 'Bundle Deal'),
+        isClearanceBundle: isClearanceDeal,
+        clearanceKitIds: deal.clearanceKitIds || deal.kitIds || [],
         bundleSize,
         bundleFeeShare: 0,
         bundleReferencePrice: refPrice,
@@ -1012,7 +1014,7 @@ export default function Kits({ isActive = true }) {
     // Clearance pricing is unlocked only by selecting the clearance kit with
     // other on-hand items in the basket. Do not create a discounted direct
     // checkout line for a clearance deal.
-    if (deal?.type === 'clearance') {
+    if (isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)) {
       handleDealAddToBasket(deal, targetKitId);
       return;
     }
@@ -1026,7 +1028,7 @@ export default function Kits({ isActive = true }) {
   };
 
   const handleDealAddToBasket = async (deal, targetKitId) => {
-    if (deal?.type === 'clearance') {
+    if (isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)) {
       const clearanceKitId = targetKitId || deal.clearanceKitIds?.[0] || deal.kitIds?.[0];
       const clearanceKit = (storeKits || []).find(kit => kit.id === clearanceKitId);
       if (!clearanceKit) return;

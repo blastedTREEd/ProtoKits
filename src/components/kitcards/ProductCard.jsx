@@ -19,6 +19,7 @@ import { formatOfferCountdown, isOfferCheckoutActive } from '../../utils/offerUt
 import { getStockStandaloneSellPrice } from '../../utils/standalonePricing';
 import { getDealDiscountAmount, getDealGrabLabel, getDealSaveUpToLabel } from '../../utils/dealSavings';
 import { getStockEta } from '../../utils/stockDates';
+import { isFlexiBundleDeal, isPerKitClearanceDeal, isClearanceKitActive, getActiveClearanceKitIds, getClearanceDisplayLabel } from '../../utils/dealTypes';
 import UniversalImage from '../common/UniversalImage';
 
 // Resolves an image ID to its URL from the images array.
@@ -249,13 +250,14 @@ function getPreferredDealStock(stocks = [], source = 'onhand') {
 }
 
 function getClearanceDealPricing(deal, allKits = []) {
-  if (!deal || deal.type !== 'clearance') return null;
+  if (!deal || (!isFlexiBundleDeal(deal) && !isPerKitClearanceDeal(deal))) return null;
   // Clearance deals store their canonical eligible-kit list in
   // `clearanceKitIds`; `kitIds` is only the legacy fallback.
   const clearanceKitIds = deal.clearanceKitIds?.length
     ? deal.clearanceKitIds
     : (deal.kitIds || []);
-  const includedKits = clearanceKitIds
+  const activeClearanceKitIds = getActiveClearanceKitIds(deal, clearanceKitIds);
+  const includedKits = activeClearanceKitIds
     .map(id => allKits.find(kit => String(kit.id) === String(id)))
     .filter(Boolean);
   const rows = includedKits.map(kit => {
@@ -270,7 +272,7 @@ function getClearanceDealPricing(deal, allKits = []) {
   });
   return getClearanceBundlePricing(
     rows,
-    clearanceKitIds,
+    activeClearanceKitIds,
     deal.clearanceDiscounts || {}
   );
 }
@@ -278,7 +280,7 @@ function getClearanceDealPricing(deal, allKits = []) {
 function getBundleKitPrice(deal, dealKit, allKits = []) {
   if (!deal || !dealKit) return null;
   const includedKits = (deal.kitIds || []).map(id => id === dealKit.id ? dealKit : allKits.find(k => k.id === id)).filter(Boolean);
-  if (deal.type === 'clearance') {
+  if (isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)) {
     const clearance = getClearanceDealPricing(deal, allKits);
     return clearance.rows.find(row => row.kitId === dealKit.id)?.finalPrice ?? null;
   }
@@ -301,7 +303,7 @@ function getBundleKitPrice(deal, dealKit, allKits = []) {
 }
 
 function getConfiguredClearanceDiscount(deal, kitId, allKits = []) {
-  if (!deal || deal.type !== 'clearance') return 0;
+  if (!deal || (!isFlexiBundleDeal(deal) && !isPerKitClearanceDeal(deal))) return 0;
   const pricing = getClearanceDealPricing(deal, allKits);
   const row = pricing?.rows?.find(candidate => String(candidate.kitId) === String(kitId));
   if (row) return Math.max(0, Math.round(Number(row.clearanceDiscount || row.discount || 0)));
@@ -687,12 +689,13 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   const bundleOnlyDeals = useMemo(() => {
     if (!kitId || !Array.isArray(deals)) return [];
     return deals.filter(deal => {
-      const isBundleDeal = deal?.type === 'bundle_only' || deal?.type === 'bundle_discount' || deal?.type === 'clearance';
-      const dealKitIds = deal.type === 'clearance' && deal.clearanceKitIds?.length
+      const isClearanceDeal = isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal);
+      const isBundleDeal = deal?.type === 'bundle_only' || deal?.type === 'bundle_discount' || isClearanceDeal;
+      const dealKitIds = isClearanceDeal && deal.clearanceKitIds?.length
         ? deal.clearanceKitIds
         : (deal.kitIds || []);
       if (!isBundleDeal || !includesKitId(dealKitIds, kitId)) return false;
-      if (deal.type !== 'clearance') {
+      if (!isClearanceDeal) {
         const validUntil = parseDealDate(deal.validUntil);
         if (validUntil && validUntil.getTime() <= now) return false;
         return dealKitIds.every(dealKitId => {
@@ -716,13 +719,15 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       // Clearance is on-hand only. Pre-order clearance would reserve stock
       // against a deal while still requiring future logistics fulfillment.
       const stockSource = 'onhand';
+      if (!isClearanceKitActive(deal, kitId, now)) return false;
       return Object.values(kit?.stocks || {}).some(stock => canUseClearanceStock(stock, stockSource));
     });
   }, [allKits, deals, kitId, kit, now]);
 
   const bundleDealDetails = useMemo(() => {
     return bundleOnlyDeals.map(deal => {
-      const orderedKitIds = deal.type === 'clearance'
+      const isClearanceDeal = isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal);
+      const orderedKitIds = isClearanceDeal
         ? [kitId]
         : [
             kitId,
@@ -730,7 +735,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
             ...(deal.kitIds || []).filter(id => !(deal.previewKitIds || []).includes(id))
           ].filter((id, index, ids) => id && ids.indexOf(id) === index);
       const includedKits = orderedKitIds.map(id => id === kitId ? kit : (allKits || []).find(k => k.id === id)).filter(Boolean);
-      const currentStockSource = deal.type === 'clearance' ? 'onhand' : (deal.stockSource || 'onhand');
+      const currentStockSource = isClearanceDeal ? 'onhand' : (deal.stockSource || 'onhand');
       const currentKitStock = stockList.find(stock => isBundlePurchasableStock(stock, currentStockSource)) || null;
       const currentItemPrice = getBundleKitPrice(deal, kit, allKits);
       const bundlePrice = Number(deal.bundlePrice ?? Math.max(0, Number(deal.totalSell || 0) - Number(deal.discountAmount || 0)));
@@ -740,9 +745,9 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
         currentKitStock,
         currentItemPrice,
         bundlePrice,
-        isClearance: deal.type === 'clearance',
-        displayName: deal.type === 'clearance'
-          ? 'CLEARANCE'
+        isClearance: isClearanceDeal,
+        displayName: isClearanceDeal
+          ? getClearanceDisplayLabel(deal)
           : deal.name
       };
     }).filter(detail => Number.isFinite(Number(detail.currentItemPrice)) && Number(detail.currentItemPrice) > 0);
@@ -752,7 +757,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     if (bundleDealDetails.length === 0) return [];
     return bundleDealDetails.map(detail => ({
       key: `bundle-deal-${detail.deal.id}`,
-      label: detail.isClearance ? 'CLEARANCE' : 'BUNDLE DEAL',
+      label: detail.isClearance ? getClearanceDisplayLabel(detail.deal) : 'BUNDLE DEAL',
       items: [detail.currentKitStock || { ...detail.deal, status: 'bundle_deal', sellPrice: detail.currentItemPrice }],
       isOnHand: true,
       tag: 'bundleDeal',
@@ -817,7 +822,10 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   }, [isSelectedCollectionGroup, selectedAvailabilityGroup?.tag, selectedStock, shelf, kitId]);
 
   const isClearanceDeal = bundleDealDetails.some(detail => detail.isClearance);
-  const isIncludedInBundleDeal = bundleOnlyDeals.some(deal => deal.type !== 'clearance');
+  const isIncludedInBundleDeal = bundleOnlyDeals.some(deal => !isFlexiBundleDeal(deal) && !isPerKitClearanceDeal(deal));
+  const clearanceDisplayLabel = getClearanceDisplayLabel(
+    selectedBundleDealDetails?.deal || bundleDealDetails.find(detail => detail.isClearance)?.deal
+  );
 
   const isEarlyAccess = useMemo(() => {
     return stockList.some(s => s.publicReleaseDate && new Date(s.publicReleaseDate).getTime() > now);
@@ -1440,9 +1448,9 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   const modalTopPrice = selectedBundleDealDetails?.deal
     ? Number(sellPrice || 0)
     : modalLowestPrice;
-  const activeClearanceKitIds = activeBundleDeal?.clearanceKitIds?.length
+  const activeClearanceKitIds = getActiveClearanceKitIds(activeBundleDeal, activeBundleDeal?.clearanceKitIds?.length
     ? activeBundleDeal.clearanceKitIds
-    : (activeBundleDeal?.kitIds || []);
+    : (activeBundleDeal?.kitIds || []), now);
   const clearanceKitId = activeClearanceKitIds.includes(kitId)
     ? kitId
     : (activeClearanceKitIds[0] || kitId);
@@ -1511,7 +1519,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   }
   if (isClearanceDeal) {
     gridStatusBadges.push({
-      label: 'CLEARANCE',
+      label: clearanceDisplayLabel,
       isActiveDeal: true,
       className: 'bg-emerald-500 text-white border-emerald-400 shadow-lg'
     });
@@ -1870,7 +1878,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                       {!cardIsPreOrder && (
                                         <p className={`${selectedBundleDealDetails?.deal ? 'text-[15px] md:text-[15px] text-neutral-900 dark:text-white' : 'text-[13px] md:text-[22px]'} font-black italic tracking-tighter leading-tight ${selectedBundleDealDetails?.deal ? '' : 'line-through'}`}>
                                           {selectedBundleDealDetails?.deal
-                                            ? (selectedBundleDealDetails.isClearance ? 'ON CLEARANCE DEAL' : 'ON BUNDLE DEAL')
+                                            ? (selectedBundleDealDetails.isClearance ? `ON ${getClearanceDisplayLabel(selectedBundleDealDetails.deal)} DEAL` : 'ON BUNDLE DEAL')
                                             : `₱${modalReferencePrice.toLocaleString()}`}
                                         </p>
                                       )}
@@ -1929,7 +1937,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                       {!cardIsPreOrder && (
                                         <p className={`${selectedBundleDealDetails?.deal ? 'text-[15px] text-neutral-900 dark:text-white' : 'text-[18px]'} font-black italic tracking-tighter leading-none ${selectedBundleDealDetails?.deal ? '' : 'line-through'}`}>
                                           {selectedBundleDealDetails?.deal
-                                            ? (selectedBundleDealDetails.isClearance ? 'ON CLEARANCE DEAL' : 'ON BUNDLE DEAL')
+                                            ? (selectedBundleDealDetails.isClearance ? `ON ${getClearanceDisplayLabel(selectedBundleDealDetails.deal)} DEAL` : 'ON BUNDLE DEAL')
                                             : `₱${modalReferencePrice.toLocaleString()}`}
                                         </p>
                                       )}
@@ -2011,13 +2019,15 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                             {bundleDealDetails.map(({ deal, includedKits, displayName }) => {
                               const isSelectedBundlePanel = selectedBundleDealDetails?.deal?.id === deal.id;
                               const bundleGroup = bundleDealGroups.find(group => group.deal?.id === deal.id);
-                              const clearancePricing = deal.type === 'clearance'
+                              const isClearanceDeal = isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal);
+                              const isIndependentClearanceDeal = isPerKitClearanceDeal(deal);
+                              const clearancePricing = isClearanceDeal
                                 ? getClearanceDealPricing(deal, allKits)
                                 : null;
                               const clearanceRowsByKitId = new Map(
                                 (clearancePricing?.rows || []).map(row => [String(row.kitId), row])
                               );
-                              const clearanceTotalDiscount = deal.type === 'clearance'
+                              const clearanceTotalDiscount = isClearanceDeal
                                 ? Number(clearancePricing?.clearanceDiscountTotal || 0)
                                 : 0;
                               return (
@@ -2041,9 +2051,11 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                     <p className="min-h-[2.25rem] line-clamp-2 text-[15px] font-bold uppercase italic leading-tight text-emerald-600">{displayName}</p>
                                   </div>
                                   <div className="shrink-0 pt-0.5 text-right">
-                                    <p className={`text-[12px] font-black uppercase ${isDarkMode ? 'text-white' : 'text-neutral-900'} ${deal.type !== 'clearance' && getDealCountdownLabel(deal.validUntil) === 'LAST DAY' ? 'text-red-500' : ''}`}>
-                                      {deal.type === 'clearance'
-                                        ? 'PER-KIT REQUIREMENTS'
+                                    <p className={`text-[12px] font-black uppercase ${isDarkMode ? 'text-white' : 'text-neutral-900'} ${!isClearanceDeal && getDealCountdownLabel(deal.validUntil) === 'LAST DAY' ? 'text-red-500' : ''}`}>
+                                      {isIndependentClearanceDeal
+                                        ? 'INDIVIDUAL SALE'
+                                        : isClearanceDeal
+                                          ? 'PER-KIT REQUIREMENTS'
                                         : getDealCountdownLabel(deal.validUntil)}
                                     </p>
                                   </div>
@@ -2054,10 +2066,10 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                     {includedKits.map((includedKit) => {
                                       const bundleKitPrice = Number(getBundleKitPrice(deal, includedKit, allKits) || 0);
                                       const clearanceRow = clearanceRowsByKitId.get(String(includedKit.id));
-                                      const displayedDealPrice = deal.type === 'clearance'
+                                      const displayedDealPrice = isClearanceDeal
                                         ? Number(clearanceRow?.finalPrice ?? bundleKitPrice)
                                         : bundleKitPrice;
-                                      const displayedClearanceDiscount = deal.type === 'clearance'
+                                      const displayedClearanceDiscount = isClearanceDeal
                                         ? Number(clearanceRow?.clearanceDiscount || 0)
                                         : 0;
                                       const stocks = Object.values(includedKit?.stocks || {});
@@ -2101,7 +2113,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                               {[includedKit.brand, includedKit.specs?.line || includedKit.specs?.scale].filter(Boolean).join(' / ') || 'Included Kit'}
                                             </p>
                                             <div className="mt-1 flex items-baseline justify-between gap-2">
-                                              {deal.type === 'clearance' ? (
+                                              {isClearanceDeal ? (
                                                 <>
                                                   <p className={`text-[16px] font-black italic ${isDarkMode ? 'text-white' : 'text-neutral-900'}`}>
                                                     &#8369;{bundleReferencePrice.toLocaleString()}
@@ -2121,7 +2133,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                                 </>
                                               )}
                                             </div>
-                                            {deal.type === 'clearance' && (
+                                            {isClearanceDeal && !isIndependentClearanceDeal && (
                                               <p className="mt-1 text-[11px] font-black uppercase tracking-wider text-amber-600">
                                                 +{getClearanceRequiredOtherStock(deal, includedKit.id)} other kit{getClearanceRequiredOtherStock(deal, includedKit.id) === 1 ? '' : 's'} required
                                               </p>
@@ -2130,7 +2142,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                         </div>
                                       );
                                     })}
-                                    {deal.type === 'clearance' && (
+                                    {isClearanceDeal && !isIndependentClearanceDeal && (
                                       <div
                                         className="grid w-full cursor-default grid-cols-[auto,minmax(0,1fr)] items-center gap-x-4 px-3 py-3"
                                         title="Additional kit required for clearance discount"
@@ -2156,7 +2168,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                     )}
                                     <div className="flex justify-end pt-2">
                                       <p className="text-[16px] font-black uppercase italic leading-none text-emerald-600">
-                                        {deal.type === 'clearance'
+                                        {isClearanceDeal
                                           ? `SAVE UP TO ₱${clearanceTotalDiscount.toLocaleString()} OFF`
                                           : getDealSaveUpToLabel(deal, { kitCount: includedKits.length })}
                                       </p>
@@ -2176,7 +2188,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                           return (
                                             <div
                                               key={includedKit.id}
-                                              style={deal.type !== 'clearance' ? { zIndex: includedIndex + 1 } : undefined}
+                                              style={!isClearanceDeal ? { zIndex: includedIndex + 1 } : undefined}
                                               className={`h-20 w-20 overflow-hidden rounded-full border-2 border-white bg-neutral-200 shadow-md dark:bg-neutral-800 ${includedIndex > 0 ? '-ml-2' : ''}`}
                                             >
                                               {includedKitImage ? (
@@ -2194,7 +2206,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                           );
                                         })()
                                       ))}
-                                      {deal.type === 'clearance' && Array.from({ length: 1 }, (_, placeholderIndex) => (
+                                      {isClearanceDeal && !isIndependentClearanceDeal && Array.from({ length: 1 }, (_, placeholderIndex) => (
                                         <div
                                           key={`clearance-placeholder-${placeholderIndex}`}
                                           className="relative -ml-2 flex h-20 w-20 cursor-default items-center justify-center overflow-hidden rounded-full border-2 border-white bg-neutral-200 shadow-md dark:border-white/80 dark:bg-neutral-800"
@@ -2208,7 +2220,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                     </div>
                                     <div className="flex justify-end">
                                       <p className="text-[15px] font-black italic leading-none text-emerald-600">
-                                        {(deal.type === 'clearance'
+                                        {(isClearanceDeal
                                           ? `GRAB ₱${clearanceTotalDiscount.toLocaleString()} OFF`
                                           : getDealGrabLabel(deal)
                                         ).replace(/^GRAB\b/i, 'GRAB UP TO')}
@@ -2281,9 +2293,9 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                             </div>
                           ) : activeBundleDeal && activeBundleItemPrice > 0 && !isAdminView ? (
                             <div className="grid w-full grid-cols-2 items-stretch gap-2">
-                              <div className={`min-w-0 flex items-center justify-center px-2 py-4 rounded-full border border-black/5 dark:border-white/10 ${activeBundleDeal?.type === 'clearance' ? 'order-2' : 'order-1'}`}>
+                              <div className={`min-w-0 flex items-center justify-center px-2 py-4 rounded-full border border-black/5 dark:border-white/10 ${(isFlexiBundleDeal(activeBundleDeal) || isPerKitClearanceDeal(activeBundleDeal)) ? 'order-2' : 'order-1'}`}>
                                 <div className="flex items-center justify-center text-center">
-                                  {activeBundleDeal?.type === 'clearance' ? (
+                                  {(isFlexiBundleDeal(activeBundleDeal) || isPerKitClearanceDeal(activeBundleDeal)) ? (
                                     <span className="text-[16px] font-black italic uppercase leading-none text-emerald-600 whitespace-nowrap">
                                       &#8369;{modalClearanceDiscount.toLocaleString()} OFF ELIGIBLE
                                     </span>
@@ -2294,12 +2306,12 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                   )}
                                 </div>
                               </div>
-                              <div className={`min-w-0 flex items-stretch justify-center ${activeBundleDeal?.type === 'clearance' ? 'order-1' : 'order-2'}`}>
+                              <div className={`min-w-0 flex items-stretch justify-center ${(isFlexiBundleDeal(activeBundleDeal) || isPerKitClearanceDeal(activeBundleDeal)) ? 'order-1' : 'order-2'}`}>
                                 <button 
                                   onClick={() => handleDealCheckout(activeBundleDeal, kitId)} 
                                   className="w-full flex items-center justify-center gap-2 px-2 py-4 rounded-full text-white font-black italic uppercase text-[12px] tracking-widest shadow-lg transition-all active:scale-95 whitespace-nowrap bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-emerald-500/20"
                                 >
-                                  <Zap size={14} fill="currentColor" /> {activeBundleDeal?.type === 'clearance' ? 'ADD TO CART' : 'GRAB DEAL'}
+                                  <Zap size={14} fill="currentColor" /> {(isFlexiBundleDeal(activeBundleDeal) || isPerKitClearanceDeal(activeBundleDeal)) ? 'ADD TO CART' : 'GRAB DEAL'}
                                 </button>
                               </div>
                             </div>

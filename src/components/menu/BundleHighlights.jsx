@@ -10,6 +10,7 @@ import LoginPromptModal from './LoginPromptModal';
 import { getDealGrabLabel } from '../../utils/dealSavings';
 import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
 import UniversalImage from '../common/UniversalImage';
+import { isFlexiBundleDeal, isPerKitClearanceDeal, getActiveClearanceKitIds, getClearanceDisplayLabel } from '../../utils/dealTypes';
 
 const BUNDLE_TYPES = new Set(['bundle_only', 'bundle_discount']);
 
@@ -263,21 +264,20 @@ export default function BundleHighlights() {
     // precedence when a kit also belongs to an active bundle deal.
     (deals || [])
       .filter((deal) => {
-        if (deal?.type !== 'clearance' || deal.isActive === false) return false;
-        const endDate = getDealEndDate(deal.validUntil);
-        return !endDate || endDate.getTime() > now;
+        if ((!isFlexiBundleDeal(deal) && !isPerKitClearanceDeal(deal)) || deal.isActive === false) return false;
+        return getActiveClearanceKitIds(deal, getClearanceKitIds(deal), now).length > 0;
       })
       .sort((a, b) => (
-        (getDealEndDate(a.validUntil)?.getTime() || Number.MAX_SAFE_INTEGER) -
-        (getDealEndDate(b.validUntil)?.getTime() || Number.MAX_SAFE_INTEGER)
+          (getDealEndDate(a.validUntil)?.getTime() || Number.MAX_SAFE_INTEGER) -
+          (getDealEndDate(b.validUntil)?.getTime() || Number.MAX_SAFE_INTEGER)
       ))
       .forEach((deal) => {
-        getClearanceKitIds(deal).forEach((kitId) => {
+        getActiveClearanceKitIds(deal, getClearanceKitIds(deal), now).forEach((kitId) => {
           const kit = kitMap.get(String(kitId));
           const stock = getMatchingStock(kit, 'onhand');
           if (!kit?.id || !stock || usedKitIds.has(String(kit.id))) return;
           usedKitIds.add(String(kit.id));
-          cards.push({ type: 'kit', id: `clearance:${deal.id}:${kit.id}`, kit, stock, label: 'CLEARANCE' });
+          cards.push({ type: 'kit', id: `clearance:${deal.id}:${kit.id}`, kit, stock, label: getClearanceDisplayLabel(deal) });
        });
       });
 

@@ -3,6 +3,7 @@ import { X, Gift, Zap, ArrowRight, Settings, Package } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
 import { getBundleDealPricing, getClearanceBundlePricing, getDistributedFeeShare, getHighestCostStock } from '../../utils/bundlePricing';
+import { isFlexiBundleDeal, isPerKitClearanceDeal, getActiveClearanceKitIds, getClearanceDisplayLabel } from '../../utils/dealTypes';
 
 function resolveImage(idOrUrl, imagesArray) {
   if (!idOrUrl) return '';
@@ -19,7 +20,7 @@ function getOrderedKits(kits, kitIds) {
 }
 
 function getDealKitIds(deal) {
-  return deal?.type === 'clearance' && deal.clearanceKitIds?.length
+  return (isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)) && deal.clearanceKitIds?.length
     ? deal.clearanceKitIds
     : (deal?.kitIds || []);
 }
@@ -82,7 +83,7 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onAd
       return refPrice + Number(installmentFee || 0) + handlingShare + transferShare;
     };
 
-    if (deal?.type === 'clearance') {
+    if (isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)) {
       const pricingRows = includedKits.map(kit => {
         const sourceStock = getDealSourceStock(kit, deal?.stockSource || 'onhand');
         return {
@@ -93,7 +94,7 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onAd
           costPrice: Number(sourceStock?.costPrice || 0)
         };
       });
-      const clearance = getClearanceBundlePricing(pricingRows, deal.clearanceKitIds || [], deal.clearanceDiscounts || {});
+      const clearance = getClearanceBundlePricing(pricingRows, getActiveClearanceKitIds(deal, deal.clearanceKitIds || deal.kitIds || []), deal.clearanceDiscounts || {});
       const adjustedPricing = clearance.rows.map((row, index) => ({
         ...row,
         distributedPrice: row.finalPrice,
@@ -191,9 +192,9 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onAd
                  <Gift size={24} className="text-white" />
               </div>
               <div>
-                 <h2 className="text-xl font-black uppercase italic leading-none">{deal.name}</h2>
+                 <h2 className="text-xl font-black uppercase italic leading-none">{(isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)) ? getClearanceDisplayLabel(deal) : deal.name}</h2>
                  <span className="text-[12px] font-black uppercase tracking-widest text-emerald-500 mt-2 block">
-                    {deal.type === 'clearance' ? 'Clearance Package' : (deal.type === 'bundle_discount' || deal.type === 'bundle_only') ? 'Bundle Only Package' : 'Special Deal Package'}
+                    {(isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)) ? `${getClearanceDisplayLabel(deal)} Package` : (deal.type === 'bundle_discount' || deal.type === 'bundle_only') ? 'Bundle Only Package' : 'Special Deal Package'}
                   </span>
               </div>
            </div>
@@ -220,7 +221,7 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onAd
                  <h4 className="text-[13px] font-black uppercase tracking-[0.2em] opacity-30 text-left">Bundle Inclusions ({includedKits.length})</h4>
               </div>
               
-              <div className={`rounded-2xl border px-4 dark:bg-emerald-500/10 ${deal.type === 'clearance' ? 'border-amber-500/30 bg-amber-500/10' : 'border-emerald-500/20 bg-emerald-500/10'}`}>
+              <div className={`rounded-2xl border px-4 dark:bg-emerald-500/10 ${(isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)) ? 'border-amber-500/30 bg-amber-500/10' : 'border-emerald-500/20 bg-emerald-500/10'}`}>
                 {includedKits.map((kit, kitIndex) => {
                   const pricing = kitPricing.find(p => p.kitId === kit.id) || {};
                   const { refPrice = 0, distributedPrice = 0 } = pricing;
@@ -279,24 +280,24 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onAd
         <div className="p-4 lg:p-8 bg-black/5 dark:bg-white/[0.02] border-t border-[var(--color-border)] flex-none">
            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 w-full">
               <div className="text-left">
-                 <span className="text-[8px] md:text-[10px] font-black uppercase tracking-widest opacity-40 block mb-0.5 leading-none">Lowest {deal.type === 'clearance' ? 'Clearance' : 'Deal'} Price</span>
+                 <span className="text-[8px] md:text-[10px] font-black uppercase tracking-widest opacity-40 block mb-0.5 leading-none">Lowest {(isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)) ? getClearanceDisplayLabel(deal) : 'Deal'} Price</span>
                  <span className="text-xl lg:text-3xl font-black italic text-emerald-500 tracking-tighter leading-none">₱{bundlePrice.toLocaleString()}</span>
                </div>
               <div className="flex w-full sm:w-auto flex-col sm:flex-row items-stretch sm:items-center gap-3">
               <button 
                 onClick={() => isEditable
                   ? onEditDeal(deal)
-                  : deal.type === 'clearance' && typeof onAddToBasket === 'function'
+                  : (isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)) && typeof onAddToBasket === 'function'
                     ? onAddToBasket(deal)
                     : onBuyNow(deal)}
                 className={`w-full sm:w-auto px-5 py-3.5 lg:px-10 lg:py-5 rounded-[1.5rem] lg:rounded-[2rem] text-white font-black italic uppercase text-[10px] lg:text-[12px] tracking-[0.1em] lg:tracking-[0.15em] shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2 lg:gap-3 group shrink-0 ${
                   isEditable
                     ? 'bg-blue-600 shadow-blue-600/20'
-                    : deal.type === 'clearance' ? 'bg-amber-500 shadow-amber-500/20' : 'bg-emerald-600 shadow-emerald-600/20'
+                    : (isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)) ? 'bg-amber-500 shadow-amber-500/20' : 'bg-emerald-600 shadow-emerald-600/20'
                 }`}
               >
                 {isEditable ? <Settings size={14} /> : <Zap size={14} fill="currentColor" />}
-                {isEditable ? 'Edit Deal' : deal.type === 'clearance' ? 'Add to Cart' : 'Grab Deal'}
+                {isEditable ? 'Edit Deal' : (isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)) ? 'Add to Cart' : 'Grab Deal'}
                 <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" strokeWidth={3} />
               </button>
               </div>

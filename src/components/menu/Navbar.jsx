@@ -26,12 +26,21 @@ import {
   getAvailableStockEntries,
   isActiveHunt
 } from './commerceNotificationUtils';
-import { getNotificationActivityTime, getNotificationVersion } from './notificationUtils';
+import {
+  getNotificationActivityTime,
+  getNotificationVersion,
+  isLegacyOrderRecord
+} from './notificationUtils';
 import StoryEditorModal from './StoryEditorModal';
 
 const notificationStateStorageKey = (stateType, userId) => `snorlaxgarage:notification-${stateType}:${userId}`;
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const ONE_DAY_NOTIFICATION_KINDS = new Set(['low_stock', 'back_in_stock']);
+
+const isCompletedLegacyOrder = (order) => (
+  isLegacyOrderRecord(order)
+  && String(order?.status || '').trim().toLowerCase() === 'completed'
+);
 
 const isOrderRelatedNotification = (notification) => (
   !notification?.notificationKind
@@ -225,6 +234,19 @@ export default function Navbar({ isCompact: scrolledCompact }) {
     })
   ), [deals, isAdminNotificationView, kits, notificationBasket, notificationHunts, notificationNow, outOfStockKitIds, user?.uid]);
   const effectiveNotificationOrders = usesOrdersPageSubscription ? orders : notificationOrders;
+  const legacyCompletionNotifications = useMemo(() => (
+    effectiveNotificationOrders
+      .filter(isCompletedLegacyOrder)
+      .map((order) => ({
+        ...order,
+        notificationKind: 'admin_legacy_completion',
+        notificationLabel: 'Completed',
+        message: 'A legacy order has been completed.'
+      }))
+  ), [effectiveNotificationOrders]);
+  const publicNotificationOrders = useMemo(() => (
+    effectiveNotificationOrders.filter((order) => !isCompletedLegacyOrder(order))
+  ), [effectiveNotificationOrders]);
   const adminReceiptNotifications = useMemo(() => (
     effectiveNotificationOrders
       .filter((order) => (
@@ -266,9 +288,9 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   }, [kits, notificationHunts, notificationNow]);
   const allNotifications = useMemo(() => (
     isAdminNotificationView
-      ? [...adminReceiptNotifications, ...adminOfferNotifications]
-      : [...effectiveNotificationOrders, ...commerceNotifications]
-  ), [adminOfferNotifications, adminReceiptNotifications, commerceNotifications, effectiveNotificationOrders, isAdminNotificationView]);
+      ? [...legacyCompletionNotifications, ...adminReceiptNotifications, ...adminOfferNotifications]
+      : [...publicNotificationOrders, ...commerceNotifications]
+  ), [adminOfferNotifications, adminReceiptNotifications, commerceNotifications, isAdminNotificationView, legacyCompletionNotifications, publicNotificationOrders]);
   const visibleNotifications = useMemo(() => allNotifications.filter((notification) => {
     const version = getNotificationVersion(notification);
     if (notificationDismissedVersions[notification.id] === version) return false;
@@ -519,10 +541,13 @@ useEffect(() => {
 
     setNotificationOrders([]);
     const notificationQuery = isAdminNotificationView
-      ? query(collection(db, 'orders'), where('status', '==', 'Validating'))
+      ? query(collection(db, 'orders'), where('status', 'in', ['Validating', 'Completed']))
       : query(collection(db, 'orders'), where('userId', '==', user.uid));
     return onSnapshot(notificationQuery, (snapshot) => {
-      setNotificationOrders(snapshot.docs.map((orderDoc) => ({ id: orderDoc.id, ...orderDoc.data() })));
+      const nextOrders = snapshot.docs.map((orderDoc) => ({ id: orderDoc.id, ...orderDoc.data() }));
+      setNotificationOrders(isAdminNotificationView
+        ? nextOrders
+        : nextOrders.filter((order) => !isCompletedLegacyOrder(order)));
     }, (error) => {
       console.error('SG LOG: Notification subscription error:', error);
     });

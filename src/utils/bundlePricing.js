@@ -1,3 +1,5 @@
+import { isPerKitClearanceDeal } from './dealTypes';
+
 export function distributeRoundedBundlePrices(rows = [], targetTotal = 0, getRawPrice = row => row.rawPrice) {
   const target = Math.max(0, Math.round(Number(targetTotal) || 0));
   const pricedRows = rows.map((row, index) => {
@@ -70,6 +72,7 @@ export function getHighestCostStock(stocks = []) {
 // Clearance prices use the requested cost ceiling: values below the midpoint
 // land on PHP 50, while values above the midpoint round up to the next PHP
 // 100. An explicit discount override is still supported for legacy deals.
+
 export function getClearanceCostCeiling(costPrice = 0) {
   const cost = Math.max(0, Number(costPrice) || 0);
   const hundreds = Math.floor(cost / 100) * 100;
@@ -123,6 +126,11 @@ export function isClearanceRequirementMet(deal = {}, selectedKitIds = [], curren
   const eligibleKitIds = new Set(getClearanceKitIds(deal));
   const currentId = String(currentKitId || '');
   if (!currentId || !eligibleKitIds.has(currentId)) return false;
+
+  // The new CLEARANCE strategy sells each eligible stock independently. Its
+  // per-kit expiry/reactivation controls availability; no companion stock is
+  // needed to unlock the price.
+  if (isPerKitClearanceDeal(deal)) return true;
 
   // Count selected stock units, not unique kit IDs. Every selected stock row
   // can satisfy the requirement, while all rows belonging to the clearance
