@@ -13,6 +13,8 @@ import {
   getBundleDealPricing,
   getClearanceBundlePricing,
   getClearanceRequiredOtherStock,
+  getFlexiDiscountShares,
+  getFlexiOfferedDiscount,
   getHighestCostStock
 } from '../../utils/bundlePricing';
 import { formatOfferCountdown, isOfferCheckoutActive } from '../../utils/offerUtils';
@@ -2041,6 +2043,35 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                               const clearanceTotalDiscount = isClearanceDeal
                                 ? Number(clearancePricing?.clearanceDiscountTotal || 0)
                                 : 0;
+                              const requiredOtherKits = isClearanceDeal && !isIndependentClearanceDeal
+                                ? getClearanceRequiredOtherStock(deal, kitId)
+                                : 0;
+                              const flexiOfferedDiscount = isFlexiBundleDeal(deal)
+                                ? getFlexiOfferedDiscount(
+                                  deal,
+                                  kitId,
+                                  clearanceRowsByKitId.get(String(kitId))?.clearanceDiscount
+                                )
+                                : 0;
+                              const flexiDiscountShares = getFlexiDiscountShares(
+                                flexiOfferedDiscount,
+                                requiredOtherKits
+                              );
+                              const clearanceDisplayDiscount = isClearanceDeal
+                                ? isFlexiBundleDeal(deal)
+                                  ? flexiDiscountShares.sourceDiscount
+                                  : Number(
+                                    clearanceRowsByKitId.get(String(kitId))?.clearanceDiscount
+                                    ?? clearanceRowsByKitId.get(String(includedKits[0]?.id))?.clearanceDiscount
+                                    ?? 0
+                                  )
+                                : 0;
+                              const clearanceOfferTotal = isFlexiBundleDeal(deal)
+                                ? flexiDiscountShares.offeredDiscount
+                                : clearanceTotalDiscount;
+                              const clearanceRequiredDiscount = isFlexiBundleDeal(deal)
+                                ? flexiDiscountShares.otherDiscountTotal
+                                : clearanceTotalDiscount;
                               return (
                               <div
                                 key={deal.id}
@@ -2066,7 +2097,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                       {isIndependentClearanceDeal
                                         ? 'INDIVIDUAL SALE'
                                         : isClearanceDeal
-                                          ? 'PER-KIT REQUIREMENTS'
+                                          ? `+${requiredOtherKits} OTHER KITS REQUIRED`
                                         : getDealCountdownLabel(deal.validUntil)}
                                     </p>
                                   </div>
@@ -2081,7 +2112,9 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                         ? Number(clearanceRow?.finalPrice ?? bundleKitPrice)
                                         : bundleKitPrice;
                                       const displayedClearanceDiscount = isClearanceDeal
-                                        ? Number(clearanceRow?.clearanceDiscount || 0)
+                                        ? isFlexiBundleDeal(deal)
+                                          ? clearanceDisplayDiscount
+                                          : Number(clearanceRow?.clearanceDiscount || 0)
                                         : 0;
                                       const stocks = Object.values(includedKit?.stocks || {});
                                       const sourceStock = getPreferredDealStock(stocks, deal.stockSource || 'onhand');
@@ -2144,11 +2177,6 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                                 </>
                                               )}
                                             </div>
-                                            {isClearanceDeal && !isIndependentClearanceDeal && (
-                                              <p className="mt-1 text-[11px] font-black uppercase tracking-wider text-amber-600">
-                                                +{getClearanceRequiredOtherStock(deal, includedKit.id)} other kit{getClearanceRequiredOtherStock(deal, includedKit.id) === 1 ? '' : 's'} required
-                                              </p>
-                                            )}
                                           </div>
                                         </div>
                                       );
@@ -2158,20 +2186,20 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                         className="grid w-full cursor-default grid-cols-[auto,minmax(0,1fr)] items-center gap-x-4 px-3 py-3"
                                         title="Additional kit required for clearance discount"
                                         aria-label="Additional kit required for clearance discount"
-                                        >
+                                      >
                                         <div className="flex shrink-0 items-center justify-center">
-                                          <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-xl border border-neutral-100 bg-neutral-200 animate-pulse-blue dark:border-neutral-800 dark:bg-neutral-800 md:landscape:h-22 md:landscape:w-40">
+                                          <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-xl border border-neutral-100 bg-neutral-200 dark:border-neutral-800 dark:bg-neutral-800 md:landscape:h-22 md:landscape:w-40">
                                             <img src="/snorlaxgarage.png" alt="Loading..." className="h-[70%] w-[70%] object-contain opacity-20" />
                                           </div>
                                         </div>
                                         <div className="min-w-0 text-left">
                                           <p className="line-clamp-1 text-[15px] font-bold uppercase leading-tight">
-                                            PER-KIT REQUIREMENTS
+                                            +{requiredOtherKits} OTHER KITS REQUIRED
                                           </p>
                                           <div className="mt-1 flex items-baseline justify-between gap-2">
                                             <p className={`text-[16px] font-black italic ${isDarkMode ? 'text-white' : 'text-neutral-900'}`}>&#8369;???</p>
                                             <p className="text-[16px] font-black italic text-emerald-600">
-                                              UP TO &#8369;{Math.max(0, Number(clearanceTotalDiscount || 0)).toLocaleString()} OFF
+                                              UP TO &#8369;{Math.max(0, Number(clearanceRequiredDiscount || 0)).toLocaleString()} OFF
                                             </p>
                                           </div>
                                         </div>
@@ -2180,7 +2208,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                     <div className="flex justify-end pt-2">
                                       <p className="text-[16px] font-black uppercase italic leading-none text-emerald-600">
                                         {isClearanceDeal
-                                          ? `SAVE UP TO ₱${clearanceTotalDiscount.toLocaleString()} OFF`
+                                          ? `SAVE UP TO ₱${clearanceOfferTotal.toLocaleString()} OFF`
                                           : getDealSaveUpToLabel(deal, { kitCount: includedKits.length })}
                                       </p>
                                     </div>
@@ -2224,7 +2252,6 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                           title="Add another kit to unlock the clearance discount"
                                           aria-label="Additional kit required for clearance discount"
                                         >
-                                          <div className="absolute inset-0 animate-pulse-blue" />
                                           <img src="/snorlaxgarage.png" alt="Loading..." className="relative z-10 h-[70%] w-[70%] object-contain opacity-20" />
                                         </div>
                                       ))}
@@ -2232,7 +2259,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                     <div className="flex justify-end">
                                       <p className="text-[15px] font-black italic leading-none text-emerald-600">
                                         {(isClearanceDeal
-                                          ? `GRAB ₱${clearanceTotalDiscount.toLocaleString()} OFF`
+                                          ? `GRAB ₱${clearanceOfferTotal.toLocaleString()} OFF`
                                           : getDealGrabLabel(deal)
                                         ).replace(/^GRAB\b/i, 'GRAB UP TO')}
                                       </p>

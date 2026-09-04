@@ -27,6 +27,9 @@ import {
   getBundleDealPricing,
   getClearanceBundlePricing,
   getClearanceKitIds,
+  getClearanceRequiredOtherStock,
+  getFlexiBundlePricing,
+  getFlexiOfferedDiscount,
   isClearanceRequirementMet
 } from '../../utils/bundlePricing';
 import { isFlexiBundleDeal, isPerKitClearanceDeal, getActiveClearanceKitIds } from '../../utils/dealTypes';
@@ -377,8 +380,7 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
       return activeDeals.some(bundleDeal => {
         if (!['bundle', 'bundle_only', 'bundle_discount'].includes(bundleDeal.type)) return false;
         const bundleKitIds = normalizeDealKitIds(bundleDeal.kitIds);
-        return bundleKitIds.includes(kitId) &&
-          bundleIsTheOnlySelectedItems(bundleKitIds);
+        return bundleKitIds.includes(kitId) && bundleIsTheOnlySelectedItems(bundleKitIds);
       });
     });
     if (isClearanceDeal && clearanceKitIsInNormalBundle) return;
@@ -411,13 +413,26 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
       const persistedDiscount = storedPriceDiscount || Number(storedDiscount || 0);
       if (persistedDiscount > 0) clearanceDiscountOverrides[kitId] = persistedDiscount;
     });
-    // Only kits whose own requirement is met are clearance-priced. Other
-    // selected kits remain at their normal price.
-    const clearancePricing = getClearanceBundlePricing(
-      rows,
-      selectedClearanceKitIds,
-      clearanceDiscountOverrides
-    );
+    // A FLEXI-BUNDLE offer is one discount shared by the source kit and the
+    // required companion rows. Standard CLEARANCE continues to price each
+    // eligible kit independently.
+    const flexiSourceKitId = isFlexiBundleDeal(deal) ? selectedClearanceKitIds[0] : '';
+    const clearancePricing = isFlexiBundleDeal(deal)
+      ? getFlexiBundlePricing(
+        rows,
+        flexiSourceKitId,
+        getClearanceRequiredOtherStock(deal, flexiSourceKitId),
+        getFlexiOfferedDiscount(
+          deal,
+          flexiSourceKitId,
+          clearanceDiscountOverrides[flexiSourceKitId]
+        )
+      )
+      : getClearanceBundlePricing(
+        rows,
+        selectedClearanceKitIds,
+        clearanceDiscountOverrides
+      );
     const pricedRows = clearancePricing.rows;
 
     const clearanceDiscount = pricedRows.reduce((sum, row) => sum + Number(row.clearanceDiscount || 0), 0);
@@ -428,7 +443,12 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
       rows: pricedRows,
       savings,
       clearanceDiscount,
-      unusedClearanceDiscount: Number(clearancePricing.unusedClearanceDiscount || 0)
+      unusedClearanceDiscount: Number(
+        clearancePricing.unusedOfferedDiscount
+          ?? clearancePricing.unusedClearanceDiscount
+          ?? 0
+      ),
+      flexiSourceKitId
     });
   });
 
@@ -491,7 +511,7 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
     ? clearancePricedKitIds.length
     : best.rows.length;
   const clearanceSourceKitId = isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)
-    ? clearancePricedKitIds[0] || ''
+    ? best.flexiSourceKitId || clearancePricedKitIds[0] || ''
     : '';
   const unusedClearanceDiscount = isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)
     ? Math.max(0, Number(best.unusedClearanceDiscount || 0))
