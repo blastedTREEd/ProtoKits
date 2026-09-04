@@ -1962,18 +1962,24 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                       && parseLocalDateTime(deal.validUntil) < new Date();
                     const isInactive = deal.isActive === false || (isPerKitClearance && dealEligibleKitIds.every(id => !deal.clearanceKitSchedules?.[id]?.isActive));
 
-                    // Fulfillability check: every kit in the deal must have at least one available stock
+                    // Normal bundles are atomic and require every kit. Flexi-
+                    // Bundle and CLEARANCE are per-kit entries, so the master
+                    // list remains fulfillable while at least one kit can be
+                    // sold; unavailable kits are handled individually.
                     const fulfillableKitIds = isClearanceLike
                       ? dealEligibleKitIds
                       : (deal.kitIds || []);
-                    const isFulfillable = (deal.type === 'bundle_discount' || deal.type === 'bundle_only' || isClearanceLike)
-                      ? fulfillableKitIds.every(kitId => {
+                    const hasFulfillableKit = (kitId) => {
                           const kit = (kits || []).find(k => k.id === kitId);
                           if (!kit) return false;
                           const stocks = Object.values(kit.stocks || {});
                           return stocks.some(s => isBundlePurchasableStock(s, deal.stockSource || 'onhand'));
-                        })
-                      : true; // mutually_exclusive deals are always considered fulfillable
+                    };
+                    const isFulfillable = (deal.type === 'bundle_discount' || deal.type === 'bundle_only')
+                      ? fulfillableKitIds.every(hasFulfillableKit)
+                      : isClearanceLike
+                        ? fulfillableKitIds.some(hasFulfillableKit)
+                        : true; // mutually_exclusive deals are always considered fulfillable
                     const reactivationSettings = getReactivationSettings(deal);
 
                     if (isMutualDeal) {
