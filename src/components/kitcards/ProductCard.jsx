@@ -187,11 +187,24 @@ function hasValidatedFirstReceipt(order) {
     || Number(order.buyerPaid || 0) > 0;
 }
 
+function isTerminalOrder(order) {
+  const status = String(order?.status || '').trim().toLowerCase();
+  return status === 'completed'
+    || status === 'complete'
+    || status === 'cancelled'
+    || status === 'canceled';
+}
+
 function findOrderForStock(stock, kitId, orders = []) {
-  const linkedOrder = orders.find((candidate) => (
-    String(candidate?.id || '') === String(stock?.order?.orderDocId || '')
-    || String(candidate?.orderId || '') === String(stock?.order?.orderId || '')
-  ));
+  const orderReference = stock?.order;
+  const referenceIds = typeof orderReference === 'object'
+    ? [orderReference.orderDocId, orderReference.orderId, orderReference.id]
+    : [orderReference];
+  const linkedOrder = orders.find((candidate) => referenceIds.some((referenceId) => (
+    referenceId
+    && (String(candidate?.id || '') === String(referenceId)
+      || String(candidate?.orderId || '') === String(referenceId))
+  )));
   if (linkedOrder) return linkedOrder;
   if (!stock?.isReserved) return null;
 
@@ -203,8 +216,13 @@ function findOrderForStock(stock, kitId, orders = []) {
     ));
   });
 
-  // Prefer an unvalidated matching order if stale/duplicate order data exists.
-  return matchingOrders.find(order => !hasValidatedFirstReceipt(order)) || matchingOrders[0] || null;
+  // A completed/cancelled order is authoritative when stale duplicate order
+  // records reference the same stock. Otherwise, retain the pending-order
+  // behavior for an order that still needs validation.
+  return matchingOrders.find(isTerminalOrder)
+    || matchingOrders.find(order => !hasValidatedFirstReceipt(order))
+    || matchingOrders[0]
+    || null;
 }
 
 function hasOrderAssociation(stock) {
@@ -529,7 +547,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     return stockList.filter((stock) => {
       if (!stock?.isReserved && !hasOrderAssociation(stock)) return false;
       const order = findOrderForStock(stock, kitId, orders);
-      return Boolean(order && !hasValidatedFirstReceipt(order));
+      return Boolean(order && !isTerminalOrder(order) && !hasValidatedFirstReceipt(order));
     }).length;
   }, [isAdmin, isAdminView, kitId, orders, stockList]);
 
