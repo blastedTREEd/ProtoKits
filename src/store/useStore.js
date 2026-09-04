@@ -3362,6 +3362,105 @@ export const useStore = create(
           const requestedStock = stockKey ? data.stocks?.[stockKey] : null;
           let acceptedOffer = null;
 
+          // Mutual exclusion must be checked in the checkout transaction,
+          // not only by the asynchronous admin shelf synchronizer. Reading
+          // and writing every kit involved in the active rule gives opposite
+          // checkouts a shared transaction conflict, so two users cannot
+          // reserve opposite items at the same time.
+          const activeMutualDealsQuery = query(
+            collection(db, 'deals'),
+            where('type', '==', 'mutually_exclusive')
+          );
+          const mutualDealsSnapshot = await transaction.get(activeMutualDealsQuery);
+          const activeMutualDeals = mutualDealsSnapshot.docs
+            .map((dealDoc) => ({ id: dealDoc.id, ...dealDoc.data() }))
+            .filter((deal) => {
+              if (deal.isActive === false) return false;
+              const validFromMs = getDealDateMillis(deal.validFrom);
+              const validUntilMs = getDealDateMillis(deal.validUntil);
+              const now = Date.now();
+              return !(validFromMs > 0 && validFromMs > now)
+                && !(validUntilMs > 0 && validUntilMs <= now);
+            });
+
+          const normalizeKitIds = (ids = []) => [...new Set(
+            (Array.isArray(ids) ? ids : [ids]).map(String).filter(Boolean)
+          )];
+          const mutuallyExclusiveOpposingKitIds = new Set();
+          const mutuallyExclusiveLockKitIds = new Set();
+
+          const stockHasCustomerHold = (stock = {}) => {
+            const orderReference = stock?.order;
+            const hasOrder = typeof orderReference === 'object'
+              ? Boolean(
+                orderReference.orderId
+                || orderReference.orderDocId
+                || orderReference.id
+                || Object.keys(orderReference).length > 0
+              )
+              : Boolean(orderReference);
+            return hasOrder || Boolean(stock?.isReserved && stock.reservationType !== 'admin');
+          };
+
+          activeMutualDeals.forEach((deal) => {
+            const configuredPairs = (deal.mutuallyExclusivePairs || [])
+              .filter((pair) => pair?.bandaiId && pair?.bootlegId);
+            const bandaiKitIds = normalizeKitIds(
+              deal.mutuallyExclusiveGroups?.bandai || deal.bandaiKitIds || []
+            );
+            const bootlegKitIds = normalizeKitIds(
+              deal.mutuallyExclusiveGroups?.bootleg || deal.bootlegKitIds || []
+            );
+            const dealKitIds = normalizeKitIds(deal.kitIds || []);
+            const pairGroups = configuredPairs.length > 0
+              ? configuredPairs.map((pair) => [
+                normalizeKitIds([pair.bandaiId]),
+                normalizeKitIds([pair.bootlegId])
+              ])
+              : [bandaiKitIds.length > 0 && bootlegKitIds.length > 0
+                ? [bandaiKitIds, bootlegKitIds]
+                : [dealKitIds.slice(0, 1), dealKitIds.slice(1, 2)]];
+
+            pairGroups.forEach(([firstGroup = [], secondGroup = []]) => {
+              const currentKitId = String(kitId);
+              const currentGroup = firstGroup.includes(currentKitId)
+                ? firstGroup
+                : secondGroup.includes(currentKitId)
+                  ? secondGroup
+                  : null;
+              if (!currentGroup) return;
+
+              const opposingGroup = currentGroup === firstGroup ? secondGroup : firstGroup;
+              currentGroup.forEach((groupKitId) => mutuallyExclusiveLockKitIds.add(groupKitId));
+              opposingGroup.forEach((opposingKitId) => {
+                mutuallyExclusiveOpposingKitIds.add(opposingKitId);
+                mutuallyExclusiveLockKitIds.add(opposingKitId);
+              });
+            });
+          });
+
+          // Read every kit in the rule before writing any of them. The
+          // opposing side is validated for customer holds, while all kits
+          // receive the same transaction marker so every checkout touching
+          // the rule conflicts with every other checkout touching the rule.
+          const mutualKitSnapshots = new Map();
+          for (const lockedKitId of mutuallyExclusiveLockKitIds) {
+            if (String(lockedKitId) === String(kitId)) {
+              mutualKitSnapshots.set(String(lockedKitId), snap);
+              continue;
+            }
+
+            const lockedKitSnapshot = await transaction.get(doc(db, 'kits', lockedKitId));
+            mutualKitSnapshots.set(String(lockedKitId), lockedKitSnapshot);
+            if (
+              mutuallyExclusiveOpposingKitIds.has(String(lockedKitId))
+              && lockedKitSnapshot.exists()
+              && Object.values(lockedKitSnapshot.data().stocks || {}).some(stockHasCustomerHold)
+            ) {
+              return;
+            }
+          }
+
           if (options.offerId) {
             const offerSnap = await transaction.get(doc(db, 'hunts', options.offerId));
             acceptedOffer = offerSnap.exists() ? offerSnap.data() : null;
@@ -3450,8 +3549,24 @@ export const useStore = create(
             ...((canUseAcceptedOffer || usedAdminShelfStock)
               ? { [`stocks.${allocatedStockKey}.reservationType`]: deleteField() }
               : {}),
+            ...(mutuallyExclusiveLockKitIds.size > 0
+              ? { mutuallyExclusiveLockAt: serverTimestamp() }
+              : {}),
             lastUpdated: serverTimestamp(),
             hasAvailableStock: hasAvailable
+          });
+
+          // The current kit is already updated above. Updating the opposing
+          // kit documents with the same transaction creates a shared write
+          // conflict for simultaneous A-vs-B checkouts without altering their
+          // stock availability or shelf state.
+          mutuallyExclusiveLockKitIds.forEach((lockedKitId) => {
+            if (String(lockedKitId) === String(kitId)) return;
+            const lockedKitSnapshot = mutualKitSnapshots.get(String(lockedKitId));
+            if (!lockedKitSnapshot?.exists()) return;
+            transaction.update(doc(db, 'kits', lockedKitId), {
+              mutuallyExclusiveLockAt: serverTimestamp()
+            });
           });
 
           allocation = {
