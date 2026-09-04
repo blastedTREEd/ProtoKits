@@ -13,6 +13,9 @@ import {
   getBundleDealPricing,
   getClearanceBundlePricing,
   getClearanceKitIds,
+  getClearanceRequiredOtherStock,
+  getFlexiBundlePricing,
+  getFlexiOfferedDiscount,
   isClearanceRequirementMet
 } from '../utils/bundlePricing';
 import { getUnavailableDateSet, getUnavailableWeekdaySet, toDateKey } from '../utils/availabilitySchedule';
@@ -260,6 +263,28 @@ function isOnHandStock(stock = {}) {
 function isPreOrderStock(stock = {}) {
   const status = String(stock?.status || '').toLowerCase().trim();
   return status.includes('pre') || status.includes('batch') || status.includes('eta');
+}
+
+// A FLEXI-BUNDLE can contain companion kits that do not offer a discount of
+// their own. Prefer the explicitly configured source kits so an unmet source
+// does not paint every selected companion with a red FLEXI-BUNDLE tag or hide
+// another deal's tag. Older records have no per-kit source information, so
+// retain the legacy behavior for those records.
+function getFlexiSourceKitIds(deal = {}, eligibleKitIds = []) {
+  const eligibleIds = [...new Set((eligibleKitIds || []).map(String).filter(Boolean))];
+  const explicitSourceIds = Array.isArray(deal?.flexiSourceKitIds)
+    ? deal.flexiSourceKitIds.map(String).filter(kitId => eligibleIds.includes(kitId))
+    : [];
+  if (explicitSourceIds.length > 0) return [...new Set(explicitSourceIds)];
+
+  const configuredSourceIds = eligibleIds.filter((kitId) => {
+    const configuredDiscount = deal?.clearanceDiscounts?.[kitId];
+    return configuredDiscount !== ''
+      && configuredDiscount !== null
+      && configuredDiscount !== undefined
+      && Number(configuredDiscount) > 0;
+  });
+  return configuredSourceIds.length > 0 ? configuredSourceIds : eligibleIds;
 }
 
 const BASKET_SELECTION_STORAGE_KEY = 'snorlaxgarage:basket-selection-restore';
@@ -750,7 +775,7 @@ export default function Cart() {
 
   const selectedClearancePricing = useMemo(() => {
     const selectedItems = activeBasket.filter((item) => activeSelection.includes(item.basketId));
-    if (selectedItems.length < 1 || selectedBundleDeals.length > 0) return { prices: new Map(), sourceBasketId: '' };
+    if (selectedItems.length < 1) return { prices: new Map(), sourceBasketId: '', discountTotal: 0, isFlexi: false };
 
     const selectedRows = selectedItems.filter((item) => {
       if (item.type === 'project') return false;
@@ -758,7 +783,7 @@ export default function Cart() {
       const stock = kit?.stocks?.[item.stockKey];
       return isOnHandStock(stock || item);
     });
-    if (selectedRows.length !== selectedItems.length) return { prices: new Map(), sourceBasketId: '' };
+    if (selectedRows.length !== selectedItems.length) return { prices: new Map(), sourceBasketId: '', discountTotal: 0, isFlexi: false };
 
       const rowsByKitId = new Map(selectedRows.map((item) => {
         const kit = kits.find((candidate) => candidate.id === item.id);
@@ -778,7 +803,10 @@ export default function Cart() {
       .filter((deal) => (isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)) && deal.isActive !== false)
       .map((deal) => {
         const configuredIds = getActiveClearanceKitIds(deal, getClearanceKitIds(deal));
-        const availableClearanceKitIds = [...new Set(configuredIds.map(String))]
+        const eligibleSourceIds = isFlexiBundleDeal(deal)
+          ? getFlexiSourceKitIds(deal, configuredIds)
+          : configuredIds;
+        const availableClearanceKitIds = [...new Set(eligibleSourceIds.map(String))]
           .filter((kitId) => rowsByKitId.get(kitId)?.isOnHand);
         if (availableClearanceKitIds.length === 0) return null;
 
@@ -811,17 +839,35 @@ export default function Cart() {
         });
         // Only kits whose own requirement is met are clearance-priced. Other
         // selected kits remain at their normal price.
-        const clearancePricing = getClearanceBundlePricing(
-          rows,
-          selectedClearanceKitIds,
-          clearanceDiscountOverrides
-        );
+        const flexiSourceKitId = isFlexiBundleDeal(deal) ? selectedClearanceKitIds[0] : '';
+        const clearancePricing = isFlexiBundleDeal(deal)
+          ? getFlexiBundlePricing(
+            rows,
+            flexiSourceKitId,
+            getClearanceRequiredOtherStock(deal, flexiSourceKitId),
+            getFlexiOfferedDiscount(
+              deal,
+              flexiSourceKitId,
+              clearanceDiscountOverrides[flexiSourceKitId]
+            )
+          )
+          : getClearanceBundlePricing(
+            rows,
+            selectedClearanceKitIds,
+            clearanceDiscountOverrides
+          );
         const pricedRows = clearancePricing.rows;
         const savings = pricedRows.reduce((sum, row) => sum + Math.max(0, row.refPrice - row.finalPrice), 0);
         const clearanceDiscount = pricedRows.reduce((sum, row) => sum + Number(row.clearanceDiscount || 0), 0);
         const sourceRow = pricedRows.find(row => row.isClearance);
         return savings > 0
-          ? { pricedRows, savings, clearanceDiscount, sourceBasketId: sourceRow?.item?.basketId || '' }
+          ? {
+            pricedRows,
+            savings,
+            clearanceDiscount,
+            sourceBasketId: sourceRow?.item?.basketId || '',
+            isFlexi: isFlexiBundleDeal(deal)
+          }
           : null;
       })
       .filter(Boolean)
@@ -835,18 +881,18 @@ export default function Cart() {
             .filter((row) => row.isClearance && Number(row.clearanceDiscount || 0) > 0)
             .map((row) => [row.item.basketId, row.finalPrice])
         ),
-        sourceBasketId: best.sourceBasketId || ''
+        sourceBasketId: best.sourceBasketId || '',
+        discountTotal: Number(best.clearanceDiscount || 0),
+        isFlexi: Boolean(best.isFlexi)
       }
-      : { prices: new Map(), sourceBasketId: '' };
-  }, [activeBasket, activeSelection, deals, kits, selectedBundleDeals]);
+      : { prices: new Map(), sourceBasketId: '', discountTotal: 0, isFlexi: false };
+  }, [activeBasket, activeSelection, deals, kits]);
 
   // Tag selected on-hand rows as soon as a selected row is a member of an
   // active clearance deal. Pricing still waits for the normal distribution
   // rules above, but the tag should not disappear just because there is only
   // one selected row yet.
   const selectedClearanceTagKitIds = useMemo(() => {
-    if (selectedBundleDeals.length > 0) return new Set();
-
     const selectedOnHandKitIds = new Set(
       activeBasket
         .filter((item) => (
@@ -862,24 +908,89 @@ export default function Cart() {
     const tagKitIds = new Set();
     (deals || []).forEach((deal) => {
       if ((!isFlexiBundleDeal(deal) && !isPerKitClearanceDeal(deal)) || deal.isActive === false) return;
-      const eligibleKitIds = new Set(
-        getActiveClearanceKitIds(deal, deal.clearanceKitIds?.length ? deal.clearanceKitIds : deal.kitIds || [])
-          .map(String)
-          .filter(Boolean)
-      );
-      if (![...eligibleKitIds].some((kitId) => selectedOnHandKitIds.has(kitId))) return;
-      eligibleKitIds.forEach((kitId) => {
+      const eligibleKitIds = getActiveClearanceKitIds(
+        deal,
+        deal.clearanceKitIds?.length ? deal.clearanceKitIds : deal.kitIds || []
+      )
+        .map(String)
+        .filter(Boolean);
+      const tagEligibleKitIds = isFlexiBundleDeal(deal)
+        ? getFlexiSourceKitIds(deal, eligibleKitIds)
+        : eligibleKitIds;
+      if (!tagEligibleKitIds.some((kitId) => selectedOnHandKitIds.has(kitId))) return;
+      tagEligibleKitIds.forEach((kitId) => {
         if (selectedOnHandKitIds.has(kitId)) tagKitIds.add(kitId);
       });
     });
     return tagKitIds;
-  }, [activeBasket, activeSelection, deals, kits, selectedBundleDeals]);
+  }, [activeBasket, activeSelection, deals, kits]);
+
+  const selectedFlexiState = useMemo(() => {
+    const selectedItems = activeBasket.filter((item) => (
+      activeSelection.includes(item.basketId)
+      && item.type !== 'project'
+      && isOnHandStock(kits.find((kit) => String(kit.id) === String(item.id))?.stocks?.[item.stockKey] || item)
+    ));
+    if (selectedItems.length === 0) {
+      return {
+        fulfilledSourceKitIds: new Set(),
+        pendingSourceKitIds: new Set(),
+        fulfilledKitIds: new Set()
+      };
+    }
+
+    const selectedKitIds = selectedItems.flatMap((item) => Array.from(
+      { length: Math.max(1, Number(item.quantity) || 1) },
+      () => String(item.id)
+    ));
+    const selectedKitIdSet = new Set(selectedKitIds);
+    const fulfilledSourceKitIds = new Set();
+    const pendingSourceKitIds = new Set();
+
+    (deals || []).forEach((deal) => {
+      if (!isFlexiBundleDeal(deal) || deal.isActive === false) return;
+      const eligibleKitIds = getActiveClearanceKitIds(deal, getClearanceKitIds(deal));
+      const sourceKitIds = getFlexiSourceKitIds(deal, eligibleKitIds);
+
+      // A source kit must itself be selected before its requirement can
+      // fulfill the deal. Previously this checked every eligible source,
+      // including unselected kits, which incorrectly turned all selected rows
+      // green when a source with a lower requirement was merely present in the
+      // deal configuration.
+      sourceKitIds
+        .filter((kitId) => selectedKitIdSet.has(String(kitId)))
+        .forEach((kitId) => {
+          if (isClearanceRequirementMet(deal, selectedKitIds, kitId)) {
+            fulfilledSourceKitIds.add(String(kitId));
+          } else {
+            pendingSourceKitIds.add(String(kitId));
+          }
+        });
+    });
+
+    // If every selected Flexi source is fulfilled, the complete selected set
+    // receives the green tag. With mixed source states, keep the state local
+    // to each source so an unmet Kshatriya offer cannot override another
+    // selected kit's tag.
+    const fulfilledKitIds = fulfilledSourceKitIds.size > 0 && pendingSourceKitIds.size === 0
+      ? new Set(selectedItems.map((item) => String(item.id)).filter(Boolean))
+      : new Set();
+
+    return { fulfilledSourceKitIds, pendingSourceKitIds, fulfilledKitIds };
+  }, [activeBasket, activeSelection, deals, kits]);
 
   const selectedClearanceLabelByKitId = useMemo(() => {
     const labels = new Map();
     (deals || []).forEach((deal) => {
       if ((!isFlexiBundleDeal(deal) && !isPerKitClearanceDeal(deal)) || deal.isActive === false) return;
-      getActiveClearanceKitIds(deal, deal.clearanceKitIds?.length ? deal.clearanceKitIds : deal.kitIds || [])
+      const eligibleKitIds = getActiveClearanceKitIds(
+        deal,
+        deal.clearanceKitIds?.length ? deal.clearanceKitIds : deal.kitIds || []
+      );
+      const labelKitIds = isFlexiBundleDeal(deal)
+        ? getFlexiSourceKitIds(deal, eligibleKitIds)
+        : eligibleKitIds;
+      labelKitIds
         .forEach((kitId) => labels.set(String(kitId), isFlexiBundleDeal(deal) ? 'FLEXI-BUNDLE' : 'CLEARANCE'));
     });
     return labels;
@@ -929,6 +1040,27 @@ export default function Cart() {
     return prices;
   }, [activeBasket, activeSelection, kits, selectedBundleDeals]);
 
+  const selectedBundleDiscountTotal = useMemo(() => (
+    activeBasket.reduce((total, item) => {
+      if (item.type === 'project' || !activeSelection.includes(item.basketId)) return total;
+
+      const basketIds = Array.isArray(item.basketIds) ? item.basketIds : [item.basketId];
+      const discountedPrice = basketIds
+        .map((basketId) => selectedBundlePriceByBasketId.get(basketId))
+        .find((price) => Number.isFinite(price));
+      if (!Number.isFinite(discountedPrice)) return total;
+
+      const kit = kits.find((candidate) => String(candidate.id) === String(item.id));
+      const standalonePrice = Math.max(0, Number(
+        getStockStandaloneSellPrice(item, kit) || item.sellPrice || item.price || 0
+      ));
+      return total + Math.max(0, standalonePrice - discountedPrice);
+    }, 0)
+  ), [activeBasket, activeSelection, kits, selectedBundlePriceByBasketId]);
+
+  const isBundleDealWinner = selectedBundleDiscountTotal > 0
+    && selectedBundleDiscountTotal >= Number(selectedClearancePricing.discountTotal || 0);
+
   const isBasketBundleFullySelected = useCallback((item) => {
     if (!isBundleOrClearanceItem(item) || !item.bundleId) return false;
     const bundleItems = activeBasket.filter(candidate => candidate.bundleId === item.bundleId);
@@ -956,14 +1088,17 @@ export default function Cart() {
         .map((basketId) => selectedBundlePriceByBasketId.get(basketId))
         .find((price) => Number.isFinite(price))
       : selectedBundlePriceByBasketId.get(item.basketId);
-    if (Number.isFinite(selectedBundlePrice)) return selectedBundlePrice;
-
     const selectedClearancePrice = Array.isArray(item.basketIds)
       ? item.basketIds
         .map((basketId) => selectedClearancePricing.prices.get(basketId))
         .find((price) => Number.isFinite(price))
       : selectedClearancePricing.prices.get(item.basketId);
+    if (Number.isFinite(selectedBundlePrice) && (isBundleDealWinner || !Number.isFinite(selectedClearancePrice))) {
+      return selectedBundlePrice;
+    }
     if (Number.isFinite(selectedClearancePrice)) return selectedClearancePrice;
+
+    if (Number.isFinite(selectedBundlePrice)) return selectedBundlePrice;
 
     if (isBasketBundleFullySelected(item) && activeBundleDealIds.has(String(item.bundleId))) {
       const dealPrice = Number(item.appliedBundlePrice || item.price || item.sellPrice || 0);
@@ -977,7 +1112,7 @@ export default function Cart() {
     if (offerPrice > 0 && isSelected) return offerPrice;
 
     return standaloneBasePrice;
-  }, [activeBundleDealIds, activeSelection, getBasketStandaloneFeeShare, getBasketStandalonePrice, installmentFee, isBasketBundleFullySelected, selectedBundlePriceByBasketId, selectedClearancePricing]);
+  }, [activeBundleDealIds, activeSelection, getBasketStandaloneFeeShare, getBasketStandalonePrice, installmentFee, isBasketBundleFullySelected, isBundleDealWinner, selectedBundlePriceByBasketId, selectedClearancePricing]);
 
   const getBasketPriceComparison = useCallback((item) => {
     const standalonePrice = getBasketStandalonePrice(item);
@@ -1668,11 +1803,22 @@ export default function Cart() {
                   && Boolean(item.bundleId)
                   && activeBundleDealIds.has(String(item.bundleId))
                   && bundleDealTagKitIds.has(String(item.id));
-                const isBundleDealOffer = item.type !== 'project'
-                  && (bundleDealTagKitIds.has(String(item.id)) || isActiveBundleDealItem)
-                  && !hasSelectedClearancePrice;
                 const isBundleDealApplied = hasSelectedBundlePrice
                   || (isActiveBundleDealItem && isBasketBundleFullySelected(item));
+                const isFlexiPriceApplied = hasSelectedClearancePrice
+                  && selectedClearancePricing.isFlexi;
+                const itemKitId = String(item.id);
+                const isFlexiFulfilledTag = selectedFlexiState.fulfilledKitIds.has(itemKitId)
+                  || selectedFlexiState.fulfilledSourceKitIds.has(itemKitId);
+                const isFlexiPendingTag = selectedFlexiState.pendingSourceKitIds.has(itemKitId);
+                const isFlexiBundleTag = !isBundleDealWinner && (isFlexiPriceApplied
+                  || isFlexiFulfilledTag
+                  || isFlexiPendingTag
+                  || String(item.bundleName || '').toUpperCase().includes('FLEXI')
+                  || selectedClearanceLabelByKitId.get(itemKitId) === 'FLEXI-BUNDLE');
+                const isBundleDealOffer = item.type !== 'project'
+                  && (bundleDealTagKitIds.has(String(item.id)) || isActiveBundleDealItem)
+                  && !isFlexiBundleTag;
                 const isClearanceKit = item.type !== 'project'
                   && isSelected
                   && isOnHandStock(stock || item)
@@ -1681,8 +1827,11 @@ export default function Cart() {
                     hasSelectedClearancePrice
                     || selectedClearanceTagKitIds.has(String(item.id))
                     || Boolean(item.isClearanceBundle)
+                    || isFlexiFulfilledTag
                   );
-                const isClearanceDealApplied = hasSelectedClearancePrice;
+                const isClearanceDealApplied = isFlexiBundleTag
+                  ? isFlexiPriceApplied || isFlexiFulfilledTag
+                  : hasSelectedClearancePrice;
                 const etaLabel = getStockEta(stock || item) || 'TBA';
                 const offerHoursLeft = item.offerId && isOfferCheckoutActive(item, offerNow)
                   ? getOfferHoursLeft(item, offerNow)
@@ -1731,15 +1880,13 @@ export default function Cart() {
                       <span className="absolute left-0 bottom-5 z-10 bg-emerald-600 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm">
                         {offerHoursLeft} HRS LEFT
                       </span>
+                    ) : isFlexiBundleTag && isClearanceKit ? (
+                      <span className={`absolute left-0 bottom-5 z-10 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm ${isClearanceDealApplied ? 'bg-emerald-600' : 'bg-red-600'}`}>
+                        FLEXI-BUNDLE
+                      </span>
                     ) : isBundleDealOffer ? (
                       <span className={`absolute left-0 bottom-5 z-10 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm ${isBundleDealApplied ? 'bg-emerald-600' : 'bg-red-600'}`}>
                         BUNDLE DEAL
-                      </span>
-                    ) : isClearanceKit ? (
-                      <span className={`absolute left-0 bottom-5 z-10 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm ${isClearanceDealApplied ? 'bg-emerald-600' : 'bg-red-600'}`}>
-                        {String(item.bundleName || '').toUpperCase().includes('FLEXI')
-                          ? 'FLEXI-BUNDLE'
-                          : selectedClearanceLabelByKitId.get(String(item.id)) || 'CLEARANCE'}
                       </span>
                     ) : item.type !== 'project' && isPreOrder && etaLabel ? (
                       <span className="absolute left-0 bottom-5 z-10 bg-blue-600 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm">
