@@ -57,6 +57,55 @@ const getSpectralGradient = (id) => {
 const getShadowColor = (gradientClass) => GRADIENT_COLORS[gradientClass] || 'rgba(8,102,255,0.2)';
 const KIT_RETURN_STORAGE_KEY = 'sg:kits:returnTarget';
 
+function getTimestampMs(value) {
+  if (!value) return 0;
+  if (typeof value.toMillis === 'function') return value.toMillis();
+  if (typeof value.toDate === 'function') return value.toDate().getTime();
+  if (typeof value === 'object' && Number.isFinite(value.seconds)) {
+    return value.seconds * 1000;
+  }
+  if (typeof value === 'number') return value;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function getDealLatestTime(deal) {
+  return Math.max(
+    getTimestampMs(deal?.lastUpdated),
+    getTimestampMs(deal?.createdAt),
+    getTimestampMs(deal?.validFrom)
+  );
+}
+
+function getDealKitIds(deal) {
+  return [...new Set([
+    ...(deal?.previewKitIds || []),
+    ...(deal?.kitIds || [])
+  ].map(String))];
+}
+
+function getDealKits(deal, kits) {
+  const kitIds = new Set(getDealKitIds(deal));
+  return (kits || []).filter((kit) => kitIds.has(String(kit?.id)));
+}
+
+function getDealAvailableBundleCount(deal, kits) {
+  const kitIds = [...new Set((deal?.kitIds || []).map(String))];
+  if (kitIds.length === 0) return 0;
+
+  const source = deal.stockSource || 'onhand';
+  const kitMap = new Map((kits || []).map((kit) => [String(kit?.id), kit]));
+  const availableCounts = kitIds.map((kitId) => {
+    const kit = kitMap.get(kitId);
+    if (!kit) return 0;
+    return Object.values(kit.stocks || {}).filter((stock) => (
+      isBundlePurchasableStock(stock, source)
+    )).length;
+  });
+
+  return Math.min(...availableCounts);
+}
+
 function parseDealDate(value) {
   if (!value) return null;
   const [datePart, timePart = '00:00'] = value.split('T');
@@ -827,18 +876,67 @@ export default function Kits({ isActive = true }) {
     const active = (isAdmin && isAdminView)
       ? fulfillable
       : fulfillable.filter(d => getDealCountdownLabel(d.validUntil) !== 'EXPIRED');
-    const lowerSearch = searchTerm.toLowerCase();
-    const matchingDeals = searchTerm
-      ? active.filter(deal => deal?.name?.toLowerCase().includes(lowerSearch))
+    const searchWords = searchTerm
+      .toLowerCase()
+      .replace(/[-&]/g, ' ')
+      .split(/\s+/)
+      .filter(Boolean);
+    const matchingDeals = searchWords.length > 0
+      ? active.filter((deal) => {
+        const dealKitText = getDealKits(deal, storeKits)
+          .flatMap((kit) => [
+            kit?.name,
+            kit?.series,
+            kit?.brand,
+            kit?.specs?.line,
+            kit?.specs?.scale
+          ])
+          .filter(Boolean)
+          .join(' ');
+        const searchableText = [deal?.name, deal?.type, dealKitText]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+          .replace(/[-&]/g, ' ');
+        return searchWords.every((word) => searchableText.includes(word));
+      })
       : active;
 
     return [...matchingDeals].sort((a, b) => {
       const aExpired = getDealCountdownLabel(a.validUntil) === 'EXPIRED';
       const bExpired = getDealCountdownLabel(b.validUntil) === 'EXPIRED';
       if (aExpired !== bExpired) return Number(aExpired) - Number(bExpired);
-      return 0;
+
+      let comparison = 0;
+      switch (sortType) {
+        case 'price-asc':
+          comparison = Number(a.bundlePrice || 0) - Number(b.bundlePrice || 0);
+          break;
+        case 'price-desc':
+          comparison = Number(b.bundlePrice || 0) - Number(a.bundlePrice || 0);
+          break;
+        case 'alpha-asc':
+          comparison = String(a.name || '').localeCompare(String(b.name || ''));
+          break;
+        case 'alpha-desc':
+          comparison = String(b.name || '').localeCompare(String(a.name || ''));
+          break;
+        case 'avail-asc':
+          comparison = getDealAvailableBundleCount(a, storeKits) - getDealAvailableBundleCount(b, storeKits);
+          break;
+        case 'avail-desc':
+          comparison = getDealAvailableBundleCount(b, storeKits) - getDealAvailableBundleCount(a, storeKits);
+          break;
+        case 'latest':
+        default:
+          comparison = getDealLatestTime(b) - getDealLatestTime(a);
+          break;
+      }
+
+      // Keep ordering deterministic when two deals share the same sort value.
+      return comparison || String(a.name || '').localeCompare(String(b.name || ''));
     });
-  }, [deals, storeKits, searchTerm, isAdmin, isAdminView]);
+  }, [deals, storeKits, searchTerm, sortType, isAdmin, isAdminView]);
 
   const handleSaveNewKit = async (newKit) => {
     try { return await addKit(newKit); } catch (e) { console.error(e); throw e; }
@@ -1162,6 +1260,10 @@ export default function Kits({ isActive = true }) {
   };
   const activeDeals = filteredDeals.filter(deal => getDealCountdownLabel(deal.validUntil) !== 'EXPIRED');
   const expiredDeals = filteredDeals.filter(deal => getDealCountdownLabel(deal.validUntil) === 'EXPIRED');
+  const hasVisibleSearchResults = allFilteredKits.length > 0
+    || filteredDeals.length > 0
+    || activeOfferKits.length > 0
+    || kitGroups.clearance.length > 0;
 
   return (
     <PageTemplate isDarkMode={isDarkMode}>
@@ -1219,11 +1321,11 @@ export default function Kits({ isActive = true }) {
                           {sortOptions.filter(option => !option.active).map((option) => (
                             <button
                               key={option.id}
-                              onClick={() => {
-                                 setSortType(option.nextSort);
-                                 setIsSortOpen(false);
-                                 window.scrollTo({ top: 0, behavior: 'smooth' });
-                              }}
+                               onClick={() => {
+                                  setSortType(option.nextSort);
+                                  setIsSortOpen(false);
+                                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                               }}
                               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-[12px] font-bold uppercase tracking-widest transition-all ${
                                 option.active
                                   ? 'bg-blue-600 text-white' 
@@ -1556,7 +1658,7 @@ export default function Kits({ isActive = true }) {
               )}
             </div>
 
-            {allFilteredKits.length === 0 && !isKitsDataLoading && searchTerm !== "" && (
+            {!hasVisibleSearchResults && !isKitsDataLoading && searchTerm !== "" && (
               <div className="py-20 flex flex-col items-center justify-center opacity-20 text-neutral-900 dark:text-white">
                 <Search size={48} strokeWidth={1} />
                 <p className="mt-4 font-bold uppercase tracking-widest text-[13px]">No results found for "{searchTerm}"</p>

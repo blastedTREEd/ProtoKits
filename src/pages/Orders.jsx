@@ -49,6 +49,15 @@ const isLegacyOrderRecord = (order) => Boolean(
   || String(order?.orderId || '').toUpperCase().startsWith('#LG-')
 );
 
+const getLegacyOrderAddress = (order) => {
+  const receiverDetails = order?.receiverDetails || {};
+  return {
+    city: receiverDetails.city || receiverDetails.town || order?.city || order?.town || '',
+    province: receiverDetails.province || order?.province || '',
+    zipCode: receiverDetails.zipCode || receiverDetails.zip || order?.zipCode || order?.zip || ''
+  };
+};
+
 const generateSgOrderId = (existingOrders = []) => {
   const existingIds = new Set(existingOrders.map((order) => String(order?.orderId || '').toUpperCase()));
   for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -697,6 +706,7 @@ export default function Orders() {
   const [customerTrackingLink, setCustomerTrackingLink] = useState('');
   const [claimantBalance, setClaimantBalance] = useState('');
   const [shippingFeeInput, setShippingFeeInput] = useState('');
+  const [legacyZipCoordinates, setLegacyZipCoordinates] = useState(null);
   const legacyAddressLookupSequence = useRef(0);
   const getEmptyLegacyOrderData = () => ({
     search: '',
@@ -816,6 +826,31 @@ export default function Orders() {
       setClaimantBalance(selectedOrder.claimantBalance || '');
       setShippingFeeInput(selectedOrder.shippingFee ?? '');
     }
+  }, [selectedOrder]);
+
+  useEffect(() => {
+    const address = getLegacyOrderAddress(selectedOrder);
+    if (!selectedOrder || !isLegacyOrderRecord(selectedOrder) || !address.zipCode) return undefined;
+
+    const storedLat = Number(selectedOrder.receiverDetails?.lat);
+    const storedLng = Number(selectedOrder.receiverDetails?.lng);
+    if (Number.isFinite(storedLat) && Number.isFinite(storedLng)) {
+      return undefined;
+    }
+
+    let isActive = true;
+    lookupPhilippineAddressByZipCode(address.zipCode)
+      .then((result) => {
+        if (!isActive || !Number.isFinite(result?.lat) || !Number.isFinite(result?.lng)) return;
+        setLegacyZipCoordinates({ orderId: selectedOrder.id, lat: result.lat, lng: result.lng });
+      })
+      .catch((error) => {
+        console.warn('Legacy order ZIP map lookup failed:', error);
+      });
+
+    return () => {
+      isActive = false;
+    };
   }, [selectedOrder]);
 
   useEffect(() => {
@@ -1402,9 +1437,19 @@ export default function Orders() {
         image,
         stockKey,
         status: stock.status || 'ONHAND',
-        type: 'kit'
-      };
-    }));
+         type: 'kit'
+       };
+     }));
+
+    let legacyOrderZipCoordinates = {};
+    try {
+      const zipAddress = await lookupPhilippineAddressByZipCode(manualOrderData.zipCode);
+      if (Number.isFinite(zipAddress?.lat) && Number.isFinite(zipAddress?.lng)) {
+        legacyOrderZipCoordinates = { lat: zipAddress.lat, lng: zipAddress.lng };
+      }
+    } catch (error) {
+      console.warn('Legacy order ZIP map lookup failed during creation:', error);
+    }
 
     const orderData = {
       orderId,
@@ -1426,11 +1471,12 @@ export default function Orders() {
       shippingMethodKey: manualOrderData.shippingMethod,
       shippingSuboptionKey: manualOrderData.shippingSuboption || null,
       shippingMethod,
-      receiverDetails: {
-        city: manualOrderData.city.trim(),
-        province: manualOrderData.province.trim(),
-        zipCode: manualOrderData.zipCode.trim()
-      },
+       receiverDetails: {
+         city: manualOrderData.city.trim(),
+         province: manualOrderData.province.trim(),
+         zipCode: manualOrderData.zipCode.trim(),
+         ...legacyOrderZipCoordinates
+       },
       totalPrice: itemRevenue,
       subtotal: itemRevenue,
       price: itemRevenue,
@@ -1797,6 +1843,8 @@ export default function Orders() {
   const getBuyerAddressDetails = (order) => {
     const rd = order?.receiverDetails || {};
     const flags = getShippingFlags(order);
+    const isLegacyOrder = isLegacyOrderRecord(order);
+    const legacyAddress = getLegacyOrderAddress(order);
     const addressParts = [rd.houseNo, rd.houseDetails, rd.subdivision, rd.barangay, rd.city, rd.province, rd.zipCode].filter(Boolean);
     // Admin always sees the exact pickup point. Customers only see it after all validated payments clear the balance.
     const paymentVerified = hasValidatedFirstReceipt(order) && calculateBalance(order) <= 0;
@@ -1816,7 +1864,9 @@ export default function Orders() {
       pickupAddress = pickupAddress.substring(landmarkLabel.length).replace(/^[\s,]+/, '');
     }
 
-    const location = flags.isLbc && rd.lbcBranch
+    const location = isLegacyOrder
+      ? [legacyAddress.city, legacyAddress.province, legacyAddress.zipCode].filter(Boolean).join(', ')
+      : flags.isLbc && rd.lbcBranch
       ? rd.lbcBranch
       : flags.isMeetup
         ? (showExactAddress ? (order?.pickupDetails?.exactAddress || order?.meetupLocation) : order?.meetupLocation)
@@ -1952,6 +2002,19 @@ export default function Orders() {
   const selectedTotals = selectedOrder ? getOrderTotals(selectedOrder) : {};
   const selectedLegacyFinancials = selectedOrder ? getLegacyOrderFinancials(selectedOrder, kits) : null;
   const isSelectedLegacyOrder = isLegacyOrderRecord(selectedOrder);
+  const selectedShippingMethodKey = String(selectedOrder?.shippingMethodKey || '').trim();
+  const selectedShippingMethod = selectedShippingMethodKey
+    || String(selectedOrder?.shippingMethod || '').replace(/\s*\([^)]*\)/g, '').split(':')[0].trim();
+  const selectedShippingSuboptionKey = String(selectedOrder?.shippingSuboptionKey || '').trim();
+  const selectedShippingSuboption = shippingSettings?.shippingMethods?.[selectedShippingMethodKey]
+    ?.suboptions?.[selectedShippingSuboptionKey]?.label
+    || selectedShippingSuboptionKey
+    || String(selectedOrder?.shippingMethod || '').match(/\(([^)]*)\)/)?.[1]?.trim()
+    || 'N/A';
+  const selectedShippingMethodDisplay = [
+    selectedShippingMethod,
+    selectedShippingSuboption !== 'N/A' ? selectedShippingSuboption : ''
+  ].filter(Boolean).join(' - ') || 'N/A';
   const hasStlWithDesignService = selectedOrder?.items?.some(item => 
     item.type === 'project' && 
     item.projectData?.method?.name?.toUpperCase() === 'STL' && 
@@ -1986,14 +2049,25 @@ export default function Orders() {
     const detailPaymentVerified = selectedPaymentFullyValidated;
     const detailShowExact = canShowExactPickupDetails(selectedOrder, detailPaymentVerified);
     const isPickupMap = selectedShippingFlags.isMeetup || selectedShippingFlags.isSelfPickup || selectedShippingFlags.usesPickupPoint;
+    const storedLegacyZipLat = Number(selectedOrder.receiverDetails?.lat);
+    const storedLegacyZipLng = Number(selectedOrder.receiverDetails?.lng);
+    const legacyZipMapCoordinates = Number.isFinite(storedLegacyZipLat) && Number.isFinite(storedLegacyZipLng)
+      ? { lat: storedLegacyZipLat, lng: storedLegacyZipLng }
+      : legacyZipCoordinates?.orderId === selectedOrder.id
+        ? legacyZipCoordinates
+        : null;
     const pickupMapLat = detailShowExact
       ? selectedLogistics.lat
       : selectedOrder.pickupDetails?.lat;
     const pickupMapLng = detailShowExact
       ? selectedLogistics.lng
       : selectedOrder.pickupDetails?.lng;
-    const mapLat = (isPickupMap ? pickupMapLat : null) || selectedLogistics.lat;
-    const mapLng = (isPickupMap ? pickupMapLng : null) || selectedLogistics.lng;
+    const mapLat = (isSelectedLegacyOrder ? legacyZipMapCoordinates?.lat : null)
+      || (isPickupMap ? pickupMapLat : null)
+      || selectedLogistics.lat;
+    const mapLng = (isSelectedLegacyOrder ? legacyZipMapCoordinates?.lng : null)
+      || (isPickupMap ? pickupMapLng : null)
+      || selectedLogistics.lng;
     const itemsSubtotal = detailItems.reduce((acc, item) => {
       const sellPrice = Number(item.sellPrice || item.price || 0);
       const installmentFee = Number(item.appliedInstallmentFee || 0);
@@ -2164,7 +2238,7 @@ export default function Orders() {
             {/* Receiver Name */}
             <div className="flex flex-col">
               <span className="text-[13px] font-black uppercase mb-0.5 tracking-wider">Receiver Name</span>
-              <span className="text-[14px] font-black uppercase text-blue-600">
+              <span className="text-[14px] font-bold uppercase text-blue-600">
                 {selectedLogistics.receiverName || 'No Receiver Name'}
               </span>
             </div>
@@ -2173,13 +2247,13 @@ export default function Orders() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="flex flex-col">
                 <span className="text-[13px] font-black uppercase mb-0.5 tracking-wider">Mobile No.</span>
-                <span className="text-[14px] font-black text-blue-600">
+                <span className="text-[14px] font-bold uppercase text-blue-600">
                   {selectedLogistics.phoneNumber || 'N/A'}
                 </span>
               </div>
               <div className="flex flex-col">
                 <span className="text-[13px] font-black uppercase mb-0.5 tracking-wider">Email Address</span>
-                <span className="text-[14px] font-black text-blue-600 break-all">
+                <span className="text-[14px] font-bold uppercase text-blue-600 break-all">
                   {selectedLogistics.email || 'N/A'}
                 </span>
               </div>
@@ -2189,9 +2263,9 @@ export default function Orders() {
             <div className="flex flex-col">
               <div className="flex items-center gap-2 mb-0.5">
                 <span className="text-[13px] font-black uppercase tracking-wider">
-                  {selectedShippingFlags.usesPickupPoint ? 'Pickup Pin' : 'Complete Address'}
+                  {selectedShippingFlags.usesPickupPoint && !isSelectedLegacyOrder ? 'Pickup Pin' : 'Complete Address'}
                 </span>
-                {selectedShippingFlags.usesPickupPoint && (
+                {selectedShippingFlags.usesPickupPoint && !isSelectedLegacyOrder && (
                   <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${detailShowExact
                     ? 'bg-blue-600/15 text-blue-600 dark:text-blue-400'
                     : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
@@ -2200,23 +2274,31 @@ export default function Orders() {
                   </span>
                 )}
               </div>
-              <span className="text-[14px] font-bold leading-relaxed text-blue-600">
+              <span className="text-[14px] font-bold uppercase leading-relaxed text-blue-600">
                 {selectedLogistics.display}
-                {selectedOrder.receiverDetails?.city && (
+                {!isSelectedLegacyOrder && selectedOrder.receiverDetails?.city && (
                   <span className="block mt-0.5">
                     {selectedOrder.receiverDetails.city}, {selectedOrder.receiverDetails.province} {selectedOrder.receiverDetails.zipCode}
                   </span>
                 )}
               </span>
-              {!isAdminMode && selectedShippingFlags.usesPickupPoint && !detailShowExact && (
+              {!isAdminMode && selectedShippingFlags.usesPickupPoint && !isSelectedLegacyOrder && !detailShowExact && (
                 <span className="text-[13px] font-black uppercase text-amber-600 dark:text-amber-500 mt-1 leading-tight">
                    * Actual pin and complete address will be available once payment is validated and the order is ready for pickup.
                 </span>
               )}
             </div>
 
+            {/* Selected shipping method and suboption */}
+            <div className="flex flex-col">
+              <span className="text-[13px] font-black uppercase mb-1 tracking-wider">Shipping Method</span>
+              <span className="text-[14px] font-bold uppercase text-blue-600">
+                {selectedShippingMethodDisplay}
+              </span>
+            </div>
+
             {/* Tracking / Inputs */}
-            {showTrackingSection && (
+            {showTrackingSection && !isSelectedLegacyOrder && (
               <div className="pt-2 border-t border-black/5 dark:border-white/5 flex flex-col">
                 <span className="text-[13px] font-black uppercase mb-2 tracking-wider">Courier Tracking Info</span>
                 {/* Admin: Tracking input when no tracking saved yet */}
