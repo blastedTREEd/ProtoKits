@@ -145,8 +145,20 @@ function stockMatchesDealSource(stock, source = 'onhand') {
   return source === 'preorder' ? isPreOrder : isOnHand;
 }
 
+function hasOrderAssociation(stock) {
+  const orderReference = stock?.order;
+  if (!orderReference) return false;
+  if (typeof orderReference !== 'object') return Boolean(orderReference);
+  return Boolean(
+    orderReference.orderId
+    || orderReference.orderDocId
+    || orderReference.id
+    || Object.keys(orderReference).length > 0
+  );
+}
+
 function isBundlePurchasableStock(stock, source = 'onhand') {
-  if (!stock || stock.order?.orderId || !stockMatchesDealSource(stock, source)) return false;
+  if (!stock || hasOrderAssociation(stock) || !stockMatchesDealSource(stock, source)) return false;
   return !stock.isReserved || stock.reservationType === 'admin';
 }
 
@@ -166,7 +178,7 @@ function getAvailableClearanceKitIds(deal, kits) {
     return Object.values(kit.stocks || {}).some((stock) => {
       // Clearance cards represent stock customers can purchase. Admin-held
       // shelf stock is not allocatable for that purpose, even in admin view.
-      return !stock?.order?.orderId && !stock.isReserved && stockMatchesDealSource(stock, 'onhand');
+      return !hasOrderAssociation(stock) && !stock.isReserved && stockMatchesDealSource(stock, 'onhand');
     });
   });
 }
@@ -191,9 +203,9 @@ function getRouteKitStatus(kit, isAdmin, isAdminView) {
   const stocks = Object.values(kit?.stocks || {});
   const availableCount = stocks.filter(stock => {
     const isVisible = (isAdmin && isAdminView) || !stock?.publicReleaseDate || stock.publicReleaseDate <= nowStr;
-    return isVisible && !stock?.order?.orderId && !stock?.isReserved;
+    return isVisible && !hasOrderAssociation(stock) && !stock?.isReserved;
   }).length;
-  const hasReserved = stocks.some(stock => stock.isReserved && !stock.order?.orderId);
+  const hasReserved = stocks.some(stock => stock.isReserved && !hasOrderAssociation(stock));
 
   return {
     _avail: availableCount,
@@ -466,7 +478,7 @@ export default function Kits({ isActive = true }) {
       const stocks = k?.stocks || {};
       return Object.values(stocks).filter(s => {
         const isVisible = (isAdmin && isAdminView) || !s?.publicReleaseDate || s?.publicReleaseDate <= nowStr;
-        return isVisible && !s?.order?.orderId && !s?.isReserved;
+        return isVisible && !hasOrderAssociation(s) && !s?.isReserved;
       }).length;
     };
 
@@ -477,7 +489,7 @@ export default function Kits({ isActive = true }) {
 
     const isAvailableStock = (stock) => {
       const isVisible = (isAdmin && isAdminView) || !stock?.publicReleaseDate || stock.publicReleaseDate <= nowStr;
-      return isVisible && !stock?.order?.orderId && !stock?.isReserved;
+      return isVisible && !hasOrderAssociation(stock) && !stock?.isReserved;
     };
 
     const isPreOrderOnly = (kit) => {
@@ -486,7 +498,7 @@ export default function Kits({ isActive = true }) {
     };
 
     const getLowestPrice = (k) => {
-      const stocks = Object.values(k?.stocks || {}).filter(s => !s?.order?.orderId && !s?.isReserved);
+      const stocks = Object.values(k?.stocks || {}).filter(s => !hasOrderAssociation(s) && !s?.isReserved);
       if (stocks.length > 0) {
         return Math.min(...stocks.map(s => Number(s.sellPrice || 0)));
       }
@@ -560,7 +572,7 @@ export default function Kits({ isActive = true }) {
         
         // Isama ang orihinal na stock metadata
         const stockInfo = stocksArray.map(s => 
-          `${s.status || ''} ${s.boxCondition || ''} ${s.kitCondition || ''} ${s.isReserved || s.order?.orderId ? 'reserved' : 'available'}`
+          `${s.status || ''} ${s.boxCondition || ''} ${s.kitCondition || ''} ${s.isReserved || hasOrderAssociation(s) ? 'reserved' : 'available'}`
         ).join(' ');
 
         // Kunin at pagsama-samahin ang lahat ng ETA values na nasa stocks ng kit na ito
@@ -646,7 +658,7 @@ export default function Kits({ isActive = true }) {
 
     const processedKits = filtered.map(kit => {
         const avail = getAvail(kit);
-        const hasReserved = Object.values(kit?.stocks || {}).some(s => s.isReserved && !s.order?.orderId);
+        const hasReserved = Object.values(kit?.stocks || {}).some(s => s.isReserved && !hasOrderAssociation(s));
         
         let statusOrder = 0; 
         if (avail > 0) statusOrder = 2;
@@ -867,7 +879,7 @@ export default function Kits({ isActive = true }) {
         if (!kit) return false;
         const stocks = Object.values(kit.stocks || {});
         return stocks.some(s => (
-          !s?.order?.orderId
+          !hasOrderAssociation(s)
           && !s.isReserved
           && stockMatchesDealSource(s, d.stockSource || 'onhand')
         ));

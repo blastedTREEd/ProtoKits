@@ -205,15 +205,26 @@ function findOrderForStock(stock, kitId, orders = []) {
   return matchingOrders.find(order => !hasValidatedFirstReceipt(order)) || matchingOrders[0] || null;
 }
 
+function hasOrderAssociation(stock) {
+  const orderReference = stock?.order;
+  if (!orderReference) return false;
+  if (typeof orderReference !== 'object') return Boolean(orderReference);
+  return Boolean(
+    orderReference.orderId
+    || orderReference.orderDocId
+    || orderReference.id
+    || Object.keys(orderReference).length > 0
+  );
+}
+
 function isCountableOnhandStock(stock, kitId, orders = []) {
   if (!isOnHandStock(stock)) return false;
 
   const order = findOrderForStock(stock, kitId, orders);
-  if (order) return hasValidatedFirstReceipt(order);
-  if (!stock?.isReserved || !stock.order?.orderId) return true;
+  if (order || hasOrderAssociation(stock)) return false;
+  if (!stock?.isReserved) return true;
 
-  // An order-linked reservation is excluded until its receipt can be
-  // confirmed. If the order is not loaded yet, fail closed for this count.
+  // Reserved stock without an order reference is not public stock.
   return false;
 }
 
@@ -235,7 +246,7 @@ function getAvailabilityGroupKey(prefix, stock) {
 }
 
 function isBundlePurchasableStock(stock, source = 'onhand') {
-  if (!stock || stock.order?.orderId || !stockMatchesDealSource(stock, source)) return false;
+  if (!stock || hasOrderAssociation(stock) || !stockMatchesDealSource(stock, source)) return false;
   return !stock.isReserved || stock.reservationType === 'admin';
 }
 
@@ -499,7 +510,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
 
   const publicReleasableStocks = useMemo(() => {
     return stockList.filter(s => {
-      const isSold = !!(s.order?.orderId);
+      const isSold = hasOrderAssociation(s);
       const isReserved = !!(s.isReserved);
       const isOnShelf = (shelf || []).some(item => item.id === kitId && item.stockKey === s.key);
       
@@ -514,7 +525,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     if (!isAdmin || !isAdminView) return 0;
 
     return stockList.filter((stock) => {
-      if (!stock?.isReserved && !stock?.order?.orderId) return false;
+      if (!stock?.isReserved && !hasOrderAssociation(stock)) return false;
       const order = findOrderForStock(stock, kitId, orders);
       return Boolean(order && !hasValidatedFirstReceipt(order));
     }).length;
@@ -534,7 +545,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   const acceptedOfferStock = useMemo(() => {
     if (!acceptedOffer?.releasedStockKey) return null;
     const stock = stockList.find(item => item.key === acceptedOffer.releasedStockKey);
-    if (!stock || stock.order?.orderId) return null;
+    if (!stock || hasOrderAssociation(stock)) return null;
     return stock;
   }, [acceptedOffer, stockList]);
 
@@ -544,7 +555,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     : '';
 
   const hasReserved = useMemo(() => {
-    return stockList.some(s => s.isReserved && !s.order?.orderId);
+    return stockList.some(s => s.isReserved && !hasOrderAssociation(s));
   }, [stockList]);
 
   const visibleStocks = useMemo(() => {
@@ -608,7 +619,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   }), [kitId, orders, publicReleasableStocks]);
   
   const sellPrice = useMemo(() => {
-    const available = visibleStocks.filter(s => !s.isReserved && !s.order?.orderId);
+    const available = visibleStocks.filter(s => !s.isReserved && !hasOrderAssociation(s));
     let base = 0;
     if (available.length > 0) {
       const prices = available.map(s => Number(s.sellPrice || 0)).filter(p => p > 0);
@@ -657,7 +668,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   // True when all remaining unsold stocks are on the admin shelf (collection)
   const isCollectionOnly = useMemo(() => {
     if (availableCount > 0) return false;
-    const unsoldStocks = stockList.filter(s => !s.order?.orderId);
+    const unsoldStocks = stockList.filter(s => !hasOrderAssociation(s));
     if (unsoldStocks.length === 0) return false;
     return shelfCount > 0 && shelfCount >= unsoldStocks.length;
   }, [availableCount, stockList, shelfCount]);
@@ -666,7 +677,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   const collectionStocks = useMemo(() => {
     if (!isCollectionOnly && !(isAdmin && isAdminView)) return [];
     const shelfKeys = new Set((shelf || []).filter(item => item.id === kitId).map(item => item.stockKey));
-    return stockList.filter(s => shelfKeys.has(s.key) && !s.order?.orderId);
+    return stockList.filter(s => shelfKeys.has(s.key) && !hasOrderAssociation(s));
   }, [isCollectionOnly, isAdmin, isAdminView, shelf, kitId, stockList]);
 
   const collectionGroupedVariants = useMemo(() => {
@@ -703,16 +714,16 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
           const stockSource = deal.stockSource || 'onhand';
           const stocks = Object.values(dealKit?.stocks || {});
           return stocks.some(stock => (
-            !stock?.order?.orderId
+            !hasOrderAssociation(stock)
             && !stock.isReserved
             && stockMatchesDealSource(stock, stockSource)
           ));
         });
       }
-      // Clearance is a master list: the discount is only valid while every
-      // eligible kit can still be fulfilled, not merely the card being viewed.
+      // Clearance entries are evaluated per kit. A kit remains eligible only
+      // while its own active schedule and stock can be fulfilled.
       const canUseClearanceStock = (stock, source) => (
-        !stock?.order?.orderId
+        !hasOrderAssociation(stock)
         && !stock.isReserved
         && stockMatchesDealSource(stock, source)
       );
@@ -833,7 +844,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
 
   const isFSEligible = useMemo(() => {
     return visibleStocks.some(s => {
-      if (!s.isFreeShippingEligible || s.isReserved || s.order?.orderId) return false;
+      if (!s.isFreeShippingEligible || s.isReserved || hasOrderAssociation(s)) return false;
       const expiry = s.freeShippingUntil ? new Date(s.freeShippingUntil).getTime() : 0;
       return expiry === 0 || now < expiry;
     });
@@ -851,7 +862,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   const adminDisplayInfo = useMemo(() => {
     if (!isAdminView) return null;
 
-    const unsoldStocks = stockList.filter(s => !s.order?.orderId);
+    const unsoldStocks = stockList.filter(s => !hasOrderAssociation(s));
     if (unsoldStocks.length === 0) return null;
     
     const maxSellPrice = Math.max(...unsoldStocks.map(s => Number(s.sellPrice || 0)), Number(kit?.sellPrice || 0));
@@ -1180,14 +1191,14 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     if (selectedAvailabilityGroup?.tag === 'bundleDeal') return "GRAB DEAL";
     if (availableCount <= 0) return "NOTIFY ME";
     if (selectedStock) {
-      const isReserved = selectedStock.isReserved || selectedStock.order?.orderId;
+      const isReserved = selectedStock.isReserved || hasOrderAssociation(selectedStock);
       if (isReserved) return "NOTIFY ME";
       const status = selectedStock.status?.toLowerCase() || "";
       return (status.includes("pre") || status.includes("batch")) ? "PRE-ORDER" : "BUY NOW";
     }
-    const hasOnhand = visibleStocks.some(s => s.status?.toLowerCase() === 'onhand' && !s.isReserved && !s.order?.orderId);
+    const hasOnhand = visibleStocks.some(s => s.status?.toLowerCase() === 'onhand' && !s.isReserved && !hasOrderAssociation(s));
     if (hasOnhand) return "BUY NOW";
-    const hasPreorder = visibleStocks.some(s => (s.status?.toLowerCase().includes('pre') || s.status?.toLowerCase().includes('batch')) && !s.isReserved && !s.order?.orderId);
+    const hasPreorder = visibleStocks.some(s => (s.status?.toLowerCase().includes('pre') || s.status?.toLowerCase().includes('batch')) && !s.isReserved && !hasOrderAssociation(s));
     return hasPreorder ? "PRE-ORDER" : "BUY NOW";
   }, [acceptedOffer, acceptedOfferStock, isAdmin, isAdminView, shelfItem, selectedAvailabilityGroup, selectedStock, visibleStocks, availableCount]);
 
@@ -1200,7 +1211,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     // Logic for Admin View
     if (isAdmin && isAdminView) {
       const adminKeepableStocks = stockList.filter(s => {
-        const isSold = !!(s.order?.orderId);
+        const isSold = hasOrderAssociation(s);
         const isOnShelf = (shelf || []).some(item => item.id === kitId && item.stockKey === s.key);
         // Admin cannot keep if reserved by a non-admin user
         const isReservedByCustomer = !!s.isReserved && s.reservedBy !== user?.uid && s.reservationType !== 'admin'; 
@@ -1221,7 +1232,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     // Original logic for Regular Users (or when not in Admin View)
     const publicStock = visibleStocks[0] || publicReleasableStocks[0];
     if (publicStock) return publicStock;
-    return stockList.find(s => !s.order?.orderId) || stockList[0] || null;
+    return stockList.find(s => !hasOrderAssociation(s)) || stockList[0] || null;
   }, [acceptedOffer, acceptedOfferStock, isAdmin, isAdminView, visibleStocks, publicReleasableStocks, stockList, shelf, kitId, user]);
 
   const getAcceptedOfferFields = (stock) => {
@@ -1302,7 +1313,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     
     if (buyLabelFromFunction === "NOTIFY ME") {
       const available = stockList.filter(s => {
-        const isSold = !!(s.order?.orderId);
+        const isSold = hasOrderAssociation(s);
         const isReserved = !!(s.isReserved);
         const isPublic = getPublicStatus(s).isPublic;
         if (isAdmin && isAdminView) return !isSold;
@@ -1321,7 +1332,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     }
 
     const availableForPurchase = stockList.filter(s => {
-      const isSold = !!(s.order?.orderId);
+        const isSold = hasOrderAssociation(s);
       const isReserved = !!(s.isReserved);
       const isPublic = getPublicStatus(s).isPublic;
       if (isAdmin && isAdminView) return !isSold;
@@ -1536,7 +1547,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   } else if (availableCount <= 0 && isCollectionOnly) {
     let labelVal = 'Collection';
     if (!isAdminView) {
-      const reservedStocks = stockList.filter(s => s.isReserved);
+      const reservedStocks = stockList.filter(s => s.isReserved && !hasOrderAssociation(s));
       const onHandCount = reservedStocks.filter(isOnHandStock).length;
       const preOrderCount = reservedStocks.filter(isPreOrderStock).length;
       if (onHandCount > 0 && preOrderCount > 0) {
@@ -1554,7 +1565,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   } else if (availableCount <= 0 && stockList.some(s => s.isReserved)) {
     let labelVal = 'NOT FOR SALE';
     if (!isAdminView) {
-      const reservedStocks = stockList.filter(s => s.isReserved);
+      const reservedStocks = stockList.filter(s => s.isReserved && !hasOrderAssociation(s));
       const onHandCount = reservedStocks.filter(isOnHandStock).length;
       const preOrderCount = reservedStocks.filter(isPreOrderStock).length;
       if (onHandCount > 0 && preOrderCount > 0) {
@@ -1584,7 +1595,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   });
   const renderAvailabilityGroupButton = (group) => {
     const isSelected = selectedGroupLabel === (group.key || group.label);
-    const availableCountInGroup = group.items.filter(s => !s.isReserved && !s.order?.orderId).length;
+    const availableCountInGroup = group.items.filter(s => !s.isReserved && !hasOrderAssociation(s)).length;
     const isAcceptedOfferGroup = group.tag === 'acceptedOffer';
     const isCollectionGroup = group.tag === 'collection' || isAcceptedOfferGroup;
     const isBundleDealGroup = group.tag === 'bundleDeal';

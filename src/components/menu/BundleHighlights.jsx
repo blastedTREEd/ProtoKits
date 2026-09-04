@@ -29,7 +29,16 @@ function getDealEndDate(value) {
 }
 
 function isPurchasableStock(stock, source = 'onhand') {
-  if (!stock || stock.order?.orderId || stock.isReserved) return false;
+  const orderReference = stock?.order;
+  const hasOrderAssociation = Boolean(
+    orderReference
+    && (typeof orderReference !== 'object'
+      || orderReference.orderId
+      || orderReference.orderDocId
+      || orderReference.id
+      || Object.keys(orderReference).length > 0)
+  );
+  if (!stock || hasOrderAssociation || stock.isReserved) return false;
   const status = String(stock.status || '').toLowerCase().trim();
   const isPreOrder = status.includes('pre') || status.includes('batch') || status.includes('eta');
   const isOnhand = status === 'onhand' || status === 'on hand';

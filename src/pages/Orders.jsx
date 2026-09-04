@@ -281,6 +281,13 @@ const getCompletedOrderReversalRemainingMs = (order, now = Date.now()) => {
   return deadline ? Math.max(0, deadline - now) : 0;
 };
 
+const formatLegacyCompletedCountdown = (remainingMs) => {
+  const totalMinutes = Math.max(0, Math.ceil(remainingMs / (60 * 1000)));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+};
+
 function DeletionTimer({ completedAt, onExpire, onDelete, children }) {
   const [timeLeft, setTimeLeft] = useState('');
   const hasExpiredRef = useRef(false);
@@ -364,6 +371,11 @@ function CompletedReversalTimer({ order, onExpire, children }) {
           hasExpiredRef.current = true;
           onExpire?.();
         }
+        return;
+      }
+
+      if (isLegacyOrderRecord(order)) {
+        setTimeLeft(formatLegacyCompletedCountdown(diff));
         return;
       }
 
@@ -885,7 +897,11 @@ export default function Orders() {
     // kaya hindi na natin kailangan i-filter dito sa UI.
     // Ipakita lang natin kung ano ang nasa 'orders' state.
     
-    return [...orders].sort((a, b) => {
+    const visibleOrders = isAdminMode
+      ? orders
+      : orders.filter((order) => !isLegacyOrderRecord(order));
+
+    return [...visibleOrders].sort((a, b) => {
       const getMs = (val) => { 
         if (!val) return 0; 
         if (typeof val === 'object' && val.seconds) return val.seconds * 1000; 
@@ -894,7 +910,7 @@ export default function Orders() {
       };
       return getMs(b.createdAt) - getMs(a.createdAt);
     });
-  }, [orders]);
+  }, [isAdminMode, orders]);
 
   const getBalancePaymentDeadline = (order, settings) => {
     if (!order) return 0;
