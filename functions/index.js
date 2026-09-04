@@ -164,6 +164,253 @@ const toMillis = (value) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const normalizeKitIds = (ids = []) => [...new Set(
+  (Array.isArray(ids) ? ids : [ids]).map(String).filter(Boolean)
+)];
+
+const getMutuallyExclusivePairGroups = (deal = {}) => {
+  if (!Array.isArray(deal.kitIds) || deal.kitIds.length < 2) return [];
+
+  const configuredPairs = (deal.mutuallyExclusivePairs || [])
+    .filter((pair) => pair?.bandaiId && pair?.bootlegId);
+  const bandaiKitIds = normalizeKitIds(
+    deal.mutuallyExclusiveGroups?.bandai || deal.bandaiKitIds || []
+  );
+  const bootlegKitIds = normalizeKitIds(
+    deal.mutuallyExclusiveGroups?.bootleg || deal.bootlegKitIds || []
+  );
+  const dealKitIds = normalizeKitIds(deal.kitIds);
+
+  return configuredPairs.length > 0
+    ? configuredPairs.map((pair) => [
+      normalizeKitIds([pair.bandaiId]),
+      normalizeKitIds([pair.bootlegId])
+    ])
+    : [bandaiKitIds.length > 0 && bootlegKitIds.length > 0
+      ? [bandaiKitIds, bootlegKitIds]
+      : [dealKitIds.slice(0, 1), dealKitIds.slice(1, 2)]];
+};
+
+const isActiveMutuallyExclusiveDeal = (deal = {}) => {
+  if (!deal.isActive || deal.type !== 'mutually_exclusive') return false;
+  const now = Date.now();
+  const validFrom = toMillis(deal.validFrom);
+  const validUntil = toMillis(deal.validUntil);
+  return !(validFrom > 0 && validFrom > now)
+    && !(validUntil > 0 && validUntil <= now);
+};
+
+const stockHasCustomerHold = (stock = {}) => {
+  const orderReference = stock.order;
+  const hasOrder = typeof orderReference === 'object'
+    ? Boolean(
+      orderReference?.orderId
+      || orderReference?.orderDocId
+      || orderReference?.id
+      || Object.keys(orderReference || {}).length > 0
+    )
+    : Boolean(orderReference);
+  return hasOrder || Boolean(stock.isReserved && stock.reservationType !== 'admin');
+};
+
+const buildMutualExclusionShelfItem = (kit, stockKey, stock, dealId, fees) => ({
+  id: kit.id,
+  name: `${String(kit.name || '').replace(/\s*\(Pre-Order\)\s*$/i, '')} (Excluded: ${kit.name || kit.id})`,
+  image: kit.image || '',
+  brand: kit.brand || '',
+  specs: kit.specs || {},
+  price: Number(stock.sellPrice || 0) + fees.handlingFee + fees.installmentFee + fees.transferFee,
+  costPrice: Number(stock.costPrice || 0),
+  sellPrice: Number(stock.sellPrice || 0),
+  status: stock.status || 'onhand',
+  eta: stock.eta || stock.estimatedArrival || null,
+  appliedHandlingFee: fees.handlingFee,
+  appliedInstallmentFee: fees.installmentFee,
+  appliedTransferFee: fees.transferFee,
+  stockKey,
+  type: 'kit',
+  basketId: `b_kit_me_${dealId}_${stockKey}`,
+  minDownpayment: stock.minDownpayment || 0,
+  createdAt: new Date().toISOString(),
+  reservedByDealId: dealId
+});
+
+// Keep the opposing side of a mutually-exclusive deal on the admin shelf as
+// soon as a customer reservation is committed. This runs with Admin SDK
+// privileges because customer checkout is not allowed to write /shelf.
+exports.syncMutuallyExclusiveShelf = onDocumentUpdated({
+  document: 'kits/{kitId}',
+  region: 'asia-southeast1'
+}, async (event) => {
+  const triggeredKitId = String(event.params.kitId || '');
+  if (!triggeredKitId || !event.data?.after?.exists) return;
+
+  const dealsSnapshot = await db.collection('deals')
+    .where('type', '==', 'mutually_exclusive')
+    .get();
+  const activeDeals = dealsSnapshot.docs
+    .map((dealDoc) => ({ id: dealDoc.id, ...dealDoc.data() }))
+    .filter(isActiveMutuallyExclusiveDeal);
+  if (activeDeals.length === 0) return;
+
+  const dealGroups = activeDeals.flatMap((deal) => (
+    getMutuallyExclusivePairGroups(deal).map(([firstGroup, secondGroup]) => ({
+      deal,
+      firstGroup,
+      secondGroup
+    }))
+  ));
+  const relevantGroups = dealGroups.filter(({ firstGroup, secondGroup }) => (
+    firstGroup.includes(triggeredKitId) || secondGroup.includes(triggeredKitId)
+  ));
+  if (relevantGroups.length === 0) return;
+
+  const allKitIds = [...new Set(relevantGroups.flatMap(({ firstGroup, secondGroup }) => [
+    ...firstGroup,
+    ...secondGroup
+  ]))];
+  const checkoutSettingsSnapshot = await db.doc('settings/checkout').get();
+  const paymentSettings = checkoutSettingsSnapshot.data()?.paymentSettings || {};
+  const fees = {
+    handlingFee: Number(paymentSettings.handlingFee || 0),
+    installmentFee: Number(paymentSettings.installmentFee || 0),
+    transferFee: Number(paymentSettings.transferFee || 0)
+  };
+
+  await db.runTransaction(async (transaction) => {
+    // Read every participating kit before applying any shelf or inventory
+    // write. If a competing checkout changes one of these kits meanwhile,
+    // Firestore retries this transaction using the latest state.
+    const kitStates = new Map();
+    for (const kitId of allKitIds) {
+      const kitSnapshot = await transaction.get(db.doc(`kits/${kitId}`));
+      if (kitSnapshot.exists()) {
+        const data = kitSnapshot.data() || {};
+        kitStates.set(kitId, {
+          ...data,
+          id: kitId,
+          stocks: Object.fromEntries(Object.entries(data.stocks || {}).map(([key, stock]) => [
+            key,
+            { ...stock }
+          ]))
+        });
+      }
+    }
+
+    const kitUpdates = new Map();
+    const shelfSets = new Map();
+    const shelfDeletes = new Set();
+
+    const addKitUpdate = (kitId, field, value) => {
+      if (!kitUpdates.has(kitId)) kitUpdates.set(kitId, {});
+      kitUpdates.get(kitId)[field] = value;
+    };
+
+    const updateStock = (kitId, stockKey, changes) => {
+      Object.entries(changes).forEach(([field, value]) => {
+        addKitUpdate(kitId, `stocks.${stockKey}.${field}`, value);
+      });
+      const state = kitStates.get(kitId);
+      if (state?.stocks?.[stockKey]) Object.assign(state.stocks[stockKey], changes);
+    };
+
+    const groupIsReserved = (groupIds) => groupIds.some((kitId) => {
+      const kit = kitStates.get(kitId);
+      return kit && Object.values(kit.stocks || {}).some(stockHasCustomerHold);
+    });
+
+    const releaseDealShelfStocks = (deal, groupIds) => {
+      groupIds.forEach((kitId) => {
+        const kit = kitStates.get(kitId);
+        if (!kit) return;
+        Object.entries(kit.stocks || {}).forEach(([stockKey, stock]) => {
+          if (stock.reservedByDealId !== deal.id || stock.reservationType !== 'admin') return;
+
+          shelfDeletes.add(`b_kit_me_${deal.id}_${stockKey}`);
+          updateStock(kitId, stockKey, {
+            isReserved: false,
+            reservedBy: admin.firestore.FieldValue.delete(),
+            reservedAt: admin.firestore.FieldValue.delete(),
+            availableAt: admin.firestore.FieldValue.serverTimestamp(),
+            reservationType: admin.firestore.FieldValue.delete(),
+            reservedByDealId: admin.firestore.FieldValue.delete()
+          });
+          delete kit.stocks[stockKey].reservedByDealId;
+          delete kit.stocks[stockKey].reservationType;
+          delete kit.stocks[stockKey].reservedBy;
+          delete kit.stocks[stockKey].reservedAt;
+        });
+      });
+    };
+
+    const keepGroupOnShelf = (deal, groupIds) => {
+      groupIds.forEach((kitId) => {
+        const kit = kitStates.get(kitId);
+        if (!kit) return;
+
+        Object.entries(kit.stocks || {}).forEach(([stockKey, stock]) => {
+          const isManagedHold = stock.reservationType === 'admin'
+            && stock.reservedByDealId === deal.id;
+          const isAvailable = !stock.isReserved && !stock.order?.orderId;
+          if (!isManagedHold && !isAvailable) return;
+
+          const shelfId = `b_kit_me_${deal.id}_${stockKey}`;
+          shelfSets.set(shelfId, buildMutualExclusionShelfItem(
+            kit,
+            stockKey,
+            stock,
+            deal.id,
+            fees
+          ));
+
+          if (isAvailable) {
+            updateStock(kitId, stockKey, {
+              isReserved: true,
+              reservedBy: null,
+              reservedAt: admin.firestore.FieldValue.serverTimestamp(),
+              reservationType: 'admin',
+              reservedByDealId: deal.id
+            });
+          }
+        });
+      });
+    };
+
+    relevantGroups.forEach(({ deal, firstGroup, secondGroup }) => {
+      const isFirstGroupReserved = groupIsReserved(firstGroup);
+      const isSecondGroupReserved = groupIsReserved(secondGroup);
+
+      if (isFirstGroupReserved && !isSecondGroupReserved) {
+        keepGroupOnShelf(deal, secondGroup);
+      } else if (isSecondGroupReserved && !isFirstGroupReserved) {
+        keepGroupOnShelf(deal, firstGroup);
+      } else if (!isFirstGroupReserved && !isSecondGroupReserved) {
+        releaseDealShelfStocks(deal, [...firstGroup, ...secondGroup]);
+      }
+    });
+
+    kitStates.forEach((kit, kitId) => {
+      if (!kitUpdates.has(kitId)) return;
+      addKitUpdate(
+        kitId,
+        'hasAvailableStock',
+        Object.values(kit.stocks || {}).some((stock) => !stock.order?.orderId && !stock.isReserved)
+      );
+      addKitUpdate(kitId, 'lastUpdated', admin.firestore.FieldValue.serverTimestamp());
+    });
+
+    shelfSets.forEach((item, shelfId) => {
+      transaction.set(db.doc(`shelf/${shelfId}`), item);
+    });
+    shelfDeletes.forEach((shelfId) => {
+      transaction.delete(db.doc(`shelf/${shelfId}`));
+    });
+    kitUpdates.forEach((updates, kitId) => {
+      transaction.update(db.doc(`kits/${kitId}`), updates);
+    });
+  });
+});
+
 const getAccountLastLoginMillis = (data = {}) => (
   toMillis(data.lastLoginAt || data.lastActivityAt || data.createdAt)
 );

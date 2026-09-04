@@ -1021,7 +1021,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   const isPage = variant === 'page';
   const { isDarkMode } = useTheme();
   const { 
-    user, reserveStockForCheckout, createOrder, completeAcceptedOffer, isAdmin, isAdminView,
+    user, reserveStockForCheckout, releaseCheckoutReservation, createOrder, completeAcceptedOffer, isAdmin, isAdminView,
     removeFromBasket, kits, deals, shelf, uploadReceipt, rates, updateUserProfile,
     adminsList, fetchAdmins, assignStockToOrder, adminData, garageInfo, orders,
     updateOrderDetails
@@ -2490,6 +2490,8 @@ const handleFinalizeOrder = async () => {
     setIsFinalizing(true);
     const checkoutUid = user?.uid || "GUEST_BYPASS";
     const checkoutName = user?.displayName || "GUEST USER";
+    const reservedCheckoutTargets = [];
+    let orderCreated = false;
 
     try {
       if (user && !isNoDetailsMode) {
@@ -2517,6 +2519,7 @@ const handleFinalizeOrder = async () => {
         if (!result?.success) {
           throw new Error(`Item "${item.name}" was just taken by someone else.`);
         }
+        reservedCheckoutTargets.push({ kitId: item.id, stockKey: result.stockKey });
 
         const allocatedStock = result.stock || {};
         const allocatedStockSource = isPreOrderStock(allocatedStock, item.status) ? 'preorder' : 'onhand';
@@ -2724,6 +2727,7 @@ const handleFinalizeOrder = async () => {
       };
       
       const docId = await createOrder(orderData);
+      orderCreated = true;
       console.log("SG DEBUG: Order created successfully with ID:", docId);
       
       if (assignStockToOrder) {
@@ -2766,6 +2770,11 @@ const handleFinalizeOrder = async () => {
       }
     } catch (err) { 
       console.error("SG LOG: Checkout Error:", err); 
+      if (!orderCreated && reservedCheckoutTargets.length > 0) {
+        await Promise.allSettled(reservedCheckoutTargets.map(({ kitId, stockKey }) => (
+          releaseCheckoutReservation(kitId, stockKey, checkoutUid)
+        )));
+      }
       alert(`Checkout failed: ${err.message || "An unexpected error occurred."}`); 
       setIsFinalizing(false);
     }

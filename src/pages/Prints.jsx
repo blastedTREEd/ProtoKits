@@ -7,7 +7,6 @@ import PrintedProjectCard from '../components/calculator/PrintedProjectCard';
 import PrintedProjectModal from '../components/calculator/PrintedProjectModal';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
-import LoginPromptModal from '../components/menu/LoginPromptModal';
 import { Droplet, Calculator, Search, Box, Layers, X, HandCoins, MoreHorizontal, Printer, ClockFading, ArrowBigDownDash, ArrowBigUpDash, ArrowBigRightDash, ArrowBigLeftDash, ChevronDown, PackagePlus } from 'lucide-react';
 import FilamentManagerModal from '../components/calculator/FilamentManagerModal';
 import PrinterManagerModal from '../components/calculator/PrinterManagerModal';
@@ -231,15 +230,12 @@ export default function Prints() {
   const subscribeOrders = useStore((state) => state.subscribeOrders);
   const user = useStore((state) => state.user);
   const isAnonymousUser = useStore((state) => state.isAnonymousUser);
-  const setLoginModalOpen = useStore((state) => state.setLoginModalOpen);
   const setToastMessage = useStore((state) => state.setToastMessage);
   const shippingSettings = useStore((state) => state.shippingSettings);
   
   const [showFilamentModal, setShowFilamentModal] = useState(false);
   const [showPrinterModal, setShowPrinterModal] = useState(false);
   const [showRatesModal, setShowRatesModal] = useState(false);
-  const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
-  const [itemsForCheckout, setItemsForCheckout] = useState([]);
 
   const openCheckoutPage = (items, isGuestPreview = !user || isAnonymousUser) => {
     navigate('/checkout', { state: { items, isGuestPreview } });
@@ -433,12 +429,7 @@ export default function Prints() {
   const handlePrintedBuyNow = (project, stock) => {
     if (isAdmin && isAdminView) return;
     const item = buildPrintedProjectItem(project, stock || getPrintedStock(project));
-    setItemsForCheckout([item]);
-    if (!user) {
-      setIsLoginPromptOpen(true);
-      return;
-    }
-    openCheckoutPage([item], false);
+    openCheckoutPage([item], !user || isAnonymousUser);
   };
 
   const handlePrintedAddToBasket = async (project, stock) => {
@@ -528,13 +519,8 @@ export default function Prints() {
 
   const handleOrderNow = (project) => {
     const checkoutItems = [buildCheckoutProjectItem(project)];
-    setItemsForCheckout(checkoutItems);
-    if (!user) {
-      setIsLoginPromptOpen(true);
-      return;
-    }
     if (!(isAdmin && isAdminView)) {
-      openCheckoutPage(checkoutItems, false);
+      openCheckoutPage(checkoutItems, !user || isAnonymousUser);
     }
   };
 
@@ -817,7 +803,6 @@ export default function Prints() {
       {showFilamentModal && <FilamentManagerModal onClose={() => setShowFilamentModal(false)} />}
       {showPrinterModal && <PrinterManagerModal onClose={() => setShowPrinterModal(false)} />}
       {showRatesModal && <RatesManagerModal onClose={() => setShowRatesModal(false)} />}
-      <LoginPromptModal isOpen={isLoginPromptOpen} onClose={() => setIsLoginPromptOpen(false)} onLogin={() => { setLoginModalOpen(true); setIsLoginPromptOpen(false); }} onContinue={() => { setIsLoginPromptOpen(false); openCheckoutPage(itemsForCheckout, true); }} continueLabel="Check Price & Shipping" />
     </PageTemplate>
   );
 }

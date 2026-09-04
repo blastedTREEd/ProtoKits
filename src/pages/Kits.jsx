@@ -13,7 +13,6 @@ import DealDetailsModal from '../components/kitcards/DealDetailsModal';
 import SupplierBalancesModal from '../components/kitcards/SupplierBalancesModal';
 import SalesDashboardModal from '../components/kitcards/SalesDashboardModal';
 import KitDataQualityModal from '../components/kitcards/KitDataQualityModal';
-import LoginPromptModal from '../components/menu/LoginPromptModal';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
 import { getBundleDealPricing, getClearanceBundlePricing, getHighestCostStock } from '../utils/bundlePricing';
 import { isOfferCheckoutActive } from '../utils/offerUtils';
@@ -225,7 +224,6 @@ export default function Kits({ isActive = true }) {
   const notifyList = useStore((state) => state.notifyList);
   const subscribeNotifyList = useStore((state) => state.subscribeNotifyList);
   const subscribeOrders = useStore((state) => state.subscribeOrders);
-  const setLoginModalOpen = useStore((state) => state.setLoginModalOpen);
   const addToBasket = useStore((state) => state.addToBasket);
   const shippingSettings = useStore((state) => state.shippingSettings);
 
@@ -248,8 +246,6 @@ export default function Kits({ isActive = true }) {
   const [isSupplierBalancesModalOpen, setIsSupplierBalancesModalOpen] = useState(false);
   const [isSalesDashboardModalOpen, setIsSalesDashboardModalOpen] = useState(false);
   const [isKitDataQualityModalOpen, setIsKitDataQualityModalOpen] = useState(false);
-  const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
-  const [itemsForCheckout, setItemsForCheckout] = useState([]); 
   const [isAdminToolsOpen, setIsAdminToolsOpen] = useState(false);
   const kitCardRefs = useRef(new Map());
   const pendingRestoreRef = useRef(null);
@@ -290,15 +286,12 @@ export default function Kits({ isActive = true }) {
       setIsSupplierBalancesModalOpen(false);
       setIsSalesDashboardModalOpen(false);
       setIsKitDataQualityModalOpen(false);
-      setIsLoginPromptOpen(false);
-      setItemsForCheckout([]);
       setIsAdminToolsOpen(false);
       setIsSortOpen(false);
-      setLoginModalOpen(false);
     }, 0);
 
     return () => window.clearTimeout(cleanupTimer);
-  }, [isActive, setLoginModalOpen]);
+  }, [isActive]);
 
   // Home bundle cards can hand off a selected deal to the Kits page so the
   // same deal modal remains the single source of truth for deal actions.
@@ -1033,10 +1026,8 @@ export default function Kits({ isActive = true }) {
 
     const items = buildDealItems(deal);
     if (items.length === 0) return;
-    setItemsForCheckout(items);
     setSelectedDeal(null);
-    if (!user) { setIsLoginPromptOpen(true); return; }
-    openCheckoutPage(items, false);
+    openCheckoutPage(items, !user || isAnonymousUser);
   };
 
   const handleDealAddToBasket = async (deal, targetKitId) => {
@@ -1126,25 +1117,15 @@ export default function Kits({ isActive = true }) {
     
     // Always prepare the items for checkout
     console.log("Setting itemsForCheckout:", [itemData]);
-    setItemsForCheckout([itemData]);
     window.sessionStorage.setItem(KIT_RETURN_STORAGE_KEY, JSON.stringify({
       kitId: item.kit?.id,
       scrollY: window.scrollY,
       savedAt: Date.now()
     }));
     
-    // Check auth
-    if (!user) { 
-        console.log("User not logged in, opening LoginPromptModal");
-        setIsLoginPromptOpen(true); 
-        return; 
-    }
-    
-    // Authenticated flow: Open checkout modal directly (without adding to basket)
-    console.log("User authenticated, opening checkout modal");
+    // Open checkout directly for both authenticated users and guests.
     if (!(isAdmin && isAdminView)) {
-        console.log("Navigating to checkout page");
-        openCheckoutPage([itemData], false);
+        openCheckoutPage([itemData], !user || isAnonymousUser);
     }
   };
   
@@ -1706,8 +1687,6 @@ export default function Kits({ isActive = true }) {
             kits={storeKits}
             onSave={handleSaveNewKit}
           />
-          <LoginPromptModal isOpen={isLoginPromptOpen} onClose={() => setIsLoginPromptOpen(false)} onLogin={() => { setLoginModalOpen(true); setIsLoginPromptOpen(false); }} onContinue={() => { setIsLoginPromptOpen(false); openCheckoutPage(itemsForCheckout, true); }} continueLabel="Check Price & Shipping" />
-
       </div>
     </PageTemplate>
   );

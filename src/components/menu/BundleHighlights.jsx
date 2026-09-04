@@ -6,7 +6,6 @@ import { useTheme } from '../../context/ThemeContext';
 import DealDetailsModal from '../kitcards/DealDetailsModal';
 import ProductCard from '../kitcards/ProductCard';
 import ProjectCard from '../calculator/ProjectCard';
-import LoginPromptModal from './LoginPromptModal';
 import { getDealGrabLabel } from '../../utils/dealSavings';
 import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
 import UniversalImage from '../common/UniversalImage';
@@ -187,16 +186,14 @@ export default function BundleHighlights() {
   const isAdminView = useStore((state) => state.isAdminView);
   const addProjectToBasket = useStore((state) => state.addProjectToBasket);
   const setToastMessage = useStore((state) => state.setToastMessage);
-  const setLoginModalOpen = useStore((state) => state.setLoginModalOpen);
   const shippingSettings = useStore((state) => state.shippingSettings);
   const user = useStore((state) => state.user);
+  const isAnonymousUser = useStore((state) => state.isAnonymousUser);
   const _datasetStatus = useStore((state) => state._datasetStatus);
   const navigate = useNavigate();
   const { isDarkMode, isSpectralMode } = useTheme();
   const [now, setNow] = useState(() => Date.now());
   const [selectedDeal, setSelectedDeal] = useState(null);
-  const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
-  const [itemsForCheckout, setItemsForCheckout] = useState([]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
@@ -531,13 +528,8 @@ export default function BundleHighlights() {
 
   const handleProjectOrderNow = (project) => {
     const checkoutItems = [buildCheckoutProjectItem(project)];
-    setItemsForCheckout(checkoutItems);
-    if (!user) {
-      setIsLoginPromptOpen(true);
-      return;
-    }
     if (!(isAdmin && isAdminView)) {
-      navigate('/checkout', { state: { items: checkoutItems, isGuestPreview: false } });
+      navigate('/checkout', { state: { items: checkoutItems, isGuestPreview: !user || isAnonymousUser } });
     }
   };
 
@@ -635,19 +627,6 @@ export default function BundleHighlights() {
         onEditDeal={handleDealAction}
       />
 
-      <LoginPromptModal
-        isOpen={isLoginPromptOpen}
-        onClose={() => setIsLoginPromptOpen(false)}
-        onLogin={() => {
-          setLoginModalOpen(true);
-          setIsLoginPromptOpen(false);
-        }}
-        onContinue={() => {
-          setIsLoginPromptOpen(false);
-          navigate('/checkout', { state: { items: itemsForCheckout, isGuestPreview: true } });
-        }}
-        continueLabel="Check Price & Shipping"
-      />
     </section>
   );
 }

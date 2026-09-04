@@ -3585,6 +3585,53 @@ export const useStore = create(
         return allocation || { success: false };
       },
 
+      releaseCheckoutReservation: async (kitId, stockKey, uid) => {
+        let released = false;
+        const kitRef = doc(db, 'kits', kitId);
+
+        await runTransaction(db, async (transaction) => {
+          const snap = await transaction.get(kitRef);
+          if (!snap.exists()) return;
+
+          const stock = snap.data().stocks?.[stockKey];
+          const canRelease = Boolean(
+            stock
+            && stock.isReserved
+            && stock.reservedBy === uid
+            && !stock.order?.orderId
+            && stock.reservationType !== 'admin'
+          );
+          if (!canRelease) return;
+
+          const nextStocks = { ...snap.data().stocks };
+          nextStocks[stockKey] = {
+            ...stock,
+            isReserved: false,
+            reservedBy: null,
+            reservedAt: null
+          };
+          delete nextStocks[stockKey].reservationType;
+          delete nextStocks[stockKey].reservedByDealId;
+
+          transaction.update(kitRef, {
+            [`stocks.${stockKey}.isReserved`]: false,
+            [`stocks.${stockKey}.reservedBy`]: null,
+            [`stocks.${stockKey}.reservedAt`]: null,
+            [`stocks.${stockKey}.availableAt`]: serverTimestamp(),
+            [`stocks.${stockKey}.reservationType`]: deleteField(),
+            [`stocks.${stockKey}.reservedByDealId`]: deleteField(),
+            hasAvailableStock: Object.values(nextStocks).some((candidate) => (
+              !candidate?.order?.orderId && !candidate?.isReserved
+            )),
+            lastAvailableAt: serverTimestamp(),
+            lastUpdated: serverTimestamp()
+          });
+          released = true;
+        });
+
+        return released;
+      },
+
       publishBlueprint: async (pData) => {
         const { user } = get();
         const cleanProjectData = removeUndefinedValues(pData || {});

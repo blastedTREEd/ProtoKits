@@ -4,7 +4,6 @@ import { Trash2, ShoppingBag, ShelvingUnit, ShoppingCart, PackagePlus, Plus, Min
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
-import LoginPromptModal from '../components/menu/LoginPromptModal';
 import ListItemSkeleton from '../components/common/ListItemSkeleton';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
 import { isOfferCheckoutActive, valueToMillis } from '../utils/offerUtils';
@@ -297,7 +296,7 @@ export default function Cart() {
   const isCartPath = location.pathname === '/cart' || location.pathname === '/basket';
   const { 
     user, isAnonymousUser, basket, shelf, isAdmin, isAdminView, removeFromBasket, kits, userOffers, userOffersLoaded, addToBasket, addProjectToBasket, decrementProjectQuantity,
-    guestBasket, isLoading, setLoginModalOpen, shippingSettings, loadMissingKits, refreshBasket, keepOneOfEachToShelf, deals, loadBlueprintProductionStatuses,
+    guestBasket, isLoading, shippingSettings, loadMissingKits, refreshBasket, keepOneOfEachToShelf, deals, loadBlueprintProductionStatuses,
     orders, printers, feeders, filamentInventory, rates, projectVault, blueprints
   } = useStore();
   const [isKeepingOnes, setIsKeepingOnes] = useState(false);
@@ -310,8 +309,6 @@ export default function Cart() {
       ? location.state.restoreSelectionIds
       : []
   ));
-  const [isLoginPromptOpen, setLoginPromptOpen] = useState(false);
-  const [itemsForCheckout, setItemsForCheckout] = useState([]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setOfferNow(Date.now()), 1000);
@@ -2255,7 +2252,6 @@ export default function Cart() {
                                   ...item,
                                   quantity: item.qty
                                 }));
-                                setItemsForCheckout(checkoutItems);
                                 openCheckoutPage(checkoutItems, !user || isAnonymousUser);
                               }}
                               className="px-10 py-3.5 rounded-full font-black uppercase tracking-widest text-xs transition-all bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:scale-105"
@@ -2271,7 +2267,6 @@ export default function Cart() {
           </div>
         )}
       </div>
-      <LoginPromptModal isOpen={isLoginPromptOpen} onClose={() => setLoginPromptOpen(false)} onLogin={() => { setLoginModalOpen(true); setLoginPromptOpen(false); }} onContinue={() => { setLoginPromptOpen(false); openCheckoutPage(itemsForCheckout, true); }} continueLabel="Check Price & Shipping" />
     </PageTemplate>
   );
 }
