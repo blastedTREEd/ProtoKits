@@ -237,6 +237,7 @@ export default function Kits({ isActive = true }) {
   const [sortType, setSortType] = useState("latest"); // Default sort
   const [isSortOpen, setIsSortOpen] = useState(false);
   const sortRef = useRef(null);
+  const searchInputRef = useRef(null);
   
   const [isAddKitModalOpen, setIsAddKitModalOpen] = useState(false); 
   const [isAddDealModalOpen, setIsAddDealModalOpen] = useState(false);
@@ -1176,6 +1177,21 @@ export default function Kits({ isActive = true }) {
   const contentHeaderMotion = 'transition-transform duration-400 ease-in-out motion-reduce:transition-none will-change-transform';
   const sectionHeaderMotion = 'transition-[top] duration-400 ease-in-out motion-reduce:transition-none will-change-[top]';
 
+  const focusKitsSearch = () => {
+    if (window.innerWidth < 768 && isContentHeaderHidden) {
+      const scrollState = contentHeaderScrollRef.current;
+      scrollState.hidden = false;
+      scrollState.direction = 0;
+      scrollState.distance = 0;
+      scrollState.previousY = window.scrollY;
+      setIsContentHeaderHidden(false);
+    }
+
+    window.requestAnimationFrame(() => {
+      searchInputRef.current?.focus({ preventScroll: true });
+    });
+  };
+
   const renderDealCard = (deal) => {
     if (!deal) return null;
     const orderedKitIds = [
@@ -1271,6 +1287,7 @@ export default function Kits({ isActive = true }) {
                   <div className="relative min-w-0 flex-1">
                       <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 opacity-20 text-neutral-900 dark:text-white" />
                       <input
+                      ref={searchInputRef}
                       type="text"
                       value={inputValue}
                       onChange={(e) => setInputValue(e.target.value)}
@@ -1286,7 +1303,7 @@ export default function Kits({ isActive = true }) {
                         }
                       }}
                       placeholder="SEARCH KITS OR SERIES..."
-                      className="w-full pl-12 pr-12 py-3 bg-white dark:bg-white/5 border border-black/5 dark:border-white/10 rounded-2xl text-[12px] font-bold uppercase tracking-widest outline-none focus:border-blue-500 transition-all"
+                      className="w-full pl-12 pr-12 py-3 bg-white dark:bg-white/5 border border-black/5 dark:border-white/10 rounded-2xl text-[12px] font-bold uppercase tracking-widest placeholder:font-medium outline-none focus:border-blue-500 transition-all"
                       />
                       {inputValue && (
                         <button onClick={() => setInputValue("")} className="absolute right-4 top-1/2 -translate-y-1/2 p-1 rounded-full bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20 transition-colors">
@@ -1639,18 +1656,38 @@ export default function Kits({ isActive = true }) {
               {isKitsDataLoading && allFilteredKits.length === 0 ? (
                 Array.from({ length: 15 }).map((_, i) => <div key={`skeleton-init-${i}`} className="w-full h-full"><KitSkeleton /></div>)
               ) : allFilteredKits.length > 0 && !isKitsDataLoading && (
-                <div className="col-span-2 sm:col-span-3 lg:col-span-4 xl:col-span-5 2xl:col-span-5 py-12 text-center">
-                  <p className="text-[13px] font-bold uppercase tracking-widest text-neutral-900 dark:text-white">
+                <div className="col-span-full w-full py-12 text-center">
+                  <p
+                    onClick={!searchTerm && !isAdminView ? focusKitsSearch : undefined}
+                    className={`mx-auto max-w-full px-3 text-center text-[13px] text-neutral-900 dark:text-white ${!searchTerm && !isAdminView ? 'cursor-pointer' : 'font-bold uppercase tracking-widest'}`}
+                  >
                     {searchTerm ? (
-                      "All matching kits loaded!"
+                      <span className="font-medium">All matching kits loaded!</span>
                     ) : (!isAdminView ? (
-                      "All available kits loaded!"
+                      <>
+                        <span className="block font-medium uppercase tracking-widest">
+                          Looking for something else?
+                        </span>
+                        <span className="mt-1 block font-normal normal-case tracking-normal text-neutral-900 dark:text-white">
+                          Try searching! It might be in our personal collection—send us an offer.
+                        </span>
+                      </>
                     ) : (
                       <>
                         All kits loaded! To stay updated, follow <a href="https://www.facebook.com/profile.php?id=61576855103826" target="_blank" rel="noopener noreferrer" className="text-garage-blue  hover:underline">SnorlaxGarage</a> on Facebook
                       </>
                     ))}
                   </p>
+                  {!searchTerm && !isAdminView && (
+                    <button
+                      type="button"
+                      onClick={focusKitsSearch}
+                      aria-label="Search kits"
+                      className="mx-auto mt-4 flex size-10 items-center justify-center rounded-full text-neutral-900 transition-colors hover:bg-black/5 dark:text-white dark:hover:bg-white/10"
+                    >
+                      <Search size={22} strokeWidth={2} />
+                    </button>
+                  )}
                 </div>
               )}
             </div>

@@ -579,7 +579,7 @@ export default function Prints() {
                       onClick={() => setIsToolsOpen(false)}
                       onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
                       placeholder="SEARCH PROJECTS..."
-                      className="w-full pl-12 pr-12 py-3 bg-white dark:bg-white/5 border border-black/5 dark:border-white/10 rounded-2xl text-[12px] font-bold uppercase tracking-widest outline-none focus:border-blue-500 transition-all"
+                      className="w-full pl-12 pr-12 py-3 bg-white dark:bg-white/5 border border-black/5 dark:border-white/10 rounded-2xl text-[12px] font-bold uppercase tracking-widest placeholder:font-medium outline-none focus:border-blue-500 transition-all"
                     />
                     {searchTerm && (
                       <button 
@@ -679,7 +679,7 @@ export default function Prints() {
               {(sortedFilteredVault.length > 0 || !(isAdmin && isAdminView)) && (
                 <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[90] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50 px-4 py-2 backdrop-blur-md dark:bg-[#0a0a0a] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderMotion} ${sectionHeaderPosition}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
-                  <span className="text-[13px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">User Projects</span>
+                  <span className="text-[13px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Your Projects</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                 </div>
               )}

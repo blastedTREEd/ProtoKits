@@ -3547,7 +3547,7 @@ const handleFinalizeOrder = async () => {
                   <div className="flex justify-between text-amber-200"><span>ADD MORE TO USE</span><span>₱{unusedClearanceDiscount.toLocaleString()}</span></div>
                 )}
                 {isReservationPlan && totalAppliedInstallmentFee > 0 && (
-                  <div className="flex justify-between text-amber-200"><span>{planFeeLabel}</span><span>₱{totalAppliedInstallmentFee.toLocaleString()}</span></div>
+                  <div className="flex justify-between text-white"><span>{planFeeLabel}</span><span>₱{totalAppliedInstallmentFee.toLocaleString()}</span></div>
                 )}
                 {fullPaymentReservationFeeDiscount > 0 && (
                   <div className="flex justify-between text-emerald-200"><span>Full Payment Discount</span><span>-₱{fullPaymentReservationFeeDiscount.toLocaleString()}</span></div>
@@ -3587,9 +3587,7 @@ const handleFinalizeOrder = async () => {
                       const label = plan === 'full' ? 'Full' : plan === 'partial' ? 'Partial' : 'Reservation';
                       const planAmountLabel = plan === 'full' && fullPaymentReservationFeeDiscount > 0
                         ? `₱${fullPaymentReservationFeeDiscount.toLocaleString()} Off`
-                        : plan === 'reservation' && totalReservationFee > 0
-                          ? `₱${totalReservationFee.toLocaleString()} Fee`
-                          : '';
+                        : '';
                       const isSelected = checkoutData.paymentPlan === plan;
                       return (
                         <button key={plan} onClick={() => { setAgreedToPolicy(false); updateCheckoutData(prev => ({ ...prev, paymentPlan: plan, initialPayment: plan === 'full' ? 0 : (plan === 'reservation' ? requiredInitialPayment : minInitialPayment) })); }} className={`rounded-xl border py-3 text-[13px] font-black uppercase ${isSelected ? 'border-white bg-white text-blue-600' : 'border-white/80 text-white'}`}>
@@ -3629,7 +3627,7 @@ const handleFinalizeOrder = async () => {
                             event.stopPropagation();
                             setIsPaymentPolicyOpen(true);
                           }}
-                          className="shrink-0 font-black text-white underline-offset-2 transition-colors hover:text-emerald-300"
+                          className="shrink-0 font-black text-emerald-200 underline underline-offset-2 transition-colors hover:text-white"
                         >
                           payment and reservation policy
                         </a>
@@ -3643,13 +3641,10 @@ const handleFinalizeOrder = async () => {
                   <p className="mb-2 text-[12px] font-black uppercase tracking-widest opacity-60">Payment Method</p>
                   <div className="grid grid-cols-2 gap-2">
                     {availablePaymentMethods.map(method => {
-                      const methodConfig = getPaymentMethodConfig(storeAdmin?.paymentSettings?.methods, method);
-                      const methodFee = Number(methodConfig.cashTransferFee || 0);
-                      const hasFee = methodFee > 0;
                       const isSelected = checkoutData.paymentMethod?.toLowerCase() === method.toLowerCase();
                       return (
                         <button key={method} onClick={() => updateCheckoutData(prev => ({ ...prev, paymentMethod: method }))} className={`rounded-xl border px-3 py-3 text-[13px] font-black uppercase ${isSelected ? 'border-white bg-white text-blue-600' : 'border-white/80 text-white'}`}>
-                          {method}{hasFee ? ` ₱${methodFee.toLocaleString()} FEE` : ''}
+                          {method}
                         </button>
                       );
                     })}
@@ -4416,7 +4411,7 @@ const handleFinalizeOrder = async () => {
                         </div>
                       )}
                       {unusedClearanceDiscount > 0 && (
-                        <div className="flex justify-between uppercase font-black text-amber-200">
+                        <div className="flex justify-between uppercase font-black text-white">
                           <span>ADD MORE TO USE</span>
                           <span>₱{unusedClearanceDiscount.toLocaleString()}</span>
                         </div>
@@ -4469,9 +4464,7 @@ const handleFinalizeOrder = async () => {
                               const label = plan === 'full' ? 'Full' : plan === 'reservation' ? 'Reservation' : 'Partial';
                               const planAmountLabel = plan === 'full' && fullPaymentReservationFeeDiscount > 0
                                 ? `₱${fullPaymentReservationFeeDiscount.toLocaleString()} Off`
-                                : plan === 'reservation' && totalReservationFee > 0
-                                  ? `₱${totalReservationFee.toLocaleString()} Fee`
-                                  : '';
+                                : '';
                               return (
                                 <motion.button
                                   key={plan}
@@ -4602,9 +4595,6 @@ const handleFinalizeOrder = async () => {
                               hindi na kailangan ng duplicate filter logic dito. Naka-apply na
                               ang cash restriction, pre-order check, at active/disabled check. */}
                           {availablePaymentMethods.map(method => {
-                            const methodConfig = getPaymentMethodConfig(storeAdmin?.paymentSettings?.methods, method);
-                            const methodFee = Number(methodConfig.cashTransferFee || 0);
-                            const hasFee = methodFee > 0;
                             const isSelected = checkoutData.paymentMethod?.toLowerCase() === method.toLowerCase();
 
                             return (
@@ -4612,18 +4602,13 @@ const handleFinalizeOrder = async () => {
                                  key={method}
                                  whileTap={{ scale: 0.98 }}
                                  onClick={() => updateCheckoutData(prev => ({ ...prev, paymentMethod: method }))}
-                                 className={`w-full py-3 px-4 rounded-xl text-[10px] font-black uppercase border transition-all flex items-center ${hasFee ? 'justify-between' : 'justify-center'} ${
+                                 className={`w-full py-3 px-4 rounded-xl text-[10px] font-black uppercase border transition-all flex items-center justify-center ${
                                    isSelected
                                    ? 'bg-white text-blue-600 border-white shadow-lg'
                                    : 'bg-transparent text-white border-white hover:bg-white/5'
                                  }`}
                                >
                                  <span>{method}</span>
-                                 {hasFee && (
-                                   <span className={`text-[10px] font-black ${isSelected ? 'text-black/80' : 'text-emerald-300'}`}>
-                                     ₱{methodFee.toLocaleString()} FEE
-                                   </span>
-                                 )}
                                </motion.button>
                              );
                           })}
