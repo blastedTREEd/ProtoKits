@@ -414,16 +414,16 @@ export default function Kits({ isActive = true }) {
   const userId = user?.uid;
 
   useEffect(() => {
-    if (!isAdmin || !isAdminView) return undefined;
+    if (!isActive || !isAdmin || !isAdminView) return undefined;
     const unsubscribe = subscribeOrders({ isAdminMode: true });
     return () => unsubscribe && unsubscribe();
-  }, [isAdmin, isAdminView, subscribeOrders]);
+  }, [isActive, isAdmin, isAdminView, subscribeOrders]);
 
   useEffect(() => {
-    if (!isAdminView) return undefined;
+    if (!isActive || !isAdminView) return undefined;
     const unsubscribe = subscribeNotifyList({ isAdminMode: true });
     return () => unsubscribe && unsubscribe();
-  }, [isAdminView, subscribeNotifyList]);
+  }, [isActive, isAdminView, subscribeNotifyList]);
 
   const activeOfferKitIds = useMemo(() => {
     if (!isAdminView && !userId) return new Set();

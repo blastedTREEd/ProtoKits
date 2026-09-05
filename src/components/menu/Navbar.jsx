@@ -14,8 +14,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useStore } from '../../store/useStore';
 import { preloadKits } from '../../routePreloads';
 import { signOut, signInWithPopup } from 'firebase/auth'; 
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
-import { auth, fbProvider, googleProvider, db } from '../../firebase/firebase';
+import { auth, fbProvider, googleProvider } from '../../firebase/firebase';
 import AccountSettingsModal from './AccountSettingsModal';
 import OperationsModal from './OperationsModal';
 import WelcomeModal from './WelcomeModal';
@@ -28,7 +27,8 @@ import {
 import {
   getNotificationActivityTime,
   getNotificationVersion,
-  isLegacyOrderRecord
+  isLegacyOrderRecord,
+  isCompletedOrderNotification
 } from './notificationUtils';
 import StoryEditorModal from './StoryEditorModal';
 
@@ -91,6 +91,7 @@ export default function Navbar({ isCompact: scrolledCompact }) {
     deals,
     orders,
     userOffers,
+    notifyList,
     shippingSettings,
     user, 
     isProfileIncomplete,
@@ -100,6 +101,8 @@ export default function Navbar({ isCompact: scrolledCompact }) {
     setAdminView,
     originalAdminUser, 
     stopImpersonating,
+    subscribeOrders,
+    subscribeNotifyList,
     isLoginModalOpen,
     setLoginModalOpen,
     guestBasket,
@@ -111,12 +114,8 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   const notificationOwnerKey = user?.uid
     ? `${user.uid}${isAdminNotificationView ? ':admin' : ''}`
     : 'guest';
-  const usesOrdersPageSubscription = location.pathname === '/orders' || location.pathname.startsWith('/orders/');
-
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
-  const [notificationOrders, setNotificationOrders] = useState([]);
-  const [notificationHunts, setNotificationHunts] = useState([]);
   const [notificationReadVersions, setNotificationReadVersions] = useState({});
   const [notificationSeenVersions, setNotificationSeenVersions] = useState({});
   const [notificationDismissedVersions, setNotificationDismissedVersions] = useState({});
@@ -226,12 +225,18 @@ export default function Navbar({ isCompact: scrolledCompact }) {
       kits,
       deals,
       basket: notificationBasket,
-      hunts: user?.uid && !isAdminNotificationView ? notificationHunts : [],
+      hunts: user?.uid && !isAdminNotificationView ? userOffers : [],
       outOfStockKitIds,
       now: notificationNow
     })
-  ), [deals, isAdminNotificationView, kits, notificationBasket, notificationHunts, notificationNow, outOfStockKitIds, user?.uid]);
-  const effectiveNotificationOrders = usesOrdersPageSubscription ? orders : notificationOrders;
+  ), [deals, isAdminNotificationView, kits, notificationBasket, notificationNow, outOfStockKitIds, user?.uid, userOffers]);
+  // Keep one shared order listener for the navbar and order pages. The store
+  // reference-counts identical subscriptions, avoiding a second live query
+  // just for the notification bell.
+  const effectiveNotificationOrders = useMemo(
+    () => (user?.uid ? orders : []),
+    [orders, user?.uid]
+  );
   const legacyCompletionNotifications = useMemo(() => (
     effectiveNotificationOrders
       .filter(isCompletedLegacyOrder)
@@ -269,7 +274,7 @@ export default function Navbar({ isCompact: scrolledCompact }) {
         .map((kit) => kit.id)
     );
 
-    return (notificationHunts || [])
+    return (notifyList || [])
       .filter((offer) => isActiveHunt(offer, notificationNow) && collectionKitIds.has(offer?.kitId))
       .map((offer) => ({
         ...offer,
@@ -283,7 +288,7 @@ export default function Navbar({ isCompact: scrolledCompact }) {
         summary: offer.kitName || '',
         lastUpdated: offer.updatedAt || offer.createdAt
       }));
-  }, [kits, notificationHunts, notificationNow]);
+  }, [kits, notifyList, notificationNow]);
   const allNotifications = useMemo(() => (
     isAdminNotificationView
       ? [...legacyCompletionNotifications, ...adminReceiptNotifications, ...adminOfferNotifications]
@@ -293,7 +298,7 @@ export default function Navbar({ isCompact: scrolledCompact }) {
     const version = getNotificationVersion(notification);
     if (notificationDismissedVersions[notification.id] === version) return false;
 
-    if (ONE_DAY_NOTIFICATION_KINDS.has(notification.notificationKind)) {
+    if (ONE_DAY_NOTIFICATION_KINDS.has(notification.notificationKind) || isCompletedOrderNotification(notification)) {
       const postedAt = getNotificationActivityTime(notification);
       if (postedAt > 0 && notificationNow - postedAt >= ONE_DAY_MS) return false;
     }
@@ -321,7 +326,7 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   useEffect(() => {
     const kitMap = new Map((kits || []).map((kit) => [kit.id, kit]));
     const basketKitIds = [...new Set((notificationBasket || []).map((item) => item?.id).filter(Boolean))];
-    const activeHuntKitIds = (user?.uid && !isAdminNotificationView ? notificationHunts : [])
+    const activeHuntKitIds = (user?.uid && !isAdminNotificationView ? userOffers : [])
       .filter((hunt) => isActiveHunt(hunt, notificationNow))
       .map((hunt) => hunt?.kitId)
       .filter(Boolean);
@@ -347,7 +352,7 @@ export default function Navbar({ isCompact: scrolledCompact }) {
       saveNotificationVersions('out-of-stock', notificationOwnerKey, nextKitIds);
       return nextKitIds;
     });
-  }, [isAdminNotificationView, kits, notificationBasket, notificationHunts, notificationNow, notificationOwnerKey, user?.uid]);
+  }, [isAdminNotificationView, kits, notificationBasket, notificationNow, notificationOwnerKey, user?.uid, userOffers]);
 
   useEffect(() => {
     const titleWithoutCounter = document.title.replace(/^\(\d+\)\s*/, '');
@@ -523,54 +528,17 @@ useEffect(() => {
   const isCompactMode = location.pathname !== "/" || scrolledCompact || isPastScrollThreshold || isStoriesManagerOpen || isNotificationModalOpen || isProfileOpen || isHighlightModalOpen || isMobile || isSmallViewport;
 
   useEffect(() => {
-    if (!user?.uid) {
-      setNotificationOrders([]);
-      setNotificationHunts([]);
-      return undefined;
-    }
-
-    if (usesOrdersPageSubscription) {
-      setNotificationOrders([]);
-      return undefined;
-    }
-
-    setNotificationOrders([]);
-    const notificationQuery = isAdminNotificationView
-      ? query(collection(db, 'orders'), where('status', 'in', ['Validating', 'Completed']))
-      : query(collection(db, 'orders'), where('userId', '==', user.uid));
-    return onSnapshot(notificationQuery, (snapshot) => {
-      const nextOrders = snapshot.docs.map((orderDoc) => ({ id: orderDoc.id, ...orderDoc.data() }));
-      setNotificationOrders(isAdminNotificationView
-        ? nextOrders
-        : nextOrders.filter((order) => !isCompletedLegacyOrder(order)));
-    }, (error) => {
-      console.error('SG LOG: Notification subscription error:', error);
+    if (!user?.uid) return undefined;
+    return subscribeOrders({
+      uid: user.uid,
+      isAdminMode: isAdminNotificationView
     });
-  }, [isAdminNotificationView, user?.uid, usesOrdersPageSubscription]);
+  }, [isAdminNotificationView, subscribeOrders, user?.uid]);
 
   useEffect(() => {
-    if (!user?.uid) {
-      setNotificationHunts([]);
-      return undefined;
-    }
-
-    // The store already keeps the signed-in user's hunts live for offer
-    // management. Reuse that subscription instead of opening a second one
-    // just for the notification bell.
-    if (!isAdminNotificationView) {
-      setNotificationHunts(userOffers || []);
-      return undefined;
-    }
-
-    const huntQuery = isAdminNotificationView
-      ? query(collection(db, 'hunts'), where('status', 'in', ['pending', 'hunting']))
-      : query(collection(db, 'hunts'), where('uid', '==', user.uid));
-    return onSnapshot(huntQuery, (snapshot) => {
-      setNotificationHunts(snapshot.docs.map((huntDoc) => ({ id: huntDoc.id, ...huntDoc.data() })));
-    }, (error) => {
-      console.error('SG LOG: Hunt notification subscription error:', error);
-    });
-  }, [isAdminNotificationView, user?.uid, userOffers]);
+    if (!isAdminNotificationView) return undefined;
+    return subscribeNotifyList({ isAdminMode: true });
+  }, [isAdminNotificationView, subscribeNotifyList]);
 
   const handleNavClick = (path) => {
     policyScrollCleanupRef.current?.();
@@ -696,10 +664,8 @@ useEffect(() => {
       Math.ceil(window.scrollY + currentNavbarTop)
     );
     landingStickyScrollTopRef.current = minimumLandingScroll;
-    let previousLandingScroll = window.scrollY;
     const handleLandingScroll = () => {
       const currentLandingScroll = window.scrollY;
-      previousLandingScroll = currentLandingScroll;
       if (currentLandingScroll < minimumLandingScroll) {
         window.scrollTo({ top: minimumLandingScroll, left: 0, behavior: 'auto' });
       }

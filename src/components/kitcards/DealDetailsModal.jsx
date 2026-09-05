@@ -86,7 +86,7 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onAd
         };
       });
       const clearance = getClearanceBundlePricing(pricingRows, getActiveClearanceKitIds(deal, deal.clearanceKitIds || deal.kitIds || []), deal.clearanceDiscounts || {});
-      const adjustedPricing = clearance.rows.map((row, index) => ({
+      const adjustedPricing = clearance.rows.map((row) => ({
         ...row,
         distributedPrice: row.finalPrice,
         refPrice: getDisplayedStandalonePrice(row.refPrice)

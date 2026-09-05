@@ -74,7 +74,7 @@ function hasPubliclyAvailableStock(kit) {
 export default function NotifyList() {
   const { isDarkMode } = useTheme();
   const {
-    user, isAdmin, isAdminView, notifyList,
+    user, userOffers, isAdmin, isAdminView, notifyList,
     deleteFromNotifyList, kits, shelf,
     subscribeNotifyList, isLoading, loadMissingKits,
     updateOfferPrice, declineOffer, releaseOffer, setToastMessage,
@@ -93,12 +93,10 @@ export default function NotifyList() {
   }, [shippingSettings]);
 
   useEffect(() => {
-    const unsubscribe = subscribeNotifyList({
-      uid: user?.uid,
-      isAdminMode: isReleaseMode
-    });
+    if (!isReleaseMode) return undefined;
+    const unsubscribe = subscribeNotifyList({ isAdminMode: true });
     return () => unsubscribe && unsubscribe();
-  }, [subscribeNotifyList, user?.uid, isReleaseMode]);
+  }, [subscribeNotifyList, isReleaseMode]);
 
   useEffect(() => {
     const handleHide = () => setIsMiniNavVisible(false);
@@ -130,7 +128,7 @@ export default function NotifyList() {
           // checkout windows even after the kit leaves the admin shelf.
           return (status === 'pending' && collectionKitIds.has(item.kitId)) || status === 'released';
         })
-      : (user ? notifyList.filter((item) => {
+      : (user ? (userOffers || []).filter((item) => {
           if (item.uid !== user.uid) return false;
           const status = getOfferStatus(item);
           const kit = (kits || []).find((entry) => entry.id === item.kitId);
@@ -149,7 +147,7 @@ export default function NotifyList() {
       }
       return dateToMillis(b.updatedAt || b.createdAt) - dateToMillis(a.updatedAt || a.createdAt);
     });
-  }, [isReleaseMode, kits, notifyList, user]);
+  }, [isReleaseMode, kits, notifyList, user, userOffers]);
 
   const offerKitIds = useMemo(() => (
     [...new Set(myNotifyList.map((item) => item?.kitId).filter(Boolean))]
@@ -223,7 +221,7 @@ export default function NotifyList() {
   const handleBulkRelease = async () => {
     if (!window.confirm(`Accept ${selectedIds.length} selected offer(s) using their sent prices?`)) return;
     for (const id of selectedIds) {
-      const item = notifyList.find(n => n.id === id);
+      const item = myNotifyList.find(n => n.id === id);
       if (!item) continue;
       try {
         await releaseOffer(item);

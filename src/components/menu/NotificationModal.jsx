@@ -246,7 +246,6 @@ export default function NotificationModal({
 
   useEffect(() => {
     if (!isOpen || !isFullscreen) {
-      setIsNotificationListAtEnd(false);
       return undefined;
     }
 
@@ -266,7 +265,6 @@ export default function NotificationModal({
   useEffect(() => {
     if (isOpen) {
       panelDragY.set(0);
-      setIsContentDragging(false);
     }
   }, [isOpen, panelDragY]);
 
@@ -437,7 +435,7 @@ export default function NotificationModal({
                   {notifications.map((order) => {
               const details = getStatusDetails(order);
               const StatusIcon = details.icon;
-              const activityTime = order.lastUpdated || order.createdAt;
+              const activityTime = getNotificationActivityTime(order);
               const orderSummary = getOrderSummary(order);
               const isUnread = readVersions[order.id] !== getNotificationVersion(order);
               const isStockAlert = ['back_in_stock', 'low_stock'].includes(order.notificationKind);

@@ -7,8 +7,14 @@ export const notificationValueToMillis = (value) => {
   return Number.isNaN(parsed) ? 0 : parsed;
 };
 
+export const isCompletedOrderNotification = (order) => (
+  String(order?.status || '').trim().toLowerCase() === 'completed'
+);
+
 export const getNotificationActivityTime = (order) => (
-  notificationValueToMillis(order?.lastUpdated) || notificationValueToMillis(order?.createdAt)
+  (isCompletedOrderNotification(order) && notificationValueToMillis(order?.completedAt))
+  || notificationValueToMillis(order?.lastUpdated)
+  || notificationValueToMillis(order?.createdAt)
 );
 
 export const isLegacyOrderRecord = (order) => Boolean(

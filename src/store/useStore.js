@@ -460,6 +460,7 @@ const docsToArray = (snap) => snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 // Share identical order listeners between pages and modals so the same
 // user/admin query is only billed once while multiple views are open.
 const sharedOrderSubscriptions = new Map();
+const sharedNotifySubscriptions = new Map();
 
 const buildOrderStockTargets = (order = {}) => {
   const targets = [];
@@ -1106,30 +1107,6 @@ export const useStore = create(
             // current route requirements without creating duplicate listeners.
             get().startBackgroundListeners();
 
-            // User-dependent data: only start AFTER profile is synced
-            const currentReq = get()._getPageRequirements(get()._activePath);
-
-            // 4. Shelf priority -> Shelf collection (requires admin check)
-            if (currentReq.shelf) {
-              const unsub = onSnapshot(collection(db, "shelf"), async (snap) => {
-                try {
-                  const items = await reconcileAdminShelfSnapshot(snap);
-                  set({ shelf: items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()) });
-                } catch (error) {
-                  console.error("SG LOG: Shelf reconciliation failed:", error);
-                  const items = snap.docs.map(doc => ({ ...doc.data(), basketId: doc.id }));
-                  set({ shelf: items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()) });
-                }
-                get().markLoaded('shelf');
-              }, (err) => {
-                console.error("SG LOG: Shelf subscription error:", err);
-                set((state) => ({ _datasetListenerKeys: { ...state._datasetListenerKeys, shelf: false } }));
-                get().markLoaded('shelf', { status: 'error' });
-              });
-              if (get().unsubShelf) get().unsubShelf();
-              set({ unsubShelf: unsub });
-              set((state) => ({ _datasetListenerKeys: { ...state._datasetListenerKeys, shelf: true } }));
-            }
           });
         });
 
@@ -1257,16 +1234,43 @@ export const useStore = create(
       subscribeNotifyList: (scope = {}) => {
         const { uid, isAdminMode } = scope;
         const huntsQuery = isAdminMode
-          ? collection(db, "hunts")
+          ? query(collection(db, "hunts"), where('status', 'in', ['pending', 'hunting', 'released']))
           : uid
             ? query(collection(db, "hunts"), where("uid", "==", uid))
             : null;
 
         if (!huntsQuery) return () => {};
 
-        return onSnapshot(huntsQuery, (snap) => {
+        const subscriptionKey = isAdminMode ? 'admin' : `user:${uid}`;
+        const existingSubscription = sharedNotifySubscriptions.get(subscriptionKey);
+        if (existingSubscription) {
+          existingSubscription.refCount += 1;
+          return () => {
+            const currentSubscription = sharedNotifySubscriptions.get(subscriptionKey);
+            if (currentSubscription !== existingSubscription) return;
+            currentSubscription.refCount -= 1;
+            if (currentSubscription.refCount <= 0) {
+              currentSubscription.unsubscribe?.();
+              sharedNotifySubscriptions.delete(subscriptionKey);
+            }
+          };
+        }
+
+        const subscription = { refCount: 1, unsubscribe: null };
+        sharedNotifySubscriptions.set(subscriptionKey, subscription);
+        subscription.unsubscribe = onSnapshot(huntsQuery, (snap) => {
           set({ notifyList: docsToArray(snap) });
         }, () => set({ notifyList: [] }));
+
+        return () => {
+          const currentSubscription = sharedNotifySubscriptions.get(subscriptionKey);
+          if (currentSubscription !== subscription) return;
+          currentSubscription.refCount -= 1;
+          if (currentSubscription.refCount <= 0) {
+            currentSubscription.unsubscribe?.();
+            sharedNotifySubscriptions.delete(subscriptionKey);
+          }
+        };
       },
 
       loadBlueprints: async () => {
@@ -1422,6 +1426,9 @@ export const useStore = create(
 
         const subscription = { refCount: 1, unsubscribe: null };
         sharedOrderSubscriptions.set(subscriptionKey, subscription);
+        // Do not keep showing the previous user's/admin view while the new
+        // listener is waiting for its first snapshot.
+        set({ orders: [] });
         subscription.unsubscribe = onSnapshot(ordersQuery, (snap) => {
           const docs = docsToArray(snap).filter((order) => (
             isAdminMode || !isLegacyOrderRecord(order)
@@ -2284,7 +2291,7 @@ export const useStore = create(
           console.log("DEBUG: No sgUser found, switching to guest mode.");
           const guestProjectVault = JSON.parse(localStorage.getItem('sg_guest_project_vault') || '[]');
           const guestBasket = JSON.parse(localStorage.getItem('sg_guest_basket') || '[]');
-          set({ user: null, isAnonymousUser: false, isAdmin: false, isAdminView: false, usersList: [], projectVault: guestProjectVault, guestBasket, shelf: [], userOffers: [], userOffersLoaded: true, unsubUser: null, unsubShelf: null, unsubAdmin: null, unsubBasket: null, unsubProjectVault: null, unsubOffers: null, syncStatus: 'Restoring local basket' });
+          set({ user: null, isAnonymousUser: false, isAdmin: false, isAdminView: false, usersList: [], orders: [], notifyList: [], projectVault: guestProjectVault, guestBasket, shelf: [], userOffers: [], userOffersLoaded: true, unsubUser: null, unsubShelf: null, unsubAdmin: null, unsubBasket: null, unsubProjectVault: null, unsubOffers: null, syncStatus: 'Restoring local basket' });
           
           get().markLoaded('userProfile');
           get().markLoaded('basket');
