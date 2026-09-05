@@ -1,8 +1,7 @@
 import React, { useMemo, useEffect, useRef } from 'react';
 import { X, Gift, Zap, ArrowRight, Settings, Package } from 'lucide-react';
 import { useStore } from '../../store/useStore';
-import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
-import { getBundleDealPricing, getClearanceBundlePricing, getDistributedFeeShare, getHighestCostStock } from '../../utils/bundlePricing';
+import { getBundleDealPricing, getClearanceBundlePricing, getHighestCostStock } from '../../utils/bundlePricing';
 import { isFlexiBundleDeal, isPerKitClearanceDeal, getActiveClearanceKitIds, getClearanceDisplayLabel } from '../../utils/dealTypes';
 
 function resolveImage(idOrUrl, imagesArray) {
@@ -51,14 +50,9 @@ function getDealSourceStock(kit, source = 'onhand') {
 }
 
 export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onAddToBasket, onOpenKit, isEditMode = false, onEditDeal }) {
-  const { kits, shippingSettings } = useStore();
-  const { handlingFee, installmentFee, transferFee } = getCheckoutPaymentFees({ shippingSettings });
+  const { kits } = useStore();
   const onCloseRef = useRef(onClose);
   const isEditable = isEditMode && typeof onEditDeal === 'function';
-  // Handling and transfer are charged once per order, so the standalone
-  // comparison price must distribute each fee across the included rows.
-  // Installment remains a per-item fee.
-
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
@@ -75,13 +69,10 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onAd
 
   // Compute clearance-style pricing for pre-bundled deals.
   const { normalTotal, bundlePrice, savings, kitPricing } = useMemo(() => {
-    const itemCount = Math.max(1, includedKits.length);
-    const getDisplayedStandalonePrice = (refPrice, index) => {
-      if (isEditable) return refPrice;
-      const handlingShare = getDistributedFeeShare(handlingFee, index, itemCount);
-      const transferShare = getDistributedFeeShare(transferFee, index, itemCount);
-      return refPrice + Number(installmentFee || 0) + handlingShare + transferShare;
-    };
+    // The crossed-out comparison amount is the item's standalone sell price.
+    // Checkout fees are calculated separately and should not inflate the
+    // product price shown in this bundle summary.
+    const getDisplayedStandalonePrice = (refPrice) => refPrice;
 
     if (isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)) {
       const pricingRows = includedKits.map(kit => {
@@ -98,15 +89,12 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onAd
       const adjustedPricing = clearance.rows.map((row, index) => ({
         ...row,
         distributedPrice: row.finalPrice,
-        refPrice: getDisplayedStandalonePrice(row.refPrice, index)
+        refPrice: getDisplayedStandalonePrice(row.refPrice)
       }));
-      const adjustedNormalTotal = clearance.totalSell + (isEditable ? 0 : (
-        Number(installmentFee || 0) * itemCount + Number(handlingFee || 0) + Number(transferFee || 0)
-      ));
       return {
-        normalTotal: adjustedNormalTotal,
+        normalTotal: clearance.totalSell,
         bundlePrice: clearance.bundlePrice,
-        savings: Math.max(0, adjustedNormalTotal - clearance.bundlePrice),
+        savings: Math.max(0, clearance.totalSell - clearance.bundlePrice),
         kitPricing: adjustedPricing
       };
     }
@@ -128,21 +116,18 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onAd
       distributedPrice: row.finalPrice
     }));
 
-    const adjustedPricing = pricing.map((row, index) => ({
+    const adjustedPricing = pricing.map((row) => ({
       ...row,
-      refPrice: getDisplayedStandalonePrice(row.refPrice, index)
+      refPrice: getDisplayedStandalonePrice(row.refPrice)
     }));
-    const adjustedNormalTotal = normalTotal + (isEditable ? 0 : (
-      Number(installmentFee || 0) * itemCount + Number(handlingFee || 0) + Number(transferFee || 0)
-    ));
 
     return {
-      normalTotal: adjustedNormalTotal,
+      normalTotal,
       bundlePrice: pricing.reduce((sum, row) => sum + row.finalPrice, 0),
       savings: pricing.reduce((sum, row) => sum + row.discount, 0),
       kitPricing: adjustedPricing
     };
-  }, [includedKits, deal, handlingFee, installmentFee, transferFee, isEditable]);
+  }, [includedKits, deal]);
 
 
   useEffect(() => {
