@@ -1615,16 +1615,19 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                               onDragOver={(event) => event.preventDefault()}
                               onDrop={() => movePreviewKit(draggedPreviewKitId, kit.id)}
                               onDragEnd={() => setDraggedPreviewKitId(null)}
-                              className={`flex cursor-grab items-center gap-2 rounded-xl border px-3 py-2 transition-all active:cursor-grabbing ${index < 4 ? 'border-blue-500/30 bg-blue-500/10' : 'border-[var(--color-border)] bg-black/5'}`}
+                              className={`flex cursor-grab flex-col gap-3 rounded-xl border px-3 py-3 transition-all active:cursor-grabbing ${index < 4 ? 'border-blue-500/30 bg-blue-500/10' : 'border-[var(--color-border)] bg-black/5'}`}
                             >
-                              <img src={resolveImage(kit.image, kit.images)} className="h-7 w-7 rounded-lg object-cover bg-white" alt="" />
-                              <div className="min-w-0 flex-1">
-                                <div className="truncate text-[12px] font-black uppercase" title={kit.name}>{kit.name}</div>
-                                <span className="mt-0.5 block truncate text-[12px] font-black uppercase">
+                              <div className="flex w-full min-w-0 items-center gap-3">
+                                <img src={resolveImage(kit.image, kit.images)} className="h-10 w-10 shrink-0 rounded-lg object-cover bg-white" alt="" />
+                                <div className="min-w-0 flex-1">
+                                  <div className="break-words text-[13px] font-black uppercase leading-tight" title={kit.name}>{kit.name}</div>
+                                  <span className="mt-1 block break-words text-[12px] font-black uppercase leading-tight">
                                   {[kit.brand, kit.specs?.line, kit.specs?.scale].filter(Boolean).join(' / ') || 'No brand, line, or scale'}
-                                </span>
+                                  </span>
+                                </div>
                               </div>
-                              <div className="shrink-0 text-right leading-tight mr-1">
+                              <div className="flex w-full flex-wrap items-end gap-3 border-t border-black/5 pt-2 dark:border-white/10">
+                              <div className="flex min-w-[9rem] flex-col gap-0.5 text-left leading-tight">
                                 <span className="block text-[12px] font-black uppercase text-emerald-500">SELL ₱{Number(stock.sellPrice || kit.sellPrice || 0).toLocaleString()}</span>
                                 <span className="block text-[12px] font-black uppercase opacity-35">COST ₱{Number(stock.costPrice || 0).toLocaleString()}</span>
                                 <span className={`block text-[12px] font-black uppercase ${isClearanceStrategy ? 'text-amber-500' : 'text-blue-500'}`}>DEAL ₱{Number(discountRow?.finalPrice || stock.sellPrice || kit.sellPrice || 0).toLocaleString()}</span>
@@ -1724,11 +1727,12 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                   toggleKitSelection(kit.id);
                                 }}
                                 onDragStart={(event) => event.preventDefault()}
-                                className="shrink-0 rounded-full p-1 opacity-50 transition-all hover:bg-red-500/10 hover:text-red-500 hover:opacity-100"
+                                className="mb-2 shrink-0 self-end rounded-full p-1 opacity-50 transition-all hover:bg-red-500/10 hover:text-red-500 hover:opacity-100"
                                 title="Remove inclusion"
                               >
                                 <X size={12} />
                               </button>
+                              </div>
                             </div>
                             );
                            })}
@@ -1801,7 +1805,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                       </div>
                     </div>}
 
-                    {dealType !== 'mutually_exclusive' && <div className="order-4 bg-black/5 rounded-2xl p-4 flex flex-col gap-2 text-left border border-white/5">
+                    {dealType !== 'mutually_exclusive' && !isClearanceStrategy && <div className="order-4 bg-black/5 rounded-2xl p-4 flex flex-col gap-2 text-left border border-white/5">
                        {dealType === 'bundle_only' ? (
                          <div className="flex justify-between items-center text-emerald-500">
                             <span className="text-[12px] font-black uppercase tracking-wider">Bundle Discount</span>
