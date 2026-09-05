@@ -18,7 +18,6 @@ import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { auth, fbProvider, googleProvider, db } from '../../firebase/firebase';
 import AccountSettingsModal from './AccountSettingsModal';
 import OperationsModal from './OperationsModal';
-import LoginPromptModal from './LoginPromptModal';
 import WelcomeModal from './WelcomeModal';
 import NotificationModal from './NotificationModal';
 import {
@@ -126,7 +125,6 @@ export default function Navbar({ isCompact: scrolledCompact }) {
   const [notificationAnchorTop, setNotificationAnchorTop] = useState(null);
   const [isOperationsOpen, setIsOperationsOpen] = useState(false);
   const [operationsTab, setOperationsTab] = useState('shipping');
-  const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
   const [isHighlightModalOpen, setIsHighlightModalOpen] = useState(false);
   const [isStoriesManagerOpen, setIsStoriesManagerOpen] = useState(false);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
@@ -458,7 +456,6 @@ useEffect(() => {
     const handleResize = () => setWindowWidth(window.innerWidth);
     const handleForceHide = () => { setForceHide(true); setShowBottomNav(false); };
     const handleForceShow = () => { setForceHide(false); setShowBottomNav(true); };
-    const handleOpenLoginPrompt = () => setIsLoginPromptOpen(true);
     const handleOpenStoriesManager = () => {
       setIsStoriesManagerOpen(true);
       setIsProfileOpen(false);
@@ -467,13 +464,11 @@ useEffect(() => {
     window.addEventListener('resize', handleResize);
     window.addEventListener('hideNavbar', handleForceHide);
     window.addEventListener('showNavbar', handleForceShow);
-    window.addEventListener('openLoginPrompt', handleOpenLoginPrompt);
     window.addEventListener('openStoriesManager', handleOpenStoriesManager);
     return () => {
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('hideNavbar', handleForceHide);
       window.removeEventListener('showNavbar', handleForceShow);
-      window.removeEventListener('openLoginPrompt', handleOpenLoginPrompt);
       window.removeEventListener('openStoriesManager', handleOpenStoriesManager);
     };
   }, []);
@@ -1297,7 +1292,7 @@ return (
                               </button>
                             </>
                           ) : (
-                            <button onClick={() => { if (!user) setIsLoginPromptOpen(true); else setIsSettingsModalOpen(true); setIsProfileOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-colors ${isDarkMode ? 'hover:bg-white/5 text-white' : 'hover:bg-black/5 text-neutral-900'}`}>
+                            <button onClick={() => { if (!user) setLoginModalOpen(true); else setIsSettingsModalOpen(true); setIsProfileOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-colors ${isDarkMode ? 'hover:bg-white/5 text-white' : 'hover:bg-black/5 text-neutral-900'}`}>
                               <Settings size={18} className="opacity-40" />
                               <span className="text-[12px] font-black uppercase tracking-widest">Account Settings</span>
                             </button>
@@ -1497,12 +1492,6 @@ return (
       isOpen={isOperationsOpen}
       initialTab={operationsTab}
       onClose={() => setIsOperationsOpen(false)}
-    />
-
-    <LoginPromptModal 
-      isOpen={isLoginPromptOpen} 
-      onClose={() => setIsLoginPromptOpen(false)} 
-      onLogin={() => { setLoginModalOpen(true); setIsLoginPromptOpen(false); }}
     />
 
     <AccountSettingsModal 

@@ -8,7 +8,6 @@ import {
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
 import { useNavigate } from 'react-router-dom';
-import { FcGoogle } from 'react-icons/fc';
 import { useStore } from '../../store/useStore';
 import { getCheckoutPaymentFees, shouldChargeHandlingFee } from '../../utils/paymentSettings';
 import {
@@ -16,9 +15,8 @@ import {
   lookupPhilippineZipCodeByCityAndProvince
 } from '../../utils/philippineAddress';
 import { useTheme } from '../../context/ThemeContext';
-import { auth, db, googleProvider } from '../../firebase/firebase';
+import { db } from '../../firebase/firebase';
 import { doc, deleteDoc } from 'firebase/firestore';
-import { signInWithPopup } from 'firebase/auth';
 import L from 'leaflet';
 import DynamicShippingForm from './DynamicShippingForm';
 import PolicyModal from '../menu/PolicyModal';
@@ -718,6 +716,13 @@ const getPaymentMethodConfig = (methods = {}, method = '') => {
     cashTransferFee: Math.max(0, Number(cashTransferFeeKey ? methods[cashTransferFeeKey] : 0) || 0),
     qr: qrKey ? methods[qrKey] : null
   };
+};
+
+const getPaymentMethodDisplayLabel = (methods, method) => {
+  const label = String(method || '');
+  const hasQrSuffix = /(?:\s|-)?QR$/i.test(label);
+  const usesQr = Boolean(getPaymentMethodConfig(methods, method).qr);
+  return usesQr && !hasQrSuffix ? `${label} QR` : label;
 };
 
 const ensureStreetSuffix = (street) => {
@@ -1456,15 +1461,10 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       || (hasProjects && invalidTypes.prints !== false);
   }, [checkoutItems, hasProjects, isMaintenance, storeAdmin]);
 
-  const isGuestLoginRequired = isGuestPreview;
-  const shouldShowGuestSignInPrompt = isGuestLoginRequired
-    && checkoutItems.length > 0
-    && !isCheckoutUnderMaintenance;
   const canBypassMaintenance = import.meta.env.DEV || isAdmin;
   // Local development and authenticated admins using the public storefront can
-  // test payments. Guests still sign in; regular production users are blocked.
+  // test payments. Regular production users are blocked during maintenance.
   const isOrderInvalidForMaintenance = isCheckoutUnderMaintenance
-    && !isGuestLoginRequired
     && !canBypassMaintenance;
 
   // Detect if selected suboption is a "Cash On" variant (COD/COP/custom)
@@ -2444,28 +2444,11 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     }
   }, [user, isNoDetailsMode, updateUserProfile, buildProfileUpdates, setAddressStatus]);
 
-  const handleGuestGoogleLogin = async () => {
-    const authAttemptId = useStore.getState().beginAuthAttempt(() => handleGuestGoogleLogin());
-    try {
-      await signInWithPopup(auth, googleProvider);
-      if (!useStore.getState().isAuthAttemptActive(authAttemptId)) return;
-      useStore.getState().setAuthAttemptStatus(authAttemptId, 'Syncing Profile');
-    } catch (err) {
-      console.error('SG LOG: Guest checkout Google login failed:', err);
-      useStore.getState().failAuthAttempt(authAttemptId, err);
-    }
-  };
-
 const handleFinalizeOrder = async () => {
     if (isOrderInvalidForMaintenance) return;
 
     if (hasUnavailableProjectItems) {
       alert('This project is no longer available for checkout. Please return to the basket and review it.');
-      return;
-    }
-
-    if (isGuestLoginRequired) {
-      await handleGuestGoogleLogin();
       return;
     }
 
@@ -3287,14 +3270,13 @@ const handleFinalizeOrder = async () => {
     });
 
     const isPaymentUnavailable = isOrderInvalidForMaintenance;
-    const isDisabled = hasUnavailableProjectItems || isPaymentUnavailable || isFinalizing || (!isGuestLoginRequired && (
+    const isDisabled = hasUnavailableProjectItems || isPaymentUnavailable || isFinalizing ||
       !checkoutData.shippingMethod ||
       (!isNoDetailsMode && !isFormValid) ||
       !checkoutData.paymentPlan ||
       !checkoutData.paymentMethod ||
       (checkoutData.paymentPlan !== 'full' && Number(checkoutData.initialPayment) > totalToSettle) ||
-      (checkoutData.paymentPlan !== 'full' && !agreedToPolicy)
-    ));
+      (checkoutData.paymentPlan !== 'full' && !agreedToPolicy);
 
     return (
       <div className="space-y-8 pb-24 pt-7 lg:pt-0">
@@ -3642,9 +3624,10 @@ const handleFinalizeOrder = async () => {
                   <div className="grid grid-cols-2 gap-2">
                     {availablePaymentMethods.map(method => {
                       const isSelected = checkoutData.paymentMethod?.toLowerCase() === method.toLowerCase();
+                      const displayLabel = getPaymentMethodDisplayLabel(storeAdmin?.paymentSettings?.methods, method);
                       return (
                         <button key={method} onClick={() => updateCheckoutData(prev => ({ ...prev, paymentMethod: method }))} className={`rounded-xl border px-3 py-3 text-[13px] font-black uppercase ${isSelected ? 'border-white bg-white text-blue-600' : 'border-white/80 text-white'}`}>
-                          {method}
+                          {displayLabel}
                         </button>
                       );
                     })}
@@ -3656,7 +3639,7 @@ const handleFinalizeOrder = async () => {
                   disabled={isDisabled}
                   className="flex w-full items-center justify-center gap-2 rounded-2xl bg-white py-5 text-[13px] font-black uppercase tracking-[0.2em] text-blue-600 shadow-xl disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {isFinalizing ? 'Reserving...' : isGuestLoginRequired ? <><FcGoogle size={16} />Login with Google</> : isPaymentUnavailable ? 'Payment Unavailable' : 'Pay Now'}
+                  {isFinalizing ? 'Reserving...' : isPaymentUnavailable ? 'Payment Unavailable' : 'Pay Now'}
                 </button>
                 {availabilityNotice && (
                   <div className="space-y-0.5 text-center text-[10px] font-black uppercase tracking-widest text-amber-200">
@@ -3666,9 +3649,6 @@ const handleFinalizeOrder = async () => {
                 )}
                 {hasIncompleteRequiredDetails && (
                   <p className="text-center text-[11px] font-black uppercase tracking-widest text-white/70">Details Incomplete</p>
-                )}
-                {shouldShowGuestSignInPrompt && (
-                  <p className="text-center text-[11px] font-black uppercase tracking-widest text-white/70">Sign In To Proceed</p>
                 )}
               </div>
             </section>
@@ -4596,6 +4576,7 @@ const handleFinalizeOrder = async () => {
                               ang cash restriction, pre-order check, at active/disabled check. */}
                           {availablePaymentMethods.map(method => {
                             const isSelected = checkoutData.paymentMethod?.toLowerCase() === method.toLowerCase();
+                            const displayLabel = getPaymentMethodDisplayLabel(storeAdmin?.paymentSettings?.methods, method);
 
                             return (
                                <motion.button
@@ -4608,7 +4589,7 @@ const handleFinalizeOrder = async () => {
                                    : 'bg-transparent text-white border-white hover:bg-white/5'
                                  }`}
                                >
-                                 <span>{method}</span>
+                                 <span>{displayLabel}</span>
                                </motion.button>
                              );
                           })}
@@ -4617,14 +4598,13 @@ const handleFinalizeOrder = async () => {
                   </div>
                     {(() => {
                       const isPaymentUnavailable = isOrderInvalidForMaintenance;
-                      const isDisabled = hasUnavailableProjectItems || isPaymentUnavailable || isFinalizing || (!isGuestLoginRequired && (
+                      const isDisabled = hasUnavailableProjectItems || isPaymentUnavailable || isFinalizing ||
                         !checkoutData.shippingMethod ||
                         (!isNoDetailsMode && !isFormValid) ||
                         !checkoutData.paymentPlan ||
                         !checkoutData.paymentMethod ||
                         (checkoutData.paymentPlan !== 'full' && Number(checkoutData.initialPayment) > totalToSettle) ||
-                        (checkoutData.paymentPlan !== 'full' && !agreedToPolicy)
-                      ));
+                        (checkoutData.paymentPlan !== 'full' && !agreedToPolicy);
                       const buttonDisabled = isDisabled;
                       return (
                         <>
@@ -4642,8 +4622,6 @@ const handleFinalizeOrder = async () => {
                                 <Loader2 className="animate-spin" size={18} />
                                 <span>Reserving...</span>
                               </>
-                            ) : isGuestLoginRequired ? (
-                              <><FcGoogle size={16} />Login with Google</>
                             ) : isPaymentUnavailable ? (
                               'Payment Unavailable'
                             ) : (
@@ -4658,9 +4636,6 @@ const handleFinalizeOrder = async () => {
                           )}
                           {hasIncompleteRequiredDetails && (
                             <p className="text-center text-[10px] font-black uppercase tracking-widest text-white/70">Details Incomplete</p>
-                          )}
-                          {shouldShowGuestSignInPrompt && (
-                            <p className="text-center text-[10px] font-black uppercase tracking-widest text-white/70">Sign In To Proceed</p>
                           )}
                         </>
                       );

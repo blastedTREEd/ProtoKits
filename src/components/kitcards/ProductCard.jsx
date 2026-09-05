@@ -1409,7 +1409,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
           freeShippingMethod: finalStock.freeShippingMethod || 'All',
           freeShippingSuboption: finalStock.freeShippingSuboption || 'All'
         });
-        window.dispatchEvent(new Event('openLoginPrompt'));
+        setLoginModalOpen(true);
         closeProductModal();
         return;
       }
