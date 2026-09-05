@@ -1121,10 +1121,10 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       dealData.stockSource = 'onhand';
     }
 
-    // Normal bundle deals require every included kit to be available. Flexi-
-    // Bundle is a shared eligibility list whose kits are sold independently,
-    // so an unavailable kit must not deactivate the whole list.
-    if (dealType === 'bundle_only' || isClearanceStrategy) {
+    // Normal bundles are atomic and require every included kit to be available.
+    // FLEXI-BUNDLE kits are sold independently, so an unavailable eligible kit
+    // must not block saving a requirement change for the other kits.
+    if (dealType === 'bundle_only' || dealType === CLEARANCE_DEAL_TYPE) {
       const unfulfillableKits = selectedKitIds.filter(kidId => {
         const kit = kits.find(k => k.id === kidId);
         if (!kit) return true;

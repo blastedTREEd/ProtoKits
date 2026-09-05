@@ -276,7 +276,6 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
     return isInvalidNormalBundle || isStaleClearanceBundle ? resetDealItem(item) : item;
   });
 
-  const basketItems = preparedItems.filter(item => item?.basketId || item?.basketIds?.length);
   if (!selectedDealItems.length || !Array.isArray(deals) || !deals.length) return preparedItems;
 
   const itemByKitId = new globalThis.Map();
@@ -341,7 +340,7 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
     const clearanceKitIds = Array.from(new Set(getActiveClearanceKitIds(deal, getClearanceKitIds(deal))));
 
     const clearanceRows = isClearanceDeal
-      ? basketItems.filter(item => {
+      ? preparedItems.filter(item => {
         if (isProjectCheckoutItem(item)) return false;
         const kitId = getCheckoutKitId(item);
         const kit = kits.find(candidate => String(candidate.id) === kitId);
@@ -349,10 +348,9 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
         return stockMatchesCheckoutDealSource(stock || {}, item, 'onhand');
       })
       : [];
-    const availableClearanceKitIds = clearanceKitIds.filter(kitId => {
-      const item = itemByKitId.get(kitId);
-      return item && isOnhandKitItem(item, kits);
-    });
+    const availableClearanceKitIds = clearanceKitIds.filter(kitId => (
+      clearanceRows.some(item => getCheckoutKitId(item) === String(kitId))
+    ));
     const selectedKitIds = clearanceRows.flatMap((item) => Array.from(
       { length: Math.max(1, Number(item.quantity) || 1) },
       () => getCheckoutKitId(item)
@@ -501,6 +499,17 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
   if (!best) return preparedItems;
 
   const deal = best.deal;
+  const rowByItem = new globalThis.Map(best.rows.map(row => [row.item, row]));
+  const rowByBasketId = new globalThis.Map(
+    best.rows
+      .filter(row => row.item?.basketId)
+      .map(row => [String(row.item.basketId), row])
+  );
+  const rowByStockKey = new globalThis.Map(
+    best.rows
+      .filter(row => row.item?.stockKey)
+      .map(row => [`${getCheckoutKitId(row.item)}:${String(row.item.stockKey)}`, row])
+  );
   const rowByKitId = new globalThis.Map(best.rows.map(row => [row.kitId, row]));
   const clearancePricedKitIds = best.rows
     .filter(row => row.isClearance)
@@ -516,7 +525,10 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
     : 0;
 
   return preparedItems.map(item => {
-    const row = rowByKitId.get(getCheckoutKitId(item));
+    const row = rowByItem.get(item)
+      || (item?.basketId ? rowByBasketId.get(String(item.basketId)) : null)
+      || (item?.stockKey ? rowByStockKey.get(`${getCheckoutKitId(item)}:${String(item.stockKey)}`) : null)
+      || rowByKitId.get(getCheckoutKitId(item));
     if (
       !row
       || isProjectCheckoutItem(item)

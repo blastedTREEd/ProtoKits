@@ -1155,9 +1155,11 @@ export default function Orders() {
 
   useEffect(() => {
     if (routeOrderId || !notificationOrderId || orders.length === 0) return;
-    const notificationOrder = orders.find((order) => order.id === notificationOrderId);
+    const notificationOrder = orders.find((order) => (
+      String(order.id || '') === String(notificationOrderId)
+      || String(order.orderId || '') === String(notificationOrderId)
+    ));
     if (!notificationOrder) return;
-    if (!isAdminMode && isLegacyOrderRecord(notificationOrder)) return;
 
     moveOrderToTargetTab(notificationOrder);
     setSelectedOrder(notificationOrder);

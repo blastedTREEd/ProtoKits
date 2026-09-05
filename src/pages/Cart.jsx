@@ -782,19 +782,19 @@ export default function Cart() {
     });
     if (selectedRows.length !== selectedItems.length) return { prices: new Map(), sourceBasketId: '', discountTotal: 0, isFlexi: false };
 
-      const rowsByKitId = new Map(selectedRows.map((item) => {
+      const rows = selectedRows.map((item) => {
         const kit = kits.find((candidate) => candidate.id === item.id);
         const stock = kit?.stocks?.[item.stockKey];
-        return [String(item.id), {
-        item,
-        kit,
-        kitId: String(item.id),
-        refPrice: Number(stock?.sellPrice || item.sellPrice || kit?.sellPrice || item.price || 0),
+        return {
+          item,
+          kit,
+          kitId: String(item.id),
+          refPrice: Number(stock?.sellPrice || item.sellPrice || kit?.sellPrice || item.price || 0),
           sellPrice: Number(stock?.sellPrice || item.sellPrice || kit?.sellPrice || item.price || 0),
           costPrice: Number(stock?.costPrice || item.costPrice || 0),
           isOnHand: isOnHandStock(stock || item)
-        }];
-      }));
+        };
+      });
 
     const candidates = (deals || [])
       .filter((deal) => (isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)) && deal.isActive !== false)
@@ -803,11 +803,11 @@ export default function Cart() {
         const eligibleSourceIds = isFlexiBundleDeal(deal)
           ? getFlexiSourceKitIds(deal, configuredIds)
           : configuredIds;
+        const selectedKitIdSet = new Set(rows.map((row) => row.kitId));
         const availableClearanceKitIds = [...new Set(eligibleSourceIds.map(String))]
-          .filter((kitId) => rowsByKitId.get(kitId)?.isOnHand);
+          .filter((kitId) => selectedKitIdSet.has(kitId));
         if (availableClearanceKitIds.length === 0) return null;
 
-        const rows = [...rowsByKitId.values()];
         const selectedKitIds = selectedRows.flatMap((item) => Array.from(
           { length: Math.max(1, Number(item.quantity) || 1) },
           () => String(item.id)
