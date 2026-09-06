@@ -2159,6 +2159,10 @@ export default function Cart() {
                             const batchKey = item.type === 'project' ? 'project' : `${status}${eta}`;
                             return { ...normalizeCheckoutItem(item), batchKey };
                         });
+                        const selectedItemCount = selectedItems.reduce(
+                          (total, item) => total + Math.max(1, Number(item.quantity) || 1),
+                          0
+                        );
 
                         const flaggedKeys = Object.keys(validation.itemRules);
                         const hasSelectedIssues = selectedItems.some(i => flaggedKeys.includes(
@@ -2307,18 +2311,20 @@ export default function Cart() {
                         return (
                           <>
                             <div className="flex items-end gap-4 md:gap-6">
+                              <div className="flex flex-col items-start md:items-end justify-center">
+                                <span className="text-[12px] font-black uppercase opacity-40 leading-none mb-1">
+                                  Total · {selectedItemCount} {selectedItemCount === 1 ? 'Item' : 'Items'}
+                                </span>
+                                <span className="text-lg md:text-xl font-black italic leading-none">₱{validation.totalPrice.toLocaleString()}</span>
+                              </div>
                               {selectedPromotionDiscountTotal > 0 && (
                                 <div className="flex flex-col items-start md:items-end justify-center">
-                                  <span className="text-[10px] font-black uppercase opacity-40 leading-none mb-1">Saved</span>
+                                  <span className="text-[12px] font-black uppercase opacity-40 leading-none mb-1">Saved</span>
                                   <span className="text-lg md:text-xl font-black italic leading-none text-emerald-600">
                                     ₱{selectedPromotionDiscountTotal.toLocaleString()}
                                   </span>
                                 </div>
                               )}
-                              <div className="flex flex-col items-start md:items-end justify-center">
-                                <span className="text-[10px] font-black uppercase opacity-40 leading-none mb-1">Total</span>
-                                <span className="text-lg md:text-xl font-black italic leading-none">₱{validation.totalPrice.toLocaleString()}</span>
-                              </div>
                             </div>
                             <button
                               onClick={() => {
