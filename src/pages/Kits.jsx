@@ -20,6 +20,7 @@ import { getDealGrabLabel } from '../utils/dealSavings';
 import { getStockEta } from '../utils/stockDates';
 import { isFlexiBundleDeal, isPerKitClearanceDeal, getActiveClearanceKitIds, getClearanceDisplayLabel } from '../utils/dealTypes';
 import UniversalImage from '../components/common/UniversalImage';
+import { getBundleDisplayTotals } from '../utils/bundleDisplayPricing';
 
 // --- Spectral gradient helpers (mirrored from ProductCard) ---
 const SPECTRAL_GRADIENTS = [
@@ -1205,6 +1206,7 @@ export default function Kits({ isActive = true }) {
     const isUrgentDeal = countdownLabel === 'LAST DAY' || countdownLabel === 'EXPIRED';
     const dealGradient = getSpectralGradient(deal.id);
     const dealShadow = getShadowColor(dealGradient);
+    const bundleDisplayTotals = getBundleDisplayTotals(deal, storeKits, isAdmin && isAdminView);
     return (
       <div key={deal.id} onClick={() => handleDealCardClick(deal)} className={`w-full group relative rounded-[2.2rem] p-[2px] ${isSpectralMode ? `bg-gradient-to-br ${dealGradient}` : 'bg-black/5 dark:bg-white/5'} transition-all duration-500 lg:hover:-translate-y-1 cursor-pointer overflow-hidden h-full`}
         style={{
@@ -1244,7 +1246,17 @@ export default function Kits({ isActive = true }) {
                 <div className="flex flex-col items-start pb-1 min-w-0 flex-1 text-left">
                   <span className={`text-[14px] font-bold uppercase tracking-tighter truncate w-full block ${(isAdmin && isAdminView) ? 'text-blue-500 dark:text-blue-400' : 'text-emerald-500 dark:text-emerald-400'}`}>{(isAdmin && isAdminView) ? 'EDIT DEAL' : getDealGrabLabel(deal)}</span>
                   <div className="flex items-baseline gap-1 w-full min-w-0">
-                    <span className="text-[14px] font-bold italic tracking-tighter leading-none text-amber-500 dark:text-amber-400">₱{(deal.bundlePrice || 0).toLocaleString()}</span>
+                    {isAdmin && isAdminView ? (
+                      <>
+                        <span className="text-[14px] font-bold italic tracking-tighter leading-none line-through text-neutral-900 dark:text-white">₱{bundleDisplayTotals.discountedPrice.toLocaleString()}</span>
+                        <span className="text-[14px] font-bold italic tracking-tighter leading-none text-blue-600 dark:text-blue-400">₱{bundleDisplayTotals.costTotal.toLocaleString()}</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-[14px] font-bold italic tracking-tighter leading-none text-emerald-500 dark:text-emerald-400">₱{bundleDisplayTotals.discountedPrice.toLocaleString()}</span>
+                        <span className="text-[14px] font-bold italic tracking-tighter leading-none line-through text-neutral-900 dark:text-white">₱{bundleDisplayTotals.sellTotal.toLocaleString()}</span>
+                      </>
+                    )}
                   </div>
                 </div>
                 {(isAdmin && isAdminView) ? (
@@ -1406,6 +1418,7 @@ export default function Kits({ isActive = true }) {
                 const isUrgentDeal = countdownLabel === 'LAST DAY' || countdownLabel === 'EXPIRED';
                 const dealGradient = getSpectralGradient(deal.id);
                 const dealShadow = getShadowColor(dealGradient);
+                const bundleDisplayTotals = getBundleDisplayTotals(deal, storeKits, isAdmin && isAdminView);
                 return (
                   <div key={deal.id} onClick={() => handleDealCardClick(deal)} className={`w-full group relative rounded-[2.2rem] p-[2px] ${isSpectralMode ? `bg-gradient-to-br ${dealGradient}` : 'bg-black/5 dark:bg-white/5'} transition-all duration-500 lg:hover:-translate-y-1 cursor-pointer overflow-hidden h-full`}
                     style={{
@@ -1445,7 +1458,17 @@ export default function Kits({ isActive = true }) {
                                 <div className="flex flex-col items-start pb-1 min-w-0 flex-1 text-left">
                                   <span className={`text-[14px] font-bold uppercase tracking-tighter truncate w-full block ${(isAdmin && isAdminView) ? 'text-blue-500 dark:text-blue-400' : 'text-emerald-500 dark:text-emerald-400'}`}>{(isAdmin && isAdminView) ? 'EDIT DEAL' : getDealGrabLabel(deal)}</span>
                                   <div className="flex items-baseline gap-1 w-full min-w-0">
-                                     <span className="text-[14px] font-bold italic tracking-tighter leading-none text-amber-500 dark:text-amber-400">₱{(deal.bundlePrice || 0).toLocaleString()}</span>
+                                     {isAdmin && isAdminView ? (
+                                       <>
+                                         <span className="text-[14px] font-bold italic tracking-tighter leading-none line-through text-neutral-900 dark:text-white">₱{bundleDisplayTotals.discountedPrice.toLocaleString()}</span>
+                                         <span className="text-[14px] font-bold italic tracking-tighter leading-none text-blue-600 dark:text-blue-400">₱{bundleDisplayTotals.costTotal.toLocaleString()}</span>
+                                       </>
+                                     ) : (
+                                       <>
+                                         <span className="text-[14px] font-bold italic tracking-tighter leading-none text-emerald-500 dark:text-emerald-400">₱{bundleDisplayTotals.discountedPrice.toLocaleString()}</span>
+                                         <span className="text-[14px] font-bold italic tracking-tighter leading-none line-through text-neutral-900 dark:text-white">₱{bundleDisplayTotals.sellTotal.toLocaleString()}</span>
+                                       </>
+                                     )}
                                   </div>
                                 </div>
                                 {(isAdmin && isAdminView) ? (

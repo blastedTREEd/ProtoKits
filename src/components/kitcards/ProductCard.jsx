@@ -910,20 +910,34 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
 
     const unsoldStocks = stockList.filter(s => !hasOrderAssociation(s));
     if (unsoldStocks.length === 0) return null;
-    
-    const maxSellPrice = Math.max(...unsoldStocks.map(s => Number(s.sellPrice || 0)), Number(kit?.sellPrice || 0));
 
-    if (selectedStock) {
-      const cost = Number(selectedStock.costPrice || 0);
-      const sell = maxSellPrice || Number(selectedStock.sellPrice || 0) || 0;
-      return { cost, sell, profit: sell - cost };
-    }
+    const shelfEntries = (shelf || []).filter(item => item.id === kitId && item.stockKey);
+    const shelfStock = shelfEntries
+      .map(entry => stockList.find(stock => stock.key === entry.stockKey))
+      .find(Boolean);
+    const shelfStockKeys = new Set(shelfEntries.map(entry => entry.stockKey));
+    const allocatableOnhandStocks = unsoldStocks.filter(stock => (
+      isOnHandStock(stock)
+      && !shelfStockKeys.has(stock.key)
+      && !stock.isReserved
+    ));
+    const cheapestAllocatableStock = allocatableOnhandStocks
+      .sort((a, b) => getStockCostPrice(a) - getStockCostPrice(b))[0] || null;
+    const cost = Number(
+      shelfStock?.costPrice
+      ?? shelfEntries[0]?.costPrice
+      ?? cheapestAllocatableStock?.costPrice
+      ?? kit?.costPrice
+      ?? 0
+    );
+    const availableSellPrices = unsoldStocks
+      .filter(stock => shelfStockKeys.has(stock.key) || (!stock.isReserved && isOnHandStock(stock)))
+      .map(stock => Number(stock.sellPrice || 0))
+      .filter(price => price > 0);
+    const sell = Math.max(...availableSellPrices, Number(kit?.sellPrice || 0), 0);
 
-    const cheapestStock = unsoldStocks.reduce((prev, curr) => (getStockCostPrice(curr) < getStockCostPrice(prev)) ? curr : prev);
-    const cost = Number(cheapestStock.costPrice || 0);
-    const sell = maxSellPrice || 0;
-    return { cost, sell, profit: sell - cost };
-  }, [stockList, isAdminView, selectedStock, kit]);
+    return { cost, sell };
+  }, [stockList, isAdminView, shelf, kit, kitId]);
 
   const handleSelectGroup = useCallback((group) => {
     setSelectedGroupLabel(group.key || group.label);
@@ -1801,11 +1815,11 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                         <>
                           {adminDisplayInfo ? (
                             <>
-                              <span className="text-[15px] font-bold tracking-tighter leading-none text-neutral-900 dark:text-white shrink-0">
-                                ₱{adminDisplayInfo.cost.toLocaleString()}
+                              <span className="text-[15px] font-bold tracking-tighter leading-none line-through text-neutral-900 dark:text-white shrink-0">
+                                ₱{adminDisplayInfo.sell.toLocaleString()}
                               </span>
-                              <span className="text-[15px] font-bold tracking-tighter line-through text-emerald-600 shrink-0">
-                                ₱{adminDisplayInfo.profit.toLocaleString()}
+                              <span className="text-[15px] font-bold tracking-tighter leading-none text-blue-600 dark:text-blue-400 shrink-0">
+                                ₱{adminDisplayInfo.cost.toLocaleString()}
                               </span>
                             </>
                           ) : (
@@ -1945,19 +1959,12 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                               )}
                               {isAdminView && (
                                 <div className="flex items-center gap-2">
-                                  <p className="text-[28px] sm:text-5xl font-black italic tracking-tighter leading-none text-neutral-900 dark:text-white flex ">
+                                  <p className="text-[28px] sm:text-5xl font-black italic tracking-tighter leading-none line-through text-neutral-900 dark:text-white flex ">
+                                    ₱{(adminDisplayInfo?.sell || 0).toLocaleString()}
+                                  </p>
+                                  <p className="text-[24px] sm:text-4xl font-black italic tracking-tighter leading-none text-blue-600 dark:text-blue-400 flex">
                                     ₱{(adminDisplayInfo?.cost || 0).toLocaleString()}
                                   </p>
-
-                                  <div className="flex flex-col gap-0 pt-1 sm:pt-1.5 text-left">
-                                    <p className="text-[10px] md:text-[14px] font-black italic tracking-tighter text-emerald-600 leading-none whitespace-nowrap">
-                                      PROFIT
-                                    </p>
-
-                                    <p className="text-[13px] md:text-[22px] font-black italic tracking-tighter leading-tight line-through text-emerald-600">
-                                      ₱{(adminDisplayInfo?.profit || 0).toLocaleString()}
-                                    </p>
-                                  </div>
                                 </div>
                               )}
                             </div>
@@ -2004,19 +2011,12 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                               )}
                               {isAdminView && (
                                 <div className="flex items-center gap-2">
-                                  <p className="text-[28px] lg:text-[40px] font-black italic tracking-tighter leading-none text-neutral-900 dark:text-white flex ">
+                                  <p className="text-[28px] lg:text-[40px] font-black italic tracking-tighter leading-none line-through text-neutral-900 dark:text-white flex ">
+                                    ₱{(adminDisplayInfo?.sell || 0).toLocaleString()}
+                                  </p>
+                                  <p className="text-[24px] lg:text-[34px] font-black italic tracking-tighter leading-none text-blue-600 dark:text-blue-400 flex">
                                     ₱{(adminDisplayInfo?.cost || 0).toLocaleString()}
                                   </p>
-
-                                  <div className="flex flex-col gap-0 pt-1.5 text-left">
-                                    <p className="text-[12px] font-black italic tracking-tighter text-emerald-600 leading-none whitespace-nowrap">
-                                      PROFIT
-                                    </p>
-
-                                    <p className="text-[18px] font-black italic tracking-tighter leading-none line-through text-emerald-600">
-                                      ₱{(adminDisplayInfo?.profit || 0).toLocaleString()}
-                                    </p>
-                                  </div>
                                 </div>
                               )}
                             </div>

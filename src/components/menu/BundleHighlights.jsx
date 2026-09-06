@@ -10,6 +10,7 @@ import { getDealGrabLabel } from '../../utils/dealSavings';
 import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
 import UniversalImage from '../common/UniversalImage';
 import { isFlexiBundleDeal, isPerKitClearanceDeal, getActiveClearanceKitIds, getClearanceDisplayLabel } from '../../utils/dealTypes';
+import { getBundleDisplayTotals } from '../../utils/bundleDisplayPricing';
 
 const BUNDLE_TYPES = new Set(['bundle_only', 'bundle_discount']);
 
@@ -394,7 +395,7 @@ export default function BundleHighlights() {
     const remainingCount = Math.max(0, includedKitCount - 4);
     const dealGradient = getSpectralGradient(deal.id);
     const dealShadow = getShadowColor(dealGradient);
-    const dealPrice = Number(deal.bundlePrice || 0);
+    const bundleDisplayTotals = getBundleDisplayTotals(deal, kits, isAdmin && isAdminView);
 
     return (
       <div
@@ -445,7 +446,17 @@ export default function BundleHighlights() {
                   <span className={`block w-full truncate text-[14px] font-bold uppercase tracking-tighter ${isAdmin && isAdminView ? 'text-blue-500 dark:text-blue-400' : 'text-emerald-500 dark:text-emerald-400'}`}>
                     {isAdmin && isAdminView ? 'EDIT DEAL' : getDealGrabLabel(deal)}
                   </span>
-                  <span className="text-[14px] font-bold italic leading-none tracking-tighter text-amber-500 dark:text-amber-400">₱{dealPrice.toLocaleString()}</span>
+                  {isAdmin && isAdminView ? (
+                    <>
+                      <span className="text-[14px] font-bold italic leading-none tracking-tighter line-through text-neutral-900 dark:text-white">₱{bundleDisplayTotals.discountedPrice.toLocaleString()}</span>
+                      <span className="text-[14px] font-bold italic leading-none tracking-tighter text-blue-600 dark:text-blue-400">₱{bundleDisplayTotals.costTotal.toLocaleString()}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-[14px] font-bold italic leading-none tracking-tighter text-emerald-500 dark:text-emerald-400">₱{bundleDisplayTotals.discountedPrice.toLocaleString()}</span>
+                      <span className="text-[14px] font-bold italic leading-none tracking-tighter line-through text-neutral-900 dark:text-white">₱{bundleDisplayTotals.sellTotal.toLocaleString()}</span>
+                    </>
+                  )}
                 </div>
                 <button
                   type="button"
