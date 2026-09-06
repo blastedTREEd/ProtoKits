@@ -19,11 +19,17 @@ export const compactImageReference = (value) => {
 // Resolve that one image without ever copying the kit's gallery into an order.
 export const resolveGridImage = (kit = {}, fallback = '') => {
   const images = Array.isArray(kit.images) ? kit.images : [];
-  const imageReference = kit.image;
-  const selectedImage = images.find((image) => image?.id === imageReference && image?.isGridImage)
+  const references = [kit.image, fallback].filter(Boolean);
+  const referenceIds = references
+    .map((reference) => typeof reference === 'string' ? reference : reference?.id)
+    .filter(Boolean);
+  const directUrl = references.find((reference) => (
+    typeof reference === 'string' && /^(data:image\/|https?:\/\/|blob:)/i.test(reference)
+  ));
+  const selectedImage = images.find((image) => image?.isGridImage && referenceIds.includes(image.id))
     || images.find((image) => image?.isGridImage)
-    || images.find((image) => image?.id === imageReference);
-  const candidate = selectedImage?.url || imageReference || fallback;
+    || images.find((image) => referenceIds.includes(image?.id));
+  const candidate = selectedImage?.url || directUrl || '';
 
   if (typeof candidate === 'string') return candidate;
   return candidate?.url || '';

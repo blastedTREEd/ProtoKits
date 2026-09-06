@@ -2518,7 +2518,13 @@ export const useStore = create(
         set({ unsubUser, unsubAdmin, unsubBasket, unsubProjectVault, unsubOffers });
       },
 
-      updateUserProfile: async (uid, data) => { await updateDoc(doc(db, 'users', uid), data); },
+      updateUserProfile: async (uid, data) => {
+        if (!uid || !data || typeof data !== 'object') return;
+        // Authenticated checkout can reach this before the profile listener has
+        // created the user document. Merge instead of updating an assumed
+        // existing document so legacy accounts can complete checkout safely.
+        await setDoc(doc(db, 'users', String(uid)), removeUndefinedValues(data), { merge: true });
+      },
       addPrinter: async (printerData) => {
         const { id, ...data } = printerData || {};
         const existingIds = new Set((get().printers || []).map((printer) => String(printer.id)));
@@ -3360,6 +3366,26 @@ export const useStore = create(
         const kitRef = doc(db, "kits", kitId);
         let allocation = null;
 
+        // Firestore transactions can read document references with
+        // transaction.get(), but they cannot read a Query. Fetch the active
+        // mutual-exclusion rules before starting the transaction; the kit
+        // documents themselves remain transactionally read and written below.
+        const activeMutualDealsQuery = query(
+          collection(db, 'deals'),
+          where('type', '==', 'mutually_exclusive')
+        );
+        const activeMutualDealsSnapshot = await getDocs(activeMutualDealsQuery);
+        const activeMutualDeals = activeMutualDealsSnapshot.docs
+          .map((dealDoc) => ({ id: dealDoc.id, ...dealDoc.data() }))
+          .filter((deal) => {
+            if (deal.isActive === false) return false;
+            const validFromMs = getDealDateMillis(deal.validFrom);
+            const validUntilMs = getDealDateMillis(deal.validUntil);
+            const now = Date.now();
+            return !(validFromMs > 0 && validFromMs > now)
+              && !(validUntilMs > 0 && validUntilMs <= now);
+          });
+
         await runTransaction(db, async (transaction) => {
           const snap = await transaction.get(kitRef);
           if (!snap.exists()) return;
@@ -3374,22 +3400,6 @@ export const useStore = create(
           // and writing every kit involved in the active rule gives opposite
           // checkouts a shared transaction conflict, so two users cannot
           // reserve opposite items at the same time.
-          const activeMutualDealsQuery = query(
-            collection(db, 'deals'),
-            where('type', '==', 'mutually_exclusive')
-          );
-          const mutualDealsSnapshot = await transaction.get(activeMutualDealsQuery);
-          const activeMutualDeals = mutualDealsSnapshot.docs
-            .map((dealDoc) => ({ id: dealDoc.id, ...dealDoc.data() }))
-            .filter((deal) => {
-              if (deal.isActive === false) return false;
-              const validFromMs = getDealDateMillis(deal.validFrom);
-              const validUntilMs = getDealDateMillis(deal.validUntil);
-              const now = Date.now();
-              return !(validFromMs > 0 && validFromMs > now)
-                && !(validUntilMs > 0 && validUntilMs <= now);
-            });
-
           const normalizeKitIds = (ids = []) => [...new Set(
             (Array.isArray(ids) ? ids : [ids]).map(String).filter(Boolean)
           )];

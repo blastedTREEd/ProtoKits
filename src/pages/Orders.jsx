@@ -2729,7 +2729,7 @@ export default function Orders() {
               const kitMeta = item.kitDetails || kit || {};
               const displayImage = item.type === 'project'
                 ? (item.projectData?.image || item.image)
-                : resolveImage(item.image || kit?.image, item.images || kit?.images);
+                : resolveGridImage(kit || {}, item.image || kit?.image);
 
               const displayGrade = item.grade || item.specs?.line || kitMeta.specs?.line || kit?.specs?.line || 'LINE';
               const displayBrand = item.brand || kitMeta.brand || kit?.brand || '';
@@ -3517,7 +3517,7 @@ export default function Orders() {
                     : rawName;
                   return {
                     id: item.stockKey || item.basketId || item.id || `kit-${index}`,
-                    image: resolveImage(item.image || kit?.image, item.images || kit?.images),
+                    image: resolveGridImage(kit || {}, item.image || kit?.image),
                     name,
                     meta: [grade, status].filter(Boolean).join(' / '),
                     quantity: Number(item.quantity) || 1,

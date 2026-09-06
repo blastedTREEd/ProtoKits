@@ -179,6 +179,7 @@ const normalizeDealKitIds = (value) => {
 };
 
 const getCheckoutKitId = (item) => String(item?.id || item?.kitId || item?.productId || '');
+const getCheckoutStockKey = (item) => item?.stockKey || item?.selectedStockKey || item?.stockId || '';
 
 const findCheckoutKit = (kits = [], item = {}) => {
   const kitId = getCheckoutKitId(item);
@@ -1376,7 +1377,14 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     const effectiveHandlingFee = handlingEnabled ? handlingFee : 0;
     const normalizedItems = (items || []).map(item => {
       const quantity = item.quantity || 1;
-      const kit = findCheckoutKit(kits, item);
+      const kitId = isProjectCheckoutItem(item) ? item.id : getCheckoutKitId(item);
+      const stockKey = getCheckoutStockKey(item);
+      const itemWithIdentity = {
+        ...item,
+        ...(kitId ? { id: kitId } : {}),
+        ...(stockKey ? { stockKey } : {})
+      };
+      const kit = findCheckoutKit(kits, itemWithIdentity);
       const isDealItem = isBundleOrClearanceItem(item);
       const appliedHandlingFee = !isDealItem && handlingEnabled
         ? (Number(item.appliedHandlingFee) > 0 ? Number(item.appliedHandlingFee) : handlingFee)
@@ -1391,7 +1399,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
         ? Number(item.appliedTransferFee)
         : (isDealItem ? 0 : configuredTransferFee);
       const appliedTransferFee = !isDealItem && isTransferFeeApplicable ? configuredTransferFee : 0;
-      const basePrice = getCheckoutItemBasePrice(item, kit, {
+      const basePrice = getCheckoutItemBasePrice(itemWithIdentity, kit, {
         handling: appliedHandlingFee,
         // Remove any fee already embedded in a stored basket price before
         // applying the current payment-plan surcharge.
@@ -1400,7 +1408,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       });
       
       return {
-        ...item,
+        ...itemWithIdentity,
         quantity,
         price: basePrice, // Unit price (base)
         sellPrice: basePrice,
@@ -1414,11 +1422,11 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
         appliedTransferFee,
         originalSellPrice: isProjectCheckoutItem(item)
           ? 0
-          : getStockStandaloneSellPrice(item, kit),
-        isFreeShippingEligible: isFreeShippingActive(item, kit?.stocks?.[item.stockKey]),
-        freeShippingUntil: item.freeShippingUntil || kit?.stocks?.[item.stockKey]?.freeShippingUntil || '',
-        freeShippingMethod: item.freeShippingMethod || kit?.stocks?.[item.stockKey]?.freeShippingMethod || 'All',
-        freeShippingSuboption: item.freeShippingSuboption || kit?.stocks?.[item.stockKey]?.freeShippingSuboption || 'All'
+          : getStockStandaloneSellPrice(itemWithIdentity, kit),
+        isFreeShippingEligible: isFreeShippingActive(itemWithIdentity, kit?.stocks?.[stockKey]),
+        freeShippingUntil: item.freeShippingUntil || kit?.stocks?.[stockKey]?.freeShippingUntil || '',
+        freeShippingMethod: item.freeShippingMethod || kit?.stocks?.[stockKey]?.freeShippingMethod || 'All',
+        freeShippingSuboption: item.freeShippingSuboption || kit?.stocks?.[stockKey]?.freeShippingSuboption || 'All'
       };
     });
 
@@ -2503,9 +2511,11 @@ const handleFinalizeOrder = async () => {
     const checkoutName = user?.displayName || "GUEST USER";
     const reservedCheckoutTargets = [];
     let orderCreated = false;
+    let checkoutStage = 'starting checkout';
 
     try {
       if (user && !isNoDetailsMode) {
+        checkoutStage = 'saving receiver details';
         await updateUserProfile(user.uid, buildProfileUpdates());
       }
       
@@ -2520,8 +2530,16 @@ const handleFinalizeOrder = async () => {
           continue;
         }
 
+        checkoutStage = `reserving stock for ${item.name || 'an item'}`;
+        const checkoutKit = findCheckoutKit(kits, item);
+        const kitId = getCheckoutKitId(item) || String(checkoutKit?.id || '');
+        const stockKey = getCheckoutStockKey(item);
+        if (!kitId || !stockKey) {
+          throw new Error(`Unable to identify the stock for "${item.name || 'this item'}". Please remove it from the cart and add it again.`);
+        }
+
         const isAcceptedOffer = Boolean(item.offerId && item.offerPrice);
-        const result = await reserveStockForCheckout(item.id, item.stockKey, checkoutUid, {
+        const result = await reserveStockForCheckout(kitId, stockKey, checkoutUid, {
           allowAdminShelf: item.allowShelfBundle,
           allowAcceptedOffer: isAcceptedOffer,
           offerId: item.offerId || null,
@@ -2530,7 +2548,7 @@ const handleFinalizeOrder = async () => {
         if (!result?.success) {
           throw new Error(`Item "${item.name}" was just taken by someone else.`);
         }
-        reservedCheckoutTargets.push({ kitId: item.id, stockKey: result.stockKey });
+        reservedCheckoutTargets.push({ kitId, stockKey: result.stockKey });
 
         const allocatedStock = result.stock || {};
         const allocatedStockSource = isPreOrderStock(allocatedStock, item.status) ? 'preorder' : 'onhand';
@@ -2541,6 +2559,7 @@ const handleFinalizeOrder = async () => {
         const preserveDisplayedPrice = isAcceptedOffer || isBundleOrClearanceItem(item);
         const allocatedItem = {
           ...item,
+          id: kitId,
           stockKey: result.stockKey,
           stockSource: allocatedStockSource,
           status: allocatedStock.status || item.status,
@@ -2552,6 +2571,7 @@ const handleFinalizeOrder = async () => {
         allocatedCheckoutItems.push(allocatedItem);
 
         if (result.usedAdminShelfStock || result.usedAcceptedOffer) {
+          checkoutStage = `removing the temporary hold for ${item.name || 'an item'}`;
           const shelfItem = (shelf || []).find(entry => (
             entry.id === item.id && entry.stockKey === result.stockKey
           ));
@@ -2579,6 +2599,7 @@ const handleFinalizeOrder = async () => {
       }
 
       const orderItems = await Promise.all(allocatedCheckoutItems.map(async (item, index) => {
+          checkoutStage = 'preparing the order details';
           const distributedFee = distributedOrderFees[index] || { handling: 0, transfer: 0, total: 0 };
           const checkoutKit = isProjectCheckoutItem(item) ? null : findCheckoutKit(kits, item);
           const gridImage = isProjectCheckoutItem(item)
@@ -2737,11 +2758,13 @@ const handleFinalizeOrder = async () => {
         expiresAt: expirationDate.toISOString()
       };
       
+      checkoutStage = 'saving the order';
       const docId = await createOrder(orderData);
       orderCreated = true;
       console.log("SG DEBUG: Order created successfully with ID:", docId);
       
       if (assignStockToOrder) {
+        checkoutStage = 'linking reserved stock to the order';
         for (const item of allocatedCheckoutItems) {
           if (isProjectCheckoutItem(item)) continue;
           await assignStockToOrder(item.id, item.stockKey, orderId, { 
@@ -2757,6 +2780,7 @@ const handleFinalizeOrder = async () => {
         completedOffers.set(item.offerId, item);
       });
       if (completeAcceptedOffer) {
+        checkoutStage = 'completing accepted offers';
         await Promise.all([...completedOffers.values()].map((item) => completeAcceptedOffer({
           offerId: item.offerId,
           kitId: item.id,
@@ -2766,6 +2790,7 @@ const handleFinalizeOrder = async () => {
       }
       
       setCreatedOrderIds([docId]);
+      checkoutStage = 'removing checked-out basket items';
       for (const item of checkoutItems) {
         if (item.basketId) await removeFromBasket(item.basketId);
       }
@@ -2780,13 +2805,17 @@ const handleFinalizeOrder = async () => {
         setCheckoutStep(2); 
       }
     } catch (err) { 
-      console.error("SG LOG: Checkout Error:", err); 
+      console.error("SG LOG: Checkout Error:", {
+        stage: checkoutStage,
+        error: err,
+        checkoutItems
+      });
       if (!orderCreated && reservedCheckoutTargets.length > 0) {
         await Promise.allSettled(reservedCheckoutTargets.map(({ kitId, stockKey }) => (
           releaseCheckoutReservation(kitId, stockKey, checkoutUid)
         )));
       }
-      alert(`Checkout failed: ${err.message || "An unexpected error occurred."}`); 
+      alert(`Checkout failed during ${checkoutStage}: ${err.message || "An unexpected error occurred."}`);
       setIsFinalizing(false);
     }
   };
