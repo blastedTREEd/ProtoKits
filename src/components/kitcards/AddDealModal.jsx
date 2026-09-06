@@ -1033,6 +1033,18 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
         Math.max(0, Math.floor(Number(clearanceRequiredOtherStocks[kitId] ?? 1) || 0))
       ]));
       dealData.requiredOtherStockCounts = requiredOtherStockCounts;
+      const sourceKitIds = selectedKitIds.filter((kitId) => {
+        const configuredDiscount = effectiveClearanceDiscounts[kitId];
+        return configuredDiscount !== ''
+          && configuredDiscount !== null
+          && configuredDiscount !== undefined
+          && Number(configuredDiscount) > 0;
+      });
+      // A blank override uses the normal clearance price. Keep one explicit
+      // source for legacy-style records when no override was entered.
+      dealData.flexiSourceKitIds = sourceKitIds.length > 0
+        ? sourceKitIds
+        : selectedKitIds.slice(0, 1);
       // Keep the old field for older clients that do not understand the map.
       dealData.requiredOtherStockCount = requiredOtherStockCounts[selectedKitIds[0]] ?? 1;
     } else if (dealType === CLEARANCE_DEAL_TYPE) {
@@ -1270,6 +1282,11 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       id,
       Math.max(0, Math.floor(Number(getClearanceRequiredOtherStock(deal, id)) || 0))
     ]));
+    const nextSourceKitIds = isFlexiBundleDeal(deal)
+      ? (Array.isArray(deal.flexiSourceKitIds)
+        ? deal.flexiSourceKitIds.filter(id => nextKitIds.includes(id))
+        : nextKitIds.slice(0, 1))
+      : undefined;
     const rows = getOrderedKits(kits, nextKitIds).map(kit => {
       const stock = getHighestOnhandStock(kit);
       return {
@@ -1290,6 +1307,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
         requiredOtherStockCounts: nextRequiredOtherStockCounts,
         requiredOtherStockCount: nextRequiredOtherStockCounts[nextKitIds[0]] ?? 1,
         previewKitIds: nextKitIds,
+        ...(isFlexiBundleDeal(deal) ? { flexiSourceKitIds: nextSourceKitIds.length > 0 ? nextSourceKitIds : nextKitIds.slice(0, 1) } : {}),
         bundlePrice: summary.bundlePrice,
         totalCost: summary.totalCost,
         totalSell: summary.totalSell,
@@ -1637,8 +1655,8 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                               </div>
                               {dealType === FLEXI_BUNDLE_DEAL_TYPE && (
                                 <div className="flex shrink-0 items-end gap-1.5">
-                                  <label className="flex w-10 flex-col gap-1 text-[9px] font-black uppercase tracking-wider text-amber-600">
-                                    Req.
+                                      <label className="flex w-10 flex-col gap-1 text-[9px] font-black uppercase tracking-wider text-amber-600">
+                                    Other stock
                                     <input
                                       type="number"
                                       min="0"
@@ -1649,7 +1667,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                         const value = event.target.value.replace(/\D/g, '').slice(0, 1);
                                         setClearanceRequiredOtherStocks(prev => ({ ...prev, [kit.id]: value }));
                                       }}
-                                      title="Number of other kits required for this kit's clearance discount"
+                                      title="Number of stock units from another kit required for this kit's FLEXI-BUNDLE discount"
                                       className="h-10 w-full appearance-none rounded-lg border border-amber-500/30 bg-amber-500/10 px-2 py-2 text-[12px] font-black text-amber-600 outline-none focus:border-amber-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                                     />
                                   </label>

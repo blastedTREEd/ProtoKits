@@ -12,8 +12,8 @@ import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
 import {
   getBundleDealPricing,
   getClearanceBundlePricing,
+  getClearancePrice,
   getClearanceRequiredOtherStock,
-  getFlexiDiscountShares,
   getFlexiOfferedDiscount,
   getHighestCostStock
 } from '../../utils/bundlePricing';
@@ -311,7 +311,33 @@ function getClearanceDealPricing(deal, allKits = []) {
 function getBundleKitPrice(deal, dealKit, allKits = []) {
   if (!deal || !dealKit) return null;
   const includedKits = (deal.kitIds || []).map(id => id === dealKit.id ? dealKit : allKits.find(k => k.id === id)).filter(Boolean);
-  if (isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)) {
+  if (isFlexiBundleDeal(deal)) {
+    const eligibleKitIds = getActiveClearanceKitIds(
+      deal,
+      deal.clearanceKitIds?.length ? deal.clearanceKitIds : (deal.kitIds || [])
+    );
+    const configuredSourceIds = eligibleKitIds.filter((kitId) => {
+      const configuredDiscount = deal.clearanceDiscounts?.[kitId];
+      return configuredDiscount !== ''
+        && configuredDiscount !== null
+        && configuredDiscount !== undefined
+        && Number(configuredDiscount) > 0;
+    });
+    const sourceKitIds = Array.isArray(deal.flexiSourceKitIds) && deal.flexiSourceKitIds.length > 0
+      ? deal.flexiSourceKitIds.map(String)
+      : (configuredSourceIds.length > 0 ? configuredSourceIds : eligibleKitIds.slice(0, 1));
+    const isSourceKit = sourceKitIds.some(sourceKitId => String(sourceKitId) === String(dealKit.id));
+    const stocks = Object.values(dealKit.stocks || {});
+    const sourceStock = getPreferredDealStock(stocks, 'onhand');
+    const sellPrice = Number(sourceStock?.sellPrice || stocks[0]?.sellPrice || dealKit.sellPrice || 0);
+    if (!isSourceKit) return sellPrice;
+
+    const costPrice = Number(sourceStock?.costPrice || stocks[0]?.costPrice || dealKit.costPrice || 0);
+    const automaticDiscount = Math.max(0, sellPrice - getClearancePrice(costPrice, sellPrice));
+    const offeredDiscount = getFlexiOfferedDiscount(deal, dealKit.id, automaticDiscount);
+    return getClearancePrice(costPrice, sellPrice, offeredDiscount);
+  }
+  if (isPerKitClearanceDeal(deal)) {
     const clearance = getClearanceDealPricing(deal, allKits);
     return clearance.rows.find(row => row.kitId === dealKit.id)?.finalPrice ?? null;
   }
@@ -2071,13 +2097,9 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                   clearanceRowsByKitId.get(String(kitId))?.clearanceDiscount
                                 )
                                 : 0;
-                              const flexiDiscountShares = getFlexiDiscountShares(
-                                flexiOfferedDiscount,
-                                requiredOtherKits
-                              );
                               const clearanceDisplayDiscount = isClearanceDeal
                                 ? isFlexiBundleDeal(deal)
-                                  ? flexiDiscountShares.sourceDiscount
+                                  ? flexiOfferedDiscount
                                   : Number(
                                     clearanceRowsByKitId.get(String(kitId))?.clearanceDiscount
                                     ?? clearanceRowsByKitId.get(String(includedKits[0]?.id))?.clearanceDiscount
@@ -2085,10 +2107,10 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                   )
                                 : 0;
                               const clearanceOfferTotal = isFlexiBundleDeal(deal)
-                                ? flexiDiscountShares.offeredDiscount
+                                ? flexiOfferedDiscount
                                 : clearanceTotalDiscount;
                               const clearanceRequiredDiscount = isFlexiBundleDeal(deal)
-                                ? flexiDiscountShares.otherDiscountTotal
+                                ? flexiOfferedDiscount
                                 : clearanceTotalDiscount;
                               return (
                               <div
@@ -2115,7 +2137,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                       {isIndependentClearanceDeal
                                         ? 'INDIVIDUAL SALE'
                                         : isClearanceDeal
-                                          ? `+${requiredOtherKits} OTHER KITS REQUIRED`
+                                          ? `+${requiredOtherKits} OTHER STOCK REQUIRED`
                                         : getDealCountdownLabel(deal.validUntil)}
                                     </p>
                                   </div>
@@ -2212,7 +2234,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                         </div>
                                         <div className="min-w-0 text-left">
                                           <p className="line-clamp-1 text-[15px] font-bold uppercase leading-tight">
-                                            +{requiredOtherKits} OTHER KITS REQUIRED
+                                            +{requiredOtherKits} OTHER STOCK REQUIRED
                                           </p>
                                           <div className="mt-1 flex items-baseline justify-between gap-2">
                                             <p className={`text-[16px] font-black italic ${isDarkMode ? 'text-white' : 'text-neutral-900'}`}>&#8369;???</p>

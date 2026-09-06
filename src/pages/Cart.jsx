@@ -268,7 +268,8 @@ function isPreOrderStock(stock = {}) {
 // their own. Prefer the explicitly configured source kits so an unmet source
 // does not paint every selected companion with a red FLEXI-BUNDLE tag or hide
 // another deal's tag. Older records have no per-kit source information, so
-// retain the legacy behavior for those records.
+// keep every eligible kit available as a possible selected source instead of
+// treating generated kit prices as source configuration.
 function getFlexiSourceKitIds(deal = {}, eligibleKitIds = []) {
   const eligibleIds = [...new Set((eligibleKitIds || []).map(String).filter(Boolean))];
   const explicitSourceIds = Array.isArray(deal?.flexiSourceKitIds)
@@ -278,10 +279,10 @@ function getFlexiSourceKitIds(deal = {}, eligibleKitIds = []) {
 
   const configuredSourceIds = eligibleIds.filter((kitId) => {
     const configuredDiscount = deal?.clearanceDiscounts?.[kitId];
-    return configuredDiscount !== ''
+    return (configuredDiscount !== ''
       && configuredDiscount !== null
       && configuredDiscount !== undefined
-      && Number(configuredDiscount) > 0;
+      && Number(configuredDiscount) > 0);
   });
   return configuredSourceIds.length > 0 ? configuredSourceIds : eligibleIds;
 }
@@ -771,19 +772,20 @@ export default function Cart() {
   }, [getBasketStandaloneFeeShare, installmentFee, kits]);
 
   const selectedClearancePricing = useMemo(() => {
-    const selectedItems = activeBasket.filter((item) => activeSelection.includes(item.basketId));
+    const selectedBasketIds = new Set(activeSelection.map(String));
+    const selectedItems = activeBasket.filter((item) => selectedBasketIds.has(String(item.basketId)));
     if (selectedItems.length < 1) return { prices: new Map(), sourceBasketId: '', discountTotal: 0, isFlexi: false };
 
     const selectedRows = selectedItems.filter((item) => {
       if (item.type === 'project') return false;
-      const kit = kits.find((candidate) => candidate.id === item.id);
+      const kit = kits.find((candidate) => String(candidate.id) === String(item.id));
       const stock = kit?.stocks?.[item.stockKey];
       return isOnHandStock(stock || item);
     });
     if (selectedRows.length !== selectedItems.length) return { prices: new Map(), sourceBasketId: '', discountTotal: 0, isFlexi: false };
 
       const rows = selectedRows.map((item) => {
-        const kit = kits.find((candidate) => candidate.id === item.id);
+        const kit = kits.find((candidate) => String(candidate.id) === String(item.id));
         const stock = kit?.stocks?.[item.stockKey];
         return {
           item,
@@ -798,15 +800,13 @@ export default function Cart() {
 
     const candidates = (deals || [])
       .filter((deal) => (isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)) && deal.isActive !== false)
-      .map((deal) => {
+      .flatMap((deal) => {
         const configuredIds = getActiveClearanceKitIds(deal, getClearanceKitIds(deal));
-        const eligibleSourceIds = isFlexiBundleDeal(deal)
-          ? getFlexiSourceKitIds(deal, configuredIds)
-          : configuredIds;
+        const eligibleSourceIds = configuredIds;
         const selectedKitIdSet = new Set(rows.map((row) => row.kitId));
         const availableClearanceKitIds = [...new Set(eligibleSourceIds.map(String))]
           .filter((kitId) => selectedKitIdSet.has(kitId));
-        if (availableClearanceKitIds.length === 0) return null;
+        if (availableClearanceKitIds.length === 0) return [];
 
         const selectedKitIds = selectedRows.flatMap((item) => Array.from(
           { length: Math.max(1, Number(item.quantity) || 1) },
@@ -815,7 +815,7 @@ export default function Cart() {
         const selectedClearanceKitIds = availableClearanceKitIds.filter((kitId) => (
           isClearanceRequirementMet(deal, selectedKitIds, kitId)
         ));
-        if (selectedClearanceKitIds.length === 0) return null;
+        if (selectedClearanceKitIds.length === 0) return [];
 
         const clearanceDiscountOverrides = { ...(deal.clearanceDiscounts || {}) };
         // Older and currently saved clearance records also persist the
@@ -836,38 +836,43 @@ export default function Cart() {
         });
         // Only kits whose own requirement is met are clearance-priced. Other
         // selected kits remain at their normal price.
-        const flexiSourceKitId = isFlexiBundleDeal(deal) ? selectedClearanceKitIds[0] : '';
-        const clearancePricing = isFlexiBundleDeal(deal)
-          ? getFlexiBundlePricing(
-            rows,
-            flexiSourceKitId,
-            getClearanceRequiredOtherStock(deal, flexiSourceKitId),
-            getFlexiOfferedDiscount(
-              deal,
+        const sourceKitIds = isFlexiBundleDeal(deal)
+          ? (Array.isArray(deal.flexiSourceKitIds) && deal.flexiSourceKitIds.length > 0
+            ? selectedClearanceKitIds.filter((kitId) => deal.flexiSourceKitIds.map(String).includes(String(kitId)))
+            : selectedClearanceKitIds.slice(0, 1))
+          : [''];
+        return sourceKitIds.map((flexiSourceKitId) => {
+          const clearancePricing = isFlexiBundleDeal(deal)
+            ? getFlexiBundlePricing(
+              rows,
               flexiSourceKitId,
-              clearanceDiscountOverrides[flexiSourceKitId]
+              getClearanceRequiredOtherStock(deal, flexiSourceKitId),
+              getFlexiOfferedDiscount(
+                deal,
+                flexiSourceKitId,
+                clearanceDiscountOverrides[flexiSourceKitId]
+              )
             )
-          )
-          : getClearanceBundlePricing(
-            rows,
-            selectedClearanceKitIds,
-            clearanceDiscountOverrides
-          );
-        const pricedRows = clearancePricing.rows;
-        const savings = pricedRows.reduce((sum, row) => sum + Math.max(0, row.refPrice - row.finalPrice), 0);
-        const clearanceDiscount = pricedRows.reduce((sum, row) => sum + Number(row.clearanceDiscount || 0), 0);
-        const sourceRow = pricedRows.find(row => row.isClearance);
-        return savings > 0
-          ? {
-            pricedRows,
-            savings,
-            clearanceDiscount,
-            sourceBasketId: sourceRow?.item?.basketId || '',
-            isFlexi: isFlexiBundleDeal(deal)
-          }
-          : null;
+            : getClearanceBundlePricing(
+              rows,
+              selectedClearanceKitIds,
+              clearanceDiscountOverrides
+            );
+          const pricedRows = clearancePricing.rows;
+          const savings = pricedRows.reduce((sum, row) => sum + Math.max(0, row.refPrice - row.finalPrice), 0);
+          const clearanceDiscount = pricedRows.reduce((sum, row) => sum + Number(row.clearanceDiscount || 0), 0);
+          const sourceRow = pricedRows.find(row => row.isClearance);
+          return savings > 0
+            ? {
+              pricedRows,
+              savings,
+              clearanceDiscount,
+              sourceBasketId: sourceRow?.item?.basketId || '',
+              isFlexi: isFlexiBundleDeal(deal)
+            }
+            : null;
+        }).filter(Boolean);
       })
-      .filter(Boolean)
       .sort((a, b) => b.clearanceDiscount - a.clearanceDiscount || b.savings - a.savings);
 
     const best = candidates[0];
@@ -890,12 +895,13 @@ export default function Cart() {
   // rules above, but the tag should not disappear just because there is only
   // one selected row yet.
   const selectedClearanceTagKitIds = useMemo(() => {
+    const selectedBasketIds = new Set(activeSelection.map(String));
     const selectedOnHandKitIds = new Set(
       activeBasket
         .filter((item) => (
           item.type !== 'project'
-          && activeSelection.includes(item.basketId)
-          && isOnHandStock(kits.find((kit) => kit.id === item.id)?.stocks?.[item.stockKey] || item)
+          && selectedBasketIds.has(String(item.basketId))
+          && isOnHandStock(kits.find((kit) => String(kit.id) === String(item.id))?.stocks?.[item.stockKey] || item)
         ))
         .map((item) => String(item.id))
         .filter(Boolean)
@@ -911,11 +917,20 @@ export default function Cart() {
       )
         .map(String)
         .filter(Boolean);
-      const tagEligibleKitIds = isFlexiBundleDeal(deal)
-        ? getFlexiSourceKitIds(deal, eligibleKitIds)
-        : eligibleKitIds;
-      if (!tagEligibleKitIds.some((kitId) => selectedOnHandKitIds.has(kitId))) return;
-      tagEligibleKitIds.forEach((kitId) => {
+      if (isFlexiBundleDeal(deal)) {
+        const sourceKitIds = getFlexiSourceKitIds(deal, eligibleKitIds);
+        const hasSelectedSource = sourceKitIds.some((kitId) => selectedOnHandKitIds.has(String(kitId)));
+        // A selected eligible kit should advertise the pending Flexi offer
+        // even before its source requirement has been fulfilled.
+        eligibleKitIds.forEach((kitId) => {
+          if (selectedOnHandKitIds.has(String(kitId))) tagKitIds.add(String(kitId));
+        });
+        if (hasSelectedSource) selectedOnHandKitIds.forEach((kitId) => tagKitIds.add(kitId));
+        return;
+      }
+
+      if (!eligibleKitIds.some((kitId) => selectedOnHandKitIds.has(kitId))) return;
+      eligibleKitIds.forEach((kitId) => {
         if (selectedOnHandKitIds.has(kitId)) tagKitIds.add(kitId);
       });
     });
@@ -923,8 +938,9 @@ export default function Cart() {
   }, [activeBasket, activeSelection, deals, kits]);
 
   const selectedFlexiState = useMemo(() => {
+    const selectedBasketIds = new Set(activeSelection.map(String));
     const selectedItems = activeBasket.filter((item) => (
-      activeSelection.includes(item.basketId)
+      selectedBasketIds.has(String(item.basketId))
       && item.type !== 'project'
       && isOnHandStock(kits.find((kit) => String(kit.id) === String(item.id))?.stocks?.[item.stockKey] || item)
     ));
@@ -932,7 +948,9 @@ export default function Cart() {
       return {
         fulfilledSourceKitIds: new Set(),
         pendingSourceKitIds: new Set(),
-        fulfilledKitIds: new Set()
+        fulfilledKitIds: new Set(),
+        taggedKitIds: new Set(),
+        selectedSourceKitIds: new Set()
       };
     }
 
@@ -943,11 +961,15 @@ export default function Cart() {
     const selectedKitIdSet = new Set(selectedKitIds);
     const fulfilledSourceKitIds = new Set();
     const pendingSourceKitIds = new Set();
+    const fulfilledKitIds = new Set();
+    const taggedKitIds = new Set();
+    const selectedSourceKitIds = new Set();
 
     (deals || []).forEach((deal) => {
       if (!isFlexiBundleDeal(deal) || deal.isActive === false) return;
       const eligibleKitIds = getActiveClearanceKitIds(deal, getClearanceKitIds(deal));
       const sourceKitIds = getFlexiSourceKitIds(deal, eligibleKitIds);
+      let hasFulfilledSource = false;
 
       // A source kit must itself be selected before its requirement can
       // fulfill the deal. Previously this checked every eligible source,
@@ -957,24 +979,51 @@ export default function Cart() {
       sourceKitIds
         .filter((kitId) => selectedKitIdSet.has(String(kitId)))
         .forEach((kitId) => {
+          selectedSourceKitIds.add(String(kitId));
+          selectedKitIdSet.forEach((selectedKitId) => taggedKitIds.add(selectedKitId));
           if (isClearanceRequirementMet(deal, selectedKitIds, kitId)) {
             fulfilledSourceKitIds.add(String(kitId));
+            hasFulfilledSource = true;
           } else {
             pendingSourceKitIds.add(String(kitId));
           }
         });
+
+      // Once a selected source has enough other stock, mark every selected
+      // eligible kit green as part of the same FLEXI offer. A companion can
+      // also be configured as another source, but it is still a green member
+      // of the fulfilled offer when a different source qualifies.
+      if (hasFulfilledSource) {
+        selectedKitIdSet.forEach((kitId) => fulfilledKitIds.add(kitId));
+      }
     });
 
-    // If every selected Flexi source is fulfilled, the complete selected set
-    // receives the green tag. With mixed source states, keep the state local
-    // to each source so an unmet Kshatriya offer cannot override another
-    // selected kit's tag.
-    const fulfilledKitIds = fulfilledSourceKitIds.size > 0 && pendingSourceKitIds.size === 0
-      ? new Set(selectedItems.map((item) => String(item.id)).filter(Boolean))
-      : new Set();
-
-    return { fulfilledSourceKitIds, pendingSourceKitIds, fulfilledKitIds };
+    return { fulfilledSourceKitIds, pendingSourceKitIds, fulfilledKitIds, taggedKitIds, selectedSourceKitIds };
   }, [activeBasket, activeSelection, deals, kits]);
+
+  // Keep source visibility independent from the fulfilled-price calculation.
+  // A selected source must show the red FLEXI-BUNDLE badge even while its
+  // other-stock requirement is still unmet.
+  const selectedFlexiSourceKitIds = useMemo(() => {
+    const selectedKitIds = new Set(
+      activeBasket
+        .filter((item) => activeSelection.includes(item.basketId) && item.type !== 'project')
+        .map((item) => String(item.id))
+        .filter(Boolean)
+    );
+    const sourceKitIds = new Set();
+
+    (deals || []).forEach((deal) => {
+      if (!isFlexiBundleDeal(deal) || deal.isActive === false) return;
+      const eligibleKitIds = getActiveClearanceKitIds(deal, getClearanceKitIds(deal));
+      getFlexiSourceKitIds(deal, eligibleKitIds).forEach((kitId) => {
+        const normalizedKitId = String(kitId);
+        if (selectedKitIds.has(normalizedKitId)) sourceKitIds.add(normalizedKitId);
+      });
+    });
+
+    return sourceKitIds;
+  }, [activeBasket, activeSelection, deals]);
 
   const selectedClearanceLabelByKitId = useMemo(() => {
     const labels = new Map();
@@ -984,11 +1033,18 @@ export default function Cart() {
         deal,
         deal.clearanceKitIds?.length ? deal.clearanceKitIds : deal.kitIds || []
       );
-      const labelKitIds = isFlexiBundleDeal(deal)
-        ? getFlexiSourceKitIds(deal, eligibleKitIds)
-        : eligibleKitIds;
-      labelKitIds
-        .forEach((kitId) => labels.set(String(kitId), isFlexiBundleDeal(deal) ? 'FLEXI-BUNDLE' : 'CLEARANCE'));
+      // Label every eligible FLEXI kit. Only the pricing path should limit
+      // discounts to configured source kits.
+      const labelKitIds = eligibleKitIds;
+      labelKitIds.forEach((kitId) => {
+        const normalizedKitId = String(kitId);
+        const nextLabel = isFlexiBundleDeal(deal) ? 'FLEXI-BUNDLE' : 'CLEARANCE';
+        // FLEXI must remain visible when the same kit also belongs to a
+        // separate CLEARANCE deal loaded later in the list.
+        if (nextLabel === 'FLEXI-BUNDLE' || !labels.has(normalizedKitId)) {
+          labels.set(normalizedKitId, nextLabel);
+        }
+      });
     });
     return labels;
   }, [deals]);
@@ -1055,8 +1111,10 @@ export default function Cart() {
     }, 0)
   ), [activeBasket, activeSelection, kits, selectedBundlePriceByBasketId]);
 
-  const isBundleDealWinner = selectedBundleDiscountTotal > 0
-    && selectedBundleDiscountTotal >= Number(selectedClearancePricing.discountTotal || 0);
+  const selectedClearanceDiscountTotal = Number(selectedClearancePricing.discountTotal || 0);
+  const isFlexiDealQualified = selectedClearancePricing.isFlexi && selectedClearanceDiscountTotal > 0;
+  const isBundleDealWinner = isFlexiDealQualified
+    && selectedBundleDiscountTotal >= selectedClearanceDiscountTotal;
 
   const isBasketBundleFullySelected = useCallback((item) => {
     if (!isBundleOrClearanceItem(item) || !item.bundleId) return false;
@@ -1090,17 +1148,16 @@ export default function Cart() {
         .map((basketId) => selectedClearancePricing.prices.get(basketId))
         .find((price) => Number.isFinite(price))
       : selectedClearancePricing.prices.get(item.basketId);
-    if (Number.isFinite(selectedBundlePrice) && (isBundleDealWinner || !Number.isFinite(selectedClearancePrice))) {
-      return selectedBundlePrice;
-    }
-    if (Number.isFinite(selectedClearancePrice)) return selectedClearancePrice;
-
-    if (Number.isFinite(selectedBundlePrice)) return selectedBundlePrice;
-
-    if (isBasketBundleFullySelected(item) && activeBundleDealIds.has(String(item.bundleId))) {
+    const isCompleteBundleSelection = Number.isFinite(selectedBundlePrice)
+      || (isBasketBundleFullySelected(item) && activeBundleDealIds.has(String(item.bundleId)));
+    if (isCompleteBundleSelection) {
+      if (Number.isFinite(selectedBundlePrice)) return selectedBundlePrice;
       const dealPrice = Number(item.appliedBundlePrice || item.price || item.sellPrice || 0);
       if (dealPrice > 0) return dealPrice;
     }
+    if (Number.isFinite(selectedClearancePrice) && !isBundleDealWinner) return selectedClearancePrice;
+
+    if (Number.isFinite(selectedBundlePrice)) return selectedBundlePrice;
 
     const offerPrice = Number(item.offerPrice || 0);
     const isSelected = Array.isArray(item.basketIds)
@@ -1109,7 +1166,7 @@ export default function Cart() {
     if (offerPrice > 0 && isSelected) return offerPrice;
 
     return standaloneBasePrice;
-  }, [activeBundleDealIds, activeSelection, getBasketStandaloneFeeShare, getBasketStandalonePrice, installmentFee, isBasketBundleFullySelected, isBundleDealWinner, selectedBundlePriceByBasketId, selectedClearancePricing]);
+  }, [activeBundleDealIds, activeSelection, getBasketStandaloneFeeShare, getBasketStandalonePrice, installmentFee, isBundleDealWinner, isBasketBundleFullySelected, selectedBundlePriceByBasketId, selectedClearancePricing]);
 
   const getBasketPriceComparison = useCallback((item) => {
     const standalonePrice = getBasketStandalonePrice(item);
@@ -1128,6 +1185,16 @@ export default function Cart() {
       isDiscounted: standalonePrice > discountedPrice
     };
   }, [activeSelection, getBasketDiscountedPrice, getBasketStandalonePrice]);
+
+  const selectedPromotionDiscountTotal = useMemo(() => {
+    // Only advertise savings from the two customer-facing bundle promotions.
+    // Regular offers and standalone price reductions should not produce a
+    // bundle savings message in the cart footer.
+    if (isFlexiDealQualified && !isBundleDealWinner) {
+      return selectedClearanceDiscountTotal;
+    }
+    return selectedBundleDiscountTotal;
+  }, [isBundleDealWinner, isFlexiDealQualified, selectedBundleDiscountTotal, selectedClearanceDiscountTotal]);
 
   const getEffectiveItemPrice = useCallback((item) => {
     // Return displayPrice (final price)
@@ -1742,8 +1809,10 @@ export default function Cart() {
                 }
 
                 const { item } = row;
-                const isSelected = item.basketIds.some(bid => activeSelection.includes(bid));
-                const kit = kits.find(k => k.id === item.id);
+                const isSelected = item.basketIds.some(bid => (
+                  activeSelection.some(selectedId => String(selectedId) === String(bid))
+                ));
+                const kit = kits.find(k => String(k.id) === String(item.id));
                 
                 // Debugging log
                 if (kit) {
@@ -1802,19 +1871,30 @@ export default function Cart() {
                   && bundleDealTagKitIds.has(String(item.id));
                 const isBundleDealApplied = hasSelectedBundlePrice
                   || (isActiveBundleDealItem && isBasketBundleFullySelected(item));
+                const isBundleDealItem = item.type !== 'project'
+                  && (bundleDealTagKitIds.has(String(item.id)) || isActiveBundleDealItem);
+                const isCompleteBundleDeal = isBundleDealItem && isBundleDealApplied;
                 const isFlexiPriceApplied = hasSelectedClearancePrice
                   && selectedClearancePricing.isFlexi;
                 const itemKitId = String(item.id);
                 const isFlexiFulfilledTag = selectedFlexiState.fulfilledKitIds.has(itemKitId)
                   || selectedFlexiState.fulfilledSourceKitIds.has(itemKitId);
                 const isFlexiPendingTag = selectedFlexiState.pendingSourceKitIds.has(itemKitId);
-                const isFlexiBundleTag = !isBundleDealWinner && (isFlexiPriceApplied
-                  || isFlexiFulfilledTag
-                  || isFlexiPendingTag
-                  || String(item.bundleName || '').toUpperCase().includes('FLEXI')
-                  || selectedClearanceLabelByKitId.get(itemKitId) === 'FLEXI-BUNDLE');
+                const isFlexiSourceTag = selectedFlexiState.fulfilledSourceKitIds.has(itemKitId)
+                  || selectedFlexiState.pendingSourceKitIds.has(itemKitId)
+                  || selectedFlexiState.selectedSourceKitIds.has(itemKitId)
+                  || selectedFlexiSourceKitIds.has(itemKitId)
+                  || String(item.bundleName || '').toUpperCase().includes('FLEXI');
+                const isFlexiTagEligible = isBundleDealWinner
+                  ? isFlexiSourceTag || selectedClearanceLabelByKitId.get(itemKitId) === 'FLEXI-BUNDLE'
+                  : selectedFlexiState.taggedKitIds.has(itemKitId)
+                    || isFlexiPriceApplied
+                    || isFlexiFulfilledTag
+                    || isFlexiPendingTag
+                    || selectedClearanceLabelByKitId.get(itemKitId) === 'FLEXI-BUNDLE';
+                const isFlexiBundleTag = isFlexiTagEligible && !isCompleteBundleDeal;
                 const isBundleDealOffer = item.type !== 'project'
-                  && (bundleDealTagKitIds.has(String(item.id)) || isActiveBundleDealItem)
+                  && isBundleDealItem
                   && !isFlexiBundleTag;
                 const isClearanceKit = item.type !== 'project'
                   && isSelected
@@ -1824,10 +1904,11 @@ export default function Cart() {
                     hasSelectedClearancePrice
                     || selectedClearanceTagKitIds.has(String(item.id))
                     || Boolean(item.isClearanceBundle)
+                    || selectedFlexiSourceKitIds.has(itemKitId)
                     || isFlexiFulfilledTag
                   );
                 const isClearanceDealApplied = isFlexiBundleTag
-                  ? isFlexiPriceApplied || isFlexiFulfilledTag
+                  ? !isBundleDealWinner && (isFlexiPriceApplied || isFlexiFulfilledTag)
                   : hasSelectedClearancePrice;
                 const etaLabel = getStockEta(stock || item) || 'TBA';
                 const offerHoursLeft = item.offerId && isOfferCheckoutActive(item, offerNow)
@@ -2225,9 +2306,19 @@ export default function Cart() {
                         // 4. NORMAL CHECKOUT STATE
                         return (
                           <>
-                            <div className="flex flex-col items-start md:items-end justify-center">
-                              <span className="text-[10px] font-black uppercase opacity-40 leading-none mb-1">Total</span>
-                              <span className="text-lg md:text-xl font-black italic leading-none">₱{validation.totalPrice.toLocaleString()}</span>
+                            <div className="flex items-end gap-4 md:gap-6">
+                              {selectedPromotionDiscountTotal > 0 && (
+                                <div className="flex flex-col items-start md:items-end justify-center">
+                                  <span className="text-[10px] font-black uppercase opacity-40 leading-none mb-1">Saved</span>
+                                  <span className="text-lg md:text-xl font-black italic leading-none text-emerald-600">
+                                    ₱{selectedPromotionDiscountTotal.toLocaleString()}
+                                  </span>
+                                </div>
+                              )}
+                              <div className="flex flex-col items-start md:items-end justify-center">
+                                <span className="text-[10px] font-black uppercase opacity-40 leading-none mb-1">Total</span>
+                                <span className="text-lg md:text-xl font-black italic leading-none">₱{validation.totalPrice.toLocaleString()}</span>
+                              </div>
                             </div>
                             <button
                               onClick={() => {

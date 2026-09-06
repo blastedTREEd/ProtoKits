@@ -94,32 +94,8 @@ export function getClearancePrice(costPrice = 0, sellPrice = 0, discountOverride
   return Math.min(sell, getClearanceCostCeiling(cost));
 }
 
-// Flexi-BUNDLE discounts are offered as one amount for the complete set and
-// divided evenly across the deal kit plus its required companion kits. Keep
-// every share in whole pesos while preserving the offered total.
-export function getFlexiDiscountShares(offeredDiscount = 0, requiredOtherStockCount = 1) {
-  const offered = Math.max(0, Math.round(Number(offeredDiscount) || 0));
-  const requiredCount = Math.max(0, Math.floor(Number(requiredOtherStockCount) || 0));
-  const totalKitCount = requiredCount + 1;
-  const allShares = Array.from(
-    { length: totalKitCount },
-    (_, index) => getDistributedFeeShare(offered, index, totalKitCount)
-  );
-  const sourceDiscount = allShares[0] || 0;
-  const otherDiscounts = allShares.slice(1);
-  const otherDiscountTotal = otherDiscounts.reduce((sum, share) => sum + share, 0);
-
-  return {
-    offeredDiscount: offered,
-    sourceDiscount,
-    otherDiscountTotal,
-    otherDiscounts
-  };
-}
-
-// Resolve the original offer amount before it is split among the source kit
-// and its required companions. Prefer the per-source setting so an aggregate
-// legacy total cannot be mistaken for this kit's offer.
+// Resolve the original per-source offer amount. Prefer the per-source setting
+// so an aggregate legacy total cannot be mistaken for this kit's offer.
 export function getFlexiOfferedDiscount(deal = {}, sourceKitId = '', fallback = 0) {
   const normalizedId = String(sourceKitId || '');
   const configured = deal?.clearanceDiscounts?.[normalizedId]
@@ -136,67 +112,37 @@ export function getFlexiOfferedDiscount(deal = {}, sourceKitId = '', fallback = 
   return Math.max(0, Math.round(Number(deal?.discountAmount) || 0));
 }
 
-// Price one Flexi-BUNDLE offer across the source kit and the required
-// companion rows. Cost ceilings remain enforced; any unused share is
-// redistributed to rows with remaining capacity whenever possible.
+// Price a FLEXI-BUNDLE offer using the source kit's discount amount. The
+// required stock from another kit unlocks that offer, then the offer is
+// distributed across all selected rows so every selected kit receives a
+// visual discounted price while the source remains the offer owner.
 export function getFlexiBundlePricing(rows = [], sourceKitId = '', requiredOtherStockCount = 1, offeredDiscount = 0) {
   const sourceIndex = (rows || []).findIndex(row => String(row?.kitId ?? row?.id) === String(sourceKitId));
   if (sourceIndex < 0) return getClearanceBundlePricing(rows, [], {});
 
   const requiredCount = Math.max(0, Math.floor(Number(requiredOtherStockCount) || 0));
-  const companionIndexes = (rows || [])
-    .map((row, index) => ({ row, index }))
-    .filter(({ row, index }) => index !== sourceIndex && Number(row?.sellPrice ?? row?.sell ?? 0) > 0)
-    .map(({ index }) => index)
-    .slice(0, requiredCount);
-  const selectedIndexes = [sourceIndex, ...companionIndexes];
-  const shares = getFlexiDiscountShares(offeredDiscount, companionIndexes.length);
-  const targetAllocations = new Map([[sourceIndex, shares.sourceDiscount]]);
-  companionIndexes.forEach((index, position) => {
-    targetAllocations.set(index, shares.otherDiscounts[position] || 0);
-  });
+  const otherStockCount = (rows || []).reduce((count, row, index) => {
+    if (index === sourceIndex || String(row?.kitId ?? row?.id) === String(sourceKitId)) return count;
+    return count + Math.max(1, Number(row?.item?.quantity ?? row?.quantity) || 1);
+  }, 0);
+  if (otherStockCount < requiredCount) return getClearanceBundlePricing(rows, [], {});
 
-  const getCapacity = (row) => {
-    const sellPrice = Math.max(0, Number(row?.sellPrice ?? row?.sell ?? 0) || 0);
-    const costPrice = Math.max(0, Number(row?.costPrice ?? row?.cost ?? 0) || 0);
-    return Math.max(0, Math.round(sellPrice - Math.min(sellPrice, getClearanceCostCeiling(costPrice))));
-  };
-
-  const allocations = new Map();
-  targetAllocations.forEach((target, index) => {
-    allocations.set(index, Math.min(getCapacity(rows[index]), Math.max(0, Math.round(target))));
-  });
-
-  // Preserve the exact offer when a row's cost ceiling limits its initial
-  // share by distributing the remaining pesos across rows with spare room.
-  let remaining = Math.max(0, Math.round(Number(shares.offeredDiscount) || 0))
-    - [...allocations.values()].reduce((sum, value) => sum + value, 0);
-  let cursor = 0;
-  while (remaining > 0 && selectedIndexes.length > 0 && cursor < 10000) {
-    const index = selectedIndexes[cursor % selectedIndexes.length];
-    const capacity = getCapacity(rows[index]);
-    const allocated = allocations.get(index) || 0;
-    if (allocated < capacity) {
-      allocations.set(index, allocated + 1);
-      remaining -= 1;
-    }
-    cursor += 1;
-    if (cursor >= 10000) break;
-  }
-
-  const discountedKitIds = selectedIndexes.map(index => rows[index]?.kitId ?? rows[index]?.id);
-  const discountOverrides = Object.fromEntries(
-    selectedIndexes.map(index => [rows[index]?.kitId ?? rows[index]?.id, allocations.get(index) || 0])
+  const normalizedSourceKitId = String(sourceKitId);
+  const selectedKitIds = (rows || []).map(row => String(row?.kitId ?? row?.id));
+  const pricing = getClearanceBundlePricing(
+    rows,
+    selectedKitIds,
+    {},
+    { distributeAcrossRows: true, distributionTotal: offeredDiscount }
   );
-  const pricing = getClearanceBundlePricing(rows, discountedKitIds, discountOverrides);
   const appliedDiscount = pricing.rows.reduce((sum, row) => sum + Number(row.clearanceDiscount || 0), 0);
 
   return {
     ...pricing,
-    offeredDiscount: shares.offeredDiscount,
+    offeredDiscount: Math.max(0, Math.round(Number(offeredDiscount) || 0)),
     sourceDiscount: Number(pricing.rows[sourceIndex]?.clearanceDiscount || 0),
     otherDiscountTotal: Math.max(0, appliedDiscount - Number(pricing.rows[sourceIndex]?.clearanceDiscount || 0)),
-    unusedOfferedDiscount: Math.max(0, shares.offeredDiscount - appliedDiscount)
+    unusedOfferedDiscount: Math.max(0, Math.round(Number(offeredDiscount) || 0) - appliedDiscount)
   };
 }
 
@@ -238,9 +184,9 @@ export function isClearanceRequirementMet(deal = {}, selectedKitIds = [], curren
   // needed to unlock the price.
   if (isPerKitClearanceDeal(deal)) return true;
 
-  // Count selected stock units, not unique kit IDs. Every selected stock row
-  // can satisfy the requirement, while all rows belonging to the clearance
-  // kit itself are excluded.
+  // Count selected stock units, not unique kit IDs. Only stock from another
+  // kit can satisfy the source kit's requirement; additional quantity of the
+  // source kit itself does not count.
   const otherSelectedStockCount = (selectedKitIds || [])
     .map(id => String(id))
     .filter(id => id && id !== currentId)
