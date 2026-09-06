@@ -245,6 +245,15 @@ const getResultProvinceNames = (address = {}) => [
   address.region
 ].filter(Boolean);
 
+const getResultBarangayNames = (address = {}) => [
+  address.barangay,
+  address.suburb,
+  address.village,
+  address.quarter,
+  address.neighbourhood,
+  address.city_district
+].filter(Boolean);
+
 const fetchNominatimResults = async (params) => {
   const response = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`);
   if (!response.ok) throw new Error(`Nominatim request failed with ${response.status}`);
@@ -277,28 +286,22 @@ export const lookupPhilippineAddressByZipCode = async (zipCode) => {
   };
 };
 
-export const lookupPhilippineZipCodeByCityAndProvince = async (city, province) => {
+export const lookupPhilippineZipCodeByCityAndProvince = async (city, province, barangay = '') => {
   const cityVariants = getLocationVariants(city);
   const provinceVariants = getLocationVariants(province);
+  const barangayVariants = getLocationVariants(barangay);
   if (!cityVariants.length || !provinceVariants.length) return '';
 
-  // Santa Cruz, Manila has two postal areas and the city/province form does
-  // not include enough detail to choose between them. Use the standard
-  // Santa Cruz South code unless North/South is explicitly entered.
-  const metroFallback = getMetroManilaZipFallback(city, province);
-  if (metroFallback) return metroFallback;
-
-  // Prefer verified local municipality mappings so known Philippine ZIPs do
-  // not depend on a live geocoder response.
-  const localFallback = getSanPrefixZipFallback(city, province)
+  const localFallback = getMetroManilaZipFallback(city, province)
+    || getSanPrefixZipFallback(city, province)
     || getMunicipalityZipFallback(city, province)
     || getOfficialPhilippineZipFallback(city, province);
-  if (localFallback) return localFallback;
 
-  const findVerifiedResult = (results) => results.find((item) => {
+  const findVerifiedResult = (results, requireBarangay = false) => results.find((item) => {
     const address = item?.address || {};
     const resultCityNames = getResultCityNames(address);
     const resultProvinceNames = getResultProvinceNames(address);
+    const resultBarangayNames = getResultBarangayNames(address);
     const provinceMatches = resultProvinceNames.some((resultProvince) => (
       isLocationMatch(resultProvince, provinceVariants)
     )) || (
@@ -307,10 +310,42 @@ export const lookupPhilippineZipCodeByCityAndProvince = async (city, province) =
         ['manila', 'metromanila', 'nationalcapitalregion', 'ncr', 'capitaldistrict'].includes(normalizeLocationName(resultLocation))
       ))
     );
+    const barangayMatches = !requireBarangay || resultBarangayNames.some((resultBarangay) => (
+      isLocationMatch(resultBarangay, barangayVariants)
+    ));
     return normalizePhilippineZipCode(address.postcode)
       && resultCityNames.some((resultCity) => isLocationMatch(resultCity, cityVariants))
-      && provinceMatches;
+      && provinceMatches
+      && barangayMatches;
   });
+
+  // Use the complete location first when a barangay is supplied. This avoids
+  // selecting an arbitrary city-level ZIP when a municipality has multiple
+  // postal areas.
+  if (barangayVariants.length) {
+    for (const barangayVariant of barangayVariants) {
+      for (const cityVariant of cityVariants) {
+        let results = [];
+        try {
+          results = await fetchNominatimResults(new URLSearchParams({
+            q: `${barangayVariant}, ${cityVariant}, ${province}, ${PHILIPPINES}`,
+            format: 'json',
+            addressdetails: '1',
+            limit: '10'
+          }));
+        } catch (error) {
+          console.warn('SG LOG: Barangay ZIP lookup unavailable; falling back to city/province.', error);
+        }
+        const result = findVerifiedResult(results, true);
+        if (result) return normalizePhilippineZipCode(result.address.postcode);
+      }
+    }
+  }
+
+  // Santa Cruz, Manila has two postal areas and the city/province form does
+  // not include enough detail to choose between them. Use the standard
+  // Santa Cruz South code unless North/South is explicitly entered.
+  if (localFallback) return localFallback;
 
   for (const cityVariant of cityVariants) {
     let results = [];

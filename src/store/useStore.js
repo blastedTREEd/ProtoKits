@@ -15,6 +15,133 @@ import { getStockEta } from '../utils/stockDates';
 import { compactOrderPayload, getPayloadByteSize } from '../utils/orderPayload';
 import { isFlexiBundleDeal, isPerKitClearanceDeal } from '../utils/dealTypes';
 
+const FINALIZED_ORDER_SHIPPING_DELETE_FIELDS = [
+  'buyerName',
+  'buyerEmail',
+  'receiverName',
+  'phoneNumber',
+  'mobileNo',
+  'email',
+  'landmark',
+  'houseNo',
+  'houseDetails',
+  'street',
+  'subdivision',
+  'barangay',
+  'address',
+  'fullAddress',
+  'completeAddress',
+  'deliveryAddress',
+  'shippingAddress',
+  'pickupLocation',
+  'pickupDetails',
+  'pickupLocationIndex',
+  'meetupLocation',
+  'meetupLocationIndex',
+  'dropoffPin',
+  'pickupPin',
+  'dropoffLocation',
+  'pickupCoordinates',
+  'dropoffCoordinates',
+  'latitude',
+  'longitude',
+  'lat',
+  'lng',
+  'trackingNo',
+  'trackingNumber',
+  'trackingLink',
+  'customerTrackingLink',
+  'claimantBalance',
+  'meetupSchedule',
+  'meetupPreferredDate',
+  'meetupPreferredStartTime'
+];
+
+const getAddressLocationFallback = (details = {}) => {
+  const address = String(details.address || details.publicAddress || details.exactAddress || '').trim();
+  const parts = address.split(',').map((part) => part.trim()).filter(Boolean);
+  const zipMatch = address.match(/(?:^|\D)(\d{4})\s*$/);
+  const nonZipParts = zipMatch && parts[parts.length - 1] === zipMatch[1] ? parts.slice(0, -1) : parts;
+
+  return {
+    city: details.city || details.town || details.municipality || (nonZipParts.length >= 2 ? nonZipParts[nonZipParts.length - 2] : ''),
+    province: details.province || (nonZipParts.length >= 2 ? nonZipParts[nonZipParts.length - 1] : ''),
+    zipCode: details.zipCode || details.zip || zipMatch?.[1] || ''
+  };
+};
+
+const getFinalizedOrderReceiverDetails = (order) => {
+  const receiverDetails = order?.receiverDetails && typeof order.receiverDetails === 'object'
+    ? order.receiverDetails
+    : {};
+  const pickupDetails = order?.pickupDetails && typeof order.pickupDetails === 'object'
+    ? order.pickupDetails
+    : {};
+  const meetupDetails = order?.meetupDetails && typeof order.meetupDetails === 'object'
+    ? order.meetupDetails
+    : { address: order?.meetupLocation };
+  const pickupLocation = getAddressLocationFallback(pickupDetails);
+  const meetupLocation = getAddressLocationFallback(meetupDetails);
+  const city = receiverDetails.city
+    || receiverDetails.town
+    || receiverDetails.municipality
+    || order?.city
+    || order?.town
+    || pickupLocation.city
+    || meetupLocation.city;
+  const province = receiverDetails.province || order?.province || pickupLocation.province || meetupLocation.province;
+  const zipCode = receiverDetails.zipCode
+    || receiverDetails.zip
+    || order?.zipCode
+    || order?.zip
+    || pickupLocation.zipCode
+    || meetupLocation.zipCode;
+
+  return {
+    ...(city ? { city } : {}),
+    ...(province ? { province } : {}),
+    ...(zipCode ? { zipCode } : {})
+  };
+};
+
+const sanitizeFinalizedOrderObject = (order) => {
+  const sanitizedOrder = {
+    ...order,
+    receiverDetails: getFinalizedOrderReceiverDetails(order)
+  };
+  FINALIZED_ORDER_SHIPPING_DELETE_FIELDS.forEach((field) => {
+    delete sanitizedOrder[field];
+  });
+  return sanitizedOrder;
+};
+
+const getFinalizedOrderShippingPatch = (order) => ({
+  receiverDetails: getFinalizedOrderReceiverDetails(order),
+  ...Object.fromEntries(
+    FINALIZED_ORDER_SHIPPING_DELETE_FIELDS.map((field) => [field, deleteField()])
+  )
+});
+
+const finalizedOrderNeedsShippingScrub = (order) => {
+  if (!order || !['completed', 'cancelled'].includes(String(order.status || '').toLowerCase())) return false;
+
+  const receiverDetails = order.receiverDetails && typeof order.receiverDetails === 'object'
+    ? order.receiverDetails
+    : {};
+  const allowedReceiverFields = new Set(['city', 'province', 'zipCode']);
+  const hasExtraReceiverField = Object.keys(receiverDetails).some((field) => !allowedReceiverFields.has(field));
+  const hasLegacyAddressField = Boolean(
+    receiverDetails.town
+    || receiverDetails.zip
+    || order.town
+    || order.zip
+  );
+
+  return hasExtraReceiverField
+    || hasLegacyAddressField
+    || FINALIZED_ORDER_SHIPPING_DELETE_FIELDS.some((field) => Object.prototype.hasOwnProperty.call(order, field));
+};
+
 const getKitTimestamp = (kit) => {
   const timestamps = [
     kit?.lastAvailableAt,
@@ -3163,13 +3290,17 @@ export const useStore = create(
       createOrder: async (oData) => {
         const { user } = get();
         const ref = doc(collection(db, "orders"));
-        const order = compactOrderPayload({
+        let order = compactOrderPayload({
           ...oData, 
           userId: oData.userId || user?.uid || null, 
           id: ref.id, 
           createdAt: oData.createdAt || serverTimestamp(), 
           lastUpdated: serverTimestamp() 
         });
+
+        if (['completed', 'cancelled'].includes(String(order.status || '').toLowerCase())) {
+          order = sanitizeFinalizedOrderObject(order);
+        }
         
         // Sanitize object: remove undefined values
         Object.keys(order).forEach(key => order[key] === undefined && delete order[key]);
@@ -3188,16 +3319,24 @@ export const useStore = create(
       },
 
       updateOrderStatus: async (id, status) => {
+        const orderRef = doc(db, "orders", id);
         const updateData = { status, lastUpdated: serverTimestamp() };
         if (status === 'Cancelled') {
           updateData.cancelledAt = serverTimestamp();
         } else if (status === 'Completed') {
           updateData.completedAt = serverTimestamp();
         }
-        await updateDoc(doc(db, "orders", id), updateData);
+        if (['Completed', 'Cancelled'].includes(status)) {
+          const orderSnap = await getDoc(orderRef);
+          if (orderSnap.exists()) {
+            Object.assign(updateData, getFinalizedOrderShippingPatch(orderSnap.data()));
+          }
+        }
+        await updateDoc(orderRef, updateData);
       },
 
       updateOrderDetails: async (orderDocId, patch) => {
+        const orderRef = doc(db, "orders", orderDocId);
         const updateData = {
           ...patch,
           lastUpdated: serverTimestamp()
@@ -3207,7 +3346,37 @@ export const useStore = create(
         } else if (patch.status === 'Completed') {
           updateData.completedAt = serverTimestamp();
         }
-        await updateDoc(doc(db, "orders", orderDocId), updateData);
+        if (['Completed', 'Cancelled'].includes(patch.status)) {
+          const orderSnap = await getDoc(orderRef);
+          if (orderSnap.exists()) {
+            Object.assign(updateData, getFinalizedOrderShippingPatch(orderSnap.data()));
+          }
+        }
+        await updateDoc(orderRef, updateData);
+      },
+
+      scrubFinalizedOrders: async () => {
+        const finalizedSnapshot = await getDocs(query(
+          collection(db, 'orders'),
+          where('status', 'in', ['Completed', 'completed', 'COMPLETED', 'Cancelled', 'cancelled', 'CANCELLED'])
+        ));
+        const updates = finalizedSnapshot.docs
+          .filter((orderDoc) => finalizedOrderNeedsShippingScrub(orderDoc.data()))
+          .map((orderDoc) => ({
+            ref: orderDoc.ref,
+            data: getFinalizedOrderShippingPatch(orderDoc.data())
+          }));
+
+        for (let index = 0; index < updates.length; index += 450) {
+          const batch = writeBatch(db);
+          updates.slice(index, index + 450).forEach(({ ref, data }) => batch.update(ref, data));
+          await batch.commit();
+        }
+
+        if (updates.length > 0) {
+          console.log(`SG LOG: Scrubbed shipping details from ${updates.length} completed/cancelled order(s).`);
+        }
+        return updates.length;
       },
 
       confirmOrderPayment: async (orderDocId, amount) => {

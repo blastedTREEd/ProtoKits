@@ -828,7 +828,7 @@ const getCheckoutPlaceAddress = (place = {}, { includeHouseNo = false } = {}) =>
 // This keeps checkout dynamic instead of hardcoding a specific pickup point.
 const getRateCheckingPickupIndex = (places = []) => {
   const rateCheckingIndex = places.findIndex(place => place.pickupAddressMode === 'rate-checking');
-  return rateCheckingIndex >= 0 ? rateCheckingIndex : (places.length > 0 ? 0 : null);
+  return rateCheckingIndex >= 0 ? rateCheckingIndex : null;
 };
 
 const hasCheckoutSettings = (admin) => {
@@ -906,11 +906,11 @@ const itemHasFreeShippingForSubKey = (item, method, subKey, shippingMethods) => 
   return isItemShippingEligibleForFreeShipping(item, method, suboptionCandidates);
 };
 
-function ChangeView({ center }) {
+function ChangeView({ center, zoom = MAP_DEFAULT_ZOOM }) {
   const map = useMap();
   useEffect(() => {
-    map.setView(center, MAP_DEFAULT_ZOOM);
-  }, [center, map]);
+    map.setView(center, zoom);
+  }, [center, map, zoom]);
   return null;
 }
 
@@ -1253,6 +1253,11 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       }));
   }, [storeAdmin]);
 
+  const selfPickupPoints = useMemo(
+    () => pickupPoints.filter(place => place.pickupAddressMode !== 'actual-pin'),
+    [pickupPoints]
+  );
+
   const rateCheckingPickupIndex = useMemo(
     () => getRateCheckingPickupIndex(pickupPoints),
     [pickupPoints]
@@ -1285,7 +1290,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   useEffect(() => {
     if (!isOpen || !usesPickupPoint || rateCheckingPickupIndex === null) return;
     const rateCheckingPlace = pickupPoints[rateCheckingPickupIndex];
-    if (!rateCheckingPlace) return;
+    if (!rateCheckingPlace || rateCheckingPlace.pickupAddressMode === 'actual-pin') return;
 
     const rateCheckingLabel = getCheckoutPlaceLabel(
       rateCheckingPlace,
@@ -1304,15 +1309,16 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
 
   const selectedPickupDetails = useMemo(() => {
     if (!usesPickupPoint) return null;
+    const selectablePickupPoints = pickupPoints.filter(place => place.pickupAddressMode !== 'actual-pin');
     const byIndex = Number.isInteger(checkoutData.pickupLocationIndex)
       ? pickupPoints[checkoutData.pickupLocationIndex]
       : null;
     if (byIndex?.pickupAddressMode === 'rate-checking' && byIndex.isActive !== false) return byIndex;
     const rateCheckingPlace = rateCheckingPickupIndex !== null ? pickupPoints[rateCheckingPickupIndex] : null;
-    if (rateCheckingPlace && rateCheckingPlace.isActive !== false) return rateCheckingPlace;
-    if (byIndex && byIndex.isActive !== false) return byIndex;
-    return pickupPoints.find((p, idx) => {
-      const fallbackLabel = `Pickup Point ${idx + 1}`;
+    if (rateCheckingPlace && rateCheckingPlace.pickupAddressMode !== 'actual-pin' && rateCheckingPlace.isActive !== false) return rateCheckingPlace;
+    if (byIndex && byIndex.pickupAddressMode !== 'actual-pin' && byIndex.isActive !== false) return byIndex;
+    return selectablePickupPoints.find((p) => {
+      const fallbackLabel = `Pickup Point ${pickupPoints.indexOf(p) + 1}`;
       return [
         getCheckoutPlaceLabel(p, fallbackLabel),
         getCheckoutPlaceAddress(p),
@@ -1320,7 +1326,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
         formatPlaceAddressWithoutHouseNo(p),
         formatPlaceAddress(p)
       ].filter(Boolean).some(value => value === checkoutData.pickupLocation);
-    }) || (rateCheckingPickupIndex !== null ? pickupPoints[rateCheckingPickupIndex] : null) || null;
+    }) || (rateCheckingPickupIndex !== null ? selectablePickupPoints.find(place => place === pickupPoints[rateCheckingPickupIndex]) : null) || null;
   }, [pickupPoints, rateCheckingPickupIndex, checkoutData.pickupLocation, checkoutData.pickupLocationIndex, usesPickupPoint]);
 
   const shopDefaultLocation = useMemo(() => {
@@ -1916,7 +1922,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
 
         // Local pickup/meetup methods — gated by available places
         if (m === 'Seller Meetup') return (storeAdmin?.pickupDetails?.meetup?.places || []).some(p => p.isActive !== false);
-        if (m === 'Self-Pickup') return pickupPoints.length > 0;
+        if (m === 'Self-Pickup') return selfPickupPoints.length > 0;
 
         // Methods with suboptions: need at least one active suboption
         const hasSuboptions = methodConfig.hasSuboptions || Object.keys(methodConfig.suboptions || {}).length > 0;
@@ -1926,7 +1932,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
             const effectiveSub = sub; // free shipping override already applied above
             if (effectiveSub.active === false) return false;
             // If isSelfBooking: needs pickup points available
-            if (effectiveSub.isSelfBooking && pickupPoints.length === 0) return false;
+            if (effectiveSub.isSelfBooking && selfPickupPoints.length === 0) return false;
             return true;
           });
         }
@@ -1939,7 +1945,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
                         : ['delivery', 'cod'];
           const methodWasDisabled = effectiveConfig?._wasDisabled;
           return subKeys.some(subKey => {
-            if (m === 'Lalamove' && subKey === 'self' && pickupPoints.length === 0) return false;
+            if (m === 'Lalamove' && subKey === 'self' && selfPickupPoints.length === 0) return false;
             const hasFreePromo = checkoutItems.some(item => itemHasFreeShippingForSubKey(item, m, subKey, storeAdmin?.shippingMethods));
             // Kung disabled ang method, ipakita lang ang suboption na may free shipping promo
             if (methodWasDisabled && !hasFreePromo) return false;
@@ -1970,7 +1976,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
                           : methodName === 'Lalamove' ? ['self', 'seller']
                           : ['delivery', 'cod'];
             isFree = isFree || subKeys.some(subKey => {
-              if (methodName === 'Lalamove' && subKey === 'self' && pickupPoints.length === 0) return false;
+              if (methodName === 'Lalamove' && subKey === 'self' && selfPickupPoints.length === 0) return false;
               const hasFreePromo = checkoutItems.some(item => itemHasFreeShippingForSubKey(item, methodName, subKey, storeAdmin?.shippingMethods));
               const isEnabled = isSubMethodEnabled(config, subKey) || hasFreePromo;
               if (!isEnabled) return false;
@@ -1992,7 +1998,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
                           : methodName === 'Lalamove' ? ['self', 'seller']
                           : ['delivery', 'cod'];
             hasDiscount = hasDiscount || subKeys.some(subKey => {
-              if (methodName === 'Lalamove' && subKey === 'self' && pickupPoints.length === 0) return false;
+              if (methodName === 'Lalamove' && subKey === 'self' && selfPickupPoints.length === 0) return false;
               const hasFreePromo = checkoutItems.some(item => itemHasFreeShippingForSubKey(item, methodName, subKey, storeAdmin?.shippingMethods));
               const isEnabled = isSubMethodEnabled(config, subKey) || hasFreePromo;
               if (!isEnabled) return false;
@@ -2006,7 +2012,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
 
         return getPriority(a) - getPriority(b);
       });
-  }, [isAdminCheckoutConfigReady, enabledShippingMethods, pickupPoints, storeAdmin, checkoutItems, isMethodFreeShipping]);
+  }, [isAdminCheckoutConfigReady, enabledShippingMethods, pickupPoints, selfPickupPoints, storeAdmin, checkoutItems, isMethodFreeShipping]);
 
   const getRankedSuboptions = useCallback((method, methodConfig = null) => {
     const config = methodConfig || enabledShippingMethods?.[method] || storeAdmin?.shippingMethods?.[method];
@@ -2015,7 +2021,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
         itemHasFreeShippingForSubKey(item, method, subKey, storeAdmin?.shippingMethods)
       );
       if (subVal.active === false && !hasFreePromo) return false;
-      if (subVal.isSelfBooking && pickupPoints.length === 0) return false;
+      if (subVal.isSelfBooking && selfPickupPoints.length === 0) return false;
       return true;
     });
 
@@ -2029,7 +2035,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
         return { subKey, subVal, isFree, hasDiscount, priority };
       })
       .sort((a, b) => a.priority - b.priority);
-  }, [checkoutItems, enabledShippingMethods, isMethodFreeShipping, pickupPoints.length, storeAdmin?.shippingMethods]);
+  }, [checkoutItems, enabledShippingMethods, isMethodFreeShipping, pickupPoints.length, selfPickupPoints.length, storeAdmin?.shippingMethods]);
 
   const getBestSuboptionKey = useCallback((method, methodConfig = null) => {
     return getRankedSuboptions(method, methodConfig)[0]?.subKey || '';
@@ -2087,7 +2093,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
         : method === 'Lalamove' ? ['self', 'seller']
         : ['delivery', 'cod'];
       const availableSubKeys = subKeys.filter(subKey => {
-        if (method === 'Lalamove' && subKey === 'self' && pickupPoints.length === 0) return false;
+        if (method === 'Lalamove' && subKey === 'self' && selfPickupPoints.length === 0) return false;
         const hasFreePromo = checkoutItems.some(item =>
           itemHasFreeShippingForSubKey(item, method, subKey, storeAdmin?.shippingMethods)
         );
@@ -2114,7 +2120,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     }
 
     return '';
-  }, [checkoutItems, enabledShippingMethods, getRankedSuboptions, isMethodFreeShipping, pickupPoints.length, storeAdmin?.shippingMethods, totalAppliedHandlingFee]);
+  }, [checkoutItems, enabledShippingMethods, getRankedSuboptions, isMethodFreeShipping, pickupPoints.length, selfPickupPoints.length, storeAdmin?.shippingMethods, totalAppliedHandlingFee]);
 
   const buildShippingData = useCallback((m, sourceData) => {
     const methodConfig = enabledShippingMethods?.[m] || storeAdmin?.shippingMethods?.[m];
@@ -2128,7 +2134,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
 
       const rated = subKeys
         .filter(subKey => {
-          if (m === 'Lalamove' && subKey === 'self' && pickupPoints.length === 0) return false;
+          if (m === 'Lalamove' && subKey === 'self' && selfPickupPoints.length === 0) return false;
           const hasFreePromo = checkoutItems.some(item => 
             itemHasFreeShippingForSubKey(item, m, subKey, storeAdmin?.shippingMethods)
           );
@@ -2179,7 +2185,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       meetupLocation,
       meetupLocationIndex
     };
-  }, [enabledShippingMethods, getBestSuboptionKey, storeAdmin, checkoutItems, isMethodFreeShipping, pickupPoints, rateCheckingPickupIndex]);
+  }, [enabledShippingMethods, getBestSuboptionKey, storeAdmin, checkoutItems, isMethodFreeShipping, pickupPoints, selfPickupPoints, rateCheckingPickupIndex]);
 
   const handleShippingChange = useCallback((m) => {
     let newCheckoutData;
@@ -2248,7 +2254,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       else if (!updatedData.zipCode && updatedData.city?.length > 2 && updatedData.province?.length > 2) {
         console.log("Triggering Location -> ZIP lookup for:", updatedData.barangay, updatedData.city, updatedData.province);
         try {
-          const zipCode = await lookupPhilippineZipCodeByCityAndProvince(updatedData.city, updatedData.province);
+          const zipCode = await lookupPhilippineZipCodeByCityAndProvince(updatedData.city, updatedData.province, updatedData.barangay);
           if (zipCode) {
             updatedData.zipCode = zipCode;
             if (!addressStatus.isPinConfirmed) {
@@ -2693,6 +2699,9 @@ const handleFinalizeOrder = async () => {
             publicAddress: cleanAddressLandmark(rawPublic, landmark),
             exactAddress: cleanAddressLandmark(rawExact, exactPlace?.landmark || landmark),
             pickupAddressMode: selectedLocalPlaceDetails.pickupAddressMode === 'actual-pin' ? 'actual-pin' : 'rate-checking',
+            city: selectedLocalPlaceDetails.city || selectedLocalPlaceDetails.town || null,
+            province: selectedLocalPlaceDetails.province || null,
+            zipCode: selectedLocalPlaceDetails.zipCode || selectedLocalPlaceDetails.zip || null,
             lat: selectedLocalPlaceDetails.lat || null,
             lng: selectedLocalPlaceDetails.lng || null,
             exactLat: exactPlace?.lat || selectedLocalPlaceDetails.lat || null,
@@ -3178,7 +3187,9 @@ const handleFinalizeOrder = async () => {
     const showLocationSelect = usesPickupPoint || usesMeetupLocation;
     // Pickup points always remain selectable in checkout. Their public address
     // is rendered without the house number; the exact pin is handled after pickup readiness.
-    const filteredPickupPoints = pickupPoints;
+    const filteredPickupPoints = usesPickupPoint
+      ? selfPickupPoints
+      : pickupPoints;
     const locationOptions = usesMeetupLocation
       ? (storeAdmin?.pickupDetails?.meetup?.places || []).filter(p => p.isActive !== false)
       : filteredPickupPoints;
@@ -3487,7 +3498,7 @@ const handleFinalizeOrder = async () => {
                       <div className="relative z-0 isolate h-64 w-full overflow-hidden rounded-2xl border border-black/5 bg-black/[0.03] dark:border-white/5 dark:bg-white/[0.04]">
                         <MapContainer
                           center={selectedLocalPlaceCoord}
-                          zoom={MAP_DEFAULT_ZOOM}
+                          zoom={MAP_MAX_PIN_ZOOM}
                           maxZoom={MAP_MAX_PIN_ZOOM}
                           style={{ height: '100%', width: '100%' }}
                           dragging={true}
@@ -3498,7 +3509,7 @@ const handleFinalizeOrder = async () => {
                         >
                           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={MAP_MAX_PIN_ZOOM} />
                           <Marker position={selectedLocalPlaceCoord} />
-                          <ChangeView center={selectedLocalPlaceCoord} />
+                          <ChangeView center={selectedLocalPlaceCoord} zoom={MAP_MAX_PIN_ZOOM} />
                           <MapRecenterButton center={selectedLocalPlaceCoord} />
                         </MapContainer>
                       </div>
@@ -3510,7 +3521,7 @@ const handleFinalizeOrder = async () => {
                       <div className="relative z-0 isolate h-64 w-full overflow-hidden rounded-2xl border border-black/5 bg-black/[0.03] dark:border-white/5 dark:bg-white/[0.04]">
                         <MapContainer
                           center={[deliveryData.lat, deliveryData.lng]}
-                          zoom={MAP_DEFAULT_ZOOM}
+                          zoom={MAP_MAX_PIN_ZOOM}
                           maxZoom={MAP_MAX_PIN_ZOOM}
                           style={{ height: '100%', width: '100%' }}
                           dragging={false}
@@ -3521,7 +3532,7 @@ const handleFinalizeOrder = async () => {
                         >
                           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={MAP_MAX_PIN_ZOOM} />
                           <Marker position={[deliveryData.lat, deliveryData.lng]} />
-                          <ChangeView center={[deliveryData.lat, deliveryData.lng]} />
+                          <ChangeView center={[deliveryData.lat, deliveryData.lng]} zoom={MAP_MAX_PIN_ZOOM} />
                           <MapRecenterButton center={[deliveryData.lat, deliveryData.lng]} />
                         </MapContainer>
                       </div>
@@ -3786,7 +3797,7 @@ const handleFinalizeOrder = async () => {
                         } else if (m === 'Lalamove') {
                             const lalamoveWasDisabled = enabledShippingMethods.Lalamove?._wasDisabled;
                             ['self', 'seller'].forEach(subKey => {
-                                if (subKey === 'self' && pickupPoints.length === 0) return;
+                                if (subKey === 'self' && selfPickupPoints.length === 0) return;
                                 const hasFreePromo = checkoutItems.some(item => itemHasFreeShippingForSubKey(item, 'Lalamove', subKey, storeAdmin?.shippingMethods));
                                 if (lalamoveWasDisabled && !hasFreePromo) return;
                                 if (isSubMethodEnabled(enabledShippingMethods.Lalamove, subKey) || hasFreePromo) {
@@ -3862,11 +3873,12 @@ const handleFinalizeOrder = async () => {
                     const activeSubConfig = activeSubKey
                       ? enabledShippingMethods?.[checkoutData.shippingMethod]?.suboptions?.[activeSubKey]
                       : null;
-                    const subNeedsPickup = activeSubConfig && (
-                      Array.isArray(activeSubConfig.requiredFields)
-                        ? activeSubConfig.requiredFields.includes(14)
-                        : (activeSubConfig.isPickupRequired || activeSubConfig.isSelfBooking)
-                    );
+    const subNeedsPickup = activeSubConfig && (
+      Array.isArray(activeSubConfig.requiredFields)
+        ? activeSubConfig.requiredFields.includes(14)
+        : (activeSubConfig.isPickupRequired || activeSubConfig.isSelfBooking)
+    );
+    const selectablePickupPoints = subNeedsPickup ? selfPickupPoints : pickupPoints;
                     const subNeedsMeetup = activeSubConfig && (
                       Array.isArray(activeSubConfig.requiredFields)
                         ? activeSubConfig.requiredFields.includes(15)
@@ -3952,24 +3964,25 @@ const handleFinalizeOrder = async () => {
                         </div>
 
                         {/* Pickup Location — second-level suboption for couriers */}
-                        {subNeedsPickup && pickupPoints.length > 0 && (
+                        {subNeedsPickup && selectablePickupPoints.length > 0 && (
                           <div className="mt-3 space-y-2 animate-in slide-in-from-top duration-300">
                             <div className="flex items-center gap-2">
                               <h5 className="text-[11px] font-black uppercase opacity-40">Pickup Pin</h5>
                             </div>
                             <div className="grid grid-cols-1 gap-1">
-                              {pickupPoints.map((place, idx) => {
-                                const fallbackLabel = `Pickup Point ${idx + 1}`;
+                              {selectablePickupPoints.map((place, idx) => {
+                                const originalIdx = pickupPoints.indexOf(place);
+                                const fallbackLabel = `Pickup Point ${originalIdx + 1}`;
                                 const placeLabel = getCheckoutPlaceLabel(place, fallbackLabel);
-                                const isSelected = checkoutData.pickupLocationIndex === idx || checkoutData.pickupLocation === placeLabel;
+                                const isSelected = checkoutData.pickupLocationIndex === originalIdx || checkoutData.pickupLocation === placeLabel;
                                 return (
                                   <motion.button
-                                    key={idx}
+                                    key={originalIdx}
                                     whileTap={{ scale: 0.98 }}
                                     onClick={() => updateCheckoutData(prev => ({
                                       ...prev,
                                       pickupLocation: placeLabel,
-                                      pickupLocationIndex: idx
+                                      pickupLocationIndex: originalIdx
                                     }))}
                                     className={`p-3 rounded-xl border-[2px] text-[11px] font-black uppercase transition-all text-left flex flex-col ${isSelected ? 'bg-white/5 dark:bg-white/5 border-blue-600 shadow-lg' : 'bg-black/5 dark:bg-white/5 border-transparent'}`}
                                   >
@@ -4035,24 +4048,29 @@ const handleFinalizeOrder = async () => {
                       <div className="grid grid-cols-1 gap-1">
                         {(checkoutData.shippingMethod === 'Seller Meetup'
                             ? (storeAdmin?.pickupDetails?.meetup?.places || [])
-                            : pickupPoints)
+                            : usesPickupPoint
+                              ? selfPickupPoints
+                              : pickupPoints)
                           .filter(p => p.isActive !== false)
                           .map((place, idx) => {
-                            const fallbackLabel = `${checkoutData.shippingMethod === 'Seller Meetup' ? 'Meetup Place' : 'Pickup Point'} ${idx + 1}`;
+                            const originalIdx = checkoutData.shippingMethod === 'Seller Meetup'
+                              ? idx
+                              : pickupPoints.indexOf(place);
+                            const fallbackLabel = `${checkoutData.shippingMethod === 'Seller Meetup' ? 'Meetup Place' : 'Pickup Point'} ${originalIdx + 1}`;
                             const placeLabel = getCheckoutPlaceLabel(place, fallbackLabel);
                             const isSelected = checkoutData.shippingMethod === 'Seller Meetup'
                                               ? checkoutData.meetupLocationIndex === idx || checkoutData.meetupLocation === placeLabel
-                                              : checkoutData.pickupLocationIndex === idx || checkoutData.pickupLocation === placeLabel;
+                                              : checkoutData.pickupLocationIndex === originalIdx || checkoutData.pickupLocation === placeLabel;
                             const discountLabel = checkoutData.shippingMethod === 'Lalamove' ? '' : getShippingDiscountLabel(checkoutData.shippingMethod);
 
                             return (
                               <motion.button
-                                key={idx}
+                                key={originalIdx}
                                 whileTap={{ scale: 0.98 }}
                                 onClick={() => updateCheckoutData(prev => ({
                                   ...prev,
                                   [checkoutData.shippingMethod === 'Seller Meetup' ? 'meetupLocation' : 'pickupLocation']: placeLabel,
-                                  [checkoutData.shippingMethod === 'Seller Meetup' ? 'meetupLocationIndex' : 'pickupLocationIndex']: idx
+                                  [checkoutData.shippingMethod === 'Seller Meetup' ? 'meetupLocationIndex' : 'pickupLocationIndex']: originalIdx
                                 }))}
                                 className={`p-3 rounded-xl border-[2px] text-[11px] font-black uppercase transition-all text-left flex flex-col ${isSelected ? 'bg-white/5 dark:bg-white/5  border-blue-600 shadow-lg' : 'bg-black/5 dark:bg-white/5 border-transparent'}`}
                               >
@@ -4191,11 +4209,11 @@ const handleFinalizeOrder = async () => {
                             {isLocalPlaceMethod && (
                               <div className="space-y-2">
                                 <p className="text-[8px] font-black uppercase opacity-30 tracking-[0.2em]">{usesMeetupLocation ? 'Meetup Map Pin' : 'Pickup Map'}</p>
-                                <div className="w-full h-40 rounded-[2rem] overflow-hidden border-2 border-blue-600/10 relative">
+                                <div className="relative z-0 isolate h-64 w-full overflow-hidden rounded-2xl border border-black/5 bg-black/[0.03] dark:border-white/5 dark:bg-white/[0.04]">
                                     <MapContainer
                                         ref={mapRef}
                                         center={selectedLocalPlaceCoord}
-                                        zoom={MAP_DEFAULT_ZOOM}
+                                        zoom={MAP_MAX_PIN_ZOOM}
                                         maxZoom={MAP_MAX_PIN_ZOOM}
                                         style={{ height: '100%', width: '100%' }}
                                         dragging={true}
@@ -4206,7 +4224,7 @@ const handleFinalizeOrder = async () => {
                                     >
                                       <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={MAP_MAX_PIN_ZOOM} />
                                       <Marker position={selectedLocalPlaceCoord} />
-                                      <ChangeView center={selectedLocalPlaceCoord} />
+                                      <ChangeView center={selectedLocalPlaceCoord} zoom={MAP_MAX_PIN_ZOOM} />
                                       <MapRecenterButton center={selectedLocalPlaceCoord} />
                                     </MapContainer>
                                 </div>
@@ -4273,11 +4291,11 @@ const handleFinalizeOrder = async () => {
                                     <p className="text-[8px] font-black uppercase opacity-30 tracking-[0.2em]">
                                       {checkoutData.shippingMethod === 'Seller Meetup' ? 'Meetup Map Pin' : 'Pickup Map'}
                                     </p>
-                                    <div className="w-full h-40 rounded-[2rem] overflow-hidden border-2 border-blue-600/20 relative">
-                                      <MapContainer center={selectedLocalPlaceCoord} zoom={MAP_DEFAULT_ZOOM} maxZoom={MAP_MAX_PIN_ZOOM} style={{ height: '100%', width: '100%' }} dragging={false} scrollWheelZoom={false} doubleClickZoom={false} touchZoom={false} zoomControl={false}>
+                                    <div className="relative z-0 isolate h-64 w-full overflow-hidden rounded-2xl border border-black/5 bg-black/[0.03] dark:border-white/5 dark:bg-white/[0.04]">
+                                      <MapContainer center={selectedLocalPlaceCoord} zoom={MAP_MAX_PIN_ZOOM} maxZoom={MAP_MAX_PIN_ZOOM} style={{ height: '100%', width: '100%' }} dragging={false} scrollWheelZoom={false} doubleClickZoom={false} touchZoom={false} zoomControl={false}>
                                         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={MAP_MAX_PIN_ZOOM} />
                                         <Marker position={selectedLocalPlaceCoord} />
-                                        <ChangeView center={selectedLocalPlaceCoord} />
+                                        <ChangeView center={selectedLocalPlaceCoord} zoom={MAP_MAX_PIN_ZOOM} />
                                         <MapRecenterButton center={selectedLocalPlaceCoord} />
                                       </MapContainer>
                                     </div>
@@ -4327,11 +4345,11 @@ const handleFinalizeOrder = async () => {
                                 {!isLocalPlaceMethod && requiredFields.includes(12) && (
                                   <div className="space-y-2">
                                     <p className="text-[8px] font-black uppercase opacity-30 tracking-[0.2em]">Drop-Off Pin</p>
-                                    <div className="w-full h-40 rounded-[2rem] overflow-hidden border-2 border-blue-600/20 relative">
-                                      <MapContainer center={[deliveryData.lat, deliveryData.lng]} zoom={MAP_DEFAULT_ZOOM} maxZoom={MAP_MAX_PIN_ZOOM} style={{ height: '100%', width: '100%' }} dragging={false} scrollWheelZoom={false} doubleClickZoom={false} touchZoom={false} zoomControl={false}>
+                                    <div className="relative z-0 isolate w-full h-40 rounded-[2rem] overflow-hidden border-2 border-blue-600/20">
+                                      <MapContainer center={[deliveryData.lat, deliveryData.lng]} zoom={MAP_MAX_PIN_ZOOM} maxZoom={MAP_MAX_PIN_ZOOM} style={{ height: '100%', width: '100%' }} dragging={false} scrollWheelZoom={false} doubleClickZoom={false} touchZoom={false} zoomControl={false}>
                                         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={MAP_MAX_PIN_ZOOM} />
                                         <Marker position={[deliveryData.lat, deliveryData.lng]} />
-                                        <ChangeView center={[deliveryData.lat, deliveryData.lng]} />
+                                        <ChangeView center={[deliveryData.lat, deliveryData.lng]} zoom={MAP_MAX_PIN_ZOOM} />
                                         <MapRecenterButton center={[deliveryData.lat, deliveryData.lng]} />
                                       </MapContainer>
                                     </div>

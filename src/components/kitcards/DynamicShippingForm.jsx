@@ -18,7 +18,9 @@ function ChangeView({ center }) {
     const currentCenter = map.getCenter();
     const threshold = 0.0001;
     if (Math.abs(currentCenter.lat - center[0]) > threshold || Math.abs(currentCenter.lng - center[1]) > threshold) {
-      map.panTo(center);
+      map.setView(center, MAP_MAX_PIN_ZOOM);
+    } else if (map.getZoom() !== MAP_MAX_PIN_ZOOM) {
+      map.setZoom(MAP_MAX_PIN_ZOOM);
     }
   }, [center, map]);
   return null;
@@ -88,6 +90,10 @@ export default function DynamicShippingForm({
       updateDeliveryData(prev => ({ ...prev, phoneNumber: '' }));
     }
   };
+
+  const markAddressAsEdited = useCallback(() => {
+    setAddressStatus(prev => ({ ...prev, isPinConfirmed: false }));
+  }, [setAddressStatus]);
 
   const handlePhoneChange = (val) => {
     const cleaned = val.replace(/\D/g, '').slice(0, 11);
@@ -165,14 +171,15 @@ export default function DynamicShippingForm({
 
   const handleLocationChange = useCallback((field, value) => {
     addressLookupSequence.current += 1;
+    markAddressAsEdited();
     updateDeliveryData(prev => ({
       ...prev,
       [field]: capitalizeWords(value),
       zipCode: ''
     }));
-  }, [capitalizeWords, updateDeliveryData]);
+  }, [capitalizeWords, markAddressAsEdited, updateDeliveryData]);
 
-  const { city: deliveryCity, province: deliveryProvince, zipCode: deliveryZipCode } = deliveryData;
+  const { barangay: deliveryBarangay, city: deliveryCity, province: deliveryProvince, zipCode: deliveryZipCode } = deliveryData;
   useEffect(() => {
     const city = String(deliveryCity || '').trim();
     const province = String(deliveryProvince || '').trim();
@@ -181,7 +188,7 @@ export default function DynamicShippingForm({
     const timer = setTimeout(async () => {
       const lookupSequence = ++addressLookupSequence.current;
       try {
-        const zipCode = await lookupPhilippineZipCodeByCityAndProvince(city, province);
+        const zipCode = await lookupPhilippineZipCodeByCityAndProvince(city, province, deliveryBarangay);
         if (!zipCode || lookupSequence !== addressLookupSequence.current) return;
 
         updateDeliveryData(prev => (
@@ -195,7 +202,7 @@ export default function DynamicShippingForm({
     }, 700);
 
     return () => clearTimeout(timer);
-  }, [deliveryCity, deliveryProvince, deliveryZipCode, updateDeliveryData]);
+  }, [deliveryBarangay, deliveryCity, deliveryProvince, deliveryZipCode, updateDeliveryData]);
 
   const handleBranchFocus = () => {
     const prefix = getBranchPrefix(courierName);
@@ -283,6 +290,7 @@ export default function DynamicShippingForm({
                 value={deliveryData.zipCode || ''} 
                 onChange={(e) => { 
                   const val = e.target.value.replace(/\D/g, '').slice(0, 4); 
+                  markAddressAsEdited();
                   updateDeliveryData(prev => ({...prev, zipCode: val})); 
                   handleZipLookup(val); 
                 }} 
@@ -340,7 +348,7 @@ export default function DynamicShippingForm({
                 transition={{ duration: 0.1 }}
                 placeholder="House No." 
                 value={deliveryData.houseNo || ''} 
-                onChange={(e) => updateDeliveryData(prev => ({...prev, houseNo: e.target.value}))} 
+                onChange={(e) => { markAddressAsEdited(); updateDeliveryData(prev => ({...prev, houseNo: e.target.value})); }}
                 className={inputClass} 
               />
             </div>
@@ -354,7 +362,7 @@ export default function DynamicShippingForm({
                 transition={{ duration: 0.1 }}
                 placeholder="Street" 
                 value={deliveryData.houseDetails || ''} 
-                onChange={(e) => updateDeliveryData(prev => ({...prev, houseDetails: capitalizeWords(e.target.value)}))} 
+                onChange={(e) => { markAddressAsEdited(); updateDeliveryData(prev => ({...prev, houseDetails: capitalizeWords(e.target.value)})); }}
                 className={inputClass} 
               />
             </div>
@@ -374,7 +382,7 @@ export default function DynamicShippingForm({
                 transition={{ duration: 0.1 }}
                 placeholder="Subdivision / Village (Optional)" 
                 value={deliveryData.subdivision || ''} 
-                onChange={(e) => updateDeliveryData(prev => ({...prev, subdivision: capitalizeWords(e.target.value)}))} 
+                onChange={(e) => { markAddressAsEdited(); updateDeliveryData(prev => ({...prev, subdivision: capitalizeWords(e.target.value)})); }}
                 className={inputClass} 
               />
             </div>
@@ -388,7 +396,7 @@ export default function DynamicShippingForm({
                 transition={{ duration: 0.1 }}
                 placeholder="Landmark (Optional)" 
                 value={deliveryData.landmark || ''} 
-                onChange={(e) => updateDeliveryData(prev => ({...prev, landmark: capitalizeWords(e.target.value)}))} 
+                onChange={(e) => { markAddressAsEdited(); updateDeliveryData(prev => ({...prev, landmark: capitalizeWords(e.target.value)})); }}
                 className={inputClass} 
               />
             </div>
@@ -406,7 +414,7 @@ export default function DynamicShippingForm({
             transition={{ duration: 0.1 }}
             placeholder="Barangay" 
             value={deliveryData.barangay || ''} 
-            onChange={(e) => updateDeliveryData(prev => ({...prev, barangay: capitalizeWords(e.target.value)}))} 
+            onChange={(e) => { markAddressAsEdited(); updateDeliveryData(prev => ({...prev, barangay: capitalizeWords(e.target.value)})); }}
             className={`${inputClass} ${!validationState.barangay ? 'border-red-500 !border-2' : ''}`} 
           />
         </div>
@@ -451,8 +459,8 @@ export default function DynamicShippingForm({
       {/* Map (Field 12) */}
       {isRequired(12) && addressStatus.isEditingAddress && (
         <div className="space-y-2 animate-in fade-in zoom-in-95 duration-300">
-          <div className="w-full h-40 rounded-[2rem] overflow-hidden border-2 border-blue-600/30 relative">
-            <MapContainer center={[deliveryData.lat, deliveryData.lng]} zoom={14} maxZoom={MAP_MAX_PIN_ZOOM} style={{ height: '100%', width: '100%' }}>
+          <div className="relative z-0 isolate h-64 w-full overflow-hidden rounded-2xl border border-black/5 bg-black/[0.03] dark:border-white/5 dark:bg-white/[0.04]">
+            <MapContainer center={[deliveryData.lat, deliveryData.lng]} zoom={MAP_MAX_PIN_ZOOM} maxZoom={MAP_MAX_PIN_ZOOM} style={{ height: '100%', width: '100%' }}>
               <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={MAP_MAX_PIN_ZOOM} />
               <Marker
                 position={[deliveryData.lat, deliveryData.lng]}

@@ -3,7 +3,7 @@ import { Settings, ChevronDown, ChevronUp, Plus, Trash2, Check } from 'lucide-re
 import ShippingFieldsConfig from './ShippingFieldsConfig';
 
 const DEFAULT_METHOD_REQUIRED_FIELDS = {
-  'Self-Pickup': [1, 14],
+  'Self-Pickup': [1, 2, 14],
   'Seller Meetup': [1, 2, 15]
 };
 
@@ -278,8 +278,15 @@ export default function ShippingOptions({
       }
     });
 
-    if (hasChanges) setShippingMethods(nextMethods);
-  }, [shippingMethods, setShippingMethods]);
+    if (hasChanges) {
+      setShippingMethods(nextMethods);
+      if (persistShippingMethods) {
+        Promise.resolve(persistShippingMethods(nextMethods)).catch((error) => {
+          console.error('Failed to persist default shipping fields:', error);
+        });
+      }
+    }
+  }, [persistShippingMethods, setShippingMethods, shippingMethods]);
 
   // --- Handling Fee Toggle ---
   const HandlingFeeToggle = ({ method, methodVal, subKey = null }) => {
@@ -407,7 +414,7 @@ export default function ShippingOptions({
             tabIndex={0}
             aria-checked={isActive}
             onClick={(event) => {
-              const interactiveTarget = event.target.closest('button, a, input, textarea, select, [role="button"], [role="switch"]');
+              const interactiveTarget = event.target.closest('button, a, input, textarea, select, label, [role="button"], [role="switch"]');
               if (interactiveTarget && interactiveTarget !== event.currentTarget) return;
               handleToggleMethod(m);
             }}
@@ -493,7 +500,7 @@ export default function ShippingOptions({
                     {isMainConfigExpanded && (
                       <ShippingFieldsConfig
                         requiredFields={defaultRequiredFields || methodConfig.requiredFields || []}
-                        onChangeFields={(next) => updateMethodConfig(m, { requiredFields: next })}
+                        onChangeFields={(next) => updateMethodConfig(m, { requiredFields: next }, true)}
                         hiddenFieldIds={defaultRequiredFields
                           ? []
                           : (getBranchDropoff(methodVal) ? [4, 12, 14, 15] : [4, 13, 15])}
@@ -535,7 +542,7 @@ export default function ShippingOptions({
                             tabIndex={0}
                             aria-checked={isSubActive}
                             onClick={(event) => {
-                              const interactiveTarget = event.target.closest('button, a, input, textarea, select, [role="button"], [role="switch"]');
+                              const interactiveTarget = event.target.closest('button, a, input, textarea, select, label, [role="button"], [role="switch"]');
                               if (interactiveTarget && interactiveTarget !== event.currentTarget) return;
                               updateSuboptionConfig(m, sub.key, { active: !isSubActive });
                             }}
@@ -583,7 +590,7 @@ export default function ShippingOptions({
                                     requiredFields={isOrderPickupEnabled
                                       ? [1, 2, 14]
                                       : (isBranchDropoffEnabled ? BRANCH_DROPOFF_REQUIRED_FIELDS : (subVal.requiredFields || []))}
-                                    onChangeFields={(next) => updateSuboptionConfig(m, sub.key, { requiredFields: next })}
+                                    onChangeFields={(next) => updateSuboptionConfig(m, sub.key, { requiredFields: next }, true)}
                                     hiddenFieldIds={isOrderPickupEnabled
                                       ? []
                                       : (isBranchDropoffEnabled ? [4, 12, 14, 15] : [4, 13, 14, 15])}

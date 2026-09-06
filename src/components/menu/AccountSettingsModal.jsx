@@ -28,6 +28,7 @@ let DefaultIcon = L.icon({
 L.Marker.prototype.options.icon = DefaultIcon;
 
 const LBC_BRANCH_PREFIX = 'LBC Express - ';
+const MAP_MAX_PIN_ZOOM = 19;
 
 function MapClickHandler({ setFormData }) {
   useMapEvents({
@@ -44,7 +45,10 @@ function ChangeView({ center }) {
     const currentCenter = map.getCenter();
     const threshold = 0.0001;
     if (Math.abs(currentCenter.lat - center[0]) > threshold || Math.abs(currentCenter.lng - center[1]) > threshold) {
-      map.setView(center, 16);
+      map.setView(center, MAP_MAX_PIN_ZOOM);
+    }
+    else if (map.getZoom() !== MAP_MAX_PIN_ZOOM) {
+      map.setZoom(MAP_MAX_PIN_ZOOM);
     }
   }, [center, map]);
   return null;
@@ -86,6 +90,15 @@ export default function AccountSettingsModal({ isOpen, onClose }) {
   }, [user]);
 
   const [formData, setFormData] = useState(initialFormData);
+  const hasSavedPin = useMemo(() => {
+    const savedPrimary = user?.deliveryDetails?.[0] || {};
+    return [savedPrimary.lat, savedPrimary.lng].every(value => (
+      value !== undefined
+      && value !== null
+      && String(value).trim() !== ''
+      && Number.isFinite(Number(value))
+    ));
+  }, [user]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -212,46 +225,92 @@ export default function AccountSettingsModal({ isOpen, onClose }) {
     setFormData(prev => ({ ...prev, [field]: formattedValue }));
   };
 
-  const [lastGeocoded, setLastGeocoded] = useState({});
-  const { zipCode, barangay, city, province, lat, lng } = formData;
+  const { zipCode, barangay, city, province } = formData;
+  const lastAddressKeyRef = useRef('');
+  const geocodeRequestRef = useRef(0);
+  const addressSyncInitializedRef = useRef(false);
+
+  const getAddressKey = (address) => [
+    address.zipCode,
+    address.barangay,
+    address.city,
+    address.province
+  ].map(value => String(value || '').trim().toLowerCase()).join('|');
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      lastAddressKeyRef.current = '';
+      geocodeRequestRef.current += 1;
+      addressSyncInitializedRef.current = false;
+      return;
+    }
+
+    if (!addressSyncInitializedRef.current) {
+      addressSyncInitializedRef.current = true;
+      if (hasSavedPin) {
+        lastAddressKeyRef.current = getAddressKey(initialFormData);
+        return;
+      }
+    }
 
     const handler = setTimeout(async () => {
       const currentAddress = { zipCode, barangay, city, province };
+      const currentAddressKey = getAddressKey(currentAddress);
+      const normalizedZipCode = String(zipCode || '').replace(/\D/g, '');
+      const hasZipCode = normalizedZipCode.length === 4;
+      const hasBarangay = String(barangay || '').trim().length > 2;
+      const hasCityAndProvince = String(city || '').trim().length > 2 && String(province || '').trim().length > 2;
 
-      if (JSON.stringify(currentAddress) === JSON.stringify(lastGeocoded)) return;
+      if (currentAddressKey === lastAddressKeyRef.current || (!hasZipCode && !hasBarangay && !hasCityAndProvince)) return;
 
-      const hasCoordinates = lat && lng && lat !== 14.5995 && lng !== 120.9842;
-      
-      if (zipCode?.length === 4) {
-        const res = await lookupPhilippineAddressByZipCode(zipCode);
+      const requestId = ++geocodeRequestRef.current;
+      let resolvedCity = city;
+      let resolvedProvince = province;
+      let resolvedZipCode = normalizedZipCode;
+      let resolvedCoordinates = null;
+
+      if (hasZipCode) {
+        const res = await lookupPhilippineAddressByZipCode(normalizedZipCode);
+        if (requestId !== geocodeRequestRef.current) return;
         if (res) {
-          setFormData(prev => ({ ...prev, city: res.city, province: res.province }));
-          setLastGeocoded({ ...currentAddress, city: res.city, province: res.province });
+          resolvedCity = res.city || resolvedCity;
+          resolvedProvince = res.province || resolvedProvince;
+          resolvedCoordinates = { lat: res.lat, lng: res.lng };
         }
-      } else if (!zipCode && city?.length > 2 && province?.length > 2) {
-        const generatedZipCode = await lookupPhilippineZipCodeByCityAndProvince(city, province);
-        if (generatedZipCode) {
-          setFormData(prev => (
-            prev.zipCode || prev.city !== city || prev.province !== province
-              ? prev
-              : { ...prev, zipCode: generatedZipCode }
-          ));
-          setLastGeocoded({ ...currentAddress, zipCode: generatedZipCode });
-        }
-      } else if (!hasCoordinates && barangay?.length > 2 && (city?.length > 2 || zipCode?.length === 4)) {
-        const query = zipCode?.length === 4 ? `${barangay}, ${zipCode}` : `${barangay}, ${city}, ${province}`;
+      } else if (hasCityAndProvince) {
+        resolvedZipCode = await lookupPhilippineZipCodeByCityAndProvince(city, province, barangay);
+        if (requestId !== geocodeRequestRef.current) return;
+      }
+
+      if (hasBarangay || hasCityAndProvince || hasZipCode) {
+        const query = hasBarangay
+          ? (resolvedZipCode ? `${barangay}, ${resolvedZipCode}` : `${barangay}, ${resolvedCity}, ${resolvedProvince}`)
+          : `${resolvedCity}, ${resolvedProvince}`;
         const res = await performGeocoding(query);
+        if (requestId !== geocodeRequestRef.current) return;
         if (res) {
-          setFormData(prev => ({ ...prev, lat: res.lat, lng: res.lng }));
-          setLastGeocoded({ ...currentAddress, lat: res.lat, lng: res.lng });
+          resolvedCoordinates = { lat: res.lat, lng: res.lng };
         }
       }
+
+      const resolvedAddress = {
+        zipCode: resolvedZipCode,
+        barangay,
+        city: resolvedCity,
+        province: resolvedProvince
+      };
+      lastAddressKeyRef.current = getAddressKey(resolvedAddress);
+
+      setFormData(prev => ({
+        ...prev,
+        ...(resolvedCity && resolvedCity !== prev.city ? { city: resolvedCity } : {}),
+        ...(resolvedProvince && resolvedProvince !== prev.province ? { province: resolvedProvince } : {}),
+        ...(resolvedZipCode && resolvedZipCode !== prev.zipCode ? { zipCode: resolvedZipCode } : {}),
+        ...(resolvedCoordinates ? { lat: resolvedCoordinates.lat, lng: resolvedCoordinates.lng } : {})
+      }));
     }, 1200);
     return () => clearTimeout(handler);
-  }, [zipCode, barangay, city, province, lat, lng, isOpen, performGeocoding, lastGeocoded]);
+  }, [zipCode, barangay, city, province, isOpen, performGeocoding, hasSavedPin, initialFormData]);
 
   const handleLogin = async () => {
     const authAttemptId = useStore.getState().beginAuthAttempt(() => handleLogin());
@@ -449,8 +508,8 @@ export default function AccountSettingsModal({ isOpen, onClose }) {
                     onTouchEnd={() => setIsOverMap(false)}
                     onTouchCancel={() => setIsOverMap(false)}
                   >
-                    <MapContainer center={mapCenter} zoom={16} style={{ height: '100%', width: '100%' }}>
-                      <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                    <MapContainer center={mapCenter} zoom={MAP_MAX_PIN_ZOOM} maxZoom={MAP_MAX_PIN_ZOOM} style={{ height: '100%', width: '100%' }}>
+                      <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={MAP_MAX_PIN_ZOOM} />
                       <Marker position={mapCenter} draggable={true} eventHandlers={{ dragend: (e) => { const pos = e.target.getLatLng(); setFormData(prev => ({ ...prev, lat: pos.lat, lng: pos.lng })); } }} />
                       <ChangeView center={mapCenter} />
                       <MapClickHandler setFormData={setFormData} />

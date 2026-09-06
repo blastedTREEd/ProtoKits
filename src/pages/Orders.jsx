@@ -754,7 +754,7 @@ export default function Orders() {
   const location = useLocation();
   const navigate = useNavigate();
   const { orderId: routeOrderId } = useParams();
-  const { user, isAdmin, isAdminView, kits, shelf, assignStockToOrder, cancelOrder, confirmOrderPayment, uploadReceipt, updateOrderDetails, updateOrderStatus, rates, orders, usersList, createOrder, deleteOrder, reverseCompletedOrder, reverseLegacyOrder, migrateLegacyOrderIds, isLoading, subscribeOrders, subscribeUsersList, loadPrintResources, shippingSettings, garageInfo, cleanUpCancelledOrders, setToastMessage } = useStore();
+  const { user, isAdmin, isAdminView, kits, shelf, assignStockToOrder, cancelOrder, confirmOrderPayment, uploadReceipt, updateOrderDetails, updateOrderStatus, scrubFinalizedOrders, rates, orders, usersList, createOrder, deleteOrder, reverseCompletedOrder, reverseLegacyOrder, migrateLegacyOrderIds, isLoading, subscribeOrders, subscribeUsersList, loadPrintResources, shippingSettings, garageInfo, cleanUpCancelledOrders, setToastMessage } = useStore();
   const isAdminMode = isAdmin && isAdminView;
   
   // Dynamically get the QR for whatever payment method the selected order uses
@@ -777,6 +777,7 @@ export default function Orders() {
   const [completedReversalExpiredIds, setCompletedReversalExpiredIds] = useState(() => new Set());
   const [isMiniNavVisible, setIsMiniNavVisible] = useState(true);
   const legacyOrderMigrationStarted = useRef(false);
+  const finalizedOrderScrubStarted = useRef(false);
   const ordersListReturnRef = useRef(null);
   const pendingOrdersScrollRestoreRef = useRef(null);
 
@@ -1038,6 +1039,15 @@ export default function Orders() {
     const unsubscribe = subscribeUsersList();
     return () => unsubscribe && unsubscribe();
   }, [subscribeUsersList, isAdminMode]);
+
+  useEffect(() => {
+    if (!isAdminMode || finalizedOrderScrubStarted.current) return undefined;
+    finalizedOrderScrubStarted.current = true;
+    scrubFinalizedOrders().catch((error) => {
+      console.error('SG LOG: Completed/cancelled order shipping scrub failed:', error);
+    });
+    return undefined;
+  }, [isAdminMode, scrubFinalizedOrders]);
 
   useEffect(() => {
     if (selectedOrder) {
@@ -2314,12 +2324,14 @@ export default function Orders() {
       }
     });
 
+    const showSeparators = isAdminMode || invalidOrders.length > 0;
+
     return [
-      ...(validOrders.length > 0 ? [{ type: 'separator', key: 'valid', label: 'Valid Orders' }] : []),
+      ...(showSeparators && validOrders.length > 0 ? [{ type: 'separator', key: 'valid', label: 'Valid Orders' }] : []),
       ...validOrders.map((order) => ({ type: 'order', key: order.id, order })),
-      ...(invalidOrders.length > 0 ? [{ type: 'separator', key: 'invalid', label: 'Invalid Orders' }] : []),
+      ...(showSeparators && invalidOrders.length > 0 ? [{ type: 'separator', key: 'invalid', label: 'Invalid Orders' }] : []),
       ...invalidOrders.map((order) => ({ type: 'order', key: order.id, order })),
-      ...(legacyOrders.length > 0 ? [{ type: 'separator', key: 'legacy', label: 'Legacy Orders' }] : []),
+      ...(showSeparators && legacyOrders.length > 0 ? [{ type: 'separator', key: 'legacy', label: 'Legacy Orders' }] : []),
       ...legacyOrders.map((order) => ({ type: 'order', key: order.id, order }))
     ];
   })();
@@ -2377,6 +2389,19 @@ export default function Orders() {
 
   const renderOrderDetailView = () => {
     if (!selectedOrder) return null;
+
+    const isFinalizedOrder = ['completed', 'cancelled'].includes(String(selectedOrder.status || '').toLowerCase());
+    const completedAddress = [
+      selectedOrder.receiverDetails?.city
+        || selectedOrder.receiverDetails?.town
+        || selectedOrder.city
+        || selectedOrder.town,
+      selectedOrder.receiverDetails?.province || selectedOrder.province,
+      selectedOrder.receiverDetails?.zipCode
+        || selectedOrder.receiverDetails?.zip
+        || selectedOrder.zipCode
+        || selectedOrder.zip
+    ].filter(Boolean).join(', ');
     
     const detailItems = Array.isArray(selectedOrder.items) && selectedOrder.items.length > 0
       ? selectedOrder.items
@@ -2592,34 +2617,38 @@ export default function Orders() {
         {/* Content Body Container */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-8 py-8 space-y-8 pb-24">
           {/* Shipping Details & Map */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8 pb-8 border-b border-black/5 dark:border-white/5">
+        <div className={`grid grid-cols-1 ${isFinalizedOrder ? '' : 'lg:grid-cols-2'} gap-8 mb-8 pb-8 border-b border-black/5 dark:border-white/5`}>
           {/* Left Column: Shipping Info */}
           <div className="space-y-4 text-left">
             <h3 className="text-[13px] font-black uppercase tracking-widest mb-2">Shipping Details</h3>
             
-            {/* Receiver Name */}
-            <div className="flex flex-col">
-              <span className="text-[13px] font-black uppercase mb-0.5 tracking-wider">Receiver Name</span>
-              <span className="text-[14px] font-bold uppercase text-blue-600">
-                {selectedLogistics.receiverName || 'No Receiver Name'}
-              </span>
-            </div>
+            {!isFinalizedOrder && (
+              <>
+                {/* Receiver Name */}
+                <div className="flex flex-col">
+                  <span className="text-[13px] font-black uppercase mb-0.5 tracking-wider">Receiver Name</span>
+                  <span className="text-[14px] font-bold uppercase text-blue-600">
+                    {selectedLogistics.receiverName || 'No Receiver Name'}
+                  </span>
+                </div>
 
-            {/* Mobile & Email */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="flex flex-col">
-                <span className="text-[13px] font-black uppercase mb-0.5 tracking-wider">Mobile No.</span>
-                <span className="text-[14px] font-bold uppercase text-blue-600">
-                  {selectedLogistics.phoneNumber || 'N/A'}
-                </span>
-              </div>
-              <div className="flex flex-col">
-                <span className="text-[13px] font-black uppercase mb-0.5 tracking-wider">Email Address</span>
-                <span className="text-[14px] font-bold uppercase text-blue-600 break-all">
-                  {selectedLogistics.email || 'N/A'}
-                </span>
-              </div>
-            </div>
+                {/* Mobile & Email */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="flex flex-col">
+                    <span className="text-[13px] font-black uppercase mb-0.5 tracking-wider">Mobile No.</span>
+                    <span className="text-[14px] font-bold uppercase text-blue-600">
+                      {selectedLogistics.phoneNumber || 'N/A'}
+                    </span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[13px] font-black uppercase mb-0.5 tracking-wider">Email Address</span>
+                    <span className="text-[14px] font-bold uppercase text-blue-600 break-all">
+                      {selectedLogistics.email || 'N/A'}
+                    </span>
+                  </div>
+                </div>
+              </>
+            )}
 
             {/* Pickup pin / complete address */}
             <div className="flex flex-col">
@@ -2629,7 +2658,7 @@ export default function Orders() {
                 </span>
               </div>
               <span className="text-[14px] font-bold uppercase leading-relaxed text-blue-600">
-                {!isSelectedLegacyOrder && selectedShippingFlags.usesPickupPoint && selectedLogistics.landmark && (
+                {!isFinalizedOrder && !isSelectedLegacyOrder && selectedShippingFlags.usesPickupPoint && selectedLogistics.landmark && (
                   <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <span>{selectedLogistics.landmark}</span>
                     <span className={`inline-flex align-middle px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${detailShowExact
@@ -2641,8 +2670,8 @@ export default function Orders() {
                   </span>
                 )}
                 <span className="block">
-                  {selectedLogistics.display}
-                  {!isSelectedLegacyOrder && selectedShippingFlags.usesPickupPoint && !selectedLogistics.landmark && (
+                  {isFinalizedOrder ? (completedAddress || 'No address details') : selectedLogistics.display}
+                  {!isFinalizedOrder && !isSelectedLegacyOrder && selectedShippingFlags.usesPickupPoint && !selectedLogistics.landmark && (
                     <span className={`inline-flex align-middle ml-2 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${detailShowExact
                       ? 'bg-blue-600/15 text-blue-600 dark:text-blue-400'
                       : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
@@ -2651,13 +2680,13 @@ export default function Orders() {
                     </span>
                   )}
                 </span>
-                {!isSelectedLegacyOrder && !selectedShippingFlags.usesPickupPoint && selectedOrder.receiverDetails?.city && (
+                {!isFinalizedOrder && !isSelectedLegacyOrder && !selectedShippingFlags.usesPickupPoint && selectedOrder.receiverDetails?.city && (
                   <span className="block mt-0.5">
                     {selectedOrder.receiverDetails.city}, {selectedOrder.receiverDetails.province} {selectedOrder.receiverDetails.zipCode}
                   </span>
                 )}
               </span>
-              {!isAdminMode && selectedShippingFlags.usesPickupPoint && !isSelectedLegacyOrder && !detailShowExact && (
+              {!isFinalizedOrder && !isAdminMode && selectedShippingFlags.usesPickupPoint && !isSelectedLegacyOrder && !detailShowExact && (
                 <span className="text-[13px] font-black uppercase text-amber-600 dark:text-amber-500 mt-1 leading-tight">
                    * Actual pin and complete address will be available once payment is validated and the order is ready for pickup.
                 </span>
@@ -2754,7 +2783,7 @@ export default function Orders() {
           </div>
 
           {/* Right Column: Map */}
-          <div className="flex flex-col h-full justify-between">
+          {!isFinalizedOrder && <div className="flex flex-col h-full justify-between">
             <h3 className="text-[13px] font-black uppercase tracking-widest mb-2 text-left">Location Map</h3>
             {mapLat && mapLng ? (
               <div className="overflow-hidden rounded-3xl border border-black/5 dark:border-white/5 h-[280px] w-full relative z-10">
@@ -2780,10 +2809,10 @@ export default function Orders() {
                 <span className="text-[10px] opacity-40 mt-1">Delivery address will be used manually.</span>
               </div>
             )}
-          </div>
-        </div>
+           </div>}
+         </div>
 
-        {/* Second Section: Items Breakdown */}
+         {/* Second Section: Items Breakdown */}
         <div className="mb-8 pb-8 border-b border-black/5 dark:border-white/5">
           <h3 className="text-[13px] font-black uppercase tracking-widest mb-4 text-left">Items Breakdown</h3>
           <div className="space-y-4">
@@ -2930,8 +2959,9 @@ export default function Orders() {
         </div>
 
         {/* Totals & Payments side-by-side */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start mb-8 pb-8">
+        <div className={`grid grid-cols-1 ${isAdminMode ? 'lg:grid-cols-2' : ''} gap-8 items-start mb-8 pb-8`}>
           {/* Left Side: Payments (QR, Receipt, Balance Receipt) */}
+          {isAdminMode && (
           <div className="space-y-4 text-left order-2 lg:order-1">
             <h3 className="text-[13px] font-black uppercase tracking-widest mb-2">Payment Details</h3>
             
@@ -3149,9 +3179,10 @@ export default function Orders() {
               </>
             )}
           </div>
+          )}
 
           {/* Right Side: Totals */}
-          <div className="space-y-3 bg-black/[0.01] dark:bg-white/[0.01] p-6 rounded-3xl border border-black/5 dark:border-white/5 text-left order-1 lg:order-2">
+          <div className={`space-y-3 bg-black/[0.01] dark:bg-white/[0.01] p-6 rounded-3xl border border-black/5 dark:border-white/5 text-left ${isAdminMode ? 'order-1 lg:order-2' : ''}`}>
             <h3 className="text-[13px] font-black uppercase tracking-widest mb-2">Order Totals</h3>
             
             {/* First row: Items Total */}
@@ -3710,7 +3741,7 @@ export default function Orders() {
                         <span className="inline-flex whitespace-nowrap text-[12px] font-black px-2 py-0.5 rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400 uppercase tracking-wider">
                           {shippingMethodLabel}
                         </span>
-                        {!isLegacyOrder && (o.paymentPlan && o.paymentPlan !== 'full' ? (
+                        {isAdminMode && !isLegacyOrder && (o.paymentPlan && o.paymentPlan !== 'full' ? (
                           <span className="inline-flex whitespace-nowrap text-[12px] font-black px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-500 uppercase tracking-wider">
                             {o.paymentPlan === 'partial' ? 'Partial' : o.paymentPlan === 'reservation' ? 'Reservation' : 'Installment'}
                           </span>
@@ -3719,7 +3750,7 @@ export default function Orders() {
                             Full Pay
                           </span>
                         ))}
-                        {!isLegacyOrder && o.paymentMethod && (
+                        {isAdminMode && !isLegacyOrder && o.paymentMethod && (
                           <span className={`inline-flex whitespace-nowrap text-[12px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider ${
                             o.paymentMethod === 'GCash' ? 'bg-blue-500/10 text-blue-500' :
                             o.paymentMethod === 'Cash'  ? 'bg-amber-500/10 text-amber-600' :

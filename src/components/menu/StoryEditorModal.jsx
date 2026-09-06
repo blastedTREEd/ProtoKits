@@ -38,15 +38,20 @@ function normalizeStoryItems(items) {
 }
 
 function normalizeStoryLocation(story) {
-  const city = String(story?.city || story?.town || story?.cityTown || '').trim();
+  const city = String(story?.city || story?.town || story?.municipality || story?.cityTown || '').trim();
   const province = String(story?.province || '').trim();
-  if (city || province) return { city, province };
+  const zipCode = String(story?.zipCode || story?.zip || '').trim();
+  if (city || province || zipCode) return { city, province, zipCode };
 
   const destination = String(story?.destination || '').trim();
-  const [legacyCity = '', ...legacyProvince] = destination.split(',');
+  const destinationParts = destination.split(',').map((part) => part.trim()).filter(Boolean);
+  const destinationZip = destinationParts.find((part) => /^\d{4}$/.test(part)) || '';
+  const locationParts = destinationParts.filter((part) => part !== destinationZip);
+  const [legacyCity = '', ...legacyProvince] = locationParts;
   return {
     city: legacyCity.trim(),
-    province: legacyProvince.join(',').trim()
+    province: legacyProvince.join(',').trim(),
+    zipCode: destinationZip
   };
 }
 
@@ -77,15 +82,19 @@ function getStoryOrderItems(order) {
 }
 
 function getStoryOrderLocation(order) {
-  const details = order?.receiverDetails
-    || order?.deliveryData
-    || order?.shippingAddress
-    || order?.address
-    || {};
+  const details = order?.receiverDetails || order?.deliveryData || order?.shippingAddress || order?.address || {};
+  const placeDetails = order?.pickupDetails || order?.meetupDetails || {};
+  const placeAddress = String(placeDetails.address || placeDetails.publicAddress || placeDetails.exactAddress || '').trim();
+  const placeParts = placeAddress.split(',').map((part) => part.trim()).filter(Boolean);
+  const placeZip = placeAddress.match(/(?:^|\D)(\d{4})\s*$/)?.[1] || '';
+  const placeNonZipParts = placeZip && placeParts[placeParts.length - 1] === placeZip
+    ? placeParts.slice(0, -1)
+    : placeParts;
 
   return {
-    city: String(details.city || details.town || details.cityTown || order?.city || order?.town || '').trim(),
-    province: String(details.province || order?.province || '').trim()
+    city: String(details.city || details.town || details.municipality || details.cityTown || order?.city || order?.town || order?.municipality || placeDetails.city || placeDetails.town || placeDetails.municipality || (placeNonZipParts.length >= 2 ? placeNonZipParts[placeNonZipParts.length - 2] : '')).trim(),
+    province: String(details.province || order?.province || placeDetails.province || (placeNonZipParts.length >= 2 ? placeNonZipParts[placeNonZipParts.length - 1] : '')).trim(),
+    zipCode: String(details.zipCode || details.zip || order?.zipCode || order?.zip || placeDetails.zipCode || placeDetails.zip || placeZip || '').trim()
   };
 }
 
@@ -198,6 +207,7 @@ export default function StoryEditorModal({ isOpen, onClose }) {
   const [description, setDescription] = useState('');
   const [city, setCity] = useState('');
   const [province, setProvince] = useState('');
+  const [zipCode, setZipCode] = useState('');
   const [items, setItems] = useState(['']);
   const [selectedOrderIds, setSelectedOrderIds] = useState([]);
   const [orderSearch, setOrderSearch] = useState('');
@@ -1005,6 +1015,7 @@ const handleBgPointerDown = (e) => {
     setDescription('');
     setCity('');
     setProvince('');
+    setZipCode('');
     setItems(['']);
     setSelectedOrderIds([]);
     setOrderSearch('');
@@ -1037,6 +1048,7 @@ const handleBgPointerDown = (e) => {
     const location = normalizeStoryLocation(story);
     setCity(location.city);
     setProvince(location.province);
+    setZipCode(location.zipCode);
     setItems(normalizeStoryItems(story.items));
     setSelectedOrderIds(normalizeStoryOrderIds(story));
     setOrderSearch('');
@@ -1083,6 +1095,7 @@ const handleBgPointerDown = (e) => {
         order.status,
         location.city,
         location.province,
+        location.zipCode,
         ...getStoryOrderItems(order)
       ].filter(Boolean).join(' ').toLowerCase();
       return searchableText.includes(query);
@@ -1097,10 +1110,12 @@ const handleBgPointerDown = (e) => {
     const selectedLocations = selectedOrders.map(getStoryOrderLocation);
     const cities = [...new Set(selectedLocations.map((location) => location.city).filter(Boolean))];
     const provinces = [...new Set(selectedLocations.map((location) => location.province).filter(Boolean))];
+    const zipCodes = [...new Set(selectedLocations.map((location) => location.zipCode).filter(Boolean))];
 
     setItems(selectedItems.length > 0 ? selectedItems : ['']);
     setCity(cities.join(', '));
     setProvince(provinces.join(', '));
+    setZipCode(zipCodes.join(', '));
   }, [orders]);
 
   const handleOrderSelectionChange = useCallback((orderId) => {
@@ -1145,6 +1160,7 @@ const handleBgPointerDown = (e) => {
     description: description.trim(),
     city: city.trim(),
     province: province.trim(),
+    zipCode: zipCode.trim(),
     destination: [city.trim(), province.trim()].filter(Boolean).join(', '),
     items: items.map((item) => item.trim()).filter(Boolean),
     orderIds: selectedOrderIds,
@@ -1157,7 +1173,7 @@ const handleBgPointerDown = (e) => {
     bgOffset,
     stickers: stickers.map(normalizeStorySticker),
     texts: texts.map(normalizeStoryText)
-  }), [label, description, city, province, items, selectedOrderIds, storyDate, value, backgroundImage, bgImageSize, bgZoom, bgRotation, bgOffset, stickers, texts]);
+  }), [label, description, city, province, zipCode, items, selectedOrderIds, storyDate, value, backgroundImage, bgImageSize, bgZoom, bgRotation, bgOffset, stickers, texts]);
 
   const estimatedStorySize = useMemo(() => {
     try {
@@ -1725,7 +1741,7 @@ const renderEditorFormButtons = () => (
                                         {orderItems.length > 0 ? orderItems.join(' • ') : 'No item names recorded'}
                                       </span>
                                       <span className="mt-1 block text-[9px] font-bold uppercase tracking-wider text-neutral-400">
-                                        {[orderLocation.city, orderLocation.province].filter(Boolean).join(', ') || 'No city/province recorded'}
+                                        {[orderLocation.city, orderLocation.province, orderLocation.zipCode].filter(Boolean).join(', ') || 'No city/province/ZIP recorded'}
                                         {order.status ? ` • ${order.status}` : ''}
                                       </span>
                                     </span>
@@ -1739,7 +1755,7 @@ const renderEditorFormButtons = () => (
 
                       <div className="space-y-2">
                         <label className="text-[10px] font-black uppercase tracking-wider text-neutral-400">Destination</label>
-                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                           <div className="relative">
                             <Building2 size={15} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-blue-600" />
                             <input type="text" value={city} onChange={(e) => setCity(e.target.value)} placeholder="City / Town" className="w-full rounded-2xl border bg-neutral-50 p-4 pl-11 text-xs font-semibold focus:outline-none focus:border-garage-blue dark:bg-white/5" maxLength={80} />
@@ -1748,6 +1764,7 @@ const renderEditorFormButtons = () => (
                             <MapPin size={15} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-blue-600" />
                             <input type="text" value={province} onChange={(e) => setProvince(e.target.value)} placeholder="Province" className="w-full rounded-2xl border bg-neutral-50 p-4 pl-11 text-xs font-semibold focus:outline-none focus:border-garage-blue dark:bg-white/5" maxLength={80} />
                           </div>
+                          <input type="text" inputMode="numeric" value={zipCode} onChange={(e) => setZipCode(e.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="ZIP Code" className="w-full rounded-2xl border bg-neutral-50 p-4 text-xs font-semibold focus:outline-none focus:border-garage-blue dark:bg-white/5" maxLength={4} />
                         </div>
                       </div>
 

@@ -35,17 +35,21 @@ function MapClickHandler({ setFormData }) {
   return null;
 }
 
-function ChangeView({ center }) {
+function ChangeView({ center, zoom = 16 }) {
   const map = useMap();
   useEffect(() => {
     const currentCenter = map.getCenter();
     const threshold = 0.0001;
     if (Math.abs(currentCenter.lat - center[0]) > threshold || Math.abs(currentCenter.lng - center[1]) > threshold) {
-      map.panTo(center); // Uses panTo to avoid resetting zoom
+      map.setView(center, zoom);
+    } else if (map.getZoom() !== zoom) {
+      map.setZoom(zoom);
     }
-  }, [center, map]);
+  }, [center, map, zoom]);
   return null;
 }
+
+const MAP_MAX_PIN_ZOOM = 19;
 
 const ensureStreetSuffix = (street) => {
   if (!street) return '';
@@ -598,6 +602,8 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
     const activeIndex = isMeetup ? formData.activeMeetupIndex : formData.activePickupIndex;
     const title = isMeetup ? 'Meetup Place' : 'Pickup Point';
     const canSavePlace = isMeetup || Boolean(String(formData.houseNo || '').trim());
+    const mapZoom = isMeetup ? 16 : MAP_MAX_PIN_ZOOM;
+    const mapMaxZoom = isMeetup ? 18 : MAP_MAX_PIN_ZOOM;
 
     return (
       <div className="space-y-4 rounded-3xl border border-garage-blue/15 bg-garage-blue/[0.03] p-4 md:p-6">
@@ -642,8 +648,8 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
           onTouchEnd={() => setIsOverMap(false)}
           onTouchCancel={() => setIsOverMap(false)}
         >
-          <MapContainer center={mapCenter} zoom={16} minZoom={12} maxZoom={18} style={{ height: '100%', width: '100%' }} dragging scrollWheelZoom zoomControl>
-            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+          <MapContainer center={mapCenter} zoom={mapZoom} minZoom={12} maxZoom={mapMaxZoom} style={{ height: '100%', width: '100%' }} dragging scrollWheelZoom zoomControl>
+            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={mapMaxZoom} />
             <Marker
               position={mapCenter}
               draggable
@@ -656,7 +662,7 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
                 }
               }}
             />
-            <ChangeView center={mapCenter} />
+            <ChangeView center={mapCenter} zoom={mapZoom} />
             <MapClickHandler setFormData={setFormData} />
           </MapContainer>
         </div>
