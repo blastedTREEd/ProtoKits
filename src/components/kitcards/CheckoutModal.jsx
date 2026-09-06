@@ -3113,11 +3113,24 @@ const handleFinalizeOrder = async () => {
 
           {!isCashPayment && (
             !previewUrl ? (
-              <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-blue-500 bg-blue-600 px-10 py-4 text-[12px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-950/30 transition hover:bg-blue-500">
-                <input type="file" className="hidden" accept="image/*" onChange={handleFileSelect} disabled={isUploading} />
-                <Upload size={16} />
-                Upload Receipt
-              </label>
+              <div className="flex flex-wrap items-center justify-center gap-3">
+                {paymentPreviewUrl && (
+                  <motion.a
+                    whileTap={{ scale: 0.98 }}
+                    href={paymentPreviewUrl}
+                    download={isOrderInvalidForMaintenance ? 'SG-Logo.png' : `${checkoutData.paymentMethod}-QR.png`}
+                    className="inline-flex w-52 items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-4 text-[12px] font-black uppercase tracking-widest text-white shadow-lg transition hover:bg-white/15"
+                  >
+                    <Download size={16} />
+                    Download QR
+                  </motion.a>
+                )}
+                <label className="inline-flex w-52 cursor-pointer items-center justify-center gap-2 rounded-xl border border-blue-500 bg-blue-600 px-4 py-4 text-[12px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-950/30 transition hover:bg-blue-500">
+                  <input type="file" className="hidden" accept="image/*" onChange={handleFileSelect} disabled={isUploading} />
+                  <Upload size={16} />
+                  Upload Receipt
+                </label>
+              </div>
             ) : (
               <div className="flex max-w-sm flex-col items-center gap-3">
                 <div className="flex flex-wrap items-center justify-center gap-3">
@@ -3720,7 +3733,7 @@ const handleFinalizeOrder = async () => {
       <div className={isPage ? "relative min-h-dvh w-full px-4 pb-6 custom-scrollbar lg:min-h-[calc(100dvh-60px)] lg:px-10 lg:py-6" : "bg-white/90 dark:bg-[#0a0a0a]/90 backdrop-blur-xl w-full h-full md:h-auto md:max-w-5xl rounded-none md:rounded-[2.5rem] border border-black/5 dark:border-white/10 p-5 md:p-6 shadow-2xl relative overflow-y-auto md:max-h-[95vh] custom-scrollbar"}>
         {isPage ? (
           <>
-            {!isPaymentPolicyOpen && (
+            {!isPaymentPolicyOpen && checkoutStep !== 2 && (
               <div className="pointer-events-none sticky top-0 z-[1000] h-0 lg:hidden">
                 <motion.button
                   whileTap={{ scale: 0.9 }}
@@ -3734,7 +3747,7 @@ const handleFinalizeOrder = async () => {
             )}
           </>
         ) : (
-          !isPaymentPolicyOpen && (
+          !isPaymentPolicyOpen && checkoutStep !== 2 && (
             <div className="sticky top-0 z-[520] h-0 w-full overflow-visible md:hidden">
               <div className="absolute top-0 -right-2 flex items-center justify-end">
                 <motion.button whileTap={{ scale: 0.9 }} onClick={handleCloseModal} className="rounded-full border border-black/5 bg-black/10 p-2 text-neutral-900 shadow-lg backdrop-blur-md dark:border-white/10 dark:bg-white/10 dark:text-white"><X size={20} /></motion.button>

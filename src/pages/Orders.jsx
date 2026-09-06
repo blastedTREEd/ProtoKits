@@ -662,6 +662,50 @@ const getConfiguredPickupAddress = (place) => {
   ].filter(Boolean).join(', ');
 };
 
+const stripPickupLandmark = (address, landmark) => {
+  const cleanAddress = String(address || '').trim();
+  const cleanLandmark = String(landmark || '').trim();
+  if (!cleanAddress || !cleanLandmark) return cleanAddress;
+
+  const escapedLandmark = cleanLandmark.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const leadingLandmark = new RegExp(`^${escapedLandmark}(?:\\s*[,;|:-]\\s*|\\s+)`, 'i');
+  const stripped = cleanAddress.replace(leadingLandmark, '').trim();
+  if (stripped !== cleanAddress) return stripped;
+
+  const addressParts = cleanAddress.split(',').map(part => part.trim()).filter(Boolean);
+  if (addressParts.length > 1) {
+    const normalizeLandmarkPart = (value) => String(value || '')
+      .toLowerCase()
+      .replace(/\b(st|street|rd|road|ave|avenue|blvd|boulevard|dr|drive|ln|lane)\b/g, '')
+      .replace(/[^a-z0-9]+/g, '');
+    if (normalizeLandmarkPart(addressParts[0]) === normalizeLandmarkPart(cleanLandmark)) {
+      return addressParts.slice(1).join(', ');
+    }
+  }
+
+  return cleanAddress;
+};
+
+const addPickupStreetSuffix = (address, landmark) => {
+  const cleanAddress = String(address || '').trim();
+  const cleanLandmark = String(landmark || '').trim();
+  if (!cleanAddress || !cleanLandmark) return cleanAddress;
+
+  const streetName = cleanLandmark.replace(/\s+\d+[a-z]?$/i, '').trim();
+  if (!streetName || /\b(st|street|ave|avenue|rd|road|blvd|boulevard|lane|ln|dr|drive|ct|court)\.?$/i.test(streetName)) {
+    return cleanAddress;
+  }
+
+  const normalizeAddressPart = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const addressParts = cleanAddress.split(',').map(part => part.trim()).filter(Boolean);
+  if (addressParts.length && normalizeAddressPart(addressParts[0]) === normalizeAddressPart(streetName)) {
+    addressParts[0] = `${addressParts[0]} St.`;
+    return addressParts.join(', ');
+  }
+
+  return cleanAddress;
+};
+
 const normalizeShippingValue = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
 
 const isOrderSelfBooking = (order, settings) => {
@@ -2135,13 +2179,20 @@ export default function Orders() {
     const rawPickupAddress = showExactAddress
       ? (configuredExactAddress || order?.pickupDetails?.exactAddress || order?.pickupDetails?.publicAddress || order?.pickupLocation)
       : (order?.pickupDetails?.publicAddress || order?.pickupLocation);
-      
-    // Alisin ang landmark sa beginning ng address string para hindi ma-double ang landmark display.
-    const landmarkLabel = actualPickupPoint?.landmark || order?.pickupDetails?.label;
-    let pickupAddress = rawPickupAddress;
-    if (landmarkLabel && pickupAddress && pickupAddress.startsWith(landmarkLabel)) {
-      pickupAddress = pickupAddress.substring(landmarkLabel.length).replace(/^[\s,]+/, '');
-    }
+
+    const pickupLandmark = flags.usesPickupPoint
+      ? (actualPickupPoint?.landmark || order?.pickupDetails?.label || rd.landmark || '')
+      : '';
+    const pickupLandmarkCandidates = [
+      actualPickupPoint?.landmark,
+      order?.pickupDetails?.label,
+      rd.landmark
+    ].filter(Boolean);
+    const pickupAddressWithoutLandmark = pickupLandmarkCandidates.reduce(
+      (address, landmark) => stripPickupLandmark(address, landmark),
+      rawPickupAddress
+    );
+    const pickupAddress = addPickupStreetSuffix(pickupAddressWithoutLandmark, pickupLandmark);
 
     const location = isLegacyOrder
       ? [legacyAddress.city, legacyAddress.province, legacyAddress.zipCode].filter(Boolean).join(', ')
@@ -2158,7 +2209,7 @@ export default function Orders() {
       phoneNumber: rd.phoneNumber || '',
       email: rd.email || order?.buyerEmail || '',
       display: location || 'No details',
-      landmark: rd.landmark || '',
+      landmark: pickupLandmark || rd.landmark || '',
       lat: (showExactAddress ? (actualPickupPoint?.lat || order?.pickupDetails?.exactLat) : null) || rd.lat || order?.pickupDetails?.lat || null,
       lng: (showExactAddress ? (actualPickupPoint?.lng || order?.pickupDetails?.exactLng) : null) || rd.lng || order?.pickupDetails?.lng || null,
       lbcBranch: rd.lbcBranch
@@ -2576,18 +2627,31 @@ export default function Orders() {
                 <span className="text-[13px] font-black uppercase tracking-wider">
                   {selectedShippingFlags.usesPickupPoint && !isSelectedLegacyOrder ? 'Pickup Pin' : 'Complete Address'}
                 </span>
-                {selectedShippingFlags.usesPickupPoint && !isSelectedLegacyOrder && (
-                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${detailShowExact
-                    ? 'bg-blue-600/15 text-blue-600 dark:text-blue-400'
-                    : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
-                  }`}>
-                    {detailShowExact ? 'Actual Pin' : 'Rate Checking'}
-                  </span>
-                )}
               </div>
               <span className="text-[14px] font-bold uppercase leading-relaxed text-blue-600">
-                {selectedLogistics.display}
-                {!isSelectedLegacyOrder && selectedOrder.receiverDetails?.city && (
+                {!isSelectedLegacyOrder && selectedShippingFlags.usesPickupPoint && selectedLogistics.landmark && (
+                  <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span>{selectedLogistics.landmark}</span>
+                    <span className={`inline-flex align-middle px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${detailShowExact
+                      ? 'bg-blue-600/15 text-blue-600 dark:text-blue-400'
+                      : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                    }`}>
+                      {detailShowExact ? 'Actual Pin' : 'Rate Checking'}
+                    </span>
+                  </span>
+                )}
+                <span className="block">
+                  {selectedLogistics.display}
+                  {!isSelectedLegacyOrder && selectedShippingFlags.usesPickupPoint && !selectedLogistics.landmark && (
+                    <span className={`inline-flex align-middle ml-2 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${detailShowExact
+                      ? 'bg-blue-600/15 text-blue-600 dark:text-blue-400'
+                      : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                    }`}>
+                      {detailShowExact ? 'Actual Pin' : 'Rate Checking'}
+                    </span>
+                  )}
+                </span>
+                {!isSelectedLegacyOrder && !selectedShippingFlags.usesPickupPoint && selectedOrder.receiverDetails?.city && (
                   <span className="block mt-0.5">
                     {selectedOrder.receiverDetails.city}, {selectedOrder.receiverDetails.province} {selectedOrder.receiverDetails.zipCode}
                   </span>
@@ -2914,7 +2978,7 @@ export default function Orders() {
                       canAdminCancel && (
                         <button 
                           onClick={() => handleCancelOrder(selectedOrder.id)}
-                          className="w-full py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg text-[12px] font-black uppercase tracking-widest text-center transition-all mt-1"
+                          className="w-full py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg text-[12px] font-black uppercase tracking-widest text-center transition-all mt-1 lg:hidden"
                         >
                           Cancel Order
                         </button>
@@ -3077,7 +3141,7 @@ export default function Orders() {
               {((isAdminMode && canAdminCancel && !showQrContainer && !isSelectedLegacyOrder) || (!isAdminMode && canCustomerCancel)) && (
                 <button 
                   onClick={() => handleCancelOrder(selectedOrder.id)}
-                  className="w-full py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all mt-2"
+                  className="w-full py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all mt-2 lg:hidden"
                 >
                   Cancel Order
                 </button>
@@ -3180,6 +3244,17 @@ export default function Orders() {
             )}
           </div>
         </div>
+
+        {((isAdminMode && canAdminCancel && !isSelectedLegacyOrder) || (!isAdminMode && canCustomerCancel)) && (
+          <div className="hidden lg:flex justify-center -mt-4 mb-2">
+            <button
+              onClick={() => handleCancelOrder(selectedOrder.id)}
+              className="w-full max-w-xl py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+            >
+              Cancel Order
+            </button>
+          </div>
+        )}
 
         {/* Action Buttons Panel */}
         <div className="flex flex-wrap gap-3 justify-end items-center mt-6 pt-6 border-t border-black/5 dark:border-white/5">
