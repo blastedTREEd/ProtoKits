@@ -3420,7 +3420,8 @@ export const useStore = create(
           await updateDoc(doc(db, "orders", id), {
             status: 'Cancelled',
             cancelledAt: serverTimestamp(),
-            lastUpdated: serverTimestamp()
+            lastUpdated: serverTimestamp(),
+            ...getFinalizedOrderShippingPatch(order)
           });
         }
 

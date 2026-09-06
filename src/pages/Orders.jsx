@@ -2094,11 +2094,11 @@ export default function Orders() {
 
   const isReadyForPickupStatus = (status) => ['Ready for Pickup', 'Ready for Meetup'].includes(status);
   const canShowExactPickupDetails = (order, paymentVerified) => {
-    if (isAdminMode) return true;
-    if (!paymentVerified) return false;
-
     const flags = getShippingFlags(order);
-    if (!flags.usesPickupPoint) return true;
+    // Pickup-pin orders must keep showing the rate-checking address until the
+    // order is released for pickup. Admin visibility must follow the same gate
+    // so the actual pin is never exposed early.
+    if (!flags.usesPickupPoint) return isAdminMode || paymentVerified;
 
     const actualPickupPoint = getConfiguredPickupPoint(shippingSettings, 'actual-pin');
     const hasActualPin = Boolean(
@@ -2109,7 +2109,9 @@ export default function Orders() {
       order?.pickupDetails?.exactLng
     );
 
-    return hasActualPin && order.status === 'Ready for Pickup';
+    return hasActualPin
+      && order.status === 'Ready for Pickup'
+      && (isAdminMode || paymentVerified);
   };
 
   const getDisplayStatus = (order) => {
@@ -2616,8 +2618,10 @@ export default function Orders() {
 
         {/* Content Body Container */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-8 py-8 space-y-8 pb-24">
+        <div className={isFinalizedOrder ? 'grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(360px,420px)] gap-x-8 gap-y-6 items-start' : ''}>
+          <div className={isFinalizedOrder ? 'lg:col-start-1 lg:row-start-1' : ''}>
           {/* Shipping Details & Map */}
-        <div className={`grid grid-cols-1 ${isFinalizedOrder ? '' : 'lg:grid-cols-2'} gap-8 mb-8 pb-8 border-b border-black/5 dark:border-white/5`}>
+        <div className={`grid grid-cols-1 ${isFinalizedOrder ? '' : 'lg:grid-cols-2 gap-8 mb-8 pb-8 border-b border-black/5 dark:border-white/5'}`}>
           {/* Left Column: Shipping Info */}
           <div className="space-y-4 text-left">
             <h3 className="text-[13px] font-black uppercase tracking-widest mb-2">Shipping Details</h3>
@@ -2651,6 +2655,7 @@ export default function Orders() {
             )}
 
             {/* Pickup pin / complete address */}
+            {(!isFinalizedOrder || isAdminMode) && (
             <div className="flex flex-col">
               <div className="flex items-center gap-2 mb-0.5">
                 <span className="text-[13px] font-black uppercase tracking-wider">
@@ -2658,7 +2663,7 @@ export default function Orders() {
                 </span>
               </div>
               <span className="text-[14px] font-bold uppercase leading-relaxed text-blue-600">
-                {!isFinalizedOrder && !isSelectedLegacyOrder && selectedShippingFlags.usesPickupPoint && selectedLogistics.landmark && (
+                {!isFinalizedOrder && !isSelectedLegacyOrder && selectedShippingFlags.usesPickupPoint && !selectedShippingFlags.isSelfPickup && selectedLogistics.landmark && (
                   <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <span>{selectedLogistics.landmark}</span>
                     <span className={`inline-flex align-middle px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${detailShowExact
@@ -2671,7 +2676,7 @@ export default function Orders() {
                 )}
                 <span className="block">
                   {isFinalizedOrder ? (completedAddress || 'No address details') : selectedLogistics.display}
-                  {!isFinalizedOrder && !isSelectedLegacyOrder && selectedShippingFlags.usesPickupPoint && !selectedLogistics.landmark && (
+                  {!isFinalizedOrder && !isSelectedLegacyOrder && selectedShippingFlags.usesPickupPoint && !selectedShippingFlags.isSelfPickup && !selectedLogistics.landmark && (
                     <span className={`inline-flex align-middle ml-2 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${detailShowExact
                       ? 'bg-blue-600/15 text-blue-600 dark:text-blue-400'
                       : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
@@ -2692,6 +2697,7 @@ export default function Orders() {
                 </span>
               )}
             </div>
+            )}
 
             {/* Selected shipping method and suboption */}
             <div className="flex flex-col">
@@ -2811,9 +2817,11 @@ export default function Orders() {
             )}
            </div>}
          </div>
+          </div>
 
          {/* Second Section: Items Breakdown */}
-        <div className="mb-8 pb-8 border-b border-black/5 dark:border-white/5">
+        <div className={isFinalizedOrder ? 'lg:col-start-1 lg:row-start-2' : ''}>
+        <div className={isFinalizedOrder ? '' : 'mb-8 pb-8 border-b border-black/5 dark:border-white/5'}>
           <h3 className="text-[13px] font-black uppercase tracking-widest mb-4 text-left">Items Breakdown</h3>
           <div className="space-y-4">
             {detailItems.map((item, idx) => {
@@ -2957,12 +2965,14 @@ export default function Orders() {
             })}
           </div>
         </div>
+        </div>
 
         {/* Totals & Payments side-by-side */}
-        <div className={`grid grid-cols-1 ${isAdminMode ? 'lg:grid-cols-2' : ''} gap-8 items-start mb-8 pb-8`}>
+        <div className={isFinalizedOrder ? 'contents' : ''}>
+        <div className={isFinalizedOrder ? 'contents' : `grid grid-cols-1 ${isAdminMode ? 'lg:grid-cols-2' : ''} gap-8 items-start mb-8 pb-8`}>
           {/* Left Side: Payments (QR, Receipt, Balance Receipt) */}
           {isAdminMode && (
-          <div className="space-y-4 text-left order-2 lg:order-1">
+          <div className={`space-y-4 text-left ${isFinalizedOrder ? 'lg:col-start-1 lg:row-start-3' : 'order-2 lg:order-1'}`}>
             <h3 className="text-[13px] font-black uppercase tracking-widest mb-2">Payment Details</h3>
             
             {isSelectedLegacyOrder ? (
@@ -3182,7 +3192,7 @@ export default function Orders() {
           )}
 
           {/* Right Side: Totals */}
-          <div className={`space-y-3 bg-black/[0.01] dark:bg-white/[0.01] p-6 rounded-3xl border border-black/5 dark:border-white/5 text-left ${isAdminMode ? 'order-1 lg:order-2' : ''}`}>
+          <div className={`space-y-3 bg-black/[0.01] dark:bg-white/[0.01] p-6 rounded-3xl border border-black/5 dark:border-white/5 text-left ${isFinalizedOrder ? `lg:col-start-2 lg:row-start-1 ${isAdminMode ? 'lg:row-span-3' : 'lg:row-span-2'}` : (isAdminMode ? 'order-1 lg:order-2' : '')}`}>
             <h3 className="text-[13px] font-black uppercase tracking-widest mb-2">Order Totals</h3>
             
             {/* First row: Items Total */}
@@ -3275,8 +3285,10 @@ export default function Orders() {
             )}
           </div>
         </div>
+        </div>
+        </div>
 
-        {((isAdminMode && canAdminCancel && !isSelectedLegacyOrder) || (!isAdminMode && canCustomerCancel)) && (
+        {(!isFinalizedOrder || isAdminMode) && ((isAdminMode && canAdminCancel && !isSelectedLegacyOrder) || (!isAdminMode && canCustomerCancel)) && (
           <div className="hidden lg:flex justify-center -mt-4 mb-2">
             <button
               onClick={() => handleCancelOrder(selectedOrder.id)}
@@ -3288,6 +3300,7 @@ export default function Orders() {
         )}
 
         {/* Action Buttons Panel */}
+        {(!isFinalizedOrder || isAdminMode) && (
         <div className="flex flex-wrap gap-3 justify-end items-center mt-6 pt-6 border-t border-black/5 dark:border-white/5">
           {isAdminMode && selectedOrder.paymentMethod === 'Cash' && selectedOrder.status === 'Reserved' && (
             <button 
@@ -3397,6 +3410,7 @@ export default function Orders() {
             </button>
           )}
         </div>
+        )}
       </div>
     </div>
   );
