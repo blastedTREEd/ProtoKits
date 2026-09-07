@@ -681,6 +681,15 @@ export default function Cart() {
   useEffect(() => {
     if (!isCartPath && location.pathname !== '/shelf') return;
 
+    // The store owns live basket/shelf listeners. Avoid an additional full
+    // collection read when that listener is already active; retain the fetch
+    // as a fallback for the short auth/listener startup window.
+    const state = useStore.getState();
+    const hasLiveListener = isAdmin && isAdminView
+      ? Boolean(state.unsubShelf || state._datasetListenerKeys?.shelf)
+      : Boolean(state.unsubBasket);
+    if (hasLiveListener) return;
+
     void refreshBasket().catch((error) => {
       console.error('SG LOG: Basket refresh on return failed:', error);
     });
@@ -989,7 +998,8 @@ export default function Cart() {
         pendingSourceKitIds: new Set(),
         fulfilledKitIds: new Set(),
         taggedKitIds: new Set(),
-        selectedSourceKitIds: new Set()
+        selectedSourceKitIds: new Set(),
+        requiredStockLeftByKitId: new Map()
       };
     }
 
@@ -1003,6 +1013,7 @@ export default function Cart() {
     const fulfilledKitIds = new Set();
     const taggedKitIds = new Set();
     const selectedSourceKitIds = new Set();
+    const requiredStockLeftByKitId = new Map();
 
     (deals || []).forEach((deal) => {
       if (!isFlexiBundleDeal(deal) || deal.isActive === false) return;
@@ -1025,6 +1036,18 @@ export default function Cart() {
             hasFulfilledSource = true;
           } else {
             pendingSourceKitIds.add(String(kitId));
+            const requiredStock = getClearanceRequiredOtherStock(deal, kitId);
+            const selectedOtherStock = selectedKitIds.filter((selectedKitId) => selectedKitId !== String(kitId)).length;
+            const requiredStockLeft = Math.max(0, requiredStock - selectedOtherStock);
+            selectedKitIdSet.forEach((selectedKitId) => {
+              const existingRequiredStockLeft = requiredStockLeftByKitId.get(selectedKitId);
+              requiredStockLeftByKitId.set(
+                selectedKitId,
+                existingRequiredStockLeft === undefined
+                  ? requiredStockLeft
+                  : Math.min(existingRequiredStockLeft, requiredStockLeft)
+              );
+            });
           }
         });
 
@@ -1037,7 +1060,14 @@ export default function Cart() {
       }
     });
 
-    return { fulfilledSourceKitIds, pendingSourceKitIds, fulfilledKitIds, taggedKitIds, selectedSourceKitIds };
+    return {
+      fulfilledSourceKitIds,
+      pendingSourceKitIds,
+      fulfilledKitIds,
+      taggedKitIds,
+      selectedSourceKitIds,
+      requiredStockLeftByKitId
+    };
   }, [activeBasket, activeSelection, deals, kits, offerNow]);
 
   // Keep source visibility independent from the fulfilled-price calculation.
@@ -2031,7 +2061,9 @@ export default function Cart() {
                       </span>
                     ) : isFlexiBundleTag && isClearanceKit ? (
                       <span className={`absolute left-0 bottom-5 z-10 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm ${isClearanceDealApplied ? 'bg-emerald-600' : 'bg-red-600'}`}>
-                        FLEXI-BUNDLE
+                        FLEXI-BUNDLE{selectedFlexiState.requiredStockLeftByKitId.get(itemKitId) > 0
+                          ? ` +${selectedFlexiState.requiredStockLeftByKitId.get(itemKitId)}`
+                          : ''}
                       </span>
                     ) : isBundleDealOffer ? (
                       <span className={`absolute left-0 bottom-5 z-10 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm ${isBundleDealApplied ? 'bg-emerald-600' : 'bg-red-600'}`}>

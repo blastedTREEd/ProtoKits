@@ -59,12 +59,16 @@ export default function UsersDashboard() {
     setIsLoading(true);
     setLoadError('');
     try {
+      const cachedUsers = useStore.getState().usersList;
+      const hasCachedUsers = Array.isArray(cachedUsers) && cachedUsers.length > 0;
       const [usersSnap, ordersSnap, adminsSnap] = await Promise.all([
-        getDocs(collection(db, 'users')),
+        hasCachedUsers ? Promise.resolve(null) : getDocs(collection(db, 'users')),
         getDocs(collection(db, 'orders')),
         getDocs(collection(db, 'admins'))
       ]);
-      const users = usersSnap.docs.map((docSnap) => ({ uid: docSnap.id, ...docSnap.data() }));
+      const users = hasCachedUsers
+        ? cachedUsers
+        : usersSnap.docs.map((docSnap) => ({ uid: docSnap.id, ...docSnap.data() }));
       const orders = ordersSnap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
       const admins = adminsSnap.docs.map((docSnap) => ({ uid: docSnap.id, ...docSnap.data() }));
 

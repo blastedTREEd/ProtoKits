@@ -198,24 +198,35 @@ function getFulfillableClearanceKitIds(deals, kits) {
   return ids;
 }
 
-function getRouteKitStatus(kit, isAdmin, isAdminView) {
+function getRouteKitStatus(kit, isAdmin, isAdminView, shelf = []) {
   const nowStr = new Date().toISOString().slice(0, 16);
   const stocks = Object.values(kit?.stocks || {});
   const availableCount = stocks.filter(stock => {
     const isVisible = (isAdmin && isAdminView) || !stock?.publicReleaseDate || stock.publicReleaseDate <= nowStr;
     return isVisible && !hasOrderAssociation(stock) && !stock?.isReserved;
   }).length;
-  const hasReserved = stocks.some(stock => stock.isReserved && !hasOrderAssociation(stock));
+  // Collection is reserved for inventory held by the administrator. Customer
+  // checkout reservations are not admin shelf stock and should remain out of
+  // the Collection section.
+  const hasAdminShelfStock = Object.entries(kit?.stocks || {}).some(([stockKey, stock]) => (
+    stock.isReserved
+    && !hasOrderAssociation(stock)
+    && (
+      stock.reservationType === 'admin'
+      || shelf.some(item => String(item?.id) === String(kit?.id) && String(item?.stockKey) === String(stockKey))
+    )
+  ));
 
   return {
     _avail: availableCount,
-    _statusOrder: availableCount > 0 ? 2 : hasReserved ? 1 : 0
+    _statusOrder: availableCount > 0 ? 2 : hasAdminShelfStock ? 1 : 0
   };
 }
 
 export default function Kits({ isActive = true }) {
   const isAdmin = useStore((state) => state.isAdmin);
   const isAdminView = useStore((state) => state.isAdminView);
+  const shelf = useStore((state) => state.shelf);
   const storeKits = useStore((state) => state.kits);
   const deals = useStore((state) => state.deals);
   const addKit = useStore((state) => state.addKit);
@@ -653,11 +664,18 @@ export default function Kits({ isActive = true }) {
 
     const processedKits = filtered.map(kit => {
         const avail = getAvail(kit);
-        const hasReserved = Object.values(kit?.stocks || {}).some(s => s.isReserved && !hasOrderAssociation(s));
+        const hasAdminShelfStock = Object.entries(kit?.stocks || {}).some(([stockKey, stock]) => (
+          stock.isReserved
+          && !hasOrderAssociation(stock)
+          && (
+            stock.reservationType === 'admin'
+            || (shelf || []).some(item => String(item?.id) === String(kit?.id) && String(item?.stockKey) === String(stockKey))
+          )
+        ));
         
         let statusOrder = 0; 
         if (avail > 0) statusOrder = 2;
-        else if (hasReserved) statusOrder = 1;
+        else if (hasAdminShelfStock) statusOrder = 1;
 
         return {
             ...kit,
@@ -745,7 +763,7 @@ export default function Kits({ isActive = true }) {
     // Hindi nagbago ang sort criteria — gamitin ang cached order para hindi mag-jump ang cards
     const kitMap = new Map(displayableKits.map(k => [k.id, k]));
     return stableSortCache.ids.map(id => kitMap.get(id)).filter(Boolean);
-  }, [activeOfferKitIds, deals, storeKits, isAdmin, isAdminView, searchTerm, sortType, stableSortCache]);
+  }, [activeOfferKitIds, deals, shelf, storeKits, isAdmin, isAdminView, searchTerm, sortType, stableSortCache]);
 
   useEffect(() => {
     const currentSortCriteria = `${searchTerm}||${sortType}||${isAdminView}`;
@@ -772,10 +790,10 @@ export default function Kits({ isActive = true }) {
     if (!routeKit) return visibleKits;
 
     const routeKitWithStatus = routeKit._statusOrder === undefined
-      ? { ...routeKit, ...getRouteKitStatus(routeKit, isAdmin, isAdminView) }
+      ? { ...routeKit, ...getRouteKitStatus(routeKit, isAdmin, isAdminView, shelf) }
       : routeKit;
     return [routeKitWithStatus, ...visibleKits];
-  }, [activeOfferKitIds, allFilteredKits, isAdmin, isAdminView, routeKitId, storeKits, visibleKits]);
+  }, [activeOfferKitIds, allFilteredKits, isAdmin, isAdminView, routeKitId, shelf, storeKits, visibleKits]);
 
   const activeOfferKits = useMemo(() => {
     const search = searchTerm.trim().toLowerCase();

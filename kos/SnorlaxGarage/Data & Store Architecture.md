@@ -21,10 +21,24 @@ To eliminate loading flashes (content flickering) in React, the store tracks pag
 - Firestore transport uses the SDK's automatic long-polling detection. Forced long-polling is intentionally disabled because it degrades performance on browsers that can use the normal streaming transport.
 - `stories` has one ordered live query and is subscribed only when the landing page is visited.
 - `blueprints` is subscribed only on `/prints` and `/blueprints`.
-- `shelf` is subscribed for administrators on every route because the navbar and kit cards use live shelf state for collection counts and badges.
-- `kits` and `deals` remain global live listeners because basket stock, restock, and last-day deal notifications must update on every page.
+- `shelf` is subscribed for administrators on every route because the navbar and kit cards use live shelf state for collection counts and badges. Shelf reconciliation reuses the already-live kits snapshot and only performs targeted kit reads for referenced IDs missing during startup, instead of downloading the full `kits` collection on every shelf update. If a legacy admin reservation has the `reservationType: "admin"` marker on the kit stock but its shelf document is missing, the admin shelf derives a read-only-compatible shelf row from that stock instead of treating it as customer inventory.
+- `kits` is route-scoped but intentionally broad on storefront, basket, and admin inventory routes because basket stock, restock, search, and Collection status all depend on the catalog. `deals` is live on the Kits route for deal pricing and countdowns.
 - The public Orders page owns the user's order query while it is mounted; the navbar reuses that store data instead of opening a duplicate notification query.
+- Order, Notify Me, and admin user-list listeners use reference-counted shared subscriptions so opening overlapping views does not register identical Firestore listeners twice. The Users Dashboard reuses the live users snapshot when available instead of issuing a duplicate full `users` read.
 - The first snapshot marks a dataset loaded even when it contains zero documents. An empty collection is valid data and must not leave the loading overlay visible.
+
+### Spark-plan subscription audit (2026-09-07)
+
+The project targets the Standard Firestore database `(default)` in `asia-southeast1` through `firebase.json`. The Spark no-cost allowance for Standard Firestore is currently 50,000 document reads/day, 20,000 writes/day, 20,000 deletes/day, 1 GiB stored data, and 10 GiB/month network egress. Realtime listeners are billed from the documents returned by the initial query and subsequent matching changes; keeping a listener alive is generally cheaper than repeatedly reissuing the same one-shot query, but broad listeners still have a large initial and reconnect cost.
+
+The current client is Spark-conscious but not usage-proof:
+
+- Good: route-aware listeners, shared order/Notify Me/user listeners, persistent cache, targeted missing-kit reads, limited admin order query (`limit(100)`), and no redundant shelf refresh while its live listener is active.
+- Main catalog risk: the `kits` listener returns the complete non-print catalog on routes that require catalog-wide search, stock validation, or shelf-aware Collection status. This is the largest recurring read surface and should eventually move to smaller catalog/stock projections or carefully scoped queries before the catalog grows substantially.
+- Admin-only burst risk: Users Dashboard still loads all orders/admin records and each user’s basket/project vault when opened. It is not a persistent listener, but it can consume many reads in one visit; it should be paginated or moved to server-side/admin summary documents if the user base grows.
+- The admin `shelf` listener returns the full shelf collection on admin routes. This is acceptable while the shelf is small, but it should be scoped or split if shelf volume becomes large.
+
+Usage must be checked in Firebase Console under Firestore Usage because the repository cannot prove the project’s live plan, daily consumption, or reconnect frequency. No Firebase rules, indexes, or production deployments are implied by this audit.
 
 ---
 
@@ -92,7 +106,7 @@ The application uses route-aware preloading rather than downloading every datase
 - Shelf data is loaded for administrators because navbar counts and kit cards use it.
 - Settings, rates, filaments, printers, feeders, extras, and project-vault data are loaded only when the relevant features need them.
 
-The first live snapshot counts as loaded even when a collection is empty. Persistent IndexedDB caching can satisfy the initial loading gate while Firestore reconnects and refreshes the data in the background.
+The first live snapshot counts as loaded even when a collection is empty. Persistent IndexedDB caching can satisfy the initial loading gate while Firestore reconnects and refreshes the data in the background. Cart/shelf route refreshes also avoid a second `getDocs` read when the corresponding live listener is already active.
 
 ## 4. Important write paths
 

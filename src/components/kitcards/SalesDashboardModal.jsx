@@ -1,9 +1,11 @@
-import React, { useMemo, useEffect, useState } from 'react';
+import React, { useMemo, useEffect, useRef, useState } from 'react';
 import { X, TrendingUp, DollarSign, Package, Clock, AlertCircle, ShoppingCart, ChevronDown } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import UniversalImage from '../common/UniversalImage';
 
 const PENDING_STATUSES = new Set(['Reserved', 'Validating', 'Arrived', 'To Ship', 'Shipped', 'Preparing']);
+
+const isCompletedOrder = (order) => String(order?.status || '').toLowerCase() === 'completed';
 
 const toAmount = (value) => {
   const amount = Number(value);
@@ -111,6 +113,11 @@ export default function SalesDashboardModal({ isOpen, onClose }) {
   const orders = useStore((state) => state.orders);
   const kits = useStore((state) => state.kits);
   const [expandedOrderIds, setExpandedOrderIds] = useState(() => new Set());
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   const orderRows = useMemo(() => (
     (orders || [])
@@ -121,10 +128,15 @@ export default function SalesDashboardModal({ isOpen, onClose }) {
       .sort((a, b) => getOrderDate(b.order).getTime() - getOrderDate(a.order).getTime())
   ), [orders, kits]);
 
+  const completedOrderRows = useMemo(
+    () => orderRows.filter(({ order }) => isCompletedOrder(order)),
+    [orderRows]
+  );
+
   const stats = useMemo(() => {
     if (orderRows.length === 0) return null;
 
-    const completed = orderRows.filter(({ order }) => order.status === 'Completed');
+    const completed = orderRows.filter(({ order }) => isCompletedOrder(order));
     const pending = orderRows.filter(({ order }) => PENDING_STATUSES.has(order.status));
     const cancelled = orderRows.filter(({ order }) => order.status === 'Cancelled');
     const sum = (rows, key) => rows.reduce((total, row) => total + row.financials[key], 0);
@@ -147,9 +159,9 @@ export default function SalesDashboardModal({ isOpen, onClose }) {
     const stateKey = `sales-dashboard-modal-${Date.now()}`;
     window.history.pushState({ modalKey: stateKey }, '');
 
-    const handlePopState = () => onClose();
+    const handlePopState = () => onCloseRef.current();
     const handleKeyDown = (event) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') onCloseRef.current();
     };
 
     window.addEventListener('popstate', handlePopState);
@@ -160,14 +172,16 @@ export default function SalesDashboardModal({ isOpen, onClose }) {
       window.removeEventListener('keydown', handleKeyDown);
       if (window.history.state?.modalKey === stateKey) window.history.back();
     };
-  }, [isOpen, onClose]);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) setExpandedOrderIds(new Set());
+  }, [isOpen]);
 
   const toggleOrder = (orderId) => {
     setExpandedOrderIds((current) => {
-      const next = new Set(current);
-      if (next.has(orderId)) next.delete(orderId);
-      else next.add(orderId);
-      return next;
+      if (current.has(orderId)) return new Set();
+      return new Set([orderId]);
     });
   };
 
@@ -175,7 +189,7 @@ export default function SalesDashboardModal({ isOpen, onClose }) {
 
   return (
     <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/60 p-0 backdrop-blur-md animate-in fade-in duration-300 md:p-4">
-      <div className="relative h-full w-full overflow-y-auto border-0 bg-white p-6 text-neutral-900 shadow-2xl dark:bg-[#0a0a0a] dark:text-white md:h-auto md:max-h-[90vh] md:max-w-5xl md:rounded-[2.5rem] md:border md:border-black/5 md:p-8 dark:md:border-white/10">
+      <div className="relative flex h-full w-full flex-col overflow-hidden border-0 bg-white p-6 text-neutral-900 shadow-2xl dark:bg-[#0a0a0a] dark:text-white md:h-[90vh] md:max-w-5xl md:rounded-[2.5rem] md:border md:border-black/5 md:p-8 dark:md:border-white/10">
         <div className="sticky top-0 z-[220] h-0 w-full overflow-visible md:hidden">
           <div className="absolute right-4 top-4 flex items-center justify-end">
             <button onClick={onClose} className="rounded-full border border-white/10 bg-black/20 p-2 text-white shadow-lg backdrop-blur-md transition-all hover:bg-black/40" aria-label="Close sales dashboard">
@@ -187,7 +201,7 @@ export default function SalesDashboardModal({ isOpen, onClose }) {
           <X size={24} />
         </button>
 
-        <div className="mb-8 flex items-center gap-4">
+        <div className="mb-8 flex shrink-0 items-center gap-4">
           <div className="rounded-2xl bg-blue-600/10 p-3 text-blue-600"><TrendingUp size={32} /></div>
           <div>
             <h2 className="text-3xl font-black uppercase italic tracking-tighter">Sales <span className="text-blue-600">Dashboard</span></h2>
@@ -201,7 +215,8 @@ export default function SalesDashboardModal({ isOpen, onClose }) {
             <p className="font-bold uppercase tracking-widest">No order data available</p>
           </div>
         ) : (
-          <div className="space-y-8">
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="shrink-0 pb-8">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
               <div className="rounded-[2rem] bg-gradient-to-br from-blue-600 to-indigo-700 p-6 text-white shadow-xl shadow-blue-600/20">
                 <div className="mb-4 flex items-start justify-between"><DollarSign size={24} className="opacity-50" /><span className="text-[10px] font-black uppercase tracking-widest opacity-70">Total Sales</span></div>
@@ -228,17 +243,25 @@ export default function SalesDashboardModal({ isOpen, onClose }) {
               </div>
             </div>
 
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1 no-scrollbar">
+              <div className="space-y-8">
             <div>
               <div className="mb-4 flex items-center justify-between px-2">
                 <h4 className="text-[11px] font-black uppercase tracking-widest opacity-40">Order List</h4>
-                <span className="text-[10px] font-black uppercase tracking-widest opacity-40">{stats.orderCount} total · {stats.cancelledCount} cancelled</span>
+                <span className="text-[10px] font-black uppercase tracking-widest opacity-40">{stats.completedCount} completed</span>
               </div>
               <div className="space-y-3">
-                {orderRows.map(({ order, financials }) => {
+                {completedOrderRows.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-black/10 p-6 text-center text-[10px] font-black uppercase tracking-widest opacity-40 dark:border-white/10">
+                    No completed orders
+                  </div>
+                ) : completedOrderRows.map(({ order, financials }) => {
                   const orderId = order.id || order.orderId;
                   const isExpanded = expandedOrderIds.has(orderId);
                   const isCancelled = order.status === 'Cancelled';
-                  const isCompleted = order.status === 'Completed';
+                  const isCompleted = isCompletedOrder(order);
                   const statusClass = isCompleted
                     ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
                     : isCancelled
@@ -302,6 +325,8 @@ export default function SalesDashboardModal({ isOpen, onClose }) {
             <div className="rounded-[2.5rem] border border-dashed border-black/10 bg-black/[0.02] p-6 dark:border-white/10 dark:bg-white/[0.02]">
               <div className="mb-3 flex items-center gap-3"><AlertCircle size={20} className="text-blue-600" /><h4 className="text-[11px] font-black uppercase tracking-widest">Accounting note</h4></div>
               <p className="text-xs font-medium italic leading-relaxed opacity-60">Modern orders use their final total after handling, installment, transfer fees, and discounts. Legacy orders use the buyer-paid amount so manually entered handling fees are included. Capital comes from the stored stock cost when available, with the current stock cost as a fallback.</p>
+            </div>
+              </div>
             </div>
           </div>
         )}

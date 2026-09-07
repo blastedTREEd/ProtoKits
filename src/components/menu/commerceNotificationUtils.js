@@ -200,7 +200,7 @@ export const buildCommerceNotifications = ({
         summary: kit?.name || 'Wild Deal',
         kitId,
         dealId: deal.id,
-        lastUpdated: isLive ? validFrom : validFrom
+        lastUpdated: validFrom
       });
     });
   });

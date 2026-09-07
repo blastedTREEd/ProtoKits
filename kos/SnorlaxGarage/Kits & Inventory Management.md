@@ -41,7 +41,7 @@ To deliver a premium shopping experience, the platform groups and displays kits 
 1. **Group 3 (In-Stock):** Kits that have at least one stock unit available for purchase (unreserved & unsold).
    - *Latest order:* Sorted by `lastAvailableAt`, with `lastRestockedAt`, `createdAt`, and `lastUpdated` as legacy fallbacks. New stock and stock released from the admin shelf therefore move to the beginning of **Available Kits**.
    - *Other sorts:* Price, alphabetical, and availability choices continue to use their selected ordering.
-2. **Group 2 (Reserved / On Shelf):** Kits that have stock units, but all are currently reserved.
+2. **Group 2 (Collection / Admin Shelf):** Kits that have no publicly available stock and have at least one unsold stock unit reserved by the administrator (`reservationType: "admin"`). Customer checkout reservations do not place a kit in the Collection section.
    - *Tie-breaker:* Sorted by `lastUpdated` timestamp.
 3. **Group 1 (Sold Out):** Kits that have no stock units, or all stock units have been sold.
    - *Tie-breaker:* Sorted by `lastUpdated` timestamp.
@@ -109,7 +109,7 @@ The Master List download exports one spreadsheet row per stock variant with the 
 
 The Deal Architect creates bundle and clearance deals that reference specific kit records and discount rules. A deal may reserve or expose particular stock units, while the storefront calculates the customer-facing savings and deal price from the configured discount and current item set.
 
-Admin shelf stock is operational stock held outside the normal public availability pool. It may be used for accepted collection offers or other admin-controlled fulfillment paths. Public catalog availability and admin shelf availability must therefore be distinguished when checking whether a stock unit can be purchased.
+Admin shelf stock is operational stock held outside the normal public availability pool. It may be used for accepted collection offers or other admin-controlled fulfillment paths. Public catalog availability and admin shelf availability must therefore be distinguished when checking whether a stock unit can be purchased. The Kits page’s Collection section uses the same admin-owned reservation marker as the shelf, so customer checkout reservations are not presented as shelf inventory. Legacy admin-held stock with that marker but without a matching `shelf` document is recovered into the admin shelf view without creating a duplicate Firestore row.
 
 ## 8. Inventory lifecycle
 

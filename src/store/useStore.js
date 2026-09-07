@@ -203,9 +203,110 @@ const removeUndefinedValues = (value) => {
   }, {});
 };
 
-const reconcileAdminShelfSnapshot = async (shelfSnap) => {
-  const kitsSnap = await getDocs(collection(db, 'kits'));
-  const kitsById = new Map(kitsSnap.docs.map((kitDoc) => [kitDoc.id, kitDoc.data()]));
+const hasOrderAssociation = (stock) => {
+  const orderReference = stock?.order;
+  if (!orderReference) return false;
+  if (typeof orderReference !== 'object') return Boolean(orderReference);
+  return Boolean(
+    orderReference.orderId
+    || orderReference.orderDocId
+    || orderReference.id
+    || Object.keys(orderReference).length > 0
+  );
+};
+
+const appendLegacyAdminShelfItems = (items = [], kitsById = new Map()) => {
+  // Synthetic rows are only an in-memory compatibility layer for older admin
+  // reservations that have the marker on the kit stock but no shelf document.
+  // Rebuild them from the latest kit snapshot so newly loaded reservations are
+  // surfaced and released reservations disappear without another Firestore
+  // read or write.
+  const validItems = (items || []).filter(item => !item?.isLegacyAdminShelfItem);
+  const representedStockIds = new Set();
+
+  validItems.forEach((item) => {
+    if (item?.type === 'project' || !item?.stockKey || !item?.id) return;
+    representedStockIds.add(`${String(item.id)}:${String(item.stockKey)}`);
+  });
+
+  kitsById.forEach((kit, kitId) => {
+    Object.entries(kit?.stocks || {}).forEach(([stockKey, stock]) => {
+      const stockId = `${String(kitId)}:${String(stockKey)}`;
+      if (
+        representedStockIds.has(stockId)
+        || !stock?.isReserved
+        || stock?.reservationType !== 'admin'
+        || hasOrderAssociation(stock)
+      ) return;
+
+      const reservedAt = stock.reservedAt;
+      const reservedAtMs = typeof reservedAt?.toMillis === 'function'
+        ? reservedAt.toMillis()
+        : reservedAt?.seconds
+          ? reservedAt.seconds * 1000
+          : new Date(reservedAt || 0).getTime();
+      const fallbackCreatedAt = Number.isFinite(reservedAtMs) && reservedAtMs > 0
+        ? new Date(reservedAtMs).toISOString()
+        : new Date().toISOString();
+      const sellPrice = Number(stock.sellPrice || kit.sellPrice || 0);
+
+      validItems.push({
+        id: kit.id || kitId,
+        name: kit.name || '',
+        image: kit.image || kit.images?.[0] || '',
+        images: kit.images || [],
+        brand: kit.brand || '',
+        specs: kit.specs || {},
+        price: sellPrice,
+        costPrice: Number(stock.costPrice || kit.costPrice || 0),
+        sellPrice,
+        status: stock.status || 'onhand',
+        eta: getStockEta(stock),
+        stockKey,
+        stockSource: getStockSource(stock),
+        type: 'kit',
+        basketId: `shelf_${kitId}_${stockKey}`,
+        isLegacyAdminShelfItem: true,
+        minDownpayment: stock.minDownpayment || 0,
+        allowShelfBundle: true,
+        reservedBy: stock.reservedBy || null,
+        reservedByDealId: stock.reservedByDealId || null,
+        createdAt: fallbackCreatedAt
+      });
+    });
+  });
+
+  return validItems;
+};
+
+const reconcileAdminShelfSnapshot = async (shelfSnap, knownKits = []) => {
+  // The kits listener already keeps the complete catalog in memory. Reusing it
+  // avoids a full `kits` collection read every time the shelf changes. Only
+  // fetch kit documents referenced by shelf rows that are not in that snapshot
+  // (for example during the initial auth/listener race). If that listener has
+  // not produced a catalog yet, one startup fallback read lets us recover
+  // admin-held stocks whose legacy shelf document is missing.
+  const kitsById = new Map((knownKits || []).map((kit) => [String(kit.id), kit]));
+  if (kitsById.size === 0) {
+    const kitsSnap = await getDocs(collection(db, 'kits'));
+    kitsSnap.docs.forEach((kitDoc) => kitsById.set(kitDoc.id, { id: kitDoc.id, ...kitDoc.data() }));
+  }
+  const missingKitIds = [...new Set(
+    shelfSnap.docs
+      .map((shelfDoc) => shelfDoc.data())
+      .filter((item) => item?.stockKey && item?.id && !kitsById.has(String(item.id)))
+      .map((item) => String(item.id))
+  )];
+
+  for (let index = 0; index < missingKitIds.length; index += 10) {
+    const batchIds = missingKitIds.slice(index, index + 10);
+    const kitsSnap = await getDocs(query(
+      collection(db, 'kits'),
+      where('__name__', 'in', batchIds)
+    ));
+    kitsSnap.docs.forEach((kitDoc) => kitsById.set(kitDoc.id, { id: kitDoc.id, ...kitDoc.data() }));
+  }
+
   const staleShelfDocs = [];
   const validItems = [];
 
@@ -219,7 +320,7 @@ const reconcileAdminShelfSnapshot = async (shelfSnap) => {
       return;
     }
 
-    const stock = kitsById.get(item.id)?.stocks?.[item.stockKey];
+    const stock = kitsById.get(String(item.id))?.stocks?.[item.stockKey];
     if (!stock) {
       staleShelfDocs.push(shelfDoc);
       return;
@@ -238,7 +339,7 @@ const reconcileAdminShelfSnapshot = async (shelfSnap) => {
     console.info(`SG LOG: Removed ${staleShelfDocs.length} orphaned admin shelf stock entr${staleShelfDocs.length === 1 ? 'y' : 'ies'}.`);
   }
 
-  return validItems;
+  return appendLegacyAdminShelfItems(validItems, kitsById);
 };
 
 const getStockCostPrice = (stock) => {
@@ -593,6 +694,7 @@ const docsToArray = (snap) => snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 // user/admin query is only billed once while multiple views are open.
 const sharedOrderSubscriptions = new Map();
 const sharedNotifySubscriptions = new Map();
+const sharedUsersSubscriptions = new Map();
 
 const buildOrderStockTargets = (order = {}) => {
   const targets = [];
@@ -1060,9 +1162,23 @@ export const useStore = create(
             const allKits = snap.docs
               .map(doc => ({ id: doc.id, ...doc.data() }))
               .filter((kit) => kit.productType !== 'printed-project' && kit.isPrintedProject !== true);
-            set({ 
-              kits: sortKitsByAvailability(allKits), 
+            const sortedKits = sortKitsByAvailability(allKits);
+            const nextState = {
+              kits: sortedKits,
               lastVisibleKit: snap.docs[snap.docs.length - 1]
+            };
+
+            // A shelf snapshot can arrive before the kits snapshot that
+            // contains the latest admin reservation markers. Reconcile the
+            // in-memory shelf rows here as well so legacy admin-held stocks
+            // cannot appear only in Kits > Collection.
+            if (get().isAdmin && get().isAdminView && Array.isArray(get().shelf)) {
+              const kitsById = new Map(sortedKits.map((kit) => [String(kit.id), kit]));
+              nextState.shelf = appendLegacyAdminShelfItems(get().shelf, kitsById)
+                .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+            }
+            set({
+              ...nextState
             });
             updateSnapshotDatasetStatus(get, 'kits', snap);
             get().syncAllDeals();
@@ -1115,7 +1231,7 @@ export const useStore = create(
         if (req.shelf && !ds.shelf && get().isAdmin && !listenerKeys.shelf) {
           const unsub = onSnapshot(collection(db, "shelf"), async (snap) => {
             try {
-              const items = await reconcileAdminShelfSnapshot(snap);
+              const items = await reconcileAdminShelfSnapshot(snap, get().kits);
               set({ shelf: items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()) });
             } catch (error) {
               console.error("SG LOG: Shelf reconciliation failed:", error);
@@ -1586,9 +1702,36 @@ export const useStore = create(
       },
 
       subscribeUsersList: () => {
-        return onSnapshot(collection(db, "users"), (snap) => {
+        const subscriptionKey = 'all-users';
+        const existingSubscription = sharedUsersSubscriptions.get(subscriptionKey);
+        if (existingSubscription) {
+          existingSubscription.refCount += 1;
+          return () => {
+            const currentSubscription = sharedUsersSubscriptions.get(subscriptionKey);
+            if (currentSubscription !== existingSubscription) return;
+            currentSubscription.refCount -= 1;
+            if (currentSubscription.refCount <= 0) {
+              currentSubscription.unsubscribe?.();
+              sharedUsersSubscriptions.delete(subscriptionKey);
+            }
+          };
+        }
+
+        const subscription = { refCount: 1, unsubscribe: null };
+        sharedUsersSubscriptions.set(subscriptionKey, subscription);
+        subscription.unsubscribe = onSnapshot(collection(db, "users"), (snap) => {
           set({ usersList: snap.docs.map(doc => ({ uid: doc.id, ...doc.data() })) });
         }, () => set({ usersList: [] }));
+
+        return () => {
+          const currentSubscription = sharedUsersSubscriptions.get(subscriptionKey);
+          if (currentSubscription !== subscription) return;
+          currentSubscription.refCount -= 1;
+          if (currentSubscription.refCount <= 0) {
+            currentSubscription.unsubscribe?.();
+            sharedUsersSubscriptions.delete(subscriptionKey);
+          }
+        };
       },
 
       loadMissingKits: async (ids = []) => {
@@ -1639,7 +1782,7 @@ export const useStore = create(
           : collection(db, 'users', user.uid, 'basket');
         const basketSnap = await getDocs(basketRef);
         const refreshedItems = isShelf
-          ? await reconcileAdminShelfSnapshot(basketSnap)
+          ? await reconcileAdminShelfSnapshot(basketSnap, get().kits)
           : basketSnap.docs.map((basketDoc) => ({ ...basketDoc.data(), basketId: basketDoc.id }));
         refreshedItems.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
 

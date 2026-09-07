@@ -943,29 +943,56 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     const unsoldStocks = stockList.filter(s => !hasOrderAssociation(s));
     if (unsoldStocks.length === 0) return null;
 
-    const shelfEntries = (shelf || []).filter(item => item.id === kitId && item.stockKey);
-    const shelfStock = shelfEntries
-      .map(entry => stockList.find(stock => stock.key === entry.stockKey))
-      .find(Boolean);
-    const shelfStockKeys = new Set(shelfEntries.map(entry => entry.stockKey));
+    const shelfEntries = (shelf || []).filter(item => (
+      String(item?.id || '') === String(kitId || '')
+      && item?.stockKey
+    ));
+    const shelfStockKeys = new Set(shelfEntries.map(entry => String(entry.stockKey)));
+
+    // Admin-held stocks are still marked reserved on the kit document. They
+    // are intentionally excluded from the customer-facing stock list, but
+    // they are the primary price source for Collection cards in admin view.
+    // Include both the explicit shelf rows and the reservation marker so the
+    // card remains correct while the shelf listener is catching up (and for
+    // legacy admin reservations that have no shelf document).
+    const adminShelfStocks = unsoldStocks.filter(stock => (
+      shelfStockKeys.has(String(stock.key))
+      || (stock.isReserved && stock.reservationType === 'admin')
+    ));
     const allocatableOnhandStocks = unsoldStocks.filter(stock => (
       isOnHandStock(stock)
-      && !shelfStockKeys.has(stock.key)
+      && !shelfStockKeys.has(String(stock.key))
       && !stock.isReserved
     ));
-    const cheapestAllocatableStock = allocatableOnhandStocks
-      .sort((a, b) => getStockCostPrice(a) - getStockCostPrice(b))[0] || null;
-    const cost = Number(
-      shelfStock?.costPrice
-      ?? shelfEntries[0]?.costPrice
-      ?? cheapestAllocatableStock?.costPrice
-      ?? kit?.costPrice
-      ?? 0
-    );
+    const adminShelfCosts = adminShelfStocks
+      .map(stock => getStockCostPrice(stock))
+      .filter(price => Number.isFinite(price) && price > 0);
+    const allocatableCosts = allocatableOnhandStocks
+      .map(stock => getStockCostPrice(stock))
+      .filter(price => Number.isFinite(price) && price > 0);
+    const allocatableStockCosts = unsoldStocks
+      .filter(stock => !stock.isReserved)
+      .map(stock => getStockCostPrice(stock))
+      .filter(price => Number.isFinite(price) && price > 0);
+    const shelfEntryCosts = shelfEntries
+      .map(entry => Number(entry?.costPrice || 0))
+      .filter(price => Number.isFinite(price) && price > 0);
+    const cost = adminShelfCosts.length > 0
+      ? Math.min(...adminShelfCosts)
+      : allocatableCosts.length > 0
+        ? Math.min(...allocatableCosts)
+        : allocatableStockCosts.length > 0
+          ? Math.min(...allocatableStockCosts)
+          : shelfEntryCosts.length > 0
+            ? Math.min(...shelfEntryCosts)
+            : Number(kit?.costPrice || 0);
     const availableSellPrices = unsoldStocks
-      .filter(stock => shelfStockKeys.has(stock.key) || (!stock.isReserved && isOnHandStock(stock)))
+      .filter(stock => (
+        adminShelfStocks.includes(stock)
+        || !stock.isReserved
+      ))
       .map(stock => Number(stock.sellPrice || 0))
-      .filter(price => price > 0);
+      .filter(price => Number.isFinite(price) && price > 0);
     const sell = Math.max(...availableSellPrices, Number(kit?.sellPrice || 0), 0);
 
     return { cost, sell };

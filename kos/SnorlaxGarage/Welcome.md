@@ -9,7 +9,7 @@ This vault documents the current application behavior. It helps developers, oper
 ### Customer storefront
 
 - Landing page with stories, highlights, and promotional content.
-- Kits catalog with stock-aware availability, variants, deals, and collection offers.
+- Kits catalog with stock-aware availability, variants, deals, and collection offers. Collection is reserved for admin-held shelf stock; customer checkout reservations remain separate.
 - Prints/Blueprints calculator for STL estimates and 3MF plate-ready projects.
 - Basket and checkout for kits, projects, or mixed orders.
 - Orders page with payment, receipt, status, and fulfillment progress.
@@ -56,6 +56,7 @@ This vault documents the current application behavior. It helps developers, oper
 - The client uses Firebase browser credentials. These identify the Firebase project but are not Admin SDK credentials.
 - Stock reservation and several business writes currently execute through the client-side Zustand/Firebase path. The rules and code contain indications that stronger server-side transaction handling is still a future migration item.
 - Firestore rules are part of the production security boundary. Current rules require review for kit-write authorization and public shelf reads before the system is considered fully hardened.
+- Firestore subscription work is Spark-conscious: route-gated listeners, persistent cache, and shared reference-counted order/Notify Me/user listeners avoid duplicate reads. The broad catalog and admin dashboard reads remain the main usage risks and are documented in [[Data & Store Architecture]].
 - The temporary admin stock-condition action on the Kits page is an operational migration tool, not a permanent customer feature.
 
 ## Brand language
