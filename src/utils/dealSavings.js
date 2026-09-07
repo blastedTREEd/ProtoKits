@@ -1,6 +1,10 @@
 const toAmount = (value) => Math.max(0, Math.round(Number(value) || 0));
 
-const isClearancePricingDeal = (deal) => deal?.type === 'clearance' || deal?.type === 'flexi_bundle';
+const isClearancePricingDeal = (deal) => (
+  deal?.type === 'clearance'
+  || deal?.type === 'wild_sale'
+  || deal?.type === 'flexi_bundle'
+);
 
 export const getDealDiscountAmount = (deal) => {
   if (!deal) return 0;

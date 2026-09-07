@@ -30,7 +30,7 @@ import {
   getFlexiOfferedDiscount,
   isClearanceRequirementMet
 } from '../../utils/bundlePricing';
-import { isFlexiBundleDeal, isPerKitClearanceDeal, getActiveClearanceKitIds } from '../../utils/dealTypes';
+import { isFlexiBundleDeal, isPerKitClearanceDeal, isWildSaleDeal, getActiveClearanceKitIds } from '../../utils/dealTypes';
 import { getStockEta } from '../../utils/stockDates';
 import {
   formatAvailabilityDate,
@@ -144,7 +144,7 @@ const parseDealDate = (value, endOfDay = false) => {
 };
 
 const isDealActiveForCheckout = (deal, now = Date.now()) => {
-  if (!deal || !['bundle', 'bundle_only', 'bundle_discount', 'clearance', 'flexi_bundle'].includes(deal.type)) return false;
+  if (!deal || !['bundle', 'bundle_only', 'bundle_discount', 'clearance', 'wild_sale', 'flexi_bundle'].includes(deal.type)) return false;
   if (deal.isActive === false) return false;
 
   // FLEXI-BUNDLE is a permanent eligibility list. Bundle deals still honor
@@ -356,6 +356,26 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
       { length: Math.max(1, Number(item.quantity) || 1) },
       () => getCheckoutKitId(item)
     ));
+    if (isWildSaleDeal(deal)) {
+      const selectedKitIdSet = new Set(selectedKitIds);
+      const wildSaleKitIdSet = new Set(clearanceKitIds.map(String));
+      const hasHigherPriorityDeal = activeDeals.some((priorityDeal) => {
+        const isFlexiPriority = isFlexiBundleDeal(priorityDeal);
+        const isBundlePriority = ['bundle', 'bundle_only', 'bundle_discount'].includes(priorityDeal?.type);
+        if ((!isFlexiPriority && !isBundlePriority) || priorityDeal.isActive === false) return false;
+        if (isBundlePriority && !isDealActiveForCheckout(priorityDeal)) return false;
+        const priorityKitIds = priorityDeal.clearanceKitIds?.length
+          ? priorityDeal.clearanceKitIds
+          : (priorityDeal.kitIds || []);
+        const normalizedPriorityKitIds = [...new Set(priorityKitIds.map(String).filter(Boolean))];
+        const overlapsWildSale = normalizedPriorityKitIds.some((kitId) => wildSaleKitIdSet.has(kitId));
+        if (!overlapsWildSale) return false;
+        if (isFlexiPriority) return true;
+        return normalizedPriorityKitIds.length > 1
+          && normalizedPriorityKitIds.every((kitId) => selectedKitIdSet.has(kitId));
+      });
+      if (hasHigherPriorityDeal) return;
+    }
     const selectedClearanceKitIds = availableClearanceKitIds.filter((kitId) => (
       isClearanceRequirementMet(deal, selectedKitIds, kitId)
     ));
@@ -558,7 +578,7 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
       name: String(item.name || row.kit?.name || '').replace(/\s*\((?:Bundle|Clearance) Item\)\s*$/i, ''),
       isBundleItem: true,
       bundleId: deal.id,
-      bundleName: deal.name || (isFlexiBundleDeal(deal) ? 'FLEXI-BUNDLE' : isPerKitClearanceDeal(deal) ? 'CLEARANCE' : 'Bundle Deal'),
+      bundleName: deal.name || (isFlexiBundleDeal(deal) ? 'FLEXI-BUNDLE' : isPerKitClearanceDeal(deal) ? 'WILD SALE' : 'Bundle Deal'),
       isClearanceBundle: isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal),
       clearanceKitIds: clearancePricedKitIds,
       bundleSize,
@@ -1656,7 +1676,13 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
 
   const clearancePromotionLabel = checkoutItems.some((item) => (
     item.isClearanceBundle === true && String(item.bundleName || '').toUpperCase().includes('FLEXI')
-  )) ? 'FLEXI-BUNDLE' : 'CLEARANCE';
+  ))
+    ? 'FLEXI-BUNDLE'
+    : checkoutItems.some((item) => (
+      item.isClearanceBundle === true && String(item.bundleName || '').toUpperCase().includes('WILD')
+    ))
+      ? 'WILD SALE'
+      : 'CLEARANCE';
 
   const isHandlingFeeDiscounted = handlingFeeDiscount > 0 && orderFees.handling > 0;
   const isCashTransferFeeDiscounted = cashTransferFeeDiscount > 0 && orderFees.transfer > 0;
@@ -3324,7 +3350,11 @@ const handleFinalizeOrder = async () => {
       const dealTag = isAppliedBundleDeal
         ? 'BUNDLE DEAL'
         : isAppliedClearanceDeal
-          ? (String(item.bundleName || '').toUpperCase().includes('FLEXI') ? 'FLEXI-BUNDLE' : 'CLEARANCE')
+          ? (String(item.bundleName || '').toUpperCase().includes('FLEXI')
+            ? 'FLEXI-BUNDLE'
+            : String(item.bundleName || '').toUpperCase().includes('WILD')
+              ? 'WILD SALE'
+              : 'CLEARANCE')
           : isPreOrderItem && etaLabel
             ? etaLabel
             : '';

@@ -14,7 +14,7 @@ import SupplierBalancesModal from '../components/kitcards/SupplierBalancesModal'
 import SalesDashboardModal from '../components/kitcards/SalesDashboardModal';
 import KitDataQualityModal from '../components/kitcards/KitDataQualityModal';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
-import { getBundleDealPricing, getClearanceBundlePricing, getHighestCostStock } from '../utils/bundlePricing';
+import { getBundleDealPricing, getClearanceBundlePricing, getFlexiBundlePreviewPricing, getHighestCostStock } from '../utils/bundlePricing';
 import { isOfferCheckoutActive } from '../utils/offerUtils';
 import { getDealGrabLabel } from '../utils/dealSavings';
 import { getStockEta } from '../utils/stockDates';
@@ -860,6 +860,7 @@ export default function Kits({ isActive = true }) {
     });
     return () => window.cancelAnimationFrame(frame);
   }, [allFilteredKits, location.pathname, routeKitId]);
+
   const filteredDeals = useMemo(() => {
     if (!deals || !Array.isArray(deals)) return [];
     // Mutually exclusive deals have no deal card — hide from kits grid
@@ -946,6 +947,24 @@ export default function Kits({ isActive = true }) {
     });
   }, [deals, storeKits, searchTerm, sortType, isAdmin, isAdminView]);
 
+  useEffect(() => {
+    if (!isActive || location.pathname !== '/kits' || !location.state?.focusDealsSection) return;
+    if (filteredDeals.length === 0 && kitGroups.clearance.length === 0) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      const dealsSection = document.querySelector('[data-deals-section="true"]');
+      if (dealsSection) {
+        const navbar = document.querySelector('nav');
+        const offset = (navbar?.getBoundingClientRect().height || 0) + 12;
+        const top = window.scrollY + dealsSection.getBoundingClientRect().top - offset;
+        window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+      }
+      navigate('/kits', { replace: true, state: null });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [filteredDeals.length, isActive, kitGroups.clearance.length, location.pathname, location.state, navigate]);
+
   const handleSaveNewKit = async (newKit) => {
     try { return await addKit(newKit); } catch (e) { console.error(e); throw e; }
   };
@@ -983,7 +1002,10 @@ export default function Kits({ isActive = true }) {
     let pricedRows;
     const isClearanceDeal = isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal);
     if (isClearanceDeal) {
-      pricedRows = getClearanceBundlePricing(kitPrices, getActiveClearanceKitIds(deal, deal.clearanceKitIds || deal.kitIds || []), deal.clearanceDiscounts || {}).rows;
+      const eligibleKitIds = getActiveClearanceKitIds(deal, deal.clearanceKitIds || deal.kitIds || []);
+      pricedRows = (isFlexiBundleDeal(deal)
+        ? getFlexiBundlePreviewPricing(kitPrices, eligibleKitIds, deal.clearanceDiscounts || {})
+        : getClearanceBundlePricing(kitPrices, eligibleKitIds, deal.clearanceDiscounts || {})).rows;
     } else {
       const normalTotal = kitPrices.reduce((sum, row) => sum + row.refPrice, 0);
       const discountAmount = Number(deal.discountAmount ?? Math.max(0, normalTotal - Number(deal.bundlePrice || 0))) || 0;
@@ -1000,7 +1022,7 @@ export default function Kits({ isActive = true }) {
         name: kit?.name,
         isBundleItem: true,
         bundleId: deal.id,
-        bundleName: deal.name || (isFlexiBundleDeal(deal) ? 'FLEXI-BUNDLE' : isPerKitClearanceDeal(deal) ? 'CLEARANCE' : 'Bundle Deal'),
+        bundleName: deal.name || (isFlexiBundleDeal(deal) ? 'FLEXI-BUNDLE' : isPerKitClearanceDeal(deal) ? 'WILD SALE' : 'Bundle Deal'),
         isClearanceBundle: isClearanceDeal,
         clearanceKitIds: deal.clearanceKitIds || deal.kitIds || [],
         bundleSize,
@@ -1398,7 +1420,7 @@ export default function Kits({ isActive = true }) {
             <div className="grid grid-cols-2 sm:grid-cols-4 sm:portrait:grid-cols-3 md:grid-cols-4 md:portrait:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-3 items-start justify-items-center">
               {/* --- Section Divider: Deals --- */}
               {(filteredDeals.length > 0 || activeOfferKits.length > 0 || kitGroups.clearance.length > 0) && (
-                <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[90] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50 px-4 py-2 backdrop-blur-md dark:bg-[#0a0a0a] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderMotion} ${sectionHeaderPosition}`}>
+                <div data-sticky-section="true" data-deals-section="true" className={`col-span-full first:mt-4 my-2 sticky z-[90] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50 px-4 py-2 backdrop-blur-md dark:bg-[#0a0a0a] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderMotion} ${sectionHeaderPosition}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[13px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Deals</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />

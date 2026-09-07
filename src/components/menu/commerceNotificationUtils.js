@@ -1,4 +1,7 @@
 import { notificationValueToMillis } from './notificationUtils.js';
+import { isWildSaleDeal } from '../../utils/dealTypes.js';
+
+const WILD_SALE_AHEAD_WINDOW_MS = 8 * 60 * 1000;
 
 export const getAvailableStockEntries = (kit) => (
   Object.entries(kit?.stocks || {}).filter(([, stock]) => !stock?.order?.orderId && !stock?.isReserved)
@@ -38,6 +41,13 @@ const isBundlePurchasableStock = (stock, source) => (
   && stockMatchesDealSource(stock, source)
   && (!stock.isReserved || stock.reservationType === 'admin')
 );
+
+const formatWildSaleCountdown = (milliseconds) => {
+  const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
+};
 
 export const isActiveHunt = (hunt, now = Date.now()) => {
   const status = String(hunt?.status || 'pending').toLowerCase();
@@ -156,6 +166,48 @@ export const buildCommerceNotifications = ({
       kitId: matchingKitId,
       dealId: deal.id,
       lastUpdated: deal.lastUpdated || validUntil
+    });
+  });
+
+  // Wild Sale notifications are phase-based. The same notification updates
+  // from an eight-minute warning to a live-sale message, then disappears once
+  // the per-kit schedule ends because it is no longer returned here.
+  deals.forEach((deal) => {
+    if (!isWildSaleDeal(deal) || deal.isActive === false) return;
+
+    const eligibleKitIds = deal.clearanceKitIds?.length
+      ? deal.clearanceKitIds
+      : (deal.kitIds || []);
+
+    eligibleKitIds.forEach((kitId) => {
+      const schedule = deal.clearanceKitSchedules?.[String(kitId)] || deal.clearanceKitSchedules?.[kitId];
+      const validFrom = parseLocalDealDate(schedule?.validFrom);
+      const validUntil = parseLocalDealDate(schedule?.validUntil, true);
+      if (!validFrom || !validUntil || now >= validUntil.getTime()) return;
+
+      const isLive = now >= validFrom.getTime();
+      const isAboutToStart = !isLive && validFrom.getTime() - now <= WILD_SALE_AHEAD_WINDOW_MS;
+      if (!isLive && !isAboutToStart) return;
+
+      const kit = kitMap.get(kitId);
+      const phase = isLive ? 'live' : 'ahead';
+      const remaining = isLive
+        ? validUntil.getTime() - now
+        : validFrom.getTime() - now;
+      notifications.push({
+        id: `wild-sale:${deal.id}:${kitId}`,
+        notificationKind: 'wild_sale',
+        notificationVersion: `wild-sale:${deal.id}:${kitId}:${phase}:${validFrom.getTime()}:${validUntil.getTime()}`,
+        notificationLabel: isLive ? 'Wild Sale live' : 'Wild Sale ahead',
+        title: isLive ? 'WILD SALE IS LIVE!' : 'WILD SALE AHEAD!',
+        message: isLive
+          ? `${kit?.name || 'A Wild Sale item'} is live now and ends in ${formatWildSaleCountdown(remaining)}.`
+          : `${kit?.name || 'A Wild Sale item'} starts in ${formatWildSaleCountdown(remaining)}.`,
+        summary: kit?.name || 'Wild Sale',
+        kitId,
+        dealId: deal.id,
+        lastUpdated: isLive ? validFrom : validFrom
+      });
     });
   });
 

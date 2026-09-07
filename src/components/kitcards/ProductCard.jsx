@@ -12,6 +12,7 @@ import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
 import {
   getBundleDealPricing,
   getClearanceBundlePricing,
+  getFlexiBundlePreviewPricing,
   getClearancePrice,
   getClearanceRequiredOtherStock,
   getFlexiOfferedDiscount,
@@ -21,7 +22,7 @@ import { formatOfferCountdown, isOfferCheckoutActive } from '../../utils/offerUt
 import { getStockStandaloneSellPrice } from '../../utils/standalonePricing';
 import { getDealDiscountAmount, getDealGrabLabel, getDealSaveUpToLabel } from '../../utils/dealSavings';
 import { getStockEta } from '../../utils/stockDates';
-import { isFlexiBundleDeal, isPerKitClearanceDeal, isClearanceKitActive, getActiveClearanceKitIds, getClearanceDisplayLabel } from '../../utils/dealTypes';
+import { isFlexiBundleDeal, isPerKitClearanceDeal, isWildSaleDeal, isClearanceKitActive, getActiveClearanceKitIds, getClearanceDisplayLabel } from '../../utils/dealTypes';
 import UniversalImage from '../common/UniversalImage';
 
 // Resolves an image ID to its URL from the images array.
@@ -301,11 +302,9 @@ function getClearanceDealPricing(deal, allKits = []) {
       costPrice: Number(sourceStock?.costPrice || kit?.costPrice || 0)
     };
   });
-  return getClearanceBundlePricing(
-    rows,
-    activeClearanceKitIds,
-    deal.clearanceDiscounts || {}
-  );
+  return isFlexiBundleDeal(deal)
+    ? getFlexiBundlePreviewPricing(rows, activeClearanceKitIds, deal.clearanceDiscounts || {})
+    : getClearanceBundlePricing(rows, activeClearanceKitIds, deal.clearanceDiscounts || {});
 }
 
 function getBundleKitPrice(deal, dealKit, allKits = []) {
@@ -388,6 +387,19 @@ function getDealCountdownLabel(validUntil) {
   if (diffMs <= 86400000) return 'LAST DAY';
   const diffDays = Math.ceil(diffMs / 86400000);
   return `${diffDays} ${diffDays === 1 ? 'DAY' : 'DAYS'} LEFT`;
+}
+
+function getWildSaleCountdownLabel(deal, kitId, now = Date.now()) {
+  const schedule = deal?.clearanceKitSchedules?.[String(kitId)] || deal?.clearanceKitSchedules?.[kitId];
+  const endDate = parseDealDate(schedule?.validUntil);
+  if (!endDate) return 'NO END DATE';
+  const distance = endDate.getTime() - now;
+  if (distance <= 0) return 'EXPIRED';
+  const totalSeconds = Math.ceil(distance / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${hours > 0 ? `${hours}H ` : ''}${String(minutes).padStart(2, '0')}M ${String(seconds).padStart(2, '0')}S LEFT`;
 }
 
 const GRADIENT_COLORS = {
@@ -879,6 +891,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   }, [isSelectedCollectionGroup, selectedAvailabilityGroup?.tag, selectedStock, shelf, kitId]);
 
   const isClearanceDeal = bundleDealDetails.some(detail => detail.isClearance);
+  const isWildSale = bundleDealDetails.some(detail => isWildSaleDeal(detail.deal));
   const isIncludedInBundleDeal = bundleOnlyDeals.some(deal => !isFlexiBundleDeal(deal) && !isPerKitClearanceDeal(deal));
   const clearanceDisplayLabel = getClearanceDisplayLabel(
     selectedBundleDealDetails?.deal || bundleDealDetails.find(detail => detail.isClearance)?.deal
@@ -1592,7 +1605,9 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     gridStatusBadges.push({
       label: clearanceDisplayLabel,
       isActiveDeal: true,
-      className: 'bg-emerald-500 text-white border-emerald-400 shadow-lg'
+      className: isWildSale
+        ? 'bg-amber-400 text-black border-amber-300 shadow-lg'
+        : 'bg-emerald-500 text-white border-emerald-400 shadow-lg'
     });
   } else if (isIncludedInBundleDeal) {
     gridStatusBadges.push({
@@ -1949,7 +1964,9 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                       {!cardIsPreOrder && (
                                         <p className={`${selectedBundleDealDetails?.deal ? 'text-[15px] md:text-[15px] text-neutral-900 dark:text-white' : 'text-[13px] md:text-[22px]'} font-black italic tracking-tighter leading-tight ${selectedBundleDealDetails?.deal ? '' : 'line-through'}`}>
                                           {selectedBundleDealDetails?.deal
-                                            ? (selectedBundleDealDetails.isClearance ? `ON ${getClearanceDisplayLabel(selectedBundleDealDetails.deal)} DEAL` : 'ON BUNDLE DEAL')
+                                            ? (selectedBundleDealDetails.isClearance
+                                              ? `${isWildSaleDeal(selectedBundleDealDetails.deal) ? 'WILD SALE' : `ON ${getClearanceDisplayLabel(selectedBundleDealDetails.deal)} DEAL`}${isWildSaleDeal(selectedBundleDealDetails.deal) ? ` · ${getWildSaleCountdownLabel(selectedBundleDealDetails.deal, kitId, now)}` : ''}`
+                                              : 'ON BUNDLE DEAL')
                                             : `₱${modalReferencePrice.toLocaleString()}`}
                                         </p>
                                       )}
@@ -2001,7 +2018,9 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                       {!cardIsPreOrder && (
                                         <p className={`${selectedBundleDealDetails?.deal ? 'text-[15px] text-neutral-900 dark:text-white' : 'text-[18px]'} font-black italic tracking-tighter leading-none ${selectedBundleDealDetails?.deal ? '' : 'line-through'}`}>
                                           {selectedBundleDealDetails?.deal
-                                            ? (selectedBundleDealDetails.isClearance ? `ON ${getClearanceDisplayLabel(selectedBundleDealDetails.deal)} DEAL` : 'ON BUNDLE DEAL')
+                                            ? (selectedBundleDealDetails.isClearance
+                                              ? `${isWildSaleDeal(selectedBundleDealDetails.deal) ? 'WILD SALE' : `ON ${getClearanceDisplayLabel(selectedBundleDealDetails.deal)} DEAL`}${isWildSaleDeal(selectedBundleDealDetails.deal) ? ` · ${getWildSaleCountdownLabel(selectedBundleDealDetails.deal, kitId, now)}` : ''}`
+                                              : 'ON BUNDLE DEAL')
                                             : `₱${modalReferencePrice.toLocaleString()}`}
                                         </p>
                                       )}
@@ -2078,6 +2097,10 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                               const bundleGroup = bundleDealGroups.find(group => group.deal?.id === deal.id);
                               const isClearanceDeal = isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal);
                               const isIndependentClearanceDeal = isPerKitClearanceDeal(deal);
+                              const isWildSale = isWildSaleDeal(deal);
+                              const wildSaleCountdown = isWildSale
+                                ? getWildSaleCountdownLabel(deal, kitId, now)
+                                : '';
                               const clearancePricing = isClearanceDeal
                                 ? getClearanceDealPricing(deal, allKits)
                                 : null;
@@ -2134,11 +2157,13 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                   </div>
                                   <div className="shrink-0 pt-0.5 text-right">
                                     <p className={`text-[12px] font-black uppercase ${isDarkMode ? 'text-white' : 'text-neutral-900'} ${!isClearanceDeal && getDealCountdownLabel(deal.validUntil) === 'LAST DAY' ? 'text-red-500' : ''}`}>
-                                      {isIndependentClearanceDeal
-                                        ? 'INDIVIDUAL SALE'
+                                      {isWildSale
+                                        ? wildSaleCountdown
+                                        : isIndependentClearanceDeal
+                                          ? 'INDIVIDUAL SALE'
                                         : isClearanceDeal
                                           ? `+${requiredOtherKits} OTHER STOCK REQUIRED`
-                                        : getDealCountdownLabel(deal.validUntil)}
+                                          : getDealCountdownLabel(deal.validUntil)}
                                     </p>
                                   </div>
                                 </div>

@@ -1,5 +1,9 @@
 export const FLEXI_BUNDLE_DEAL_TYPE = 'flexi_bundle';
-export const CLEARANCE_DEAL_TYPE = 'clearance';
+export const WILD_SALE_DEAL_TYPE = 'wild_sale';
+// Keep this export for existing callers. New records use WILD_SALE_DEAL_TYPE;
+// old records with type "clearance" remain readable through isWildSaleDeal.
+export const CLEARANCE_DEAL_TYPE = WILD_SALE_DEAL_TYPE;
+export const LEGACY_CLEARANCE_DEAL_TYPE = 'clearance';
 
 const hasPerKitSchedules = (deal = {}) => (
   deal?.clearanceKitSchedules
@@ -13,11 +17,18 @@ const hasPerKitSchedules = (deal = {}) => (
 // the next save.
 export const isFlexiBundleDeal = (deal = {}) => (
   deal?.type === FLEXI_BUNDLE_DEAL_TYPE
-  || (deal?.type === CLEARANCE_DEAL_TYPE && !hasPerKitSchedules(deal))
+  || (deal?.type === LEGACY_CLEARANCE_DEAL_TYPE && !hasPerKitSchedules(deal))
 );
 
+export const isWildSaleDeal = (deal = {}) => (
+  deal?.type === WILD_SALE_DEAL_TYPE
+  || (deal?.type === LEGACY_CLEARANCE_DEAL_TYPE && hasPerKitSchedules(deal))
+);
+
+// Compatibility alias while the rest of the pricing/display code is migrated
+// away from the old Clearance terminology.
 export const isPerKitClearanceDeal = (deal = {}) => (
-  deal?.type === CLEARANCE_DEAL_TYPE && hasPerKitSchedules(deal)
+  isWildSaleDeal(deal)
 );
 
 export const isClearanceLikeDeal = (deal = {}) => (
@@ -25,8 +36,14 @@ export const isClearanceLikeDeal = (deal = {}) => (
 );
 
 export const getClearanceDisplayLabel = (deal = {}) => (
-  isFlexiBundleDeal(deal) ? 'FLEXI-BUNDLE' : 'CLEARANCE'
+  isFlexiBundleDeal(deal) ? 'FLEXI-BUNDLE' : isWildSaleDeal(deal) ? 'WILD SALE' : 'CLEARANCE'
 );
+
+export const getClearanceKitSchedule = (deal = {}, kitId) => {
+  const schedules = deal?.clearanceKitSchedules;
+  if (!schedules || typeof schedules !== 'object') return null;
+  return schedules[String(kitId)] || schedules[kitId] || null;
+};
 
 const parseDealDate = (value, endOfDay = false) => {
   if (!value) return null;
@@ -46,16 +63,10 @@ const parseDealDate = (value, endOfDay = false) => {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
-const getScheduleForKit = (deal, kitId) => {
-  const schedules = deal?.clearanceKitSchedules;
-  if (!schedules || typeof schedules !== 'object') return null;
-  return schedules[String(kitId)] || schedules[kitId] || null;
-};
-
 export const isClearanceKitActive = (deal = {}, kitId, now = Date.now()) => {
   if (!isPerKitClearanceDeal(deal)) return deal?.isActive !== false;
 
-  const schedule = getScheduleForKit(deal, kitId);
+  const schedule = getClearanceKitSchedule(deal, kitId);
   if (!schedule || schedule.isActive === false) return false;
 
   const validFrom = parseDealDate(schedule.validFrom);

@@ -590,6 +590,10 @@ useEffect(() => {
       navigate('/orders', { state: { openOrderId: notification.id } });
       return;
     }
+    if (notification.notificationKind === 'wild_sale') {
+      navigate('/kits', { state: { focusDealsSection: true, focusWildSaleDealId: notification.dealId } });
+      return;
+    }
     if (notification.notificationKind && notification.kitId) {
       navigate(`/kits/${encodeURIComponent(notification.kitId)}`);
       return;

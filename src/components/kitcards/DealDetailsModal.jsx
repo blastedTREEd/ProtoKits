@@ -1,7 +1,7 @@
 import React, { useMemo, useEffect, useRef } from 'react';
 import { X, Gift, Zap, ArrowRight, Settings, Package } from 'lucide-react';
 import { useStore } from '../../store/useStore';
-import { getBundleDealPricing, getClearanceBundlePricing, getHighestCostStock } from '../../utils/bundlePricing';
+import { getBundleDealPricing, getClearanceBundlePricing, getFlexiBundlePreviewPricing, getHighestCostStock } from '../../utils/bundlePricing';
 import { isFlexiBundleDeal, isPerKitClearanceDeal, getActiveClearanceKitIds, getClearanceDisplayLabel } from '../../utils/dealTypes';
 
 function resolveImage(idOrUrl, imagesArray) {
@@ -85,7 +85,10 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onAd
           costPrice: Number(sourceStock?.costPrice || 0)
         };
       });
-      const clearance = getClearanceBundlePricing(pricingRows, getActiveClearanceKitIds(deal, deal.clearanceKitIds || deal.kitIds || []), deal.clearanceDiscounts || {});
+      const eligibleKitIds = getActiveClearanceKitIds(deal, deal.clearanceKitIds || deal.kitIds || []);
+      const clearance = isFlexiBundleDeal(deal)
+        ? getFlexiBundlePreviewPricing(pricingRows, eligibleKitIds, deal.clearanceDiscounts || {})
+        : getClearanceBundlePricing(pricingRows, eligibleKitIds, deal.clearanceDiscounts || {});
       const adjustedPricing = clearance.rows.map((row) => ({
         ...row,
         distributedPrice: row.finalPrice,

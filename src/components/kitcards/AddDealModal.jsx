@@ -2,8 +2,25 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { X, Plus, Trash2, Gift, Lock, Ban, Search, ChevronRight, ChevronLeft, Loader2, Edit3, Calendar, Clock3, RefreshCw, CheckSquare, Square, Image as ImageIcon } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
-import { getClearanceBundlePricing, getClearanceCostCeiling, getClearanceRequiredOtherStock, getBundleDealPricing, getBundleDiscountCapacity, getHighestCostStock } from '../../utils/bundlePricing';
+import { getClearanceBundlePricing, getFlexiBundlePreviewPricing, getDiscountFloor, getClearanceRequiredOtherStock, getBundleDealPricing, getBundleDiscountCapacity, getHighestCostStock } from '../../utils/bundlePricing';
 import { FLEXI_BUNDLE_DEAL_TYPE, CLEARANCE_DEAL_TYPE, isFlexiBundleDeal, isPerKitClearanceDeal } from '../../utils/dealTypes';
+
+function format12HourTime(date) {
+  const hours = date.getHours();
+  const hour12 = hours % 12 || 12;
+  const meridiem = hours >= 12 ? 'PM' : 'AM';
+  return `${String(hour12).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')} ${meridiem}`;
+}
+
+function parse12HourTime(value) {
+  const match = String(value || '').trim().match(/^(\d{1,2}):([0-5]\d)\s*(AM|PM)$/i);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 1 || hour > 12) return null;
+  const isPm = match[3].toUpperCase() === 'PM';
+  return { hours: (hour % 12) + (isPm ? 12 : 0), minutes: minute };
+}
 
 /* ─── Image resolver ─── */
 function resolveImage(idOrUrl, imagesArray) {
@@ -146,6 +163,8 @@ function formatLocalDateTimeValue(date) {
 }
 
 const DEFAULT_BUNDLE_VALIDITY_DAYS = 3;
+const WILD_SALE_DEFAULT_DURATION_MINUTES = 1;
+const WILD_SALE_MAX_DURATION_MINUTES = 60;
 const DEFAULT_REACTIVATION_DELAY = 1;
 const DAY_IN_MILLISECONDS = 24 * 60 * 60 * 1000;
 const NAMED_BUNDLE_TYPES = new Set(['bundle', 'bundle_only', 'bundle_discount']);
@@ -216,15 +235,44 @@ function getReactivationSettings(deal) {
 
 function getDefaultClearanceSchedule() {
   const validFrom = new Date();
-  const validUntil = new Date(validFrom.getTime() + DEFAULT_BUNDLE_VALIDITY_DAYS * DAY_IN_MILLISECONDS);
+  const validUntil = new Date(validFrom.getTime() + WILD_SALE_DEFAULT_DURATION_MINUTES * 60 * 1000);
   return {
     validFrom: formatLocalDateTimeValue(validFrom),
     validUntil: formatLocalDateTimeValue(validUntil),
-    validityDays: DEFAULT_BUNDLE_VALIDITY_DAYS,
+    validityDays: 1,
+    validityMinutes: WILD_SALE_DEFAULT_DURATION_MINUTES,
     reactivationDelayValue: DEFAULT_REACTIVATION_DELAY,
     reactivationDelayUnit: 'hours',
     reactivationDelayHours: DEFAULT_REACTIVATION_DELAY,
     isActive: true
+  };
+}
+
+function getScheduleDurationMinutes(schedule) {
+  const configuredMinutes = Number(schedule?.validityMinutes);
+  if (Number.isFinite(configuredMinutes) && configuredMinutes > 0) return configuredMinutes;
+  const start = parseLocalDateTime(schedule?.validFrom);
+  const end = parseLocalDateTime(schedule?.validUntil);
+  if (start && end && end > start) return Math.max(1, Math.round((end.getTime() - start.getTime()) / (60 * 1000)));
+  return WILD_SALE_DEFAULT_DURATION_MINUTES;
+}
+
+function normalizeWildSaleSchedule(schedule = {}) {
+  const merged = { ...getDefaultClearanceSchedule(), ...schedule };
+  const configuredValue = Number(merged.reactivationDelayValue);
+  const legacyHours = Number(merged.reactivationDelayHours);
+  const hasConfiguredValue = Number.isFinite(configuredValue);
+  const safeValue = hasConfiguredValue
+    ? configuredValue
+    : Number.isFinite(legacyHours) ? legacyHours : DEFAULT_REACTIVATION_DELAY;
+  const reactivationHours = hasConfiguredValue && merged.reactivationDelayUnit === 'days'
+    ? safeValue * 24
+    : safeValue;
+  return {
+    ...merged,
+    reactivationDelayValue: Math.max(DEFAULT_REACTIVATION_DELAY, reactivationHours),
+    reactivationDelayUnit: 'hours',
+    reactivationDelayHours: Math.max(DEFAULT_REACTIVATION_DELAY, reactivationHours)
   };
 }
 
@@ -258,10 +306,12 @@ function DealDatePicker({
   const initialDate = useMemo(() => selectedDate || new Date(), [selectedDate]);
   const [draftDate, setDraftDate] = useState(initialDate);
   const [viewDate, setViewDate] = useState(initialDate);
+  const [timeInput, setTimeInput] = useState(() => format12HourTime(initialDate));
 
   useEffect(() => {
     setDraftDate(initialDate);
     setViewDate(initialDate);
+    setTimeInput(format12HourTime(initialDate));
   }, [initialDate]);
 
   useEffect(() => {
@@ -274,6 +324,16 @@ function DealDatePicker({
   }, [isOpen]);
 
   useEffect(() => {
+    if (!isOpen) return undefined;
+    const frameId = window.requestAnimationFrame(() => {
+      pickerRef.current
+        ?.querySelector('[data-date-time-picker-panel="true"]')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [isOpen]);
+
+  useEffect(() => {
     if (disabled) setIsOpen(false);
   }, [disabled]);
 
@@ -283,10 +343,14 @@ function DealDatePicker({
     onChange(formatLocalDateTimeValue(date));
   };
 
-  const updateDraftTime = (type, nextValue) => {
+  const commitTimeInput = () => {
+    const parsed = parse12HourTime(timeInput);
+    if (!parsed) {
+      setTimeInput(format12HourTime(draftDate));
+      return;
+    }
     const nextDate = new Date(draftDate);
-    if (type === 'hours') nextDate.setHours(Number(nextValue));
-    if (type === 'minutes') nextDate.setMinutes(Number(nextValue));
+    nextDate.setHours(parsed.hours, parsed.minutes, 0, 0);
     setDraftDate(nextDate);
     applyDraft(nextDate);
   };
@@ -296,6 +360,7 @@ function DealDatePicker({
     const nextDate = new Date(dayDate);
     nextDate.setHours(draftDate.getHours(), draftDate.getMinutes(), 0, 0);
     setDraftDate(nextDate);
+    setTimeInput(format12HourTime(nextDate));
     applyDraft(nextDate);
   };
 
@@ -307,7 +372,7 @@ function DealDatePicker({
     : 'bg-white border-black/10 text-neutral-900';
 
   const pickerPanel = (
-    <div className={`absolute top-full mt-2 z-[120] w-[280px] ${align === 'right' ? 'right-0' : 'left-0'} rounded-[1.5rem] border p-4 shadow-2xl ${popoverClass}`}>
+    <div data-date-time-picker-panel="true" className={`absolute top-full mt-2 z-[120] w-[280px] ${align === 'right' ? 'right-0' : 'left-0'} rounded-[1.5rem] border p-4 shadow-2xl ${popoverClass}`}>
       <div className="mb-4 flex items-center justify-between">
         <button type="button" onClick={() => setViewDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
           className="rounded-xl border border-white/10 p-2 transition-all hover:bg-white/5"><ChevronLeft size={14} /></button>
@@ -335,15 +400,28 @@ function DealDatePicker({
         })}
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-3">
-        <select value={String(draftDate.getHours()).padStart(2, '0')} onChange={(e) => updateDraftTime('hours', e.target.value)}
-          className={`rounded-xl border px-3 py-2 text-xs font-black outline-none ${shellClass}`}>
-          {Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0')).map(h => (<option key={h} value={h}>{h} H</option>))}
-        </select>
-        <select value={String(draftDate.getMinutes()).padStart(2, '0')} onChange={(e) => updateDraftTime('minutes', e.target.value)}
-          className={`rounded-xl border px-3 py-2 text-xs font-black outline-none ${shellClass}`}>
-          {Array.from({ length: 12 }, (_, s) => String(s * 5).padStart(2, '0')).map(m => (<option key={m} value={m}>{m} M</option>))}
-        </select>
+      <div className="mt-4">
+        <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest opacity-70">
+          Time (12-hour)
+          <input
+            type="text"
+            inputMode="text"
+            autoCapitalize="characters"
+            value={timeInput}
+            onChange={(event) => setTimeInput(event.target.value.toUpperCase().slice(0, 8))}
+            onBlur={commitTimeInput}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                commitTimeInput();
+              }
+            }}
+            placeholder="hh:mm AM"
+            maxLength={8}
+            className={`w-full rounded-xl border px-3 py-2 text-xs font-black outline-none ${shellClass}`}
+            aria-label="Time in 12-hour format"
+          />
+        </label>
       </div>
 
       <div className="mt-4 flex gap-2">
@@ -476,6 +554,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       if (mappedType === 'bundle' || mappedType === 'bundle_discount') mappedType = 'bundle_only';
       if (mappedType === 'requirement' || mappedType === 'exclusion') mappedType = 'mutually_exclusive';
       if (isFlexiBundleDeal(dealToEdit)) mappedType = FLEXI_BUNDLE_DEAL_TYPE;
+      if (isPerKitClearanceDeal(dealToEdit)) mappedType = CLEARANCE_DEAL_TYPE;
       
       setDealType(mappedType);
       setDealName(mappedType === FLEXI_BUNDLE_DEAL_TYPE || mappedType === CLEARANCE_DEAL_TYPE
@@ -537,9 +616,9 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
         ? getClearanceRequirementMap(dealToEdit, kids)
         : {});
       setClearanceKitSchedules(mappedType === CLEARANCE_DEAL_TYPE
-        ? Object.fromEntries(kids.map(id => [id, { ...getDefaultClearanceSchedule(), ...(dealToEdit.clearanceKitSchedules?.[id] || {}) }]))
+        ? Object.fromEntries(kids.map(id => [id, normalizeWildSaleSchedule(dealToEdit.clearanceKitSchedules?.[id] || {})]))
         : {});
-      setClearanceDiscounts({});
+      setClearanceDiscounts(currentClearanceDiscounts);
       setMobileTab('creator');
     } else if (isOpen) {
       setDealType('bundle_only'); 
@@ -607,10 +686,13 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
           costPrice: Number(stock.costPrice || 0)
         };
       });
-      return getClearanceBundlePricing(rows, clearanceKitIds, {
+      const discountOverrides = {
         ...clearanceOriginalOverrides,
         ...clearanceDiscounts
-      });
+      };
+      return dealType === FLEXI_BUNDLE_DEAL_TYPE
+        ? getFlexiBundlePreviewPricing(rows, clearanceKitIds, discountOverrides)
+        : getClearanceBundlePricing(rows, clearanceKitIds, discountOverrides);
     }
     const rows = selectedKitsData.map(kit => {
       const stock = getHighestAvailableOnhandStock(kit);
@@ -766,6 +848,8 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     let mappedType = deal.type || 'bundle_only';
     if (mappedType === 'bundle' || mappedType === 'bundle_discount') mappedType = 'bundle_only';
     if (mappedType === 'requirement' || mappedType === 'exclusion') mappedType = 'mutually_exclusive';
+    if (isFlexiBundleDeal(deal)) mappedType = FLEXI_BUNDLE_DEAL_TYPE;
+    if (isPerKitClearanceDeal(deal)) mappedType = CLEARANCE_DEAL_TYPE;
     
     setDealType(mappedType);
     setDealName(mappedType === 'mutually_exclusive'
@@ -825,9 +909,9 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       ? getClearanceRequirementMap(deal, kids)
       : {});
     setClearanceKitSchedules(mappedType === CLEARANCE_DEAL_TYPE
-      ? Object.fromEntries(kids.map(id => [id, { ...getDefaultClearanceSchedule(), ...(deal.clearanceKitSchedules?.[id] || {}) }]))
+      ? Object.fromEntries(kids.map(id => [id, normalizeWildSaleSchedule(deal.clearanceKitSchedules?.[id] || {})]))
       : {});
-    setClearanceDiscounts({});
+    setClearanceDiscounts(currentClearanceDiscounts);
     setSearchTerm('');
     setMobileTab('creator');
   };
@@ -971,16 +1055,17 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       const invalidSchedule = selectedKitIds.find((kitId) => {
         const schedule = clearanceKitSchedules[kitId] || getDefaultClearanceSchedule();
         const start = parseLocalDateTime(schedule.validFrom);
-        const end = parseLocalDateTime(schedule.validUntil);
         const delay = Number(schedule.reactivationDelayValue);
+        const durationMinutes = getScheduleDurationMinutes(schedule);
         return !start
-          || !end
-          || end.getTime() - start.getTime() < DEFAULT_BUNDLE_VALIDITY_DAYS * DAY_IN_MILLISECONDS
+          || !Number.isFinite(durationMinutes)
+          || durationMinutes < WILD_SALE_DEFAULT_DURATION_MINUTES
+          || durationMinutes > WILD_SALE_MAX_DURATION_MINUTES
           || !Number.isFinite(delay)
           || delay < DEFAULT_REACTIVATION_DELAY;
       });
       if (invalidSchedule) {
-        return alert(`Each clearance kit must have at least ${DEFAULT_BUNDLE_VALIDITY_DAYS} days of validity and a reactivation delay of at least 1 hour.`);
+        return alert(`Each Wild Sale kit must run for ${WILD_SALE_DEFAULT_DURATION_MINUTES}–${WILD_SALE_MAX_DURATION_MINUTES} minutes and have a reactivation delay of at least 1 hour.`);
       }
     }
     
@@ -1005,7 +1090,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       name: dealType === FLEXI_BUNDLE_DEAL_TYPE
         ? 'FLEXI-BUNDLE'
         : dealType === CLEARANCE_DEAL_TYPE
-        ? 'CLEARANCE'
+        ? 'WILD SALE'
         : dealType === 'mutually_exclusive'
           ? 'BANDAI VS BOOTLEG'
           : getBundleDealName(dealName, deals, activeEditId, dealToEdit),
@@ -1056,16 +1141,20 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       dealData.clearanceKitSchedules = Object.fromEntries(selectedKitIds.map((kitId) => {
         const schedule = clearanceKitSchedules[kitId] || getDefaultClearanceSchedule();
         const start = parseLocalDateTime(schedule.validFrom) || new Date();
-        const end = parseLocalDateTime(schedule.validUntil) || new Date(start.getTime() + DEFAULT_BUNDLE_VALIDITY_DAYS * DAY_IN_MILLISECONDS);
+        const durationMinutes = Math.max(
+          WILD_SALE_DEFAULT_DURATION_MINUTES,
+          Math.min(WILD_SALE_MAX_DURATION_MINUTES, getScheduleDurationMinutes(schedule))
+        );
+        const end = new Date(start.getTime() + durationMinutes * 60 * 1000);
         const delayValue = Math.max(DEFAULT_REACTIVATION_DELAY, Number(schedule.reactivationDelayValue) || DEFAULT_REACTIVATION_DELAY);
-        const delayUnit = schedule.reactivationDelayUnit === 'days' ? 'days' : 'hours';
         return [kitId, {
           validFrom: formatLocalDateTimeValue(start),
           validUntil: formatLocalDateTimeValue(end),
-          validityDays: Math.max(1, Math.round((end.getTime() - start.getTime()) / DAY_IN_MILLISECONDS)),
+          validityDays: Math.max(1, Math.ceil(durationMinutes / (DAY_IN_MILLISECONDS / (60 * 1000)))),
+          validityMinutes: durationMinutes,
           reactivationDelayValue: delayValue,
-          reactivationDelayUnit: delayUnit,
-          reactivationDelayHours: delayValue * (delayUnit === 'days' ? 24 : 1),
+          reactivationDelayUnit: 'hours',
+          reactivationDelayHours: delayValue,
           isActive: true
         }];
       }));
@@ -1121,7 +1210,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
           costPrice: row.costPrice
         }
       ]));
-      // FLEXI-BUNDLE remains permanent. New CLEARANCE stores timing per kit.
+      // FLEXI-BUNDLE remains permanent. WILD SALE stores timing per kit.
       dealData.validFrom = '';
       dealData.validUntil = '';
       dealData.stockSource = 'onhand';
@@ -1152,7 +1241,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
               isActive: !unfulfillableKits.includes(kitId)
             }])
           );
-          alert(`Warning: The following kits have no available stock, so their CLEARANCE entries will be saved as inactive:\n${names}`);
+          alert(`Warning: The following kits have no available stock, so their WILD SALE entries will be saved as inactive:\n${names}`);
         } else if (dealType === 'bundle_only') {
           dealData.isActive = false;
           alert(`Warning: The following kits have no available stock, so this bundle deal will be saved as INACTIVE:\n${names}`);
@@ -1297,7 +1386,9 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
         costPrice: Number(stock.costPrice || 0)
       };
     });
-    const summary = getClearanceBundlePricing(rows, nextKitIds, nextDiscounts);
+    const summary = isFlexiBundleDeal(deal)
+      ? getFlexiBundlePreviewPricing(rows, nextKitIds, nextDiscounts)
+      : getClearanceBundlePricing(rows, nextKitIds, nextDiscounts);
 
     try {
       await updateDeal(deal.id, {
@@ -1489,7 +1580,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                       <Gift size={16} /> <span className="text-[11px] font-black uppercase">Flexi-Bundle</span>
                    </button>
                    <button type="button" aria-pressed={dealType === CLEARANCE_DEAL_TYPE} onClick={handleSelectClearanceStrategy} className={`py-3 rounded-2xl border flex flex-col items-center gap-1 transition-all ${dealType === CLEARANCE_DEAL_TYPE ? 'bg-red-500 border-red-500 text-white shadow-lg' : 'bg-black/5 border-[var(--color-border)] opacity-60'}`}>
-                      <Gift size={16} /> <span className="text-[11px] font-black uppercase">Clearance</span>
+                      <Gift size={16} /> <span className="text-[11px] font-black uppercase">Wild Sale</span>
                    </button>
                    <button type="button" aria-pressed={dealType === 'mutually_exclusive'} onClick={handleSelectMutuallyExclusiveStrategy} disabled={isLoadingMutualKits} className={`py-3 rounded-2xl border flex flex-col items-center gap-1 transition-all ${dealType === 'mutually_exclusive' ? 'bg-red-600 border-red-600 text-white shadow-lg' : 'bg-black/5 border-[var(--color-border)] opacity-60'} ${isLoadingMutualKits ? 'cursor-wait opacity-70' : ''}`}>
                       {isLoadingMutualKits ? <Loader2 size={16} className="animate-spin" /> : <Ban size={16} />} <span className="text-[11px] font-black uppercase">Mutually Exclusive</span>
@@ -1594,7 +1685,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                         )}
                         {dealType === CLEARANCE_DEAL_TYPE && (
                           <p className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-4 text-[11px] font-bold leading-relaxed text-red-600">
-                            Each eligible stock can be sold individually. Prices use the cost ceiling, with optional per-kit discount overrides, and each kit follows its own expiry/reactivation schedule.
+                            Each eligible stock can be sold individually. Prices use the discount floor, with optional per-kit discount overrides, and each kit follows its own start, duration, and reactivation schedule.
                           </p>
                         )}
 
@@ -1620,7 +1711,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                   Number(stock.sellPrice || kit.sellPrice || 0)
                                     - Math.min(
                                       Number(stock.sellPrice || kit.sellPrice || 0),
-                                      getClearanceCostCeiling(Number(stock.costPrice || kit.costPrice || 0))
+                                      getDiscountFloor(Number(stock.costPrice || kit.costPrice || 0))
                                     )
                                 )
                                 : (discountRow?.discount ?? discountRow?.clearanceDiscount ?? 0)
@@ -1653,26 +1744,28 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                   <span className="block text-[12px] font-black uppercase text-blue-500/70">DISC ₱{individualBundleDiscount.toLocaleString()}</span>
                                 )}
                               </div>
-                              {dealType === FLEXI_BUNDLE_DEAL_TYPE && (
+                              {(dealType === FLEXI_BUNDLE_DEAL_TYPE || dealType === CLEARANCE_DEAL_TYPE) && (
                                 <div className="flex shrink-0 items-end gap-1.5">
-                                      <label className="flex w-10 flex-col gap-1 text-[9px] font-black uppercase tracking-wider text-amber-600">
-                                    Other stock
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      max="9"
-                                      step="1"
-                                      value={clearanceRequiredOtherStocks[kit.id] ?? '1'}
-                                      onChange={(event) => {
-                                        const value = event.target.value.replace(/\D/g, '').slice(0, 1);
-                                        setClearanceRequiredOtherStocks(prev => ({ ...prev, [kit.id]: value }));
-                                      }}
-                                      title="Number of stock units from another kit required for this kit's FLEXI-BUNDLE discount"
-                                      className="h-10 w-full appearance-none rounded-lg border border-amber-500/30 bg-amber-500/10 px-2 py-2 text-[12px] font-black text-amber-600 outline-none focus:border-amber-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                                    />
-                                  </label>
-                                  <label className="flex w-20 flex-col gap-1 text-[9px] font-black uppercase tracking-wider text-blue-500">
-                                    Discount
+                                  {dealType === FLEXI_BUNDLE_DEAL_TYPE && (
+                                    <label className="flex w-16 flex-col gap-1 text-[9px] font-black uppercase tracking-wider text-amber-600">
+                                      Other stock
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        max="9"
+                                        step="1"
+                                        value={clearanceRequiredOtherStocks[kit.id] ?? '1'}
+                                        onChange={(event) => {
+                                          const value = event.target.value.replace(/\D/g, '').slice(0, 1);
+                                          setClearanceRequiredOtherStocks(prev => ({ ...prev, [kit.id]: value }));
+                                        }}
+                                        title="Number of stock units from another kit required for this kit's FLEXI-BUNDLE discount"
+                                        className="h-10 w-full appearance-none rounded-lg border border-amber-500/30 bg-amber-500/10 px-2 py-2 text-[12px] font-black text-amber-600 outline-none focus:border-amber-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                      />
+                                    </label>
+                                  )}
+                                  <label className="flex w-24 flex-col gap-1 text-[9px] font-black uppercase tracking-wider text-blue-500">
+                                    Discount override
                                     <input
                                       type="number"
                                       min="0"
@@ -1690,51 +1783,70 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                 </div>
                               )}
                               {dealType === CLEARANCE_DEAL_TYPE && (
-                                <div className="flex min-w-[220px] flex-col gap-1.5 text-[9px] font-black uppercase tracking-wider text-red-500">
-                                  <span>Expiry / Reactivation</span>
-                                  <div className="flex gap-1.5">
+                                <div className="grid w-full grid-cols-2 gap-2 border-t border-black/5 pt-2 text-[9px] font-black uppercase tracking-wider text-red-500 dark:border-white/10 sm:grid-cols-3">
+                                  <div className="min-w-0 flex flex-col gap-1">
+                                    <span>Starts</span>
                                     <DealDatePicker
                                       value={(clearanceKitSchedules[kit.id] || {}).validFrom || ''}
-                                      onChange={(value) => setClearanceKitSchedules(prev => ({
-                                        ...prev,
-                                        [kit.id]: { ...getDefaultClearanceSchedule(), ...(prev[kit.id] || {}), validFrom: value }
-                                      }))}
+                                      onChange={(value) => setClearanceKitSchedules(prev => {
+                                        const current = { ...getDefaultClearanceSchedule(), ...(prev[kit.id] || {}) };
+                                        const start = parseLocalDateTime(value) || new Date();
+                                        const durationMinutes = getScheduleDurationMinutes(current);
+                                        return {
+                                          ...prev,
+                                          [kit.id]: {
+                                            ...current,
+                                            validFrom: value,
+                                            validUntil: formatLocalDateTimeValue(new Date(start.getTime() + durationMinutes * 60 * 1000)),
+                                            validityMinutes: durationMinutes
+                                          }
+                                        };
+                                      })}
                                       isDarkMode={isDarkMode}
-                                      placeholder="Starts"
-                                      align="right"
-                                    />
-                                    <DealDatePicker
-                                      value={(clearanceKitSchedules[kit.id] || {}).validUntil || ''}
-                                      onChange={(value) => setClearanceKitSchedules(prev => ({
-                                        ...prev,
-                                        [kit.id]: { ...getDefaultClearanceSchedule(), ...(prev[kit.id] || {}), validUntil: value }
-                                      }))}
-                                      isDarkMode={isDarkMode}
-                                      placeholder="Expires"
-                                      align="right"
+                                      placeholder="Start time"
+                                      align="left"
                                     />
                                   </div>
-                                  <div className="flex items-center gap-1.5">
-                                    <input
-                                      type="number"
-                                      min={DEFAULT_REACTIVATION_DELAY}
-                                      value={(clearanceKitSchedules[kit.id] || {}).reactivationDelayValue ?? DEFAULT_REACTIVATION_DELAY}
-                                      onChange={(event) => setClearanceKitSchedules(prev => ({
-                                        ...prev,
-                                        [kit.id]: { ...getDefaultClearanceSchedule(), ...(prev[kit.id] || {}), reactivationDelayValue: event.target.value }
-                                      }))}
-                                      className="h-8 w-16 rounded-lg border border-red-500/30 bg-red-500/10 px-2 text-[11px] font-black text-red-500 outline-none focus:border-red-500"
-                                    />
-                                    <button
-                                      type="button"
-                                      onClick={() => setClearanceKitSchedules(prev => ({
-                                        ...prev,
-                                        [kit.id]: { ...getDefaultClearanceSchedule(), ...(prev[kit.id] || {}), reactivationDelayUnit: (prev[kit.id]?.reactivationDelayUnit || 'hours') === 'hours' ? 'days' : 'hours' }
-                                      }))}
-                                      className="h-8 rounded-lg border border-red-500/30 bg-red-500/10 px-2 text-[10px] font-black text-red-500"
-                                    >
-                                      {(clearanceKitSchedules[kit.id] || {}).reactivationDelayUnit === 'days' ? 'Days' : 'Hours'}
-                                    </button>
+                                  <label className="min-w-0 flex flex-col gap-1">
+                                    <span>Duration (MIN)</span>
+                                    <div className="flex items-center gap-1">
+                                      <input
+                                        type="number"
+                                        min={WILD_SALE_DEFAULT_DURATION_MINUTES}
+                                        max={WILD_SALE_MAX_DURATION_MINUTES}
+                                        value={getScheduleDurationMinutes(clearanceKitSchedules[kit.id] || getDefaultClearanceSchedule())}
+                                        onChange={(event) => setClearanceKitSchedules(prev => {
+                                          const current = { ...getDefaultClearanceSchedule(), ...(prev[kit.id] || {}) };
+                                          const minutes = Math.max(WILD_SALE_DEFAULT_DURATION_MINUTES, Math.min(WILD_SALE_MAX_DURATION_MINUTES, Number(event.target.value) || WILD_SALE_DEFAULT_DURATION_MINUTES));
+                                          const start = parseLocalDateTime(current.validFrom) || new Date();
+                                          return {
+                                            ...prev,
+                                            [kit.id]: {
+                                              ...current,
+                                              validityMinutes: minutes,
+                                              validUntil: formatLocalDateTimeValue(new Date(start.getTime() + minutes * 60 * 1000))
+                                            }
+                                          };
+                                        })}
+                                        className="h-10 w-full min-w-0 rounded-lg border border-red-500/30 bg-red-500/10 px-2 text-[12px] font-black text-red-500 outline-none focus:border-red-500"
+                                      />
+                                      <span className="shrink-0 text-[9px]">MIN</span>
+                                    </div>
+                                  </label>
+                                  <div className="col-span-2 min-w-0 flex flex-col gap-1 sm:col-span-1">
+                                    <span>Reactivation (HOURS)</span>
+                                    <div className="flex items-center gap-1">
+                                      <input
+                                        type="number"
+                                        min={DEFAULT_REACTIVATION_DELAY}
+                                        value={(clearanceKitSchedules[kit.id] || {}).reactivationDelayValue ?? DEFAULT_REACTIVATION_DELAY}
+                                        onChange={(event) => setClearanceKitSchedules(prev => ({
+                                          ...prev,
+                                          [kit.id]: { ...getDefaultClearanceSchedule(), ...(prev[kit.id] || {}), reactivationDelayValue: event.target.value }
+                                        }))}
+                                        className="h-10 w-full min-w-0 rounded-lg border border-red-500/30 bg-red-500/10 px-2 text-[12px] font-black text-red-500 outline-none focus:border-red-500"
+                                      />
+                                    </div>
                                   </div>
                                 </div>
                               )}
@@ -1947,7 +2059,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                     const isFlexiDeal = isFlexiBundleDeal(deal);
                     const isPerKitClearance = isPerKitClearanceDeal(deal);
                     const isClearanceLike = isFlexiDeal || isPerKitClearance;
-                    const strategyLabel = isClearanceLike ? (isFlexiDeal ? 'FLEXI-BUNDLE' : 'CLEARANCE') : (deal.type === 'bundle_discount' || deal.type === 'bundle_only') ? 'Bundle Deal' :
+                    const strategyLabel = isClearanceLike ? (isFlexiDeal ? 'FLEXI-BUNDLE' : 'WILD SALE') : (deal.type === 'bundle_discount' || deal.type === 'bundle_only') ? 'Bundle Deal' :
                                           isMutualDeal ? 'Bandai vs Bootleg' : 'Legacy Bundle';
                     
                     const badgeClass = isClearanceLike ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' : (deal.type === 'bundle_discount' || deal.type === 'bundle_only') ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' :
@@ -1962,7 +2074,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                     ];
                     const includedKits = getOrderedKits(kits, orderedKitIds);
                     const listedClearancePricing = isClearanceLike
-                      ? getClearanceBundlePricing(
+                      ? (isFlexiDeal ? getFlexiBundlePreviewPricing : getClearanceBundlePricing)(
                         includedKits.map(kit => {
                           const stock = getHighestOnhandStock(kit);
                           return {

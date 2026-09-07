@@ -32,6 +32,23 @@ import {
   withStockConditionDefaults
 } from '../../utils/stockConditions';
 
+function format12HourTime(date) {
+  const hours = date.getHours();
+  const hour12 = hours % 12 || 12;
+  const meridiem = hours >= 12 ? 'PM' : 'AM';
+  return `${String(hour12).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')} ${meridiem}`;
+}
+
+function parse12HourTime(value) {
+  const match = String(value || '').trim().match(/^(\d{1,2}):([0-5]\d)\s*(AM|PM)$/i);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 1 || hour > 12) return null;
+  const isPm = match[3].toUpperCase() === 'PM';
+  return { hours: (hour % 12) + (isPm ? 12 : 0), minutes: minute };
+}
+
 const DEFAULT_MASTER = {
   name: '',
   image: '',
@@ -569,11 +586,13 @@ export function CustomDateTimePicker({
   
   const [draftDate, setDraftDate] = useState(initialDate);
   const [viewDate, setViewDate] = useState(initialDate);
+  const [timeInput, setTimeInput] = useState(() => format12HourTime(initialDate));
 
   // Update states when dependencies change, but avoiding direct setState in a side effect
   useEffect(() => {
     setDraftDate(initialDate);
     setViewDate(initialDate);
+    setTimeInput(format12HourTime(initialDate));
   }, [initialDate]);
 
   useEffect(() => {
@@ -586,23 +605,36 @@ export function CustomDateTimePicker({
   }, [isOpen]);
 
   useEffect(() => {
+    if (!isOpen) return undefined;
+    const frameId = window.requestAnimationFrame(() => {
+      pickerRef.current
+        ?.querySelector('[data-date-time-picker-panel="true"]')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [isOpen]);
+
+  useEffect(() => {
     if (disabled) setIsOpen(false);
   }, [disabled]);
 
   const monthCells = useMemo(() => getMonthMatrix(viewDate), [viewDate]);
 
   const applyDraft = (date) => {
-    if (minDate && date.getTime() < minDate.getTime()) {
-      onChange(formatLocalDateTimeValue(minDate));
-      return;
-    }
-    onChange(formatLocalDateTimeValue(date));
+    const nextDate = minDate && date.getTime() < minDate.getTime() ? minDate : date;
+    setDraftDate(nextDate);
+    setTimeInput(format12HourTime(nextDate));
+    onChange(formatLocalDateTimeValue(nextDate));
   };
 
-  const updateDraftTime = (type, nextValue) => {
+  const commitTimeInput = () => {
+    const parsed = parse12HourTime(timeInput);
+    if (!parsed) {
+      setTimeInput(format12HourTime(draftDate));
+      return;
+    }
     const nextDate = new Date(draftDate);
-    if (type === 'hours') nextDate.setHours(Number(nextValue));
-    if (type === 'minutes') nextDate.setMinutes(Number(nextValue));
+    nextDate.setHours(parsed.hours, parsed.minutes, 0, 0);
     setDraftDate(nextDate);
     applyDraft(nextDate);
   };
@@ -613,6 +645,7 @@ export function CustomDateTimePicker({
     nextDate.setHours(draftDate.getHours(), draftDate.getMinutes(), 0, 0);
     if (minDate && nextDate.getTime() < minDate.getTime()) return;
     setDraftDate(nextDate);
+    setTimeInput(format12HourTime(nextDate));
     applyDraft(nextDate);
   };
 
@@ -631,6 +664,7 @@ export function CustomDateTimePicker({
     : 'bg-white border-black/10 text-neutral-900';
   const pickerPanel = (
     <div
+      data-date-time-picker-panel="true"
       className={`${
         renderInline
           ? `absolute top-full mt-2 z-[120] w-[320px] ${align === 'right' ? 'right-0' : 'left-0'}`
@@ -694,30 +728,28 @@ export function CustomDateTimePicker({
         })}
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-3">
-        <select
-          value={String(draftDate.getHours()).padStart(2, '0')}
-          onChange={(event) => updateDraftTime('hours', event.target.value)}
-          className={`rounded-xl border px-3 py-2 text-xs font-black outline-none ${shellClass}`}
-        >
-          {Array.from({ length: 24 }, (_, hour) => String(hour).padStart(2, '0')).map((hour) => (
-            <option key={hour} value={hour}>
-              {hour} H
-            </option>
-          ))}
-        </select>
-
-        <select
-          value={String(draftDate.getMinutes()).padStart(2, '0')}
-          onChange={(event) => updateDraftTime('minutes', event.target.value)}
-          className={`rounded-xl border px-3 py-2 text-xs font-black outline-none ${shellClass}`}
-        >
-          {Array.from({ length: 12 }, (_, step) => String(step * 5).padStart(2, '0')).map((minute) => (
-            <option key={minute} value={minute}>
-              {minute} M
-            </option>
-          ))}
-        </select>
+      <div className="mt-4">
+        <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest opacity-70">
+          Time (12-hour)
+          <input
+            type="text"
+            inputMode="text"
+            autoCapitalize="characters"
+            value={timeInput}
+            onChange={(event) => setTimeInput(event.target.value.toUpperCase().slice(0, 8))}
+            onBlur={commitTimeInput}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                commitTimeInput();
+              }
+            }}
+            placeholder="hh:mm AM"
+            maxLength={8}
+            className={`w-full rounded-xl border px-3 py-2 text-xs font-black outline-none ${shellClass}`}
+            aria-label="Time in 12-hour format"
+          />
+        </label>
       </div>
 
       <div className="mt-4 flex gap-2">
@@ -1550,6 +1582,12 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
     const trimmedName = masterForm.name.trim();
     const trimmedImage = masterForm.image.trim();
     const includesStock = stockMode !== 'idle' && hasStockDetails(stockForm, trimmedImage);
+    const wasEditingExistingStock = Boolean(
+      selectedExistingKit
+      && stockMode === 'edit'
+      && editingStockKey
+      && selectedExistingKit.stocks?.[editingStockKey]
+    );
 
     if (!trimmedName) {
       alert('Kit name is required.');
@@ -1683,8 +1721,11 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
         if (returnToMasterListOnSave) {
           setReturnToMasterListOnSave(false);
           setIsMasterListView(true);
-        } else {
+        } else if (!wasEditingExistingStock) {
           onClose();
+        } else {
+          // Keep the modal open after editing an existing stock so additional
+          // stock details can be reviewed or adjusted without reopening it.
         }
       }
     }

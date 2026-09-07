@@ -84,6 +84,15 @@ const getStatusDetails = (notification) => {
     };
   }
 
+  if (notification?.notificationKind === 'wild_sale') {
+    return {
+      message: notification.message,
+      icon: Gift,
+      accent: 'bg-amber-500',
+      iconClass: 'bg-amber-500/10 text-amber-700'
+    };
+  }
+
   if (notification?.notificationKind === 'offer_missed') {
     return {
       message: notification.message || 'Your accepted offer checkout window has expired.',
@@ -176,7 +185,7 @@ const formatActivityTime = (value) => {
 
 const getOrderSummary = (order) => {
   if (['back_in_stock', 'low_stock', 'offer_missed'].includes(order?.notificationKind)) return '';
-  if (['offer_released', 'bundle_ending'].includes(order?.notificationKind)) return '';
+  if (['offer_released', 'bundle_ending', 'wild_sale'].includes(order?.notificationKind)) return '';
   if (String(order?.status || '').trim().toLowerCase() === 'cancelled') return '';
   if (order?.notificationKind) return order.summary || '';
 

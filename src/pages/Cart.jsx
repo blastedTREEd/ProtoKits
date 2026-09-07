@@ -19,7 +19,7 @@ import {
 } from '../utils/bundlePricing';
 import { getUnavailableDateSet, getUnavailableWeekdaySet, toDateKey } from '../utils/availabilitySchedule';
 import { getStockEta } from '../utils/stockDates';
-import { isFlexiBundleDeal, isPerKitClearanceDeal, getActiveClearanceKitIds } from '../utils/dealTypes';
+import { isFlexiBundleDeal, isPerKitClearanceDeal, isWildSaleDeal, getActiveClearanceKitIds } from '../utils/dealTypes';
 import UniversalImage from '../components/common/UniversalImage';
 import {
   getPrinterFeeders,
@@ -812,6 +812,31 @@ export default function Cart() {
           { length: Math.max(1, Number(item.quantity) || 1) },
           () => String(item.id)
         ));
+        if (isWildSaleDeal(deal)) {
+          const selectedKitIdSet = new Set(selectedKitIds);
+          const wildSaleKitIdSet = new Set(eligibleSourceIds.map(String));
+          const hasHigherPriorityDeal = (deals || []).some((priorityDeal) => {
+            const isFlexiPriority = isFlexiBundleDeal(priorityDeal);
+            const isBundlePriority = ['bundle', 'bundle_only', 'bundle_discount'].includes(priorityDeal?.type);
+            if ((!isFlexiPriority && !isBundlePriority) || priorityDeal.isActive === false) return false;
+            if (isBundlePriority && !isBundleDealActive(priorityDeal, offerNow)) return false;
+            const priorityKitIds = priorityDeal.clearanceKitIds?.length
+              ? priorityDeal.clearanceKitIds
+              : (priorityDeal.kitIds || []);
+            const normalizedPriorityKitIds = [...new Set(priorityKitIds.map(String).filter(Boolean))];
+            const overlapsWildSale = normalizedPriorityKitIds.some((kitId) => wildSaleKitIdSet.has(kitId));
+            if (!overlapsWildSale) return false;
+
+            // FLEXI-BUNDLE owns a shared eligible kit whenever both deals
+            // contain it. A normal bundle only takes over after every kit in
+            // that bundle is selected; an incomplete bundle leaves the kit
+            // available for WILD SALE pricing.
+            if (isFlexiPriority) return true;
+            return normalizedPriorityKitIds.length > 1
+              && normalizedPriorityKitIds.every((kitId) => selectedKitIdSet.has(kitId));
+          });
+          if (hasHigherPriorityDeal) return [];
+        }
         const selectedClearanceKitIds = availableClearanceKitIds.filter((kitId) => (
           isClearanceRequirementMet(deal, selectedKitIds, kitId)
         ));
@@ -888,7 +913,7 @@ export default function Cart() {
         isFlexi: Boolean(best.isFlexi)
       }
       : { prices: new Map(), sourceBasketId: '', discountTotal: 0, isFlexi: false };
-  }, [activeBasket, activeSelection, deals, kits]);
+  }, [activeBasket, activeSelection, deals, kits, offerNow]);
 
   // Tag selected on-hand rows as soon as a selected row is a member of an
   // active clearance deal. Pricing still waits for the normal distribution
@@ -913,7 +938,8 @@ export default function Cart() {
       if ((!isFlexiBundleDeal(deal) && !isPerKitClearanceDeal(deal)) || deal.isActive === false) return;
       const eligibleKitIds = getActiveClearanceKitIds(
         deal,
-        deal.clearanceKitIds?.length ? deal.clearanceKitIds : deal.kitIds || []
+        deal.clearanceKitIds?.length ? deal.clearanceKitIds : deal.kitIds || [],
+        offerNow
       )
         .map(String)
         .filter(Boolean);
@@ -935,7 +961,7 @@ export default function Cart() {
       });
     });
     return tagKitIds;
-  }, [activeBasket, activeSelection, deals, kits]);
+  }, [activeBasket, activeSelection, deals, kits, offerNow]);
 
   const selectedFlexiState = useMemo(() => {
     const selectedBasketIds = new Set(activeSelection.map(String));
@@ -1031,14 +1057,19 @@ export default function Cart() {
       if ((!isFlexiBundleDeal(deal) && !isPerKitClearanceDeal(deal)) || deal.isActive === false) return;
       const eligibleKitIds = getActiveClearanceKitIds(
         deal,
-        deal.clearanceKitIds?.length ? deal.clearanceKitIds : deal.kitIds || []
+        deal.clearanceKitIds?.length ? deal.clearanceKitIds : deal.kitIds || [],
+        offerNow
       );
       // Label every eligible FLEXI kit. Only the pricing path should limit
       // discounts to configured source kits.
       const labelKitIds = eligibleKitIds;
       labelKitIds.forEach((kitId) => {
         const normalizedKitId = String(kitId);
-        const nextLabel = isFlexiBundleDeal(deal) ? 'FLEXI-BUNDLE' : 'CLEARANCE';
+        const nextLabel = isFlexiBundleDeal(deal)
+          ? 'FLEXI-BUNDLE'
+          : isWildSaleDeal(deal)
+            ? 'WILD SALE'
+            : 'CLEARANCE';
         // FLEXI must remain visible when the same kit also belongs to a
         // separate CLEARANCE deal loaded later in the list.
         if (nextLabel === 'FLEXI-BUNDLE' || !labels.has(normalizedKitId)) {
@@ -1047,7 +1078,7 @@ export default function Cart() {
       });
     });
     return labels;
-  }, [deals]);
+  }, [deals, offerNow]);
 
   const selectedBundlePriceByBasketId = useMemo(() => {
     const prices = new Map();
@@ -1893,9 +1924,17 @@ export default function Cart() {
                     || isFlexiPendingTag
                     || selectedClearanceLabelByKitId.get(itemKitId) === 'FLEXI-BUNDLE';
                 const isFlexiBundleTag = isFlexiTagEligible && !isCompleteBundleDeal;
+                const isWildSaleTag = item.type !== 'project'
+                  && selectedClearanceLabelByKitId.get(itemKitId) === 'WILD SALE'
+                  && !isCompleteBundleDeal;
+                const isWildSaleApplied = isWildSaleTag
+                  && isSelected
+                  && hasSelectedClearancePrice
+                  && !selectedClearancePricing.isFlexi;
                 const isBundleDealOffer = item.type !== 'project'
                   && isBundleDealItem
-                  && !isFlexiBundleTag;
+                  && !isFlexiBundleTag
+                  && !isWildSaleTag;
                 const isClearanceKit = item.type !== 'project'
                   && isSelected
                   && isOnHandStock(stock || item)
@@ -1957,6 +1996,10 @@ export default function Cart() {
                       item.type !== 'project' && offerHoursLeft > 0 ? (
                       <span className="absolute left-0 bottom-5 z-10 bg-emerald-600 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm">
                         {offerHoursLeft} HRS LEFT
+                      </span>
+                    ) : isWildSaleTag ? (
+                      <span className={`absolute left-0 bottom-5 z-10 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider shadow-sm ${isWildSaleApplied ? 'bg-amber-400 text-black' : 'bg-red-600 text-white'}`}>
+                        WILD SALE
                       </span>
                     ) : isFlexiBundleTag && isClearanceKit ? (
                       <span className={`absolute left-0 bottom-5 z-10 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm ${isClearanceDealApplied ? 'bg-emerald-600' : 'bg-red-600'}`}>

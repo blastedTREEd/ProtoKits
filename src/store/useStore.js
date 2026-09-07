@@ -294,6 +294,11 @@ const getBundleDealReactivationDelayMs = (deal) => {
 };
 
 const getBundleDealValidityMs = (deal) => {
+  const configuredMinutes = Number(deal?.validityMinutes);
+  if (Number.isFinite(configuredMinutes) && configuredMinutes > 0) {
+    return Math.max(1, configuredMinutes) * 60 * 1000;
+  }
+
   const configuredDays = Number(deal?.validityDays);
   if (Number.isFinite(configuredDays) && configuredDays > 0) {
     return Math.max(BUNDLE_DEAL_MIN_VALIDITY_DAYS, configuredDays) * 24 * 60 * 60 * 1000;
