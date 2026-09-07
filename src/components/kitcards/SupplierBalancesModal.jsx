@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { X, Wallet, AlertCircle, Package, ExternalLink, ArrowRight, Loader2, Info, CheckSquare, CheckCircle2 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useStore } from '../../store/useStore';
@@ -17,6 +17,11 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
   const { kits: storeKits, deleteStock } = useStore();
   const [allKits, setAllKits] = useState([]);
   const [isSyncing, setIsSyncing] = useState(false);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   // Fetch ALL kits for a complete balance report
   useEffect(() => {
@@ -50,12 +55,12 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
     window.history.pushState({ modalKey: stateKey }, '');
 
     const handlePopState = () => {
-      onClose();
+      onCloseRef.current?.();
     };
 
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
-        onClose();
+        onCloseRef.current?.();
       }
     };
 
@@ -69,7 +74,7 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
         window.history.back();
       }
     };
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   const balanceItems = useMemo(() => {
     const sourceKits = allKits.length > 0 ? allKits : storeKits;

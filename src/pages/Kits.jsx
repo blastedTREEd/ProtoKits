@@ -292,6 +292,9 @@ export default function Kits({ isActive = true }) {
   const [isSupplierBalancesModalOpen, setIsSupplierBalancesModalOpen] = useState(false);
   const [isSalesDashboardModalOpen, setIsSalesDashboardModalOpen] = useState(false);
   const [isKitDataQualityModalOpen, setIsKitDataQualityModalOpen] = useState(false);
+  const handleCloseSupplierBalances = useCallback(() => setIsSupplierBalancesModalOpen(false), []);
+  const handleCloseSalesDashboard = useCallback(() => setIsSalesDashboardModalOpen(false), []);
+  const handleCloseKitDataQuality = useCallback(() => setIsKitDataQualityModalOpen(false), []);
   const [isAdminToolsOpen, setIsAdminToolsOpen] = useState(false);
   const [isSyncingPublicCatalog, setIsSyncingPublicCatalog] = useState(false);
   const [publicCatalogSyncStatus, setPublicCatalogSyncStatus] = useState('');
@@ -1902,11 +1905,11 @@ export default function Kits({ isActive = true }) {
               setIsAddDealModalOpen(true);
             }}
           />
-          <SupplierBalancesModal isOpen={isSupplierBalancesModalOpen} onClose={() => setIsSupplierBalancesModalOpen(false)} />
-          <SalesDashboardModal isOpen={isSalesDashboardModalOpen} onClose={() => setIsSalesDashboardModalOpen(false)} />
+          <SupplierBalancesModal isOpen={isSupplierBalancesModalOpen} onClose={handleCloseSupplierBalances} />
+          <SalesDashboardModal isOpen={isSalesDashboardModalOpen} onClose={handleCloseSalesDashboard} />
           <KitDataQualityModal
             isOpen={isKitDataQualityModalOpen}
-            onClose={() => setIsKitDataQualityModalOpen(false)}
+            onClose={handleCloseKitDataQuality}
             kits={storeKits}
             onSave={handleSaveNewKit}
           />
