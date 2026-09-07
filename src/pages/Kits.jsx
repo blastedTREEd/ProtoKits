@@ -72,7 +72,6 @@ function getTimestampMs(value) {
 
 function getDealLatestTime(deal) {
   return Math.max(
-    getTimestampMs(deal?.lastUpdated),
     getTimestampMs(deal?.createdAt),
     getTimestampMs(deal?.validFrom)
   );
@@ -109,10 +108,22 @@ function getDealAvailableBundleCount(deal, kits) {
 
 function parseDealDate(value) {
   if (!value) return null;
+  if (typeof value.toDate === 'function') return value.toDate();
+  if (typeof value === 'object' && Number.isFinite(value.seconds)) {
+    return new Date(value.seconds * 1000);
+  }
+  if (typeof value === 'number') return new Date(value);
+  if (typeof value !== 'string') {
+    const d = new Date(value);
+    return Number.isFinite(d.getTime()) ? d : null;
+  }
   const [datePart, timePart = '00:00'] = value.split('T');
-  const [year, month, day] = datePart.split('-').map(Number);
-  const [hours, minutes] = timePart.split(':').map(Number);
-  if (![year, month, day, hours, minutes].every(Number.isFinite)) return null;
+  const [year, month, day] = (datePart || '').split('-').map(Number);
+  const [hours, minutes] = (timePart || '').split(':').map(Number);
+  if (![year, month, day, hours, minutes].every(Number.isFinite)) {
+    const d = new Date(value);
+    return Number.isFinite(d.getTime()) ? d : null;
+  }
   return new Date(year, month - 1, day, hours, minutes, 0, 0);
 }
 
@@ -124,6 +135,20 @@ function getDealCountdownLabel(validUntil) {
   if (diffMs <= 86400000) return 'LAST DAY';
   const diffDays = Math.ceil(diffMs / 86400000);
   return `${diffDays} ${diffDays === 1 ? 'DAY' : 'DAYS'} LEFT`;
+}
+
+function getDealRemainingDays(deal) {
+  const endDate = parseDealDate(deal?.validUntil);
+  if (!endDate) return -Infinity;
+  const diffMs = endDate.getTime() - Date.now();
+  if (diffMs <= 0) return 0;
+  return Math.ceil(diffMs / 86400000);
+}
+
+function getDealRemainingTimeMs(deal) {
+  const endDate = parseDealDate(deal?.validUntil);
+  if (!endDate) return -Infinity;
+  return endDate.getTime();
 }
 
 function getPreviewTileClass(total, index) {
@@ -970,13 +995,37 @@ export default function Kits({ isActive = true }) {
           comparison = getDealAvailableBundleCount(b, storeKits) - getDealAvailableBundleCount(a, storeKits);
           break;
         case 'latest':
-        default:
-          comparison = getDealLatestTime(b) - getDealLatestTime(a);
+        default: {
+          // Chronological: sort bundle deal card by biggest time/days left first
+          const daysA = getDealRemainingDays(a);
+          const daysB = getDealRemainingDays(b);
+          if (daysA !== daysB) {
+            comparison = daysB - daysA;
+          } else {
+            // Tie-breaker for same days left: compare exact expiration timestamp
+            const timeA = getDealRemainingTimeMs(a);
+            const timeB = getDealRemainingTimeMs(b);
+            if (timeA !== timeB) {
+              comparison = timeB - timeA;
+            } else {
+              // Secondary tie-breaker: validFrom (start time) descending
+              const startA = parseDealDate(a.validFrom)?.getTime() || 0;
+              const startB = parseDealDate(b.validFrom)?.getTime() || 0;
+              if (startA !== startB) {
+                comparison = startB - startA;
+              } else {
+                comparison = getDealLatestTime(b) - getDealLatestTime(a);
+              }
+            }
+          }
           break;
+        }
       }
 
       // Keep ordering deterministic when two deals share the same sort value.
-      return comparison || String(a.name || '').localeCompare(String(b.name || ''));
+      return comparison
+        || String(a.name || '').localeCompare(String(b.name || ''))
+        || String(a.id || '').localeCompare(String(b.id || ''));
     });
   }, [deals, storeKits, searchTerm, sortType, isAdmin, isAdminView]);
 
