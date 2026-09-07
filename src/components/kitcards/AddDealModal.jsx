@@ -5,21 +5,22 @@ import { useTheme } from '../../context/ThemeContext';
 import { getClearanceBundlePricing, getFlexiBundlePreviewPricing, getDiscountFloor, getClearanceRequiredOtherStock, getBundleDealPricing, getBundleDiscountCapacity, getHighestCostStock } from '../../utils/bundlePricing';
 import { FLEXI_BUNDLE_DEAL_TYPE, CLEARANCE_DEAL_TYPE, isFlexiBundleDeal, isPerKitClearanceDeal } from '../../utils/dealTypes';
 
-function format12HourTime(date) {
+function get12HourTimeParts(date) {
   const hours = date.getHours();
   const hour12 = hours % 12 || 12;
   const meridiem = hours >= 12 ? 'PM' : 'AM';
-  return `${String(hour12).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')} ${meridiem}`;
+  return {
+    hour: String(hour12).padStart(2, '0'),
+    minute: String(date.getMinutes()).padStart(2, '0'),
+    meridiem
+  };
 }
 
-function parse12HourTime(value) {
-  const match = String(value || '').trim().match(/^(\d{1,2}):([0-5]\d)\s*(AM|PM)$/i);
-  if (!match) return null;
-  const hour = Number(match[1]);
-  const minute = Number(match[2]);
-  if (hour < 1 || hour > 12) return null;
-  const isPm = match[3].toUpperCase() === 'PM';
-  return { hours: (hour % 12) + (isPm ? 12 : 0), minutes: minute };
+function parse12HourTimeParts(hourInput, minuteInput, meridiem) {
+  const hour = Number(hourInput);
+  const minute = Number(minuteInput);
+  if (!Number.isInteger(hour) || hour < 1 || hour > 12 || !Number.isInteger(minute) || minute < 0 || minute > 59) return null;
+  return { hours: (hour % 12) + (meridiem === 'PM' ? 12 : 0), minutes: minute };
 }
 
 /* ─── Image resolver ─── */
@@ -306,12 +307,18 @@ function DealDatePicker({
   const initialDate = useMemo(() => selectedDate || new Date(), [selectedDate]);
   const [draftDate, setDraftDate] = useState(initialDate);
   const [viewDate, setViewDate] = useState(initialDate);
-  const [timeInput, setTimeInput] = useState(() => format12HourTime(initialDate));
+  const initialTimeParts = useMemo(() => get12HourTimeParts(initialDate), [initialDate]);
+  const [hourInput, setHourInput] = useState(() => initialTimeParts.hour);
+  const [minuteInput, setMinuteInput] = useState(() => initialTimeParts.minute);
+  const [meridiem, setMeridiem] = useState(() => initialTimeParts.meridiem);
 
   useEffect(() => {
     setDraftDate(initialDate);
     setViewDate(initialDate);
-    setTimeInput(format12HourTime(initialDate));
+    const nextTimeParts = get12HourTimeParts(initialDate);
+    setHourInput(nextTimeParts.hour);
+    setMinuteInput(nextTimeParts.minute);
+    setMeridiem(nextTimeParts.meridiem);
   }, [initialDate]);
 
   useEffect(() => {
@@ -343,16 +350,30 @@ function DealDatePicker({
     onChange(formatLocalDateTimeValue(date));
   };
 
-  const commitTimeInput = () => {
-    const parsed = parse12HourTime(timeInput);
+  const syncTimeInputs = (date) => {
+    const nextTimeParts = get12HourTimeParts(date);
+    setHourInput(nextTimeParts.hour);
+    setMinuteInput(nextTimeParts.minute);
+    setMeridiem(nextTimeParts.meridiem);
+  };
+
+  const commitTimeInputs = (nextMeridiem = meridiem) => {
+    const parsed = parse12HourTimeParts(hourInput, minuteInput, nextMeridiem);
     if (!parsed) {
-      setTimeInput(format12HourTime(draftDate));
+      syncTimeInputs(draftDate);
       return;
     }
     const nextDate = new Date(draftDate);
     nextDate.setHours(parsed.hours, parsed.minutes, 0, 0);
     setDraftDate(nextDate);
+    syncTimeInputs(nextDate);
     applyDraft(nextDate);
+  };
+
+  const toggleMeridiem = () => {
+    const nextMeridiem = meridiem === 'AM' ? 'PM' : 'AM';
+    setMeridiem(nextMeridiem);
+    commitTimeInputs(nextMeridiem);
   };
 
   const selectDay = (dayDate) => {
@@ -360,7 +381,7 @@ function DealDatePicker({
     const nextDate = new Date(dayDate);
     nextDate.setHours(draftDate.getHours(), draftDate.getMinutes(), 0, 0);
     setDraftDate(nextDate);
-    setTimeInput(format12HourTime(nextDate));
+    syncTimeInputs(nextDate);
     applyDraft(nextDate);
   };
 
@@ -401,27 +422,54 @@ function DealDatePicker({
       </div>
 
       <div className="mt-4">
-        <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest opacity-70">
+        <div className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest opacity-70">
           Time (12-hour)
-          <input
-            type="text"
-            inputMode="text"
-            autoCapitalize="characters"
-            value={timeInput}
-            onChange={(event) => setTimeInput(event.target.value.toUpperCase().slice(0, 8))}
-            onBlur={commitTimeInput}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault();
-                commitTimeInput();
-              }
-            }}
-            placeholder="hh:mm AM"
-            maxLength={8}
-            className={`w-full rounded-xl border px-3 py-2 text-xs font-black outline-none ${shellClass}`}
-            aria-label="Time in 12-hour format"
-          />
-        </label>
+          <div className={`flex items-center gap-1 rounded-xl border px-2 py-1 ${shellClass}`}>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={hourInput}
+              onChange={(event) => setHourInput(event.target.value.replace(/\D/g, '').slice(0, 2))}
+              onBlur={() => commitTimeInputs()}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  commitTimeInputs();
+                }
+              }}
+              placeholder="HH"
+              maxLength={2}
+              className="w-10 bg-transparent px-1 py-1 text-center text-xs font-black outline-none"
+              aria-label="Hour in 12-hour format"
+            />
+            <span>:</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={minuteInput}
+              onChange={(event) => setMinuteInput(event.target.value.replace(/\D/g, '').slice(0, 2))}
+              onBlur={() => commitTimeInputs()}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  commitTimeInputs();
+                }
+              }}
+              placeholder="MM"
+              maxLength={2}
+              className="w-10 bg-transparent px-1 py-1 text-center text-xs font-black outline-none"
+              aria-label="Minute in 12-hour format"
+            />
+            <button
+              type="button"
+              onClick={toggleMeridiem}
+              className="ml-auto rounded-lg bg-blue-600 px-2 py-1 text-[10px] font-black text-white transition-colors hover:bg-blue-700"
+              aria-label={`Switch to ${meridiem === 'AM' ? 'PM' : 'AM'}`}
+            >
+              {meridiem}
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="mt-4 flex gap-2">
@@ -439,7 +487,7 @@ function DealDatePicker({
     <div ref={pickerRef} className="relative">
       <button type="button" onClick={() => !disabled && setIsOpen(prev => !prev)} disabled={disabled}
         className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left text-xs font-bold transition-all ${disabled ? 'cursor-not-allowed opacity-50' : ''} ${shellClass}`}>
-        <span className={value ? '' : 'opacity-45'}>
+        <span className={`min-w-0 whitespace-nowrap ${value ? '' : 'opacity-45'}`}>
           {value ? parseLocalDateTime(value)?.toLocaleString('en-GB', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : placeholder}
         </span>
         <span className="flex items-center gap-2">
@@ -480,6 +528,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
   const [clearanceOriginalOverrides, setClearanceOriginalOverrides] = useState({});
   const [clearanceCurrentDiscounts, setClearanceCurrentDiscounts] = useState({});
   const [clearanceRequiredOtherStocks, setClearanceRequiredOtherStocks] = useState({});
+  const [clearanceDurationInputs, setClearanceDurationInputs] = useState({});
   const [clearanceKitSchedules, setClearanceKitSchedules] = useState({});
   const [mutuallyExclusivePairRows, setMutuallyExclusivePairRows] = useState([]);
   const [isLoadingMutualKits, setIsLoadingMutualKits] = useState(false);
@@ -618,6 +667,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       setClearanceKitSchedules(mappedType === CLEARANCE_DEAL_TYPE
         ? Object.fromEntries(kids.map(id => [id, normalizeWildSaleSchedule(dealToEdit.clearanceKitSchedules?.[id] || {})]))
         : {});
+      setClearanceDurationInputs({});
       setClearanceDiscounts(currentClearanceDiscounts);
       setMobileTab('creator');
     } else if (isOpen) {
@@ -639,6 +689,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       setClearanceCurrentDiscounts({});
       setClearanceDiscounts({});
       setClearanceRequiredOtherStocks({});
+      setClearanceDurationInputs({});
       setClearanceKitSchedules({});
       setSelectedDealIds([]);
       setMobileTab('creator');
@@ -785,6 +836,11 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
           else if (!next.includes(id)) delete nextRequirements[id];
           return nextRequirements;
         });
+        setClearanceDurationInputs(prevDurations => {
+          const nextDurations = { ...prevDurations };
+          if (!next.includes(id)) delete nextDurations[id];
+          return nextDurations;
+        });
         return next;
       });
       return;
@@ -911,6 +967,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     setClearanceKitSchedules(mappedType === CLEARANCE_DEAL_TYPE
       ? Object.fromEntries(kids.map(id => [id, normalizeWildSaleSchedule(deal.clearanceKitSchedules?.[id] || {})]))
       : {});
+    setClearanceDurationInputs({});
     setClearanceDiscounts(currentClearanceDiscounts);
     setSearchTerm('');
     setMobileTab('creator');
@@ -931,6 +988,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     setClearanceCurrentDiscounts({});
     setClearanceDiscounts({});
     setClearanceRequiredOtherStocks({});
+    setClearanceDurationInputs({});
     setClearanceKitSchedules({});
     setActiveEditId(null);
     setValidFrom('');
@@ -1047,7 +1105,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
         return alert(`Bundle validity must be at least ${DEFAULT_BUNDLE_VALIDITY_DAYS} days.`);
       }
       if (!Number.isFinite(delayValue) || delayValue < DEFAULT_REACTIVATION_DELAY) {
-        return alert(`Automatic reactivation must be at least ${DEFAULT_REACTIVATION_DELAY} hour.`);
+        return alert(`Automatic restart must be at least ${DEFAULT_REACTIVATION_DELAY} hour.`);
       }
     }
 
@@ -1065,7 +1123,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
           || delay < DEFAULT_REACTIVATION_DELAY;
       });
       if (invalidSchedule) {
-        return alert(`Each Wild Deal kit must run for ${WILD_SALE_DEFAULT_DURATION_MINUTES}–${WILD_SALE_MAX_DURATION_MINUTES} minutes and have a reactivation delay of at least 1 hour.`);
+          return alert(`Each Wild Deal kit must run for ${WILD_SALE_DEFAULT_DURATION_MINUTES}–${WILD_SALE_MAX_DURATION_MINUTES} minutes and have a restart delay of at least 1 hour.`);
       }
     }
     
@@ -1141,10 +1199,13 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       dealData.clearanceKitSchedules = Object.fromEntries(selectedKitIds.map((kitId) => {
         const schedule = clearanceKitSchedules[kitId] || getDefaultClearanceSchedule();
         const start = parseLocalDateTime(schedule.validFrom) || new Date();
-        const durationMinutes = Math.max(
-          WILD_SALE_DEFAULT_DURATION_MINUTES,
-          Math.min(WILD_SALE_MAX_DURATION_MINUTES, getScheduleDurationMinutes(schedule))
-        );
+        const durationInput = clearanceDurationInputs[kitId];
+        const durationMinutes = durationInput !== undefined && durationInput !== ''
+          ? Math.max(WILD_SALE_DEFAULT_DURATION_MINUTES, Math.min(WILD_SALE_MAX_DURATION_MINUTES, Number(durationInput) || WILD_SALE_DEFAULT_DURATION_MINUTES))
+          : Math.max(
+            WILD_SALE_DEFAULT_DURATION_MINUTES,
+            Math.min(WILD_SALE_MAX_DURATION_MINUTES, getScheduleDurationMinutes(schedule))
+          );
         const end = new Date(start.getTime() + durationMinutes * 60 * 1000);
         const delayValue = Math.max(DEFAULT_REACTIVATION_DELAY, Number(schedule.reactivationDelayValue) || DEFAULT_REACTIVATION_DELAY);
         return [kitId, {
@@ -1531,7 +1592,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       setSelectedDealIds([]);
       alert(`${selectedDealIds.length} deal(s) reactivated.`);
     } catch (e) {
-      alert("Reactivation error: " + e.message);
+      alert("Restart error: " + e.message);
     } finally {
       setIsBulkProcessing(false);
     }
@@ -1704,7 +1765,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                         )}
                         {dealType === CLEARANCE_DEAL_TYPE && (
                           <p className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-4 text-[11px] font-bold leading-relaxed text-red-600">
-                            Each eligible stock can be sold individually. Prices use the discount floor, with optional per-kit discount overrides, and each kit follows its own start, duration, and reactivation schedule.
+                            Each eligible stock can be sold individually. Prices use the discount floor, with optional per-kit discount overrides, and each kit follows its own start, duration, and restart schedule.
                           </p>
                         )}
 
@@ -1743,7 +1804,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                               onDragOver={(event) => event.preventDefault()}
                               onDrop={() => movePreviewKit(draggedPreviewKitId, kit.id)}
                               onDragEnd={() => setDraggedPreviewKitId(null)}
-                              className={`flex cursor-grab flex-col gap-3 rounded-xl border px-3 py-3 transition-all active:cursor-grabbing ${index < 4 ? 'border-blue-500/30 bg-blue-500/10' : 'border-[var(--color-border)] bg-black/5'}`}
+                              className={`relative flex cursor-grab flex-col gap-3 rounded-xl border px-3 py-3 transition-all active:cursor-grabbing ${index < 4 ? 'border-blue-500/30 bg-blue-500/10' : 'border-[var(--color-border)] bg-black/5'}`}
                             >
                               <div className="flex w-full min-w-0 items-center gap-3">
                                 <img src={resolveImage(kit.image, kit.images)} className="h-10 w-10 shrink-0 rounded-lg object-cover bg-white" alt="" />
@@ -1754,8 +1815,21 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                   </span>
                                 </div>
                               </div>
-                              <div className="flex w-full flex-wrap items-end gap-3 border-t border-black/5 pt-2 dark:border-white/10">
-                              <div className="flex min-w-[9rem] flex-col gap-0.5 text-left leading-tight">
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  toggleKitSelection(kit.id);
+                                }}
+                                onDragStart={(event) => event.preventDefault()}
+                                className="absolute right-3 top-3 rounded-full p-1 text-neutral-400 transition-all hover:bg-red-500/10 hover:text-red-500"
+                                title="Remove inclusion"
+                                aria-label={`Remove ${kit.name} from inclusions`}
+                              >
+                                <X size={13} />
+                              </button>
+                              <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-end gap-2 border-t border-black/5 pt-2 dark:border-white/10">
+                              <div className="flex min-w-0 flex-col gap-0.5 text-left leading-tight">
                                 <span className="block text-[12px] font-black uppercase text-emerald-500">SELL ₱{Number(stock.sellPrice || kit.sellPrice || 0).toLocaleString()}</span>
                                 <span className="block text-[12px] font-black uppercase opacity-35">COST ₱{Number(stock.costPrice || 0).toLocaleString()}</span>
                                 <span className={`block text-[12px] font-black uppercase ${isClearanceStrategy ? 'text-amber-500' : 'text-blue-500'}`}>DEAL ₱{Number(discountRow?.finalPrice || stock.sellPrice || kit.sellPrice || 0).toLocaleString()}</span>
@@ -1799,18 +1873,39 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                       className="h-10 w-full appearance-none rounded-lg border border-[var(--color-border)] bg-black/5 px-2 py-2 text-[12px] font-black italic uppercase tracking-wider text-blue-500 outline-none placeholder:text-[10px] placeholder:font-black placeholder:italic placeholder:text-blue-500 focus:border-blue-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                                     />
                                   </label>
+                                  {dealType === CLEARANCE_DEAL_TYPE && (
+                                    <label className="flex w-20 flex-col gap-1 text-[9px] font-black uppercase tracking-wider text-red-500">
+                                      Duration (MIN)
+                                      <input
+                                        type="number"
+                                        min={WILD_SALE_DEFAULT_DURATION_MINUTES}
+                                        max={WILD_SALE_MAX_DURATION_MINUTES}
+                                        value={clearanceDurationInputs[kit.id] ?? ''}
+                                        placeholder={String(getScheduleDurationMinutes(clearanceKitSchedules[kit.id] || getDefaultClearanceSchedule()))}
+                                        onChange={(event) => setClearanceDurationInputs(prev => ({
+                                          ...prev,
+                                          [kit.id]: event.target.value.replace(/\D/g, '').slice(0, 2)
+                                        }))}
+                                        title="Duration of this Wild Deal in minutes"
+                                        className="h-10 w-full appearance-none rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-2 text-[12px] font-black text-red-500 outline-none placeholder:text-red-500/60 focus:border-red-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                      />
+                                    </label>
+                                  )}
                                 </div>
                               )}
                               {dealType === CLEARANCE_DEAL_TYPE && (
-                                <div className="grid w-full grid-cols-2 gap-2 border-t border-black/5 pt-2 text-[9px] font-black uppercase tracking-wider text-red-500 dark:border-white/10 sm:grid-cols-3">
-                                  <div className="min-w-0 flex flex-col gap-1">
+                                <div className="grid w-full grid-cols-[minmax(12rem,1.35fr)_minmax(7rem,0.65fr)] items-end gap-2 border-t border-black/5 pt-2 text-[9px] font-black uppercase tracking-wider text-red-500 dark:border-white/10">
+                                  <div className="order-1 min-w-0 flex flex-col gap-1">
                                     <span>Starts</span>
                                     <DealDatePicker
                                       value={(clearanceKitSchedules[kit.id] || {}).validFrom || ''}
                                       onChange={(value) => setClearanceKitSchedules(prev => {
                                         const current = { ...getDefaultClearanceSchedule(), ...(prev[kit.id] || {}) };
                                         const start = parseLocalDateTime(value) || new Date();
-                                        const durationMinutes = getScheduleDurationMinutes(current);
+                                        const durationInput = clearanceDurationInputs[kit.id];
+                                        const durationMinutes = durationInput !== undefined && durationInput !== ''
+                                          ? Math.max(WILD_SALE_DEFAULT_DURATION_MINUTES, Math.min(WILD_SALE_MAX_DURATION_MINUTES, Number(durationInput) || WILD_SALE_DEFAULT_DURATION_MINUTES))
+                                          : getScheduleDurationMinutes(current);
                                         return {
                                           ...prev,
                                           [kit.id]: {
@@ -1826,34 +1921,8 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                       align="left"
                                     />
                                   </div>
-                                  <label className="min-w-0 flex flex-col gap-1">
-                                    <span>Duration (MIN)</span>
-                                    <div className="flex items-center gap-1">
-                                      <input
-                                        type="number"
-                                        min={WILD_SALE_DEFAULT_DURATION_MINUTES}
-                                        max={WILD_SALE_MAX_DURATION_MINUTES}
-                                        value={getScheduleDurationMinutes(clearanceKitSchedules[kit.id] || getDefaultClearanceSchedule())}
-                                        onChange={(event) => setClearanceKitSchedules(prev => {
-                                          const current = { ...getDefaultClearanceSchedule(), ...(prev[kit.id] || {}) };
-                                          const minutes = Math.max(WILD_SALE_DEFAULT_DURATION_MINUTES, Math.min(WILD_SALE_MAX_DURATION_MINUTES, Number(event.target.value) || WILD_SALE_DEFAULT_DURATION_MINUTES));
-                                          const start = parseLocalDateTime(current.validFrom) || new Date();
-                                          return {
-                                            ...prev,
-                                            [kit.id]: {
-                                              ...current,
-                                              validityMinutes: minutes,
-                                              validUntil: formatLocalDateTimeValue(new Date(start.getTime() + minutes * 60 * 1000))
-                                            }
-                                          };
-                                        })}
-                                        className="h-10 w-full min-w-0 rounded-lg border border-red-500/30 bg-red-500/10 px-2 text-[12px] font-black text-red-500 outline-none focus:border-red-500"
-                                      />
-                                      <span className="shrink-0 text-[9px]">MIN</span>
-                                    </div>
-                                  </label>
-                                  <div className="col-span-2 min-w-0 flex flex-col gap-1 sm:col-span-1">
-                                    <span>Reactivation (HOURS)</span>
+                                  <div className="order-2 min-w-0 flex flex-col gap-1">
+                                    <span>Restart (HOURS)</span>
                                     <div className="flex items-center gap-1">
                                       <input
                                         type="number"
@@ -1869,18 +1938,6 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                   </div>
                                 </div>
                               )}
-                              <button
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  toggleKitSelection(kit.id);
-                                }}
-                                onDragStart={(event) => event.preventDefault()}
-                                className="mb-2 shrink-0 self-end rounded-full p-1 opacity-50 transition-all hover:bg-red-500/10 hover:text-red-500 hover:opacity-100"
-                                title="Remove inclusion"
-                              >
-                                <X size={12} />
-                              </button>
                               </div>
                             </div>
                             );
@@ -1896,7 +1953,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                       <input type="number" min="0" value={discountAmount} onChange={e => setDiscountAmount(e.target.value === '' ? '' : String(Math.max(0, Number(e.target.value) || 0)))} placeholder="0.00" className="w-full appearance-none bg-blue-600/10 border border-blue-600/30 rounded-2xl px-4 py-4 text-sm font-black text-blue-500 outline-none focus:border-blue-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" />
                     </div>
 
-                    {/* Bundle timing is controlled by the publish date, duration, and reactivation delay. */}
+                    {/* Bundle timing is controlled by the publish date, duration, and restart delay. */}
                     {dealType === 'bundle_only' && <div className="order-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1 text-left">
                         <label className="text-[12px] font-black uppercase tracking-widest opacity-40 ml-2 flex items-center gap-1.5">
@@ -1926,7 +1983,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                       </div>
                       <div className="space-y-1 text-left sm:col-span-2">
                         <label className="text-[12px] font-black uppercase tracking-widest opacity-40 ml-2 flex items-center gap-1.5">
-                          <RefreshCw size={10} /> Auto Reactivate After
+                          <RefreshCw size={10} /> Auto Restart After
                         </label>
                         <div className="flex gap-2">
                           <input
@@ -1941,7 +1998,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                           <button
                             type="button"
                             onClick={() => setReactivationDelayUnit(currentUnit => currentUnit === 'hours' ? 'days' : 'hours')}
-                            aria-label={`Switch reactivation unit to ${reactivationDelayUnit === 'hours' ? 'days' : 'hours'}`}
+                            aria-label={`Switch restart unit to ${reactivationDelayUnit === 'hours' ? 'days' : 'hours'}`}
                             aria-pressed={reactivationDelayUnit === 'days'}
                             className="h-[42px] w-32 rounded-2xl border border-[var(--color-border)] bg-black/5 px-3 py-2 text-left text-sm font-black outline-none transition-colors hover:border-blue-500 focus:border-blue-500"
                           >
@@ -2239,7 +2296,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                               )}
                             </div>
                              <h4 className="text-sm font-black uppercase italic tracking-tight mt-2 text-[var(--color-text-main)] leading-none">{isClearanceLike ? `${strategyLabel} Eligible Kits` : isMutualDeal ? 'BANDAI VS BOOTLEG' : deal.name}</h4>
-                            {/* Validity dates and automatic reactivation settings */}
+                            {/* Validity dates and automatic restart settings */}
                             {!isMutualDeal && !isClearanceLike && (deal.validFrom || deal.validUntil) && (
                               <>
                                 <p className="text-[12px] font-bold opacity-40 mt-1.5 flex items-center gap-1">
@@ -2249,7 +2306,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                   {deal.validUntil ? parseLocalDateTime(deal.validUntil)?.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
                                 </p>
                                 <p className="text-[10px] font-black uppercase tracking-wider opacity-35 mt-1">
-                                  {getBundleValidityDays(deal)} day validity · auto-reactivates after {reactivationSettings.value} {reactivationSettings.unit}
+                                  {getBundleValidityDays(deal)} day validity · auto-restarts after {reactivationSettings.value} {reactivationSettings.unit}
                                 </p>
                               </>
                             )}

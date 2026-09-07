@@ -32,21 +32,22 @@ import {
   withStockConditionDefaults
 } from '../../utils/stockConditions';
 
-function format12HourTime(date) {
+function get12HourTimeParts(date) {
   const hours = date.getHours();
   const hour12 = hours % 12 || 12;
   const meridiem = hours >= 12 ? 'PM' : 'AM';
-  return `${String(hour12).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')} ${meridiem}`;
+  return {
+    hour: String(hour12).padStart(2, '0'),
+    minute: String(date.getMinutes()).padStart(2, '0'),
+    meridiem
+  };
 }
 
-function parse12HourTime(value) {
-  const match = String(value || '').trim().match(/^(\d{1,2}):([0-5]\d)\s*(AM|PM)$/i);
-  if (!match) return null;
-  const hour = Number(match[1]);
-  const minute = Number(match[2]);
-  if (hour < 1 || hour > 12) return null;
-  const isPm = match[3].toUpperCase() === 'PM';
-  return { hours: (hour % 12) + (isPm ? 12 : 0), minutes: minute };
+function parse12HourTimeParts(hourInput, minuteInput, meridiem) {
+  const hour = Number(hourInput);
+  const minute = Number(minuteInput);
+  if (!Number.isInteger(hour) || hour < 1 || hour > 12 || !Number.isInteger(minute) || minute < 0 || minute > 59) return null;
+  return { hours: (hour % 12) + (meridiem === 'PM' ? 12 : 0), minutes: minute };
 }
 
 const DEFAULT_MASTER = {
@@ -586,13 +587,19 @@ export function CustomDateTimePicker({
   
   const [draftDate, setDraftDate] = useState(initialDate);
   const [viewDate, setViewDate] = useState(initialDate);
-  const [timeInput, setTimeInput] = useState(() => format12HourTime(initialDate));
+  const initialTimeParts = useMemo(() => get12HourTimeParts(initialDate), [initialDate]);
+  const [hourInput, setHourInput] = useState(() => initialTimeParts.hour);
+  const [minuteInput, setMinuteInput] = useState(() => initialTimeParts.minute);
+  const [meridiem, setMeridiem] = useState(() => initialTimeParts.meridiem);
 
   // Update states when dependencies change, but avoiding direct setState in a side effect
   useEffect(() => {
     setDraftDate(initialDate);
     setViewDate(initialDate);
-    setTimeInput(format12HourTime(initialDate));
+    const nextTimeParts = get12HourTimeParts(initialDate);
+    setHourInput(nextTimeParts.hour);
+    setMinuteInput(nextTimeParts.minute);
+    setMeridiem(nextTimeParts.meridiem);
   }, [initialDate]);
 
   useEffect(() => {
@@ -623,14 +630,24 @@ export function CustomDateTimePicker({
   const applyDraft = (date) => {
     const nextDate = minDate && date.getTime() < minDate.getTime() ? minDate : date;
     setDraftDate(nextDate);
-    setTimeInput(format12HourTime(nextDate));
+    const nextTimeParts = get12HourTimeParts(nextDate);
+    setHourInput(nextTimeParts.hour);
+    setMinuteInput(nextTimeParts.minute);
+    setMeridiem(nextTimeParts.meridiem);
     onChange(formatLocalDateTimeValue(nextDate));
   };
 
-  const commitTimeInput = () => {
-    const parsed = parse12HourTime(timeInput);
+  const syncTimeInputs = (date) => {
+    const nextTimeParts = get12HourTimeParts(date);
+    setHourInput(nextTimeParts.hour);
+    setMinuteInput(nextTimeParts.minute);
+    setMeridiem(nextTimeParts.meridiem);
+  };
+
+  const commitTimeInputs = (nextMeridiem = meridiem) => {
+    const parsed = parse12HourTimeParts(hourInput, minuteInput, nextMeridiem);
     if (!parsed) {
-      setTimeInput(format12HourTime(draftDate));
+      syncTimeInputs(draftDate);
       return;
     }
     const nextDate = new Date(draftDate);
@@ -639,13 +656,19 @@ export function CustomDateTimePicker({
     applyDraft(nextDate);
   };
 
+  const toggleMeridiem = () => {
+    const nextMeridiem = meridiem === 'AM' ? 'PM' : 'AM';
+    setMeridiem(nextMeridiem);
+    commitTimeInputs(nextMeridiem);
+  };
+
   const selectDay = (dayDate) => {
     if (!dayDate) return;
     const nextDate = new Date(dayDate);
     nextDate.setHours(draftDate.getHours(), draftDate.getMinutes(), 0, 0);
     if (minDate && nextDate.getTime() < minDate.getTime()) return;
     setDraftDate(nextDate);
-    setTimeInput(format12HourTime(nextDate));
+    syncTimeInputs(nextDate);
     applyDraft(nextDate);
   };
 
@@ -729,27 +752,54 @@ export function CustomDateTimePicker({
       </div>
 
       <div className="mt-4">
-        <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest opacity-70">
+        <div className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest opacity-70">
           Time (12-hour)
-          <input
-            type="text"
-            inputMode="text"
-            autoCapitalize="characters"
-            value={timeInput}
-            onChange={(event) => setTimeInput(event.target.value.toUpperCase().slice(0, 8))}
-            onBlur={commitTimeInput}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault();
-                commitTimeInput();
-              }
-            }}
-            placeholder="hh:mm AM"
-            maxLength={8}
-            className={`w-full rounded-xl border px-3 py-2 text-xs font-black outline-none ${shellClass}`}
-            aria-label="Time in 12-hour format"
-          />
-        </label>
+          <div className={`flex items-center gap-1 rounded-xl border px-2 py-1 ${shellClass}`}>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={hourInput}
+              onChange={(event) => setHourInput(event.target.value.replace(/\D/g, '').slice(0, 2))}
+              onBlur={() => commitTimeInputs()}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  commitTimeInputs();
+                }
+              }}
+              placeholder="HH"
+              maxLength={2}
+              className="w-10 bg-transparent px-1 py-1 text-center text-xs font-black outline-none"
+              aria-label="Hour in 12-hour format"
+            />
+            <span>:</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={minuteInput}
+              onChange={(event) => setMinuteInput(event.target.value.replace(/\D/g, '').slice(0, 2))}
+              onBlur={() => commitTimeInputs()}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  commitTimeInputs();
+                }
+              }}
+              placeholder="MM"
+              maxLength={2}
+              className="w-10 bg-transparent px-1 py-1 text-center text-xs font-black outline-none"
+              aria-label="Minute in 12-hour format"
+            />
+            <button
+              type="button"
+              onClick={toggleMeridiem}
+              className="ml-auto rounded-lg bg-blue-600 px-2 py-1 text-[10px] font-black text-white transition-colors hover:bg-blue-700"
+              aria-label={`Switch to ${meridiem === 'AM' ? 'PM' : 'AM'}`}
+            >
+              {meridiem}
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="mt-4 flex gap-2">
