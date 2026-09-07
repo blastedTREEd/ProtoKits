@@ -275,16 +275,20 @@ function getFlexiSourceKitIds(deal = {}, eligibleKitIds = []) {
   const explicitSourceIds = Array.isArray(deal?.flexiSourceKitIds)
     ? deal.flexiSourceKitIds.map(String).filter(kitId => eligibleIds.includes(kitId))
     : [];
-  if (explicitSourceIds.length > 0) return [...new Set(explicitSourceIds)];
-
   const configuredSourceIds = eligibleIds.filter((kitId) => {
     const configuredDiscount = deal?.clearanceDiscounts?.[kitId];
-    return (configuredDiscount !== ''
+    const storedDiscount = deal?.kitDiscounts?.[kitId]?.discount;
+    const effectiveDiscount = configuredDiscount !== ''
       && configuredDiscount !== null
       && configuredDiscount !== undefined
-      && Number(configuredDiscount) > 0);
+      ? configuredDiscount
+      : storedDiscount;
+    return Number(effectiveDiscount) > 0;
   });
-  return configuredSourceIds.length > 0 ? configuredSourceIds : eligibleIds;
+  if (explicitSourceIds.length > 0 || configuredSourceIds.length > 0) {
+    return [...new Set([...explicitSourceIds, ...configuredSourceIds])];
+  }
+  return eligibleIds;
 }
 
 const BASKET_SELECTION_STORAGE_KEY = 'snorlaxgarage:basket-selection-restore';
@@ -830,8 +834,19 @@ export default function Cart() {
             // FLEXI-BUNDLE owns a shared eligible kit whenever both deals
             // contain it. A normal bundle only takes over after every kit in
             // that bundle is selected; an incomplete bundle leaves the kit
-            // available for WILD SALE pricing.
-            if (isFlexiPriority) return true;
+            // available for WILD DEAL pricing.
+            if (isFlexiPriority) {
+              const priorityClearanceKitIds = getActiveClearanceKitIds(
+                priorityDeal,
+                getClearanceKitIds(priorityDeal),
+                offerNow
+              );
+              const prioritySourceKitIds = getFlexiSourceKitIds(priorityDeal, priorityClearanceKitIds);
+              return prioritySourceKitIds.some((sourceKitId) => (
+                selectedKitIdSet.has(String(sourceKitId))
+                && isClearanceRequirementMet(priorityDeal, selectedKitIds, sourceKitId)
+              ));
+            }
             return normalizedPriorityKitIds.length > 1
               && normalizedPriorityKitIds.every((kitId) => selectedKitIdSet.has(kitId));
           });
@@ -862,9 +877,7 @@ export default function Cart() {
         // Only kits whose own requirement is met are clearance-priced. Other
         // selected kits remain at their normal price.
         const sourceKitIds = isFlexiBundleDeal(deal)
-          ? (Array.isArray(deal.flexiSourceKitIds) && deal.flexiSourceKitIds.length > 0
-            ? selectedClearanceKitIds.filter((kitId) => deal.flexiSourceKitIds.map(String).includes(String(kitId)))
-            : selectedClearanceKitIds.slice(0, 1))
+          ? getFlexiSourceKitIds(deal, selectedClearanceKitIds)
           : [''];
         return sourceKitIds.map((flexiSourceKitId) => {
           const clearancePricing = isFlexiBundleDeal(deal)
@@ -966,7 +979,7 @@ export default function Cart() {
   const selectedFlexiState = useMemo(() => {
     const selectedBasketIds = new Set(activeSelection.map(String));
     const selectedItems = activeBasket.filter((item) => (
-      selectedBasketIds.has(String(item.basketId))
+      selectedBasketIds.has(String(item.basketId || ''))
       && item.type !== 'project'
       && isOnHandStock(kits.find((kit) => String(kit.id) === String(item.id))?.stocks?.[item.stockKey] || item)
     ));
@@ -993,7 +1006,7 @@ export default function Cart() {
 
     (deals || []).forEach((deal) => {
       if (!isFlexiBundleDeal(deal) || deal.isActive === false) return;
-      const eligibleKitIds = getActiveClearanceKitIds(deal, getClearanceKitIds(deal));
+      const eligibleKitIds = getActiveClearanceKitIds(deal, getClearanceKitIds(deal), offerNow);
       const sourceKitIds = getFlexiSourceKitIds(deal, eligibleKitIds);
       let hasFulfilledSource = false;
 
@@ -1025,15 +1038,16 @@ export default function Cart() {
     });
 
     return { fulfilledSourceKitIds, pendingSourceKitIds, fulfilledKitIds, taggedKitIds, selectedSourceKitIds };
-  }, [activeBasket, activeSelection, deals, kits]);
+  }, [activeBasket, activeSelection, deals, kits, offerNow]);
 
   // Keep source visibility independent from the fulfilled-price calculation.
   // A selected source must show the red FLEXI-BUNDLE badge even while its
   // other-stock requirement is still unmet.
   const selectedFlexiSourceKitIds = useMemo(() => {
+    const selectedBasketIds = new Set(activeSelection.map(String));
     const selectedKitIds = new Set(
       activeBasket
-        .filter((item) => activeSelection.includes(item.basketId) && item.type !== 'project')
+        .filter((item) => selectedBasketIds.has(String(item.basketId || '')) && item.type !== 'project')
         .map((item) => String(item.id))
         .filter(Boolean)
     );
@@ -1068,7 +1082,7 @@ export default function Cart() {
         const nextLabel = isFlexiBundleDeal(deal)
           ? 'FLEXI-BUNDLE'
           : isWildSaleDeal(deal)
-            ? 'WILD SALE'
+            ? 'WILD DEAL'
             : 'CLEARANCE';
         // FLEXI must remain visible when the same kit also belongs to a
         // separate CLEARANCE deal loaded later in the list.
@@ -1078,6 +1092,18 @@ export default function Cart() {
       });
     });
     return labels;
+  }, [deals, offerNow]);
+
+  const activeWildSaleKitIds = useMemo(() => {
+    const kitIds = new Set();
+    (deals || []).forEach((deal) => {
+      if (!isWildSaleDeal(deal) || deal.isActive === false) return;
+      getActiveClearanceKitIds(deal, getClearanceKitIds(deal), offerNow)
+        .map(String)
+        .filter(Boolean)
+        .forEach((kitId) => kitIds.add(kitId));
+    });
+    return kitIds;
   }, [deals, offerNow]);
 
   const selectedBundlePriceByBasketId = useMemo(() => {
@@ -1218,10 +1244,11 @@ export default function Cart() {
   }, [activeSelection, getBasketDiscountedPrice, getBasketStandalonePrice]);
 
   const selectedPromotionDiscountTotal = useMemo(() => {
-    // Only advertise savings from the two customer-facing bundle promotions.
+    // Only advertise savings from customer-facing promotion pricing.
     // Regular offers and standalone price reductions should not produce a
     // bundle savings message in the cart footer.
-    if (isFlexiDealQualified && !isBundleDealWinner) {
+    const isClearancePromotionQualified = selectedClearanceDiscountTotal > 0;
+    if ((isFlexiDealQualified || isClearancePromotionQualified) && !isBundleDealWinner) {
       return selectedClearanceDiscountTotal;
     }
     return selectedBundleDiscountTotal;
@@ -1924,13 +1951,14 @@ export default function Cart() {
                     || isFlexiPendingTag
                     || selectedClearanceLabelByKitId.get(itemKitId) === 'FLEXI-BUNDLE';
                 const isFlexiBundleTag = isFlexiTagEligible && !isCompleteBundleDeal;
+                const isWildSaleEligible = selectedClearanceLabelByKitId.get(itemKitId) === 'WILD DEAL'
+                  || activeWildSaleKitIds.has(itemKitId);
+                const isFlexiRequirementMet = isFlexiPriceApplied || isFlexiFulfilledTag;
                 const isWildSaleTag = item.type !== 'project'
-                  && selectedClearanceLabelByKitId.get(itemKitId) === 'WILD SALE'
+                  && isWildSaleEligible
+                  && (!isSelected || !isFlexiRequirementMet)
                   && !isCompleteBundleDeal;
-                const isWildSaleApplied = isWildSaleTag
-                  && isSelected
-                  && hasSelectedClearancePrice
-                  && !selectedClearancePricing.isFlexi;
+                const isWildSaleApplied = isWildSaleTag && isSelected;
                 const isBundleDealOffer = item.type !== 'project'
                   && isBundleDealItem
                   && !isFlexiBundleTag
@@ -1999,7 +2027,7 @@ export default function Cart() {
                       </span>
                     ) : isWildSaleTag ? (
                       <span className={`absolute left-0 bottom-5 z-10 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider shadow-sm ${isWildSaleApplied ? 'bg-amber-400 text-black' : 'bg-red-600 text-white'}`}>
-                        WILD SALE
+                        WILD DEAL
                       </span>
                     ) : isFlexiBundleTag && isClearanceKit ? (
                       <span className={`absolute left-0 bottom-5 z-10 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm ${isClearanceDealApplied ? 'bg-emerald-600' : 'bg-red-600'}`}>

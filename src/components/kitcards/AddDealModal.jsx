@@ -1065,7 +1065,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
           || delay < DEFAULT_REACTIVATION_DELAY;
       });
       if (invalidSchedule) {
-        return alert(`Each Wild Sale kit must run for ${WILD_SALE_DEFAULT_DURATION_MINUTES}–${WILD_SALE_MAX_DURATION_MINUTES} minutes and have a reactivation delay of at least 1 hour.`);
+        return alert(`Each Wild Deal kit must run for ${WILD_SALE_DEFAULT_DURATION_MINUTES}–${WILD_SALE_MAX_DURATION_MINUTES} minutes and have a reactivation delay of at least 1 hour.`);
       }
     }
     
@@ -1090,7 +1090,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       name: dealType === FLEXI_BUNDLE_DEAL_TYPE
         ? 'FLEXI-BUNDLE'
         : dealType === CLEARANCE_DEAL_TYPE
-        ? 'WILD SALE'
+        ? 'WILD DEAL'
         : dealType === 'mutually_exclusive'
           ? 'BANDAI VS BOOTLEG'
           : getBundleDealName(dealName, deals, activeEditId, dealToEdit),
@@ -1210,7 +1210,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
           costPrice: row.costPrice
         }
       ]));
-      // FLEXI-BUNDLE remains permanent. WILD SALE stores timing per kit.
+      // FLEXI-BUNDLE remains permanent. WILD DEAL stores timing per kit.
       dealData.validFrom = '';
       dealData.validUntil = '';
       dealData.stockSource = 'onhand';
@@ -1241,7 +1241,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
               isActive: !unfulfillableKits.includes(kitId)
             }])
           );
-          alert(`Warning: The following kits have no available stock, so their WILD SALE entries will be saved as inactive:\n${names}`);
+          alert(`Warning: The following kits have no available stock, so their WILD DEAL entries will be saved as inactive:\n${names}`);
         } else if (dealType === 'bundle_only') {
           dealData.isActive = false;
           alert(`Warning: The following kits have no available stock, so this bundle deal will be saved as INACTIVE:\n${names}`);
@@ -1358,7 +1358,26 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       deal.clearanceKitIds?.length ? deal.clearanceKitIds : deal.kitIds || []
     ));
     if (currentKitIds.length <= 1) {
-      alert('A clearance master list must keep at least one eligible kit.');
+      const dealLabel = isFlexiBundleDeal(deal) ? 'Flexi-Bundle' : 'Wild Deal';
+      if (!window.confirm(`This is the last eligible kit in this ${dealLabel}. Removing it will delete the entire ${dealLabel}. Continue?`)) return;
+      try {
+        await deleteDeal(deal.id);
+        setSelectedDealIds(prev => prev.filter(id => id !== deal.id));
+        if (activeEditId === deal.id) {
+          setDealName('');
+          setDiscountAmount('');
+          setSelectedKitIds([]);
+          setClearanceKitIds([]);
+          setClearanceDiscounts({});
+          setClearanceRequiredOtherStocks({});
+          setClearanceKitSchedules({});
+          setPreviewKitIds([]);
+          setActiveEditId(null);
+        }
+      } catch (error) {
+        console.error(`Error deleting empty ${dealLabel}:`, error);
+        alert(`Error deleting ${dealLabel}: ${error.message}`);
+      }
       return;
     }
 
@@ -1580,7 +1599,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                       <Gift size={16} /> <span className="text-[11px] font-black uppercase">Flexi-Bundle</span>
                    </button>
                    <button type="button" aria-pressed={dealType === CLEARANCE_DEAL_TYPE} onClick={handleSelectClearanceStrategy} className={`py-3 rounded-2xl border flex flex-col items-center gap-1 transition-all ${dealType === CLEARANCE_DEAL_TYPE ? 'bg-red-500 border-red-500 text-white shadow-lg' : 'bg-black/5 border-[var(--color-border)] opacity-60'}`}>
-                      <Gift size={16} /> <span className="text-[11px] font-black uppercase">Wild Sale</span>
+                      <Gift size={16} /> <span className="text-[11px] font-black uppercase">Wild Deal</span>
                    </button>
                    <button type="button" aria-pressed={dealType === 'mutually_exclusive'} onClick={handleSelectMutuallyExclusiveStrategy} disabled={isLoadingMutualKits} className={`py-3 rounded-2xl border flex flex-col items-center gap-1 transition-all ${dealType === 'mutually_exclusive' ? 'bg-red-600 border-red-600 text-white shadow-lg' : 'bg-black/5 border-[var(--color-border)] opacity-60'} ${isLoadingMutualKits ? 'cursor-wait opacity-70' : ''}`}>
                       {isLoadingMutualKits ? <Loader2 size={16} className="animate-spin" /> : <Ban size={16} />} <span className="text-[11px] font-black uppercase">Mutually Exclusive</span>
@@ -2059,7 +2078,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                     const isFlexiDeal = isFlexiBundleDeal(deal);
                     const isPerKitClearance = isPerKitClearanceDeal(deal);
                     const isClearanceLike = isFlexiDeal || isPerKitClearance;
-                    const strategyLabel = isClearanceLike ? (isFlexiDeal ? 'FLEXI-BUNDLE' : 'WILD SALE') : (deal.type === 'bundle_discount' || deal.type === 'bundle_only') ? 'Bundle Deal' :
+                    const strategyLabel = isClearanceLike ? (isFlexiDeal ? 'FLEXI-BUNDLE' : 'WILD DEAL') : (deal.type === 'bundle_discount' || deal.type === 'bundle_only') ? 'Bundle Deal' :
                                           isMutualDeal ? 'Bandai vs Bootleg' : 'Legacy Bundle';
                     
                     const badgeClass = isClearanceLike ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' : (deal.type === 'bundle_discount' || deal.type === 'bundle_only') ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' :

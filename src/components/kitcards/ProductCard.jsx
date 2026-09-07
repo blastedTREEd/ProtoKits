@@ -317,10 +317,13 @@ function getBundleKitPrice(deal, dealKit, allKits = []) {
     );
     const configuredSourceIds = eligibleKitIds.filter((kitId) => {
       const configuredDiscount = deal.clearanceDiscounts?.[kitId];
-      return configuredDiscount !== ''
+      const storedDiscount = deal.kitDiscounts?.[kitId]?.discount;
+      const effectiveDiscount = configuredDiscount !== ''
         && configuredDiscount !== null
         && configuredDiscount !== undefined
-        && Number(configuredDiscount) > 0;
+        ? configuredDiscount
+        : storedDiscount;
+      return Number(effectiveDiscount) > 0;
     });
     const sourceKitIds = Array.isArray(deal.flexiSourceKitIds) && deal.flexiSourceKitIds.length > 0
       ? deal.flexiSourceKitIds.map(String)
@@ -824,7 +827,11 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
 
   const bundleDealGroups = useMemo(() => {
     if (bundleDealDetails.length === 0) return [];
-    return bundleDealDetails.map(detail => ({
+    // Wild Deal is applied automatically when an eligible on-hand stock is
+    // selected, so it does not need a separate selectable deal item.
+    return bundleDealDetails
+      .filter(detail => !isWildSaleDeal(detail.deal))
+      .map(detail => ({
       key: `bundle-deal-${detail.deal.id}`,
       label: detail.isClearance ? getClearanceDisplayLabel(detail.deal) : 'BUNDLE DEAL',
       items: [detail.currentKitStock || { ...detail.deal, status: 'bundle_deal', sellPrice: detail.currentItemPrice }],
@@ -833,7 +840,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       isClearanceDeal: detail.isClearance,
       deal: detail.deal,
       dealDetails: detail
-    }));
+      }));
   }, [bundleDealDetails]);
 
   const acceptedOfferGroup = useMemo(() => {
@@ -892,6 +899,18 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
 
   const isClearanceDeal = bundleDealDetails.some(detail => detail.isClearance);
   const isWildSale = bundleDealDetails.some(detail => isWildSaleDeal(detail.deal));
+  const activeWildSaleDetail = bundleDealDetails
+    .filter(detail => isWildSaleDeal(detail.deal))
+    .sort((a, b) => Number(a.currentItemPrice || 0) - Number(b.currentItemPrice || 0))[0] || null;
+  const nonWildSaleDealDetails = bundleDealDetails.filter(detail => !isWildSaleDeal(detail.deal));
+  const wildSalePrice = bundleDealDetails
+    .filter(detail => isWildSaleDeal(detail.deal))
+    .map(detail => Number(detail.currentItemPrice || 0))
+    .filter(price => price > 0)
+    .reduce((lowestPrice, price) => Math.min(lowestPrice, price), Number.POSITIVE_INFINITY);
+  const isWildSalePriceApplied = isWildSale
+    && Number.isFinite(wildSalePrice)
+    && wildSalePrice < cardSellPrice;
   const isIncludedInBundleDeal = bundleOnlyDeals.some(deal => !isFlexiBundleDeal(deal) && !isPerKitClearanceDeal(deal));
   const clearanceDisplayLabel = getClearanceDisplayLabel(
     selectedBundleDealDetails?.deal || bundleDealDetails.find(detail => detail.isClearance)?.deal
@@ -1521,6 +1540,18 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   const modalLowestPrice = acceptedOfferPrice > 0
     ? acceptedOfferPrice
     : Number(selectedBundleDealDetails?.currentItemPrice || cardSellPrice || 0);
+  const isWildSaleOnHandSelected = Boolean(
+    activeWildSaleDetail
+    && selectedStock
+    && isOnHandStock(selectedStock)
+    && !selectedBundleDealDetails?.deal
+    && String(selectedStock.key || '') !== String(acceptedOfferStock?.key || '')
+    && wildSalePrice > 0
+    && wildSalePrice < cardSellPrice
+  );
+  const wildSaleModalDiscount = isWildSaleOnHandSelected
+    ? Math.max(0, cardSellPrice - wildSalePrice)
+    : 0;
   const modalReferencePrice = acceptedOfferPrice > 0
     ? acceptedOfferPrice + handlingFee + installmentFee + transferFee
     : selectedBundleDealDetails?.deal
@@ -1531,6 +1562,8 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   const activeBundleDeal = selectedBundleDealDetails?.deal || null;
   const modalTopPrice = selectedBundleDealDetails?.deal
     ? Number(sellPrice || 0)
+    : isWildSaleOnHandSelected
+      ? wildSalePrice
     : modalLowestPrice;
   const activeClearanceKitIds = getActiveClearanceKitIds(activeBundleDeal, activeBundleDeal?.clearanceKitIds?.length
     ? activeBundleDeal.clearanceKitIds
@@ -1603,7 +1636,11 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   }
   if (isClearanceDeal) {
     gridStatusBadges.push({
-      label: clearanceDisplayLabel,
+      // Wild Deal is the stronger per-kit promotion for the grid badge when
+      // the same kit is also listed in FLEXI-BUNDLE. Keep the label aligned
+      // with the gold styling instead of inheriting a selected Flexi panel's
+      // label.
+      label: isWildSale ? 'WILD DEAL' : clearanceDisplayLabel,
       isActiveDeal: true,
       className: isWildSale
         ? 'bg-amber-400 text-black border-amber-300 shadow-lg'
@@ -1814,11 +1851,20 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                               </span>
                             </>
                           ) : availableCount > 0 ? (
-                            <>
+                            isWildSalePriceApplied ? (
+                              <>
+                                <span className="text-[15px] font-bold italic tracking-tighter leading-none text-emerald-500 shrink-0">
+                                  ₱{wildSalePrice.toLocaleString()}
+                                </span>
+                                <span className="text-[15px] font-bold italic tracking-tighter leading-none text-black line-through dark:text-white shrink-0">
+                                  ₱{cardSellPrice.toLocaleString()}
+                                </span>
+                              </>
+                            ) : (
                               <span className="text-[15px] font-bold italic tracking-tighter leading-none text-blue-600 dark:text-blue-400 shrink-0">
                                 ₱{cardSellPrice.toLocaleString()}
                               </span>
-                            </>
+                            )
                           ) : (
                             <span className={`text-[15px] font-bold tracking-tighter leading-none ${isIncludedInBundleDeal ? 'text-emerald-500' : gridUnavailableClass}`}>
                                 {isIncludedInBundleDeal ? "BUNDLE DEAL" : gridUnavailableLabel}
@@ -1950,23 +1996,34 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                   <p className="text-[28px] sm:text-5xl font-black italic tracking-tighter leading-none text-blue-600 flex">
                                     ₱{modalTopPrice.toLocaleString()}
                                   </p>
-                                  {(selectedBundleDealDetails?.deal || isLimitedTimeAcceptedOffer) && (
+                                  {(selectedBundleDealDetails?.deal || isLimitedTimeAcceptedOffer || isWildSaleOnHandSelected) && (
                                     <div className="flex flex-col gap-0 pt-1 sm:pt-1.5">
-                                      <p className={`${selectedBundleDealDetails?.deal ? 'text-[15px] md:text-[15px]' : cardIsPreOrder ? 'text-[24px] md:text-[24px]' : 'text-[10px] md:text-[14px]'} font-black italic tracking-tighter leading-none whitespace-nowrap ${selectedBundleDealDetails?.deal ? 'text-emerald-600' : 'text-amber-600'}`}>
-                                        {selectedBundleDealDetails?.deal
-                                          ? selectedBundleDealDetails.isClearance
-                                            ? <>&#8369;{modalClearanceDiscount.toLocaleString()} OFF ELIGIBLE</>
-                                            : <>&#8369;{getDealDiscountAmount(activeBundleDeal).toLocaleString()} OFF ELIGIBLE</>
-                                          : isLimitedTimeAcceptedOffer
-                                            ? 'ACCEPTED OFFER'
-                                            : null}
-                                      </p>
+                                      <div className="flex items-center gap-2">
+                                        <p className={`${selectedBundleDealDetails?.deal || isWildSaleOnHandSelected ? 'text-[15px] md:text-[15px]' : cardIsPreOrder ? 'text-[24px] md:text-[24px]' : 'text-[10px] md:text-[14px]'} font-black italic tracking-tighter leading-none whitespace-nowrap ${selectedBundleDealDetails?.deal || isWildSaleOnHandSelected ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                          {selectedBundleDealDetails?.deal
+                                            ? selectedBundleDealDetails.isClearance
+                                              ? <>&#8369;{modalClearanceDiscount.toLocaleString()} OFF ELIGIBLE</>
+                                              : <>&#8369;{getDealDiscountAmount(activeBundleDeal).toLocaleString()} OFF ELIGIBLE</>
+                                            : isWildSaleOnHandSelected
+                                              ? <>&#8369;{wildSaleModalDiscount.toLocaleString()} OFF</>
+                                            : isLimitedTimeAcceptedOffer
+                                              ? 'ACCEPTED OFFER'
+                                              : null}
+                                        </p>
+                                        {isWildSaleOnHandSelected && (
+                                          <p className="text-[15px] font-black italic tracking-tighter leading-none text-neutral-900 dark:text-white line-through whitespace-nowrap">
+                                            ₱{cardSellPrice.toLocaleString()}
+                                          </p>
+                                        )}
+                                      </div>
                                       {!cardIsPreOrder && (
-                                        <p className={`${selectedBundleDealDetails?.deal ? 'text-[15px] md:text-[15px] text-neutral-900 dark:text-white' : 'text-[13px] md:text-[22px]'} font-black italic tracking-tighter leading-tight ${selectedBundleDealDetails?.deal ? '' : 'line-through'}`}>
+                                        <p className={`${selectedBundleDealDetails?.deal ? 'text-[15px] md:text-[15px] text-neutral-900 dark:text-white' : 'text-[13px] md:text-[22px]'} font-black italic tracking-tighter leading-tight ${selectedBundleDealDetails?.deal || isWildSaleOnHandSelected ? '' : 'line-through'}`}>
                                           {selectedBundleDealDetails?.deal
                                             ? (selectedBundleDealDetails.isClearance
-                                              ? `${isWildSaleDeal(selectedBundleDealDetails.deal) ? 'WILD SALE' : `ON ${getClearanceDisplayLabel(selectedBundleDealDetails.deal)} DEAL`}${isWildSaleDeal(selectedBundleDealDetails.deal) ? ` · ${getWildSaleCountdownLabel(selectedBundleDealDetails.deal, kitId, now)}` : ''}`
+                                              ? `${isWildSaleDeal(selectedBundleDealDetails.deal) ? 'WILD DEAL' : `ON ${getClearanceDisplayLabel(selectedBundleDealDetails.deal)} DEAL`}${isWildSaleDeal(selectedBundleDealDetails.deal) ? ` · ${getWildSaleCountdownLabel(selectedBundleDealDetails.deal, kitId, now)}` : ''}`
                                               : 'ON BUNDLE DEAL')
+                                            : isWildSaleOnHandSelected
+                                              ? `WILD DEAL · ${getWildSaleCountdownLabel(activeWildSaleDetail.deal, kitId, now)}`
                                             : `₱${modalReferencePrice.toLocaleString()}`}
                                         </p>
                                       )}
@@ -2004,23 +2061,34 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                   <p className="text-[28px] lg:text-[40px] font-black italic tracking-tighter leading-none text-blue-600 flex">
                                     ₱{modalTopPrice.toLocaleString()}
                                   </p>
-                                  {(selectedBundleDealDetails?.deal || isLimitedTimeAcceptedOffer) && (
+                                  {(selectedBundleDealDetails?.deal || isLimitedTimeAcceptedOffer || isWildSaleOnHandSelected) && (
                                     <div className="flex flex-col gap-0 pt-1.5">
-                                      <p className={`${selectedBundleDealDetails?.deal ? 'text-[15px]' : cardIsPreOrder ? 'text-[15px] text-emerald-600' : 'text-[12px]'} font-black italic tracking-[0.05em] leading-none whitespace-nowrap ${selectedBundleDealDetails?.deal ? 'text-emerald-600' : 'text-amber-600'}`}>
-                                        {selectedBundleDealDetails?.deal
-                                          ? selectedBundleDealDetails.isClearance
-                                            ? <>&#8369;{modalClearanceDiscount.toLocaleString()} OFF ELIGIBLE</>
-                                            : <>&#8369;{getDealDiscountAmount(activeBundleDeal).toLocaleString()} OFF ELIGIBLE</>
-                                          : isLimitedTimeAcceptedOffer
-                                            ? 'ACCEPTED OFFER'
-                                            : null}
-                                      </p>
+                                      <div className="flex items-center gap-2">
+                                        <p className={`${selectedBundleDealDetails?.deal || isWildSaleOnHandSelected ? 'text-[15px]' : cardIsPreOrder ? 'text-[15px] text-emerald-600' : 'text-[12px]'} font-black italic tracking-[0.05em] leading-none whitespace-nowrap ${selectedBundleDealDetails?.deal || isWildSaleOnHandSelected ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                          {selectedBundleDealDetails?.deal
+                                            ? selectedBundleDealDetails.isClearance
+                                              ? <>&#8369;{modalClearanceDiscount.toLocaleString()} OFF ELIGIBLE</>
+                                              : <>&#8369;{getDealDiscountAmount(activeBundleDeal).toLocaleString()} OFF ELIGIBLE</>
+                                            : isWildSaleOnHandSelected
+                                              ? <>&#8369;{wildSaleModalDiscount.toLocaleString()} OFF</>
+                                            : isLimitedTimeAcceptedOffer
+                                              ? 'ACCEPTED OFFER'
+                                              : null}
+                                        </p>
+                                        {isWildSaleOnHandSelected && (
+                                          <p className="text-[15px] font-black italic tracking-tighter leading-none text-neutral-900 dark:text-white line-through whitespace-nowrap">
+                                            ₱{cardSellPrice.toLocaleString()}
+                                          </p>
+                                        )}
+                                      </div>
                                       {!cardIsPreOrder && (
-                                        <p className={`${selectedBundleDealDetails?.deal ? 'text-[15px] text-neutral-900 dark:text-white' : 'text-[18px]'} font-black italic tracking-tighter leading-none ${selectedBundleDealDetails?.deal ? '' : 'line-through'}`}>
+                                        <p className={`${selectedBundleDealDetails?.deal ? 'text-[15px] text-neutral-900 dark:text-white' : 'text-[18px]'} font-black italic tracking-tighter leading-none ${selectedBundleDealDetails?.deal || isWildSaleOnHandSelected ? '' : 'line-through'}`}>
                                           {selectedBundleDealDetails?.deal
                                             ? (selectedBundleDealDetails.isClearance
-                                              ? `${isWildSaleDeal(selectedBundleDealDetails.deal) ? 'WILD SALE' : `ON ${getClearanceDisplayLabel(selectedBundleDealDetails.deal)} DEAL`}${isWildSaleDeal(selectedBundleDealDetails.deal) ? ` · ${getWildSaleCountdownLabel(selectedBundleDealDetails.deal, kitId, now)}` : ''}`
+                                              ? `${isWildSaleDeal(selectedBundleDealDetails.deal) ? 'WILD DEAL' : `ON ${getClearanceDisplayLabel(selectedBundleDealDetails.deal)} DEAL`}${isWildSaleDeal(selectedBundleDealDetails.deal) ? ` · ${getWildSaleCountdownLabel(selectedBundleDealDetails.deal, kitId, now)}` : ''}`
                                               : 'ON BUNDLE DEAL')
+                                            : isWildSaleOnHandSelected
+                                              ? `WILD DEAL · ${getWildSaleCountdownLabel(activeWildSaleDetail.deal, kitId, now)}`
                                             : `₱${modalReferencePrice.toLocaleString()}`}
                                         </p>
                                       )}
@@ -2086,13 +2154,13 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                         </div>
                       )}
 
-                      {bundleDealDetails.length > 0 && (
+                      {nonWildSaleDealDetails.length > 0 && (
                         <div className="pt-4 space-y-2">
                           <h4 className="text-[14px] font-bold uppercase tracking-[0.1em] text-neutral-600 dark:text-neutral-300 flex items-center gap-2 text-left">
                             <Gift size={18} /> DEALS
                           </h4>
                           <div className="space-y-4">
-                            {bundleDealDetails.map(({ deal, includedKits, displayName }) => {
+                            {nonWildSaleDealDetails.map(({ deal, includedKits, displayName }) => {
                               const isSelectedBundlePanel = selectedBundleDealDetails?.deal?.id === deal.id;
                               const bundleGroup = bundleDealGroups.find(group => group.deal?.id === deal.id);
                               const isClearanceDeal = isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal);

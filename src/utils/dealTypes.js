@@ -36,7 +36,7 @@ export const isClearanceLikeDeal = (deal = {}) => (
 );
 
 export const getClearanceDisplayLabel = (deal = {}) => (
-  isFlexiBundleDeal(deal) ? 'FLEXI-BUNDLE' : isWildSaleDeal(deal) ? 'WILD SALE' : 'CLEARANCE'
+  isFlexiBundleDeal(deal) ? 'FLEXI-BUNDLE' : isWildSaleDeal(deal) ? 'WILD DEAL' : 'CLEARANCE'
 );
 
 export const getClearanceKitSchedule = (deal = {}, kitId) => {

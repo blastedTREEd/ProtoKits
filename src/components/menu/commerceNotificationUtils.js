@@ -169,7 +169,7 @@ export const buildCommerceNotifications = ({
     });
   });
 
-  // Wild Sale notifications are phase-based. The same notification updates
+  // Wild Deal notifications are phase-based. The same notification updates
   // from an eight-minute warning to a live-sale message, then disappears once
   // the per-kit schedule ends because it is no longer returned here.
   deals.forEach((deal) => {
@@ -198,12 +198,12 @@ export const buildCommerceNotifications = ({
         id: `wild-sale:${deal.id}:${kitId}`,
         notificationKind: 'wild_sale',
         notificationVersion: `wild-sale:${deal.id}:${kitId}:${phase}:${validFrom.getTime()}:${validUntil.getTime()}`,
-        notificationLabel: isLive ? 'Wild Sale live' : 'Wild Sale ahead',
-        title: isLive ? 'WILD SALE IS LIVE!' : 'WILD SALE AHEAD!',
+        notificationLabel: isLive ? 'Wild Deal live' : 'Wild Deal ahead',
+        title: isLive ? 'WILD DEAL IS LIVE!' : 'WILD DEAL AHEAD!',
         message: isLive
-          ? `${kit?.name || 'A Wild Sale item'} is live now and ends in ${formatWildSaleCountdown(remaining)}.`
-          : `${kit?.name || 'A Wild Sale item'} starts in ${formatWildSaleCountdown(remaining)}.`,
-        summary: kit?.name || 'Wild Sale',
+          ? `${kit?.name || 'A Wild Deal item'} is live now and ends in ${formatWildSaleCountdown(remaining)}.`
+          : `${kit?.name || 'A Wild Deal item'} starts in ${formatWildSaleCountdown(remaining)}.`,
+        summary: kit?.name || 'Wild Deal',
         kitId,
         dealId: deal.id,
         lastUpdated: isLive ? validFrom : validFrom

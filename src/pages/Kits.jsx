@@ -18,7 +18,7 @@ import { getBundleDealPricing, getClearanceBundlePricing, getFlexiBundlePreviewP
 import { isOfferCheckoutActive } from '../utils/offerUtils';
 import { getDealGrabLabel } from '../utils/dealSavings';
 import { getStockEta } from '../utils/stockDates';
-import { isFlexiBundleDeal, isPerKitClearanceDeal, getActiveClearanceKitIds, getClearanceDisplayLabel } from '../utils/dealTypes';
+import { isFlexiBundleDeal, isPerKitClearanceDeal, isWildSaleDeal, getActiveClearanceKitIds, getClearanceDisplayLabel } from '../utils/dealTypes';
 import UniversalImage from '../components/common/UniversalImage';
 import { getBundleDisplayTotals } from '../utils/bundleDisplayPricing';
 
@@ -1022,7 +1022,7 @@ export default function Kits({ isActive = true }) {
         name: kit?.name,
         isBundleItem: true,
         bundleId: deal.id,
-        bundleName: deal.name || (isFlexiBundleDeal(deal) ? 'FLEXI-BUNDLE' : isPerKitClearanceDeal(deal) ? 'WILD SALE' : 'Bundle Deal'),
+        bundleName: isWildSaleDeal(deal) ? 'WILD DEAL' : deal.name || (isFlexiBundleDeal(deal) ? 'FLEXI-BUNDLE' : isPerKitClearanceDeal(deal) ? 'WILD DEAL' : 'Bundle Deal'),
         isClearanceBundle: isClearanceDeal,
         clearanceKitIds: deal.clearanceKitIds || deal.kitIds || [],
         bundleSize,

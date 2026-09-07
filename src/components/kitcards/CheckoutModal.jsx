@@ -178,6 +178,27 @@ const normalizeDealKitIds = (value) => {
   return values.map(value => String(value)).filter(Boolean);
 };
 
+const getCheckoutFlexiSourceKitIds = (deal = {}, eligibleKitIds = []) => {
+  const eligibleIds = [...new Set((eligibleKitIds || []).map(String).filter(Boolean))];
+  const explicitSourceIds = Array.isArray(deal?.flexiSourceKitIds)
+    ? deal.flexiSourceKitIds.map(String).filter(kitId => eligibleIds.includes(kitId))
+    : [];
+  const configuredSourceIds = eligibleIds.filter((kitId) => {
+    const configuredDiscount = deal?.clearanceDiscounts?.[kitId];
+    const storedDiscount = deal?.kitDiscounts?.[kitId]?.discount;
+    const effectiveDiscount = configuredDiscount !== ''
+      && configuredDiscount !== null
+      && configuredDiscount !== undefined
+      ? configuredDiscount
+      : storedDiscount;
+    return Number(effectiveDiscount) > 0;
+  });
+  if (explicitSourceIds.length > 0 || configuredSourceIds.length > 0) {
+    return [...new Set([...explicitSourceIds, ...configuredSourceIds])];
+  }
+  return eligibleIds;
+};
+
 const getCheckoutKitId = (item) => String(item?.id || item?.kitId || item?.productId || '');
 const getCheckoutStockKey = (item) => item?.stockKey || item?.selectedStockKey || item?.stockId || '';
 
@@ -370,7 +391,17 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
         const normalizedPriorityKitIds = [...new Set(priorityKitIds.map(String).filter(Boolean))];
         const overlapsWildSale = normalizedPriorityKitIds.some((kitId) => wildSaleKitIdSet.has(kitId));
         if (!overlapsWildSale) return false;
-        if (isFlexiPriority) return true;
+        if (isFlexiPriority) {
+          const priorityClearanceKitIds = getActiveClearanceKitIds(
+            priorityDeal,
+            getClearanceKitIds(priorityDeal)
+          );
+          const prioritySourceKitIds = getCheckoutFlexiSourceKitIds(priorityDeal, priorityClearanceKitIds);
+          return prioritySourceKitIds.some((sourceKitId) => (
+            selectedKitIdSet.has(String(sourceKitId))
+            && isClearanceRequirementMet(priorityDeal, selectedKitIds, sourceKitId)
+          ));
+        }
         return normalizedPriorityKitIds.length > 1
           && normalizedPriorityKitIds.every((kitId) => selectedKitIdSet.has(kitId));
       });
@@ -434,9 +465,7 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
     // required stock from another kit unlocks that source price; companions
     // remain regular-priced while sharing the fulfilled FLEXI tag in Cart.
     const configuredFlexiSourceKitIds = isFlexiBundleDeal(deal)
-      ? (Array.isArray(deal.flexiSourceKitIds) && deal.flexiSourceKitIds.length > 0
-        ? deal.flexiSourceKitIds.map(String)
-        : selectedClearanceKitIds.slice(0, 1))
+      ? getCheckoutFlexiSourceKitIds(deal, selectedClearanceKitIds)
       : [''];
     const flexiSourceKitIds = isFlexiBundleDeal(deal)
       ? configuredFlexiSourceKitIds.filter(kitId => selectedClearanceKitIds.includes(kitId))
@@ -578,7 +607,7 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
       name: String(item.name || row.kit?.name || '').replace(/\s*\((?:Bundle|Clearance) Item\)\s*$/i, ''),
       isBundleItem: true,
       bundleId: deal.id,
-      bundleName: deal.name || (isFlexiBundleDeal(deal) ? 'FLEXI-BUNDLE' : isPerKitClearanceDeal(deal) ? 'WILD SALE' : 'Bundle Deal'),
+      bundleName: isWildSaleDeal(deal) ? 'WILD DEAL' : deal.name || (isFlexiBundleDeal(deal) ? 'FLEXI-BUNDLE' : isPerKitClearanceDeal(deal) ? 'WILD DEAL' : 'Bundle Deal'),
       isClearanceBundle: isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal),
       clearanceKitIds: clearancePricedKitIds,
       bundleSize,
@@ -1681,7 +1710,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     : checkoutItems.some((item) => (
       item.isClearanceBundle === true && String(item.bundleName || '').toUpperCase().includes('WILD')
     ))
-      ? 'WILD SALE'
+      ? 'WILD DEAL'
       : 'CLEARANCE';
 
   const isHandlingFeeDiscounted = handlingFeeDiscount > 0 && orderFees.handling > 0;
@@ -3353,13 +3382,15 @@ const handleFinalizeOrder = async () => {
           ? (String(item.bundleName || '').toUpperCase().includes('FLEXI')
             ? 'FLEXI-BUNDLE'
             : String(item.bundleName || '').toUpperCase().includes('WILD')
-              ? 'WILD SALE'
+              ? 'WILD DEAL'
               : 'CLEARANCE')
           : isPreOrderItem && etaLabel
             ? etaLabel
             : '';
       const dealTagTone = (isAppliedBundleDeal || isAppliedClearanceDeal)
-        ? 'bg-emerald-600'
+        ? (isAppliedClearanceDeal && String(dealTag).toUpperCase() === 'WILD DEAL'
+          ? 'bg-amber-400 text-black'
+          : 'bg-emerald-600 text-white')
         : 'bg-blue-600';
       return {
         id: item.basketId || item.stockKey || item.id || idx,
@@ -3578,12 +3609,12 @@ const handleFinalizeOrder = async () => {
                 {itemRows.map((row, idx) => (
                   <div key={`${row.id}-${idx}`} className="relative grid grid-cols-[5rem_minmax(0,1fr)_auto] gap-3 rounded-2xl border border-black/5 bg-white p-3 dark:border-white/5 dark:bg-neutral-900 lg:grid-cols-[18rem_minmax(0,1fr)_auto]">
                     {row.dealTag && (
-                      <span className={`absolute left-0 bottom-5 z-10 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider text-white shadow-sm ${
+                      <span className={`absolute left-0 bottom-5 z-10 px-1.5 py-1 md:px-2 md:py-1 text-[12px] font-black uppercase tracking-wider shadow-sm ${
                         row.dealTagTone
                           ? row.dealTagTone
                           : row.isPreOrder
-                            ? 'bg-blue-600'
-                            : 'bg-emerald-600'
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-emerald-600 text-white'
                       }`}>
                         {row.dealTag}
                       </span>
