@@ -23,6 +23,7 @@ import { getStockStandaloneSellPrice } from '../../utils/standalonePricing';
 import { getDealDiscountAmount, getDealGrabLabel, getDealSaveUpToLabel } from '../../utils/dealSavings';
 import { getStockEta } from '../../utils/stockDates';
 import { isFlexiBundleDeal, isPerKitClearanceDeal, isWildSaleDeal, isClearanceKitActive, getActiveClearanceKitIds, getClearanceDisplayLabel } from '../../utils/dealTypes';
+import { getValidatedOrderStockSet, isStockInValidatedOrder, filterActiveKitStocks } from '../../utils/stockOrderUtils';
 import UniversalImage from '../common/UniversalImage';
 
 // Resolves an image ID to its URL from the images array.
@@ -434,7 +435,37 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   const [targetPrice, setTargetPrice] = useState("");
   const [timeLeft, setTimeLeft] = useState("");
   const [now, setNow] = useState(0);
-  const kit = isModalOpen ? (modalKit || cardKit) : cardKit;
+
+  const { 
+    addToBasket, removeFromBasket, isAdmin, 
+    isAdminView, shelf, deals, kits: allKits, userOffers,
+    orders, subscribeOrders, setPendingBasketItem, setLoginModalOpen, user,
+    huntKit,
+    shippingSettings,
+    setToastMessage
+  } = useStore();
+
+  useEffect(() => {
+    if (!isAdmin || !isAdminView) return undefined;
+    return subscribeOrders({ isAdminMode: true });
+  }, [isAdmin, isAdminView, subscribeOrders]);
+
+  const validatedOrderStockData = useMemo(() => {
+    return getValidatedOrderStockSet(orders);
+  }, [orders]);
+
+  const rawKit = isModalOpen ? (modalKit || cardKit) : cardKit;
+  const kit = useMemo(() => {
+    if (!rawKit) return null;
+    if (!rawKit.stocks) return rawKit;
+    return {
+      ...rawKit,
+      stocks: filterActiveKitStocks(rawKit.stocks, rawKit.id, validatedOrderStockData)
+    };
+  }, [rawKit, validatedOrderStockData]);
+
+  const kitId = kit?.id;
+
   const handleDealCheckout = (deal, targetKitId) => {
     if (typeof onDealCheckout === 'function') {
       setIsProfileOpen(false);
@@ -447,19 +478,19 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     if (!deal || !deal.kitIds || deal.type === 'mutually_exclusive') return;
     const bundleKits = (allKits || []).filter(k => deal.kitIds.includes(k.id));
     const normalTotal = bundleKits.reduce((sum, k) => {
-      const stocks = Object.values(k.stocks || {});
+      const stocks = Object.values(filterActiveKitStocks(k.stocks, k.id, validatedOrderStockData));
       const sourceStock = getPreferredDealStock(stocks, deal.stockSource || 'onhand');
       return sum + (sourceStock?.sellPrice || stocks[0]?.sellPrice || k.sellPrice || 0);
     }, 0);
 
-    const kitPrices = bundleKits.map((kit) => {
-      const stocks = Object.values(kit?.stocks || {});
+    const kitPrices = bundleKits.map((bundleKit) => {
+      const stocks = Object.values(filterActiveKitStocks(bundleKit?.stocks, bundleKit?.id, validatedOrderStockData));
       const sourceStock = getPreferredDealStock(stocks, deal.stockSource || 'onhand');
       const availableStock = sourceStock;
-      const refPrice = Number(sourceStock?.sellPrice || stocks[0]?.sellPrice || kit?.sellPrice || 0);
+      const refPrice = Number(sourceStock?.sellPrice || stocks[0]?.sellPrice || bundleKit?.sellPrice || 0);
       return {
-        kit,
-        kitId: kit.id,
+        kit: bundleKit,
+        kitId: bundleKit.id,
         sellPrice: refPrice,
         refPrice,
         costPrice: Number(sourceStock?.costPrice || stocks[0]?.costPrice || 0),
@@ -471,10 +502,10 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     const pricedRows = getBundleDealPricing(kitPrices, discountAmount).rows;
 
     const bundleSize = pricedRows.length;
-    const items = pricedRows.map(({ kit, finalPrice, availableStock, refPrice }) => {
+    const items = pricedRows.map(({ kit: itemKit, finalPrice, availableStock, refPrice }) => {
       return {
-        ...kit,
-        name: kit?.name,
+        ...itemKit,
+        name: itemKit?.name,
         isBundleItem: true,
         bundleId: deal.id,
         bundleName: deal.name || 'Bundle Deal',
@@ -500,15 +531,6 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     closeProductModal();
     onEditDeal(deal);
   };
-  
-  const { 
-    addToBasket, removeFromBasket, isAdmin, 
-    isAdminView, shelf, deals, kits: allKits, userOffers,
-    orders, setPendingBasketItem, setLoginModalOpen, user,
-    huntKit,
-    shippingSettings,
-    setToastMessage
-  } = useStore();
 
   const paymentSettings = shippingSettings?.paymentSettings;
   const { handlingFee, installmentFee, transferFee } = useMemo(() => {
@@ -565,7 +587,6 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     return { isPublic: now >= releaseTime, releaseTime };
   }, [isAdmin, isAdminView, now]);
 
-  const kitId = kit?.id;
   const productPath = kitId ? `/kits/${encodeURIComponent(kitId)}` : '/kits';
   const isRouteSelectedProduct = !!kitId && routeKitId === kitId;
 
@@ -773,7 +794,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
         return dealKitIds.every(dealKitId => {
           const dealKit = String(dealKitId) === String(kitId) ? kit : (allKits || []).find(k => String(k.id) === String(dealKitId));
           const stockSource = deal.stockSource || 'onhand';
-          const stocks = Object.values(dealKit?.stocks || {});
+          const stocks = Object.values(filterActiveKitStocks(dealKit?.stocks, dealKit?.id, validatedOrderStockData));
           return stocks.some(stock => (
             !hasOrderAssociation(stock)
             && !stock.isReserved
@@ -2276,7 +2297,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                           ? clearanceDisplayDiscount
                                           : Number(clearanceRow?.clearanceDiscount || 0)
                                         : 0;
-                                      const stocks = Object.values(includedKit?.stocks || {});
+                                      const stocks = Object.values(filterActiveKitStocks(includedKit?.stocks, includedKit?.id, validatedOrderStockData));
                                       const sourceStock = getPreferredDealStock(stocks, deal.stockSource || 'onhand');
                                       const referencePrice = Number(sourceStock?.sellPrice || stocks[0]?.sellPrice || includedKit?.sellPrice || 0);
                                       // Handling and transfer are one-time order fees.

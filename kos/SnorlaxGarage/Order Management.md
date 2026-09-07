@@ -44,7 +44,20 @@ The release operation is handled by the `releaseOrderStocks` action in the Zusta
 
 ---
 
-## 4. Customer Order Notifications
+## 🔒 4. Payment Validation & Stock Sealing (`markOrderStocksReceiptValidated`)
+When an administrator validates and confirms a payment receipt in `Orders.jsx` (`handleConfirmPayment`):
+1. **Receipt Validation Action:** The store executes `markOrderStocksReceiptValidated(order)`.
+2. **Permanent Stock Sealing:**
+   - Targets are extracted via `buildOrderStockTargets(order)`.
+   - Each stock is updated with `stocks.${target.stockKey}.order.receiptValidated = true` and `stocks.${target.stockKey}.receiptValidated = true`.
+3. **Legacy Order Stock Sealing:**
+   - Legacy orders (identified via `isLegacyOrderRecord()` by `#LG-` order ID prefix, `isLegacyOrder: true`, or `legacyOrder: true`) are likewise permanently sealed.
+4. **Dynamic Storefront Exclusion:**
+   - `ProductCard.jsx` and `AddKitModal.jsx` use `stockOrderUtils.js` (`filterActiveKitStocks`) to dynamically hide any stock associated with a validated-receipt order or legacy order from storefront stock lists, bundle deals, and modal selectors, preventing committed inventory from appearing in active shopping or restock workflows.
+
+---
+
+## 5. Customer Order Notifications
 
 The navbar notification system is backed directly by the signed-in customer's live Firestore `orders` query. It renders one notification per order, sorted by the most recent `lastUpdated` timestamp with `createdAt` as fallback. When an order document is deleted, its notification disappears automatically.
 
@@ -121,7 +134,7 @@ After guest authentication, the action is recalculated from the live account rol
 
 ---
 
-## 5. End-to-end order lifecycle
+## 6. End-to-end order lifecycle
 
 An order begins in `CheckoutModal` and is finalized only after the customer passes the current checkout validations:
 
@@ -133,7 +146,7 @@ An order begins in `CheckoutModal` and is finalized only after the customer pass
 
 The current implementation performs these operations through the browser's Zustand/Firebase path. This is functional but should not be documented as an atomic server transaction until the planned backend migration is complete.
 
-## 6. Order contents and fulfillment methods
+## 7. Order contents and fulfillment methods
 
 An order may contain:
 
@@ -154,7 +167,7 @@ Pickup points support two address presentation modes:
 
 The Operations shipping configuration determines which fields are required. Checkout consumes the saved configuration rather than assuming every method needs every field.
 
-## 7. Status and cleanup behavior
+## 8. Status and cleanup behavior
 
 The order status controls both the admin workflow and customer-facing notifications. Typical transitions include waiting/reserved, validating, confirmed/paid, processing, ready for pickup or shipping, completed, declined, and cancelled.
 
@@ -162,7 +175,7 @@ When an order is cancelled, declined, or times out, `releaseOrderStocks` removes
 
 For project orders, the same order record carries project progress and production scheduling information. A mixed order therefore remains one commercial order while kit fulfillment and print production can advance through their own operational steps.
 
-## 8. Availability delay messaging
+## 9. Availability delay messaging
 
 The Garage Calendar stores printing and shipping availability in `settings/checkout`. If the relevant service is unavailable for the current day, checkout displays:
 

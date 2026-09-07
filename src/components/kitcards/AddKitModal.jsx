@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useStore } from '../../store/useStore';
+import { getValidatedOrderStockSet, isStockInValidatedOrder, filterActiveKitStocks } from '../../utils/stockOrderUtils';
 import {
   PRE_ORDER_BOX_CONDITION,
   PRE_ORDER_KIT_CONDITION,
@@ -863,9 +864,18 @@ export function CustomDateTimePicker({
 
 export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null }) {
   const { isDarkMode } = useTheme();
-  const { kits, deleteStock, deleteKit, shippingSettings } = useStore();
+  const { kits, deleteStock, deleteKit, shippingSettings, orders, subscribeOrders } = useStore();
   const shippingMethods = shippingSettings?.shippingMethods || {};
   const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    return subscribeOrders({ isAdminMode: true });
+  }, [isOpen, subscribeOrders]);
+
+  const validatedOrderStockData = useMemo(() => {
+    return getValidatedOrderStockSet(orders);
+  }, [orders]);
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [selectedKitId, setSelectedKitId] = useState('');
   const [editingStockKey, setEditingStockKey] = useState('');
@@ -930,10 +940,19 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
     }
   };
 
-  const selectedExistingKit = useMemo(() => {
+  const rawSelectedExistingKit = useMemo(() => {
     if (editingKit?.id) return editingKit;
     return (kits || []).find((kit) => kit.id === selectedKitId) || null;
   }, [editingKit, kits, selectedKitId]);
+
+  const selectedExistingKit = useMemo(() => {
+    if (!rawSelectedExistingKit) return null;
+    if (!rawSelectedExistingKit.stocks) return rawSelectedExistingKit;
+    return {
+      ...rawSelectedExistingKit,
+      stocks: filterActiveKitStocks(rawSelectedExistingKit.stocks, rawSelectedExistingKit.id, validatedOrderStockData)
+    };
+  }, [rawSelectedExistingKit, validatedOrderStockData]);
 
   const filteredKits = useMemo(() => {
     const query = (masterForm.name || '').trim().toLowerCase();
@@ -987,7 +1006,8 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
     const kitValues = new Set();
 
     (kits || []).forEach((kit) => {
-      Object.values(kit?.stocks || {}).forEach((stock) => {
+      Object.entries(kit?.stocks || {}).forEach(([key, stock]) => {
+        if (isStockInValidatedOrder(stock, kit.id, validatedOrderStockData, key)) return;
         const legacy = extractLegacyConditions(stock);
         [stock?.boxCondition, legacy.boxCondition]
           .map(normalizeConditionSuggestion)
@@ -1004,7 +1024,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       box: Array.from(boxValues).sort((a, b) => a.localeCompare(b)),
       kit: Array.from(kitValues).sort((a, b) => a.localeCompare(b)),
     };
-  }, [kits]);
+  }, [kits, validatedOrderStockData]);
 
   const masterSuggestions = useMemo(() => {
     const l = new Set();
@@ -2043,7 +2063,10 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
           .join(' ')
           .toLowerCase();
         const matchesText = !textQuery || haystack.includes(textQuery);
-        const matchesConditions = !hasConditionFilters || Object.values(kit.stocks || {})
+        const activeStocks = Object.entries(kit.stocks || {})
+          .filter(([key, stock]) => !isStockInValidatedOrder(stock, kit.id, validatedOrderStockData, key))
+          .map(([, stock]) => stock);
+        const matchesConditions = !hasConditionFilters || activeStocks
           .some((stock) => stockMatchesConditionFilters(stock, conditionFilters));
         return matchesText && matchesConditions;
       });
@@ -2052,13 +2075,14 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       String(a?.name || '').localeCompare(String(b?.name || ''), undefined, { sensitivity: 'base' })
       || String(a?.id || '').localeCompare(String(b?.id || ''))
     ));
-  }, [kits, masterSearchQuery]);
+  }, [kits, masterSearchQuery, validatedOrderStockData]);
 
   const masterListRows = useMemo(() => (
     masterListFiltered.flatMap((kit) => {
       const { filters: conditionFilters } = parseMasterSearchQuery(masterSearchQuery.trim());
       const hasConditionFilters = Object.values(conditionFilters).some((values) => values.length > 0);
       const stocks = Object.entries(kit.stocks || {})
+        .filter(([key, stock]) => !isStockInValidatedOrder(stock, kit.id, validatedOrderStockData, key))
         .filter(([, stock]) => !hasConditionFilters || stockMatchesConditionFilters(stock, conditionFilters))
         .map(([key, stock]) => ({ key, ...stock }))
         .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
@@ -2066,7 +2090,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       if (stocks.length === 0 && !hasConditionFilters) return [{ kit, stock: {}, stockKey: '', variantIndex: 0 }];
       return stocks.map((stock, index) => ({ kit, stock, stockKey: stock.key, variantIndex: index }));
     })
-  ), [masterListFiltered, masterSearchQuery]);
+  ), [masterListFiltered, masterSearchQuery, validatedOrderStockData]);
 
   const masterListSelectableIds = useMemo(() => (
     Array.from(new Set(masterListFiltered.map((kit) => kit.id)))

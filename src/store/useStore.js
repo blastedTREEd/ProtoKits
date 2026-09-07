@@ -2543,6 +2543,155 @@ export const useStore = create(
             stocks[resolvedStockKey] = { ...normalizedNewStock, key: resolvedStockKey, lastUpdated: timing };
             console.log("SG DEBUG: Variant added/updated. Key:", resolvedStockKey);
           }
+
+          let releasedShelfStockKey = null;
+
+          if (isRestock && resolvedStockKey) {
+            // Check if any existing stock of this kit is in the admin shelf
+            const existingShelfStockEntry = Object.entries(stocks).find(([key, s]) => (
+              key !== resolvedStockKey
+              && (s.reservationType === 'admin' || (s.isReserved && !s.order?.orderId))
+            ));
+
+            // Also check shelf collection documents for this kit
+            const shelfTargetIds = [targetKitId, oldKitId].filter(Boolean);
+            let shelfSnap = null;
+            if (shelfTargetIds.length > 0) {
+              try {
+                const shelfQuery = query(collection(db, 'shelf'), where('id', 'in', shelfTargetIds));
+                shelfSnap = await getDocs(shelfQuery);
+              } catch (e) {
+                console.warn('SG LOG: Could not query shelf collection by ID in addKit:', e);
+              }
+            }
+
+            const shelfDocEntry = shelfSnap?.docs?.find(d => {
+              const data = d.data();
+              return data.stockKey && data.stockKey !== resolvedStockKey && stocks[data.stockKey];
+            });
+
+            const shelfStockKey = existingShelfStockEntry?.[0] || shelfDocEntry?.data()?.stockKey;
+            const shelfBasketId = shelfDocEntry?.id || (get().shelf || []).find(i => (i.id === targetKitId || i.id === oldKitId) && i.stockKey === shelfStockKey)?.basketId;
+
+            if (shelfStockKey && stocks[shelfStockKey]) {
+              const shelfStock = stocks[shelfStockKey];
+              const shelfCostPrice = Number(shelfStock.costPrice);
+              const newCostPrice = Number(normalizedNewStock.costPrice);
+              const hasShelfCost = Number.isFinite(shelfCostPrice) && shelfCostPrice > 0;
+              const hasNewCost = Number.isFinite(newCostPrice) && newCostPrice > 0;
+
+              if (hasShelfCost && hasNewCost) {
+                if (newCostPrice < shelfCostPrice) {
+                  // New stock has LOWER cost price: keep new stock in admin shelf, release previous shelf stock
+                  releasedShelfStockKey = shelfStockKey;
+                  stocks[shelfStockKey] = {
+                    ...stocks[shelfStockKey],
+                    isReserved: false
+                  };
+                  delete stocks[shelfStockKey].reservedBy;
+                  delete stocks[shelfStockKey].reservedAt;
+                  delete stocks[shelfStockKey].reservationType;
+                  delete stocks[shelfStockKey].reservedByDealId;
+                  stocks[shelfStockKey].availableAt = timing;
+
+                  if (shelfBasketId) {
+                    try {
+                      await deleteDoc(doc(db, 'shelf', shelfBasketId));
+                    } catch (err) {
+                      console.error('SG LOG: Failed to delete previous shelf doc:', err);
+                    }
+                  }
+
+                  // Put new stock in admin shelf
+                  stocks[resolvedStockKey] = {
+                    ...stocks[resolvedStockKey],
+                    isReserved: true,
+                    reservationType: 'admin',
+                    reservedBy: get().user?.uid || 'admin',
+                    reservedAt: timing
+                  };
+
+                  const newBasketId = `shelf_${targetKitId}_${resolvedStockKey}`;
+                  const { handlingFee: hFee, installmentFee: iFee, transferFee: tFee } = getCheckoutPaymentFees({
+                    garageInfo: { checkoutSettings: get().shippingSettings },
+                    adminData: { paymentSettings: get().shippingSettings?.paymentSettings }
+                  });
+                  const basePrice = Number(normalizedNewStock.sellPrice || 0);
+                  const cleanShelfItem = {
+                    id: targetKitId,
+                    name: (masterInfo.name || '').replace(/\s*\(Pre-Order\)\s*$/i, ''),
+                    image: masterInfo.image || '',
+                    brand: masterInfo.brand || '',
+                    specs: masterInfo.specs || {},
+                    price: basePrice + hFee + iFee + tFee,
+                    costPrice: newCostPrice,
+                    sellPrice: basePrice,
+                    status: normalizedNewStock.status || 'onhand',
+                    eta: getStockEta(normalizedNewStock),
+                    appliedHandlingFee: hFee,
+                    appliedInstallmentFee: iFee,
+                    appliedTransferFee: tFee,
+                    stockKey: resolvedStockKey,
+                    stockSource: getStockSource(normalizedNewStock),
+                    type: 'kit',
+                    basketId: newBasketId,
+                    minDownpayment: normalizedNewStock.minDownpayment || 0,
+                    isBundleItem: false,
+                    isClearanceBundle: false,
+                    clearanceKitIds: [],
+                    bundleId: null,
+                    bundleName: null,
+                    bundleSize: null,
+                    bundleFeeShare: 0,
+                    bundleReferencePrice: 0,
+                    allowShelfBundle: true,
+                    appliedBundlePrice: null,
+                    createdAt: timing
+                  };
+
+                  try {
+                    await setDoc(doc(db, 'shelf', newBasketId), cleanShelfItem);
+                  } catch (err) {
+                    console.error('SG LOG: Failed to write new shelf item to db:', err);
+                  }
+
+                  set((state) => ({
+                    shelf: (state.shelf || [])
+                      .filter((item) => item.basketId !== shelfBasketId && item.stockKey !== shelfStockKey)
+                      .concat(cleanShelfItem)
+                  }));
+                } else {
+                  // shelfCostPrice <= newCostPrice:
+                  // The existing shelf stock already has the lowest cost price!
+                  // Keep shelf stock in the shelf. New stock remains regular available stock.
+                }
+              } else {
+                // Cost price comparison not applicable: release the stock in admin shelf
+                releasedShelfStockKey = shelfStockKey;
+                stocks[shelfStockKey] = {
+                  ...stocks[shelfStockKey],
+                  isReserved: false
+                };
+                delete stocks[shelfStockKey].reservedBy;
+                delete stocks[shelfStockKey].reservedAt;
+                delete stocks[shelfStockKey].reservationType;
+                delete stocks[shelfStockKey].reservedByDealId;
+                stocks[shelfStockKey].availableAt = timing;
+
+                if (shelfBasketId) {
+                  try {
+                    await deleteDoc(doc(db, 'shelf', shelfBasketId));
+                  } catch (err) {
+                    console.error('SG LOG: Failed to delete released shelf doc:', err);
+                  }
+                }
+
+                set((state) => ({
+                  shelf: (state.shelf || []).filter((item) => item.basketId !== shelfBasketId && item.stockKey !== shelfStockKey)
+                }));
+              }
+            }
+          }
           
           const hasAvailable = Object.values(stocks).some(s => !s.order?.orderId && !s.isReserved);
 
@@ -2560,12 +2709,28 @@ export const useStore = create(
           const kitRef = doc(db, 'kits', targetKitId);
           await setDoc(kitRef, isExistingKit ? cleanMaster : { ...cleanMaster, stocks }, { merge: true });
 
+          const stockUpdates = {};
           if (resolvedStockKey) {
-            await updateDoc(kitRef, {
-              [`stocks.${resolvedStockKey}`]: stocks[resolvedStockKey],
-              hasAvailableStock: hasAvailable
-            });
+            stockUpdates[`stocks.${resolvedStockKey}`] = stocks[resolvedStockKey];
           }
+          if (releasedShelfStockKey) {
+            stockUpdates[`stocks.${releasedShelfStockKey}`] = stocks[releasedShelfStockKey];
+            stockUpdates[`stocks.${releasedShelfStockKey}.isReserved`] = false;
+            stockUpdates[`stocks.${releasedShelfStockKey}.reservedBy`] = null;
+            stockUpdates[`stocks.${releasedShelfStockKey}.reservedAt`] = null;
+            stockUpdates[`stocks.${releasedShelfStockKey}.reservationType`] = deleteField();
+            stockUpdates[`stocks.${releasedShelfStockKey}.reservedByDealId`] = deleteField();
+            stockUpdates[`stocks.${releasedShelfStockKey}.availableAt`] = serverTimestamp();
+          }
+          stockUpdates.hasAvailableStock = hasAvailable;
+
+          if (Object.keys(stockUpdates).length > 0) {
+            await updateDoc(kitRef, stockUpdates);
+          }
+
+          set((state) => ({
+            kits: state.kits.map((k) => (k.id === targetKitId ? { ...k, ...cleanMaster, stocks } : k))
+          }));
           await get().syncPublicKitSummary(targetKitId);
           console.log("SG DEBUG: addKit operation successful.");
           return { id: targetKitId };
@@ -4193,6 +4358,25 @@ export const useStore = create(
             [`stocks.${stockKey}.isReserved`]: true,
             [`stocks.${stockKey}.reservedAt`]: serverTimestamp()
           });
+        }
+      },
+
+      markOrderStocksReceiptValidated: async (order = {}) => {
+        const targets = buildOrderStockTargets(order);
+        for (const target of targets) {
+          try {
+            const kitRef = doc(db, 'kits', target.kitId);
+            const snap = await getDoc(kitRef);
+            if (snap.exists()) {
+              await updateDoc(kitRef, {
+                [`stocks.${target.stockKey}.order.receiptValidated`]: true,
+                [`stocks.${target.stockKey}.receiptValidated`]: true,
+                lastUpdated: serverTimestamp()
+              });
+            }
+          } catch (e) {
+            console.error('SG LOG: Error marking stock as receipt validated:', e);
+          }
         }
       },
 

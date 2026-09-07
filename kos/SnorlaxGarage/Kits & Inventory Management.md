@@ -30,7 +30,7 @@ A "Kit" (`kits` collection) represents a specific 3D-printed product or assembly
 ### 🏷️ Stock Statuses
 - **Available:** Stock unit is not reserved (`isReserved: false`) and has no order associated (`!order`).
 - **Reserved:** Stock unit is reserved by a customer (`isReserved: true` with `reservedBy` set) or reserved by an admin.
-- **Sold:** Stock unit has been purchased and is linked to an active/completed order (`order` object populated).
+- **Sold / Validated:** Stock unit has been purchased and is linked to an active/completed order (`order` object populated). Once an order receives payment validation (`hasValidatedFirstReceipt`) or is identified as a legacy order (`isLegacyOrderRecord`), its stocks are dynamically excluded from `ProductCard` variant lists, bundle deal assignments, master list rows, and `AddKitModal` via `filterActiveKitStocks` (`src/utils/stockOrderUtils.js`).
 
 ---
 
@@ -111,7 +111,19 @@ The Deal Architect creates bundle and clearance deals that reference specific ki
 
 Admin shelf stock is operational stock held outside the normal public availability pool. It may be used for accepted collection offers or other admin-controlled fulfillment paths. Public catalog availability and admin shelf availability must therefore be distinguished when checking whether a stock unit can be purchased. The Kits page’s Collection section uses the same admin-owned reservation marker as the shelf, so customer checkout reservations are not presented as shelf inventory. Legacy admin-held stock with that marker but without a matching `shelf` document is recovered into the admin shelf view without creating a duplicate Firestore row.
 
-## 8. Inventory lifecycle
+## 8. Admin Shelf Auto-Release & Lowest Cost Price Retention
+
+When a new stock variant is added to an existing kit (`addKit` with `isRestock`):
+1. **Shelf Stock Detection:** The store inspects both in-memory kit stocks and queries the Firestore `shelf` collection (`where('id', 'in', [kitId])`) to check if any variant of this kit is currently held in the admin shelf (`isReserved: true, reservationType: 'admin'`).
+2. **Cost Price Comparison:**
+   - If both the existing shelf unit and the newly added unit have valid `costPrice` values, the system compares them:
+     - The stock unit with the **lower cost price** is retained in the admin shelf.
+     - The stock unit with the higher cost price is automatically released to general inventory (`isReserved: false`, removing reservation markers and updating Firestore `shelf` documents accordingly).
+   - If the new stock has a lower cost price, the shelf item is swapped to reference the new stock key, and the previous shelf unit is released.
+   - If cost prices are not comparable, the existing shelf stock is released by default.
+3. **Atomic State & Document Sync:** Both Firestore collections (`kits` and `shelf`) and client store states (`state.kits` and `state.shelf`) are updated concurrently, ensuring immediate UI reactivity and preventing phantom shelf holds.
+
+## 9. Inventory lifecycle
 
 The normal lifecycle is:
 
@@ -119,7 +131,8 @@ The normal lifecycle is:
 2. Add one or more physical stock variants with pricing, status, ETA, and conditions.
 3. Track supplier balances until the shipment arrives.
 4. Apply or verify arrival conditions and move stock into the appropriate on-hand/public/shelf state.
-5. Reserve an exact stock variant during checkout.
-6. Mark the order outcome; release the variant if the order is cancelled or declined, or retain its order linkage when sold.
+5. If restocked, evaluate admin shelf holdings for lowest-cost retention and auto-release.
+6. Reserve an exact stock variant during checkout.
+7. Mark the order outcome; release the variant if the order is cancelled or declined, or retain its order linkage and exclude from active selection once payment is validated or recorded as a legacy order.
 
 Because stock is represented as a nested map inside a kit document, edits must preserve the exact stock key and avoid overwriting unrelated variants.

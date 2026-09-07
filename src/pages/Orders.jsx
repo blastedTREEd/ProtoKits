@@ -754,7 +754,7 @@ export default function Orders() {
   const location = useLocation();
   const navigate = useNavigate();
   const { orderId: routeOrderId } = useParams();
-  const { user, isAdmin, isAdminView, kits, shelf, assignStockToOrder, cancelOrder, confirmOrderPayment, uploadReceipt, updateOrderDetails, updateOrderStatus, scrubFinalizedOrders, rates, orders, usersList, createOrder, deleteOrder, reverseCompletedOrder, reverseLegacyOrder, migrateLegacyOrderIds, isLoading, subscribeOrders, subscribeUsersList, loadPrintResources, shippingSettings, garageInfo, cleanUpCancelledOrders, setToastMessage } = useStore();
+  const { user, isAdmin, isAdminView, kits, shelf, assignStockToOrder, cancelOrder, confirmOrderPayment, uploadReceipt, updateOrderDetails, updateOrderStatus, scrubFinalizedOrders, rates, orders, usersList, createOrder, deleteOrder, reverseCompletedOrder, reverseLegacyOrder, migrateLegacyOrderIds, isLoading, subscribeOrders, subscribeUsersList, loadPrintResources, shippingSettings, garageInfo, cleanUpCancelledOrders, setToastMessage, markOrderStocksReceiptValidated } = useStore();
   const isAdminMode = isAdmin && isAdminView;
   
   // Dynamically get the QR for whatever payment method the selected order uses
@@ -1744,7 +1744,7 @@ export default function Orders() {
     try {
       const docId = await createOrder(orderData);
       await Promise.all(allocatedItems.map(({ kit, stockKey }) => (
-        assignStockToOrder(kit.id, stockKey, orderId, { isLegacyOrder: true, orderDocId: docId })
+        assignStockToOrder(kit.id, stockKey, orderId, { isLegacyOrder: true, legacyOrder: true, orderDocId: docId })
       )));
       setToastMessage(`Legacy order ${orderId} created.`);
       setShowManualOrderModal(false);
@@ -1869,6 +1869,8 @@ export default function Orders() {
           reviewedAt: new Date().toISOString()
         }
       });
+      
+      await markOrderStocksReceiptValidated(order);
       
       let newStatus;
       const isPartialPlan = String(order.paymentPlan || '').toLowerCase() === 'partial';

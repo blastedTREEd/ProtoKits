@@ -21,6 +21,10 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
   // Fetch ALL kits for a complete balance report
   useEffect(() => {
     const fetchFullInventory = async () => {
+      if (storeKits && storeKits.length > 0) {
+        setAllKits(storeKits);
+        return;
+      }
       setIsSyncing(true);
       try {
         const snap = await getDocs(collection(db, "kits"));
@@ -28,7 +32,7 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
         setAllKits(kitsData);
       } catch (e) {
         console.error("Failed to fetch kits for balance report:", e);
-        setAllKits(storeKits); 
+        setAllKits(storeKits || []); 
       } finally {
         setIsSyncing(false);
       }
@@ -37,7 +41,7 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
     if (isOpen) {
       fetchFullInventory();
     }
-  }, [isOpen, storeKits]);
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return undefined;

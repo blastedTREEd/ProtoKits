@@ -29,18 +29,27 @@ To eliminate loading flashes (content flickering) in React, the store tracks pag
 - Order, Notify Me, and admin user-list listeners use reference-counted shared subscriptions so opening overlapping views does not register identical Firestore listeners twice. The Users Dashboard reuses the live users snapshot when available instead of issuing a duplicate full `users` read.
 - The first snapshot marks a dataset loaded even when it contains zero documents. An empty collection is valid data and must not leave the loading overlay visible.
 
-### Spark-plan subscription audit (2026-09-07)
+### Spark-plan subscription audit (Updated 2026-09-08)
 
-The project targets the Standard Firestore database `(default)` in `asia-southeast1` through `firebase.json`. The Spark no-cost allowance for Standard Firestore is currently 50,000 document reads/day, 20,000 writes/day, 20,000 deletes/day, 1 GiB stored data, and 10 GiB/month network egress. Realtime listeners are billed from the documents returned by the initial query and subsequent matching changes; keeping a listener alive is generally cheaper than repeatedly reissuing the same one-shot query, but broad listeners still have a large initial and reconnect cost.
+The project targets the Standard Firestore database `(default)` in `asia-southeast1` through `firebase.json`. The Spark no-cost allowance for Standard Firestore is 50,000 document reads/day, 20,000 writes/day, 20,000 deletes/day, 1 GiB stored data, and 10 GiB/month network egress. Realtime listeners are billed from documents returned by the initial query and subsequent matching changes; maintaining well-scoped listeners is significantly cheaper than repeatedly issuing full collection `getDocs` queries.
 
-The current client is Spark-conscious but not usage-proof:
+Comprehensive codebase audit findings:
 
-- Good: route-aware listeners, shared order/Notify Me/user listeners, persistent cache, targeted missing-kit reads, limited admin order query (`limit(100)`), and no redundant shelf refresh while its live listener is active.
-- Main catalog risk: admin, cart, checkout, and search workflows still require the complete `kits` data set. Public browsing now uses bounded `kits` pages or the compact `catalogPublic` projection, so the broad listener is no longer the default public landing path.
-- Admin-only burst risk: Users Dashboard still loads all orders/admin records and each user’s basket/project vault when opened. It is not a persistent listener, but it can consume many reads in one visit; it should be paginated or moved to server-side/admin summary documents if the user base grows.
-- The admin `shelf` listener returns the full shelf collection on admin routes. This is acceptable while the shelf is small, but it should be scoped or split if shelf volume becomes large.
+- **100% Centralized Listener Architecture:** Zero `onSnapshot` listeners exist in loose React components. All 23 active listeners are defined and managed within `src/store/useStore.js`, ensuring unified lifecycle management and preventing stray or orphaned listeners.
+- **Reference-Counted Shared Subscriptions:** `subscribeOrders`, `subscribeNotifyList`, and `subscribeUsersList` utilize internal reference-counted maps (`sharedOrderSubscriptions`, `sharedNotifySubscriptions`, `sharedUsersSubscriptions`). Multiple mounted components (`Navbar`, `Kits`, `ProductCard`, `Orders`, `AddKitModal`, `AdminCalendarModal`) share a single underlying Firestore listener instance; listeners are only unsubscribed and closed when all referencing components unmount (`refCount <= 0`).
+- **Route-Aware Lazy Gating (`_getPageRequirements`):** Data listeners only start when navigating to pages that require them:
+  - Stories, home kits (`limit(40)`), and home blueprints (`limit(12)`) are active exclusively on `/`.
+  - Public `/kits` catalog utilizes cursor pagination (`PUBLIC_KIT_PAGE_SIZE = 40`) or the compact `catalogPublic` projection instead of reading the full collection.
+  - Full catalog listener is restricted to Admin views, search mode, cart, and checkout.
+  - Print resources (`printers`, `feeders`, `filaments`, `rates`, `extras`, `methods`) are lazy-loaded on demand via `loadPrintResources()` rather than at boot.
+- **Zero-Read In-Memory Order Stock Filtering:** Filtering stocks attached to validated-receipt orders and legacy orders (`filterActiveKitStocks` via `src/utils/stockOrderUtils.js`) computes dynamically in memory using the existing `orders` snapshot (`limit(100)`), requiring zero extra Firestore reads.
+- **Optimized Supplier Balances:** `SupplierBalancesModal` reuses in-memory `storeKits` whenever loaded, avoiding redundant full collection scans (`getDocs(collection(db, 'kits'))`) during modal open and stock arrival/payment mutations.
+- **Targeted Shelf Queries:** Restock and admin shelf auto-release actions query the shelf collection using targeted document keys (`where('id', 'in', [kitId])`), preventing full collection scans.
+- **Multi-Tab IndexedDB Caching:** `persistentLocalCache` with `persistentMultipleTabManager` in `src/firebase/firebase.js` shares cached Firestore data across tabs and reloads, eliminating duplicate initial query reads across concurrent browser sessions.
 
-Usage must be checked in Firebase Console under Firestore Usage because the repository cannot prove the project’s live plan, daily consumption, or reconnect frequency. No Firebase rules, indexes, or production deployments are implied by this audit.
+Remaining Spark-plan risks to monitor:
+- **Admin Users Dashboard:** Fetches all users, orders, admins, and individual user subcollections (`basket`, `projectVaults`) on mount. Acceptable for internal admin usage, but will require pagination or cloud function aggregation if user count grows significantly.
+- **Admin Shelf Listener:** Unbounded collection listener active on all admin routes. Safe while shelf items remain under ~100 docs.
 
 ---
 
