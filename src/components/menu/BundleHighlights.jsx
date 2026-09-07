@@ -180,9 +180,17 @@ function randomizeFeedCards(cards, limit = 10) {
 
 export default function BundleHighlights() {
   const deals = useStore((state) => state.deals);
-  const kits = useStore((state) => state.kits);
-  const blueprints = useStore((state) => state.blueprints);
-  const loadAllDeals = useStore((state) => state.loadAllDeals);
+  const activePath = useStore((state) => state._activePath);
+  const kits = useStore((state) => (
+    activePath === '/'
+      ? (state.homeKits || [])
+      : (state.kits || [])
+  ));
+  const blueprints = useStore((state) => (
+    activePath === '/'
+      ? (state.homeBlueprints || [])
+      : (state.blueprints || [])
+  ));
   const isAdmin = useStore((state) => state.isAdmin);
   const isAdminView = useStore((state) => state.isAdminView);
   const addProjectToBasket = useStore((state) => state.addProjectToBasket);
@@ -200,16 +208,6 @@ export default function BundleHighlights() {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
-
-  // Deals are normally loaded on the Kits route. The home page uses the same
-  // live collection, so load it here when this section is first mounted.
-  useEffect(() => {
-    if (!Array.isArray(deals) || deals.length === 0) {
-      loadAllDeals().catch((error) => {
-        console.error('Failed to load home bundle deals:', error);
-      });
-    }
-  }, [deals, loadAllDeals]);
 
   const activeBundles = useMemo(() => {
     const kitMap = new Map((kits || []).map((kit) => [String(kit.id), kit]));
@@ -354,7 +352,7 @@ export default function BundleHighlights() {
     // kit/other cards as separators between project cards.
     return randomizeFeedCards(fillerCards, 10);
   }, [fillerCards]);
-  const bundleDataLoading = ['kits', 'deals', 'prints'].some((key) => (
+  const bundleDataLoading = ['homeKits', 'homeBlueprints', 'deals'].some((key) => (
     (_datasetStatus?.[key] || 'loading') === 'loading'
   ));
   const bundleDataReady = !bundleDataLoading;

@@ -55,7 +55,12 @@ function getMutuallyExclusivePairRows(deal, kits = []) {
   if (deal?.mutuallyExclusivePairs?.length > 0) {
     return deal.mutuallyExclusivePairs
       .filter(pair => pair?.bandaiId || pair?.bootlegId)
-      .map(pair => ({ bandaiId: pair.bandaiId || null, bootlegId: pair.bootlegId || null }));
+      .map(pair => ({
+        bandaiId: pair.bandaiId || null,
+        bandaiStockKey: pair.bandaiStockKey || null,
+        bootlegId: pair.bootlegId || null,
+        bootlegStockKey: pair.bootlegStockKey || null
+      }));
   }
 
   const bandaiIds = deal?.mutuallyExclusiveGroups?.bandai || deal?.bandaiKitIds || [];
@@ -112,6 +117,62 @@ function getHighestOnhandStock(kit) {
 function isBundlePurchasableStock(stock, source = 'onhand') {
   if (!stock || stock.order?.orderId || !stockMatchesSource(stock, source)) return false;
   return !stock.isReserved;
+}
+
+function isMutualDealSelectableStock(stock, isAdminShelfStock = false) {
+  if (!stock || stock.order || (
+    !stockMatchesSource(stock, 'onhand')
+    && !stockMatchesSource(stock, 'preorder')
+  )) {
+    return false;
+  }
+  return !stock.isReserved || stock.reservationType === 'admin' || isAdminShelfStock;
+}
+
+function hasStockOrder(stock) {
+  const orderReference = stock?.order;
+  return typeof orderReference === 'object'
+    ? Boolean(
+      orderReference?.orderId
+      || orderReference?.orderDocId
+      || orderReference?.id
+      || Object.keys(orderReference || {}).length > 0
+    )
+    : Boolean(orderReference);
+}
+
+// Deal configuration can include a stock that is temporarily reserved or on
+// the admin shelf. A stock already attached to an order is no longer a
+// configurable inventory unit, so it remains excluded.
+function getMutualDealConfigurableStocks(kit) {
+  return Object.entries(kit?.stocks || {})
+    .filter(([, stock]) => (
+      stock
+      && !hasStockOrder(stock)
+      && (stockMatchesSource(stock, 'onhand') || stockMatchesSource(stock, 'preorder'))
+    ))
+    .map(([stockKey, stock]) => ({ stockKey, stock }))
+    .sort((a, b) => {
+      const aPreOrder = stockMatchesSource(a.stock, 'preorder') ? 1 : 0;
+      const bPreOrder = stockMatchesSource(b.stock, 'preorder') ? 1 : 0;
+      return aPreOrder - bPreOrder || String(a.stockKey).localeCompare(String(b.stockKey));
+    });
+}
+
+function getMutualDealStockSourceLabel(stock) {
+  return stockMatchesSource(stock, 'preorder') ? 'PRE-ORDER' : 'ON-HAND';
+}
+
+function getMutualDealStockVisibilityLabel(stock) {
+  if (stock?.isReserved && stock?.reservationType === 'admin') return 'ADMIN SHELF';
+  if (stock?.isReserved) return 'RESERVED';
+  return 'PUBLIC';
+}
+
+function getHighestMutualDealStock(kit) {
+  return getHighestCostStock(
+    Object.values(kit?.stocks || {}).filter(stock => isMutualDealSelectableStock(stock))
+  ) || getHighestOnhandStock(kit);
 }
 
 function getHighestAvailableOnhandStock(kit) {
@@ -711,7 +772,43 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     return { bandai, bootleg };
   }, [kits, mutuallyExclusivePairRows]);
 
-  const isBandaiKitId = (kitId) => String(kits.find(kit => kit.id === kitId)?.brand || '').toLowerCase().includes('bandai');
+  const getMutualSelectedStockRefs = (rows = mutuallyExclusivePairRows) => rows.flatMap(row => [
+    row.bandaiId && row.bandaiStockKey ? `${row.bandaiId}:${row.bandaiStockKey}` : null,
+    row.bootlegId && row.bootlegStockKey ? `${row.bootlegId}:${row.bootlegStockKey}` : null
+  ].filter(Boolean));
+
+  const isMutualStockSelected = (kitId, stockKey) => getMutualSelectedStockRefs()
+    .includes(`${kitId}:${stockKey}`);
+
+  const setSelectedKitIdsFromMutualRows = (rows) => {
+    const nextKitIds = Array.from(new Set(rows.flatMap(row => [row.bandaiId, row.bootlegId].filter(Boolean))));
+    setSelectedKitIds(nextKitIds);
+  };
+
+  const addMutualStockSelection = (kitId, stockKey) => {
+    if (!kitId || !stockKey || isMutualStockSelected(kitId, stockKey)) return;
+
+    const rowIndex = mutuallyExclusivePairRows.findIndex(row => !row.bandaiId || !row.bootlegId);
+    const targetRowIndex = rowIndex >= 0 ? rowIndex : mutuallyExclusivePairRows.length;
+    const nextRows = mutuallyExclusivePairRows.map(row => ({ ...row }));
+
+    if (!nextRows[targetRowIndex]) nextRows[targetRowIndex] = { bandaiId: null, bootlegId: null };
+    const side = nextRows[targetRowIndex].bandaiId ? 'bootleg' : 'bandai';
+    nextRows[targetRowIndex][`${side}Id`] = kitId;
+    nextRows[targetRowIndex][`${side}StockKey`] = stockKey;
+    setMutuallyExclusivePairRows(nextRows);
+    setSelectedKitIdsFromMutualRows(nextRows);
+  };
+
+  const removeMutualStockSelection = (pairIndex, side) => {
+    const nextRows = mutuallyExclusivePairRows.map(row => ({ ...row }));
+    const row = nextRows[pairIndex];
+    if (!row) return;
+    row[`${side}Id`] = null;
+    row[`${side}StockKey`] = null;
+    setMutuallyExclusivePairRows(nextRows);
+    setSelectedKitIdsFromMutualRows(nextRows);
+  };
 
   const previewKitsData = useMemo(() => {
     return getOrderedKits(kits, previewKitIds).slice(0, 4);
@@ -746,7 +843,9 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
         : getClearanceBundlePricing(rows, clearanceKitIds, discountOverrides);
     }
     const rows = selectedKitsData.map(kit => {
-      const stock = getHighestAvailableOnhandStock(kit);
+      const stock = dealType === 'mutually_exclusive'
+        ? getHighestMutualDealStock(kit)
+        : getHighestAvailableOnhandStock(kit);
       return {
         kit,
         kitId: kit.id,
@@ -775,14 +874,22 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     if (!searchTerm) return [];
     const lowerSearch = searchTerm.toLowerCase();
     return (kits || []).filter(k => {
-      const target = [k.name, k.brand, k.specs?.line].filter(Boolean).join(' ').toLowerCase();
+      const stockSearchText = Object.entries(k.stocks || {})
+        .map(([stockKey, stock]) => [stockKey, stock?.status, stock?.eta].filter(Boolean).join(' '))
+        .join(' ');
+      const target = [k.name, k.brand, k.specs?.line, stockSearchText].filter(Boolean).join(' ').toLowerCase();
       const hasPurchasableOnhandStock = Object.values(k.stocks || {})
         .some(stock => isBundlePurchasableStock(stock, 'onhand'));
+      const mutualDealStocks = getMutualDealConfigurableStocks(k);
+      const hasMutualDealSelectableStock = mutualDealStocks.some(({ stockKey }) => (
+        !isMutualStockSelected(k.id, stockKey)
+      ));
       return target.includes(lowerSearch)
-        && !selectedKitIds.includes(k.id)
-        && (dealType !== 'bundle_only' || hasPurchasableOnhandStock);
-    }).slice(0, 5);
-  }, [dealType, kits, searchTerm, selectedKitIds]);
+        && (dealType === 'mutually_exclusive' || !selectedKitIds.includes(k.id))
+        && (dealType !== 'bundle_only' || hasPurchasableOnhandStock)
+        && (dealType !== 'mutually_exclusive' || hasMutualDealSelectableStock);
+    });
+  }, [dealType, kits, searchTerm, selectedKitIds, mutuallyExclusivePairRows, shelf]);
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -870,17 +977,14 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
           return prev.filter(i => i !== id);
         }
 
-        const isBandai = isBandaiKitId(id);
         setMutuallyExclusivePairRows(rows => {
-          const partnerRowIndex = rows.findIndex(row => isBandai
-            ? !row.bandaiId && row.bootlegId
-            : !row.bootlegId && row.bandaiId);
+          const partnerRowIndex = rows.findIndex(row => !row.bandaiId || !row.bootlegId);
           if (partnerRowIndex >= 0) {
             return rows.map((row, index) => index === partnerRowIndex
-              ? (isBandai ? { ...row, bandaiId: id } : { ...row, bootlegId: id })
+              ? (row.bandaiId ? { ...row, bootlegId: id } : { ...row, bandaiId: id })
               : row);
           }
-          return [...rows, isBandai ? { bandaiId: id, bootlegId: null } : { bandaiId: null, bootlegId: id }];
+          return [...rows, { bandaiId: id, bootlegId: null }];
         });
         return [...prev, id];
       });
@@ -1085,14 +1189,12 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       return alert("Add at least 1 kit to the clearance eligible list");
     }
     if (dealType === 'mutually_exclusive') {
-      if (mutuallyExclusiveGroups.bandai.length === 0 || mutuallyExclusiveGroups.bootleg.length === 0) {
-        return alert("Add at least one BANDAI kit and one BOOTLEG kit");
-      }
-      if (mutuallyExclusiveGroups.bandai.length !== mutuallyExclusiveGroups.bootleg.length) {
-        return alert("Each BANDAI kit must have one BOOTLEG partner");
-      }
-      if (mutuallyExclusivePairRows.some(row => !row.bandaiId || !row.bootlegId)) {
-        return alert("Pair or remove every kit without a partner before saving");
+      if (mutuallyExclusivePairRows.length === 0 || mutuallyExclusivePairRows.some(row => (
+        !row.bandaiId
+        || !row.bootlegId
+        || Boolean(row.bandaiStockKey) !== Boolean(row.bootlegStockKey)
+      ))) {
+        return alert("Add two distinct stocks to every mutually exclusive pair before saving");
       }
     } else if (!isClearanceStrategy && selectedKitIds.length < 2) {
       return alert("Pick at least 2 kits for this deal");
@@ -1138,7 +1240,9 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     const mutuallyExclusivePairs = dealType === 'mutually_exclusive'
       ? mutuallyExclusivePairRows.map(row => ({
           bandaiId: row.bandaiId,
-          bootlegId: row.bootlegId
+          ...(row.bandaiStockKey ? { bandaiStockKey: row.bandaiStockKey } : {}),
+          bootlegId: row.bootlegId,
+          ...(row.bootlegStockKey ? { bootlegStockKey: row.bootlegStockKey } : {})
         }))
       : [];
     const effectiveClearanceDiscounts = { ...clearanceOriginalOverrides, ...clearanceDiscounts };
@@ -1317,7 +1421,15 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       await addDeal(dealData);
 
       if (dealType === 'mutually_exclusive') {
-        const selectedShelfItems = (shelf || []).filter(item => selectedKitIds.includes(item.id));
+        const selectedKitIdSet = new Set(selectedKitIds.map(String));
+        const selectedMutualStockRefs = new Set(getMutualSelectedStockRefs());
+        const selectedShelfItems = (shelf || []).filter(item => (
+          item?.type === 'kit'
+          && item?.stockKey
+          && selectedKitIdSet.has(String(item.id))
+          && (selectedMutualStockRefs.size === 0 || selectedMutualStockRefs.has(`${item.id}:${item.stockKey}`))
+          && !item?.order
+        ));
         for (const shelfItem of selectedShelfItems) {
           try {
             await removeFromBasket(shelfItem.basketId);
@@ -1359,10 +1471,14 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     const pairEntries = mutuallyExclusivePairRows.map((pair, index) => ({
       index,
       bandai: kitMap.get(pair.bandaiId),
-      bootleg: kitMap.get(pair.bootlegId)
+      bandaiStock: pair.bandaiStockKey ? kitMap.get(pair.bandaiId)?.stocks?.[pair.bandaiStockKey] : null,
+      bandaiStockKey: pair.bandaiStockKey,
+      bootleg: kitMap.get(pair.bootlegId),
+      bootlegStock: pair.bootlegStockKey ? kitMap.get(pair.bootlegId)?.stocks?.[pair.bootlegStockKey] : null,
+      bootlegStockKey: pair.bootlegStockKey
     }));
 
-    const renderPairSide = (label, kit, pairIndex) => {
+    const renderPairSide = (label, kit, stock, stockKey, pairIndex) => {
       return (
         <div className="flex min-w-0 items-center gap-2 rounded-xl border border-blue-500/30 bg-blue-500/10 px-2 py-2">
           {kit ? (
@@ -1373,16 +1489,21 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                 <span className="mt-0.5 block truncate text-[12px] font-black uppercase text-[var(--color-text-main)]">
                   {[kit.brand, kit.specs?.line, kit.specs?.scale].filter(Boolean).join(' / ') || 'No brand, line, or scale'}
                 </span>
+                {stockKey && (
+                  <span className="mt-0.5 block truncate text-[10px] font-black uppercase text-blue-500">
+                    STOCK {stockKey} · {getMutualDealStockSourceLabel(stock)} · {getMutualDealStockVisibilityLabel(stock)}
+                  </span>
+                )}
               </div>
               <div className="shrink-0 text-right leading-tight">
-                <span className="block text-[12px] font-black uppercase text-emerald-500">SELL ₱{getBundleStandardSellPrice(getHighestOnhandStock(kit), kit).toLocaleString()}</span>
-                <span className="block text-[12px] font-black uppercase text-[var(--color-text-main)]">COST ₱{Number(getHighestOnhandStock(kit).costPrice || kit.costPrice || 0).toLocaleString()}</span>
+                <span className="block text-[12px] font-black uppercase text-emerald-500">SELL ₱{getBundleStandardSellPrice(stock || getHighestMutualDealStock(kit), kit).toLocaleString()}</span>
+                <span className="block text-[12px] font-black uppercase text-[var(--color-text-main)]">COST ₱{Number((stock || getHighestMutualDealStock(kit)).costPrice || kit.costPrice || 0).toLocaleString()}</span>
               </div>
               <button
                 type="button"
-                onClick={() => toggleKitSelection(kit.id)}
+                onClick={() => stockKey ? removeMutualStockSelection(pairIndex, label === 'STOCK A' ? 'bandai' : 'bootleg') : toggleKitSelection(kit.id)}
                 className="shrink-0 rounded-full p-1 opacity-50 transition-all hover:bg-red-500/10 hover:text-red-500 hover:opacity-100"
-                title={`Remove ${label} kit from pair ${pairIndex + 1}`}
+                title={`Remove ${label} stock from pair ${pairIndex + 1}`}
               >
                 <X size={12} />
               </button>
@@ -1398,15 +1519,15 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
 
     return (
       <div className="space-y-3">
-        {pairEntries.map(({ index, bandai, bootleg }) => (
+        {pairEntries.map(({ index, bandai, bandaiStock, bandaiStockKey, bootleg, bootlegStock, bootlegStockKey }) => (
           <div key={`mutual-pair-${index}`} className="space-y-2">
             <div className="mb-2 flex items-center justify-between gap-2 px-1">
               <span className="text-[11px] font-black uppercase tracking-widest text-[var(--color-text-main)]">Pair {index + 1}</span>
               <span className="text-[10px] font-black uppercase tracking-widest text-[var(--color-text-main)]">Cannot be sold together</span>
             </div>
             <div className="grid grid-cols-1 gap-2">
-              {renderPairSide('BANDAI', bandai, index)}
-              {renderPairSide('BOOTLEG', bootleg, index)}
+              {renderPairSide('STOCK A', bandai, bandaiStock, bandaiStockKey, index)}
+              {renderPairSide('STOCK B', bootleg, bootlegStock, bootlegStockKey, index)}
             </div>
           </div>
         ))}
@@ -1685,24 +1806,70 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
 
                    {/* Dropdown Suggestions */}
                    {kitSearchResults.length > 0 && (
-                     <div className={`absolute left-0 right-0 mt-1 z-50 rounded-2xl border shadow-xl overflow-hidden ${isDarkMode ? 'bg-neutral-800 border-neutral-700' : 'bg-white border-neutral-200'}`}>
+                     <div className={`absolute left-0 right-0 mt-1 z-50 max-h-[min(28rem,calc(100vh-12rem))] overflow-y-auto rounded-2xl border shadow-xl custom-scrollbar ${isDarkMode ? 'bg-neutral-800 border-neutral-700' : 'bg-white border-neutral-200'}`}>
                        {kitSearchResults.map(kit => {
                          const stocks = Object.values(kit.stocks || {});
-                         const hasPurchasableStock = stocks.some(s => isBundlePurchasableStock(s, 'onhand'));
+                         const mutualDealStocks = dealType === 'mutually_exclusive'
+                           ? getMutualDealConfigurableStocks(kit)
+                           : [];
+                         const hasPurchasableStock = dealType === 'mutually_exclusive'
+                           ? mutualDealStocks.some(({ stockKey }) => !isMutualStockSelected(kit.id, stockKey))
+                           : stocks.some(s => isBundlePurchasableStock(s, 'onhand'));
                          return (
-                         <div key={kit.id} onClick={() => {
-                           if (!hasPurchasableStock) {
-                             alert("This kit has no available stock for purchase. Reserved items cannot be added to a bundle.");
-                             return;
-                           }
-                           toggleKitSelection(kit.id); setSearchTerm('');
-                         }} className={`p-3 flex items-center gap-3 cursor-pointer transition-colors border-b border-neutral-500/10 last:border-b-0 ${hasPurchasableStock ? 'hover:bg-blue-500/10' : 'bg-red-500/10 hover:bg-red-500/20 opacity-60'}`}>
-                           <img src={resolveImage(kit.image, kit.images)} className="w-8 h-8 rounded object-cover bg-white" alt="" />
-                           <div className="flex-1 text-left">
+                         <div key={kit.id} className={`p-4 flex items-start gap-3 transition-colors border-b border-neutral-500/10 last:border-b-0 ${hasPurchasableStock ? '' : 'bg-red-500/10 opacity-60'}`}>
+                           <img src={resolveImage(kit.image, kit.images)} className={`${dealType === 'mutually_exclusive' ? 'h-10 w-10' : 'h-8 w-8'} shrink-0 rounded object-cover bg-white`} alt="" />
+                           <div className="min-w-0 flex-1 text-left">
                              <p className={`text-[12px] font-black uppercase leading-tight truncate ${!hasPurchasableStock ? 'text-red-500' : ''}`}>{kit.name}</p>
-                             <p className={`text-[12px] font-bold mt-0.5 uppercase truncate ${!hasPurchasableStock ? 'text-red-400' : 'opacity-50'}`}>{hasPurchasableStock ? ([kit.brand, kit.specs?.line, kit.specs?.scale].filter(Boolean).join(' / ') || 'No brand, line, or scale') : 'NO STOCK'}</p>
+                             {dealType === 'mutually_exclusive' ? (
+                               <div className={`mt-1 space-y-1 ${!hasPurchasableStock ? 'text-red-400' : 'opacity-70'}`}>
+                                 <p className="text-[10px] font-black uppercase tracking-wide">
+                                   {hasPurchasableStock ? `${mutualDealStocks.length} CONFIGURABLE STOCK${mutualDealStocks.length === 1 ? '' : 'S'} — SELECT ONE` : 'NO STOCK'}
+                                 </p>
+                                 {mutualDealStocks.length > 0 && (
+                                   <div className="mt-2 grid max-h-52 gap-2 overflow-y-auto pr-1 custom-scrollbar">
+                                     {mutualDealStocks.map(({ stockKey, stock }) => (
+                                       <button
+                                         key={stockKey}
+                                         type="button"
+                                         disabled={isMutualStockSelected(kit.id, stockKey)}
+                                         onClick={() => {
+                                           addMutualStockSelection(kit.id, stockKey);
+                                           setSearchTerm('');
+                                         }}
+                                         className={`flex min-h-12 w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left transition-colors ${isMutualStockSelected(kit.id, stockKey) ? 'cursor-not-allowed border-emerald-500/30 bg-emerald-500/15 text-emerald-700' : 'border-[var(--color-border)] bg-black/5 hover:border-blue-500 hover:bg-blue-500/10'}`}
+                                       >
+                                         <span className="min-w-0">
+                                           <span className="block truncate text-[11px] font-black uppercase leading-tight">{stockKey}</span>
+                                           <span className="mt-1 block text-[10px] font-bold uppercase leading-tight opacity-70">
+                                             {getMutualDealStockSourceLabel(stock)} · {getMutualDealStockVisibilityLabel(stock)}
+                                           </span>
+                                         </span>
+                                         <span className="shrink-0 text-[10px] font-black uppercase tracking-wide opacity-70">
+                                           {isMutualStockSelected(kit.id, stockKey) ? 'SELECTED' : 'SELECT'}
+                                         </span>
+                                       </button>
+                                     ))}
+                                   </div>
+                                 )}
+                               </div>
+                             ) : (
+                               <p className={`text-[12px] font-bold mt-0.5 uppercase truncate ${!hasPurchasableStock ? 'text-red-400' : 'opacity-50'}`}>{hasPurchasableStock ? ([kit.brand, kit.specs?.line, kit.specs?.scale].filter(Boolean).join(' / ') || 'No brand, line, or scale') : 'NO STOCK'}</p>
+                             )}
                            </div>
-                           <Plus size={14} className={hasPurchasableStock ? 'opacity-40' : 'opacity-20 text-red-400'} />
+                           {dealType !== 'mutually_exclusive' && (
+                             <button
+                               type="button"
+                               disabled={!hasPurchasableStock}
+                               onClick={() => {
+                                 if (!hasPurchasableStock) return;
+                                 toggleKitSelection(kit.id);
+                                 setSearchTerm('');
+                               }}
+                               className="shrink-0 p-1"
+                             >
+                               <Plus size={14} className={hasPurchasableStock ? 'opacity-40' : 'opacity-20 text-red-400'} />
+                             </button>
+                           )}
                          </div>
                          );
                        })}
@@ -1748,7 +1915,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                               </>
                             ) : dealType === 'mutually_exclusive' ? (
                               <p className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-4 text-[12px] font-bold leading-relaxed text-red-600 dark:text-red-300">
-                                Select exactly two kits. They cannot be sold together and will be automatically synchronized when either kit is reserved.
+                                Select exactly two kits. Matching stock units cannot be sold together; the opposing stock is synchronized when an order reserves a stock unit.
                               </p>
                             ) : (
                               <p className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-4 text-[12px] font-bold leading-relaxed text-amber-600">
@@ -2152,7 +2319,9 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                     const listedClearancePricing = isClearanceLike
                       ? (isFlexiDeal ? getFlexiBundlePreviewPricing : getClearanceBundlePricing)(
                         includedKits.map(kit => {
-                          const stock = getHighestOnhandStock(kit);
+                            const stock = dealType === 'mutually_exclusive'
+                              ? getHighestMutualDealStock(kit)
+                              : getHighestOnhandStock(kit);
                           return {
                             kit,
                             stock,
@@ -2195,7 +2364,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                     if (isMutualDeal) {
                       const pairRows = getMutuallyExclusivePairRows(deal, kits);
                       const getMutualKitPrice = (kit) => {
-                        const stock = getHighestOnhandStock(kit);
+                        const stock = getHighestMutualDealStock(kit);
                         return {
                           sellPrice: Number(stock?.sellPrice || kit?.sellPrice || 0),
                           costPrice: Number(stock?.costPrice || kit?.costPrice || 0)

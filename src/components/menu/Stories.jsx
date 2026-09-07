@@ -59,7 +59,17 @@ function getStoryItems(items) {
 
 export default function Stories({ isCompact, hideImmediately = false, hideAnimatedCards = false }) {
   // Kunin ang actual data mula sa Zustand store (DB)
-  const { stories, kits, blueprints, isAdmin, isAdminView, setStoriesHeight } = useStore();
+  const { stories, isAdmin, isAdminView, setStoriesHeight } = useStore();
+  const kits = useStore((state) => (
+    state._activePath === '/'
+      ? (state.homeKits || [])
+      : (state.kits || [])
+  ));
+  const blueprints = useStore((state) => (
+    state._activePath === '/'
+      ? (state.homeBlueprints || [])
+      : (state.blueprints || [])
+  ));
   const storiesStatus = useStore((state) => state._datasetStatus?.stories || 'loading');
   const navigate = useNavigate();
   const containerRef = useRef(null);

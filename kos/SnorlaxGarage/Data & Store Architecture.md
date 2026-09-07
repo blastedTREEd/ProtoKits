@@ -20,9 +20,11 @@ To eliminate loading flashes (content flickering) in React, the store tracks pag
 - Firestore uses persistent IndexedDB caching with `persistentLocalCache()` and `persistentMultipleTabManager()`. Cached snapshots can therefore satisfy the loading gate immediately while the SDK reconnects in the background, including across browser tabs.
 - Firestore transport uses the SDK's automatic long-polling detection. Forced long-polling is intentionally disabled because it degrades performance on browsers that can use the normal streaming transport.
 - `stories` has one ordered live query and is subscribed only when the landing page is visited.
-- `blueprints` is subscribed only on `/prints` and `/blueprints`.
+- The landing page uses bounded `homeKits` (up to 40 catalog documents) and `homeBlueprints` (up to 12 project documents) slices. Active deal kit IDs are fetched in targeted batches so older deal items can still appear without downloading the full catalog.
+- `catalogPublic/{kitId}` is a compact public read model for Kits browsing. It keeps display, pricing, availability, and condition fields while omitting order IDs and reservation owners. Admins can rebuild it from the Kits admin tools; normal public browsing falls back to the bounded `kits` query until the projection exists.
+- Full `kits` and `blueprints` listeners are reserved for catalog-dependent routes such as `/kits`, `/prints`, `/blueprints`, cart, and shelf.
 - `shelf` is subscribed for administrators on every route because the navbar and kit cards use live shelf state for collection counts and badges. Shelf reconciliation reuses the already-live kits snapshot and only performs targeted kit reads for referenced IDs missing during startup, instead of downloading the full `kits` collection on every shelf update. If a legacy admin reservation has the `reservationType: "admin"` marker on the kit stock but its shelf document is missing, the admin shelf derives a read-only-compatible shelf row from that stock instead of treating it as customer inventory.
-- `kits` is route-scoped but intentionally broad on storefront, basket, and admin inventory routes because basket stock, restock, search, and Collection status all depend on the catalog. `deals` is live on the Kits route for deal pricing and countdowns.
+- `kits` is route-scoped. Public `/kits` browsing uses a bounded live page plus cursor reads; entering search promotes it to the full catalog. Basket, checkout, shelf, and admin inventory routes keep the broad listener because stock and Collection status depend on complete state. `deals` is live on the landing page and Kits route for deal pricing and countdowns.
 - The public Orders page owns the user's order query while it is mounted; the navbar reuses that store data instead of opening a duplicate notification query.
 - Order, Notify Me, and admin user-list listeners use reference-counted shared subscriptions so opening overlapping views does not register identical Firestore listeners twice. The Users Dashboard reuses the live users snapshot when available instead of issuing a duplicate full `users` read.
 - The first snapshot marks a dataset loaded even when it contains zero documents. An empty collection is valid data and must not leave the loading overlay visible.
@@ -34,7 +36,7 @@ The project targets the Standard Firestore database `(default)` in `asia-southea
 The current client is Spark-conscious but not usage-proof:
 
 - Good: route-aware listeners, shared order/Notify Me/user listeners, persistent cache, targeted missing-kit reads, limited admin order query (`limit(100)`), and no redundant shelf refresh while its live listener is active.
-- Main catalog risk: the `kits` listener returns the complete non-print catalog on routes that require catalog-wide search, stock validation, or shelf-aware Collection status. This is the largest recurring read surface and should eventually move to smaller catalog/stock projections or carefully scoped queries before the catalog grows substantially.
+- Main catalog risk: admin, cart, checkout, and search workflows still require the complete `kits` data set. Public browsing now uses bounded `kits` pages or the compact `catalogPublic` projection, so the broad listener is no longer the default public landing path.
 - Admin-only burst risk: Users Dashboard still loads all orders/admin records and each user’s basket/project vault when opened. It is not a persistent listener, but it can consume many reads in one visit; it should be paginated or moved to server-side/admin summary documents if the user base grows.
 - The admin `shelf` listener returns the full shelf collection on admin routes. This is acceptable while the shelf is small, but it should be scoped or split if shelf volume becomes large.
 
@@ -43,7 +45,7 @@ Usage must be checked in Firebase Console under Firestore Usage because the repo
 ---
 
 ## 🗃️ 2. Firestore Collection Schema
-The Firestore database is structured into 13 primary collections:
+The Firestore database is structured into 14 primary collections:
 
 ### 👤 User Roles & Auth
 - **`users`**
@@ -57,6 +59,9 @@ The Firestore database is structured into 13 primary collections:
 - **`kits`**
   - *Document ID:* Unique generated ID (or formatted via `createKitTargetId`)
   - *Data:* Kit properties, description, image galleries, and the `stocks` map.
+- **`catalogPublic`**
+  - *Document ID:* Same as the source kit ID
+  - *Data:* Public-safe kit display, pricing, availability, and condition summary used by the public Kits catalog.
 - **`deals`**
   - *Document ID:* Auto-generated
   - *Data:* Promotional bundle records linking multiple kits with expiration timestamps.
@@ -99,7 +104,10 @@ The Firestore database is structured into 13 primary collections:
 
 The application uses route-aware preloading rather than downloading every dataset for every page.
 
-- Kits and deals remain broadly available because basket availability, deal reminders, and restock notifications depend on them.
+- The landing page loads bounded kit/project slices plus live deals; the public Kits catalog starts with a bounded 40-kit page and loads subsequent pages with a Firestore cursor.
+- Public Kits search promotes that route to the full live catalog only when a search is entered. Admin view, cart, checkout, shelf, and stock validation keep the full kits listener because they require complete stock state.
+- When `catalogPublic` is populated, its first page and cursor pages are used for public browsing. Kit creation, deletion, and stock-price edits refresh the corresponding projection row; use the admin sync action after bulk stock or reservation changes.
+- Deals remain live on the landing page and Kits route for deal pricing, highlights, and countdowns.
 - Stories load for the landing page.
 - Blueprints and print configuration data load for the Prints and Blueprints routes.
 - Orders load for the signed-in customer's Orders page and for admin operational views.

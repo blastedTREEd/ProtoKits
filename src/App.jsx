@@ -63,6 +63,25 @@ const getSyncMessage = (syncStatus, pathname, { isAdminView = false } = {}) => {
   return getPageLoadingLabel(pathname, { isAdminView });
 };
 
+const getInitialLoadDatasetKeys = (pathname, { isAdmin = false } = {}) => {
+  const isHome = pathname === '/' || pathname === '';
+  const isKitsPath = pathname.startsWith('/kits');
+  const isPrintsPath = pathname === '/prints' || pathname.startsWith('/prints/');
+  const isOrdersPath = pathname === '/orders' || pathname.startsWith('/orders/');
+  const isCartPath = pathname === '/cart' || pathname === '/basket' || pathname === '/shelf';
+
+  return [
+    'userProfile',
+    ...(isHome ? ['stories', 'homeKits', 'homeBlueprints'] : []),
+    ...(isKitsPath || isCartPath ? ['kits'] : []),
+    ...(isHome || isKitsPath ? ['deals'] : []),
+    ...(isOrdersPath ? ['orders'] : []),
+    ...(isCartPath ? ['basket'] : []),
+    ...(isAdmin ? ['shelf'] : []),
+    ...(isPrintsPath || pathname === '/blueprints' || isCartPath ? ['prints'] : [])
+  ];
+};
+
 // Scroll restoration
 if (typeof window !== 'undefined' && 'scrollRestoration' in window.history) {
   window.history.scrollRestoration = 'manual';
@@ -258,6 +277,41 @@ const SyncOverlay = () => {
   );
 };
 
+const InitialLoadOverlay = () => {
+  const location = useLocation();
+  const isLoading = useStore((state) => state.isLoading);
+  const loadedDatasets = useStore((state) => state._loadedDatasets);
+  const isAdmin = useStore((state) => state.isAdmin);
+  const shippingSettings = useStore((state) => state.shippingSettings);
+  const hasCheckoutSettings = shippingSettings !== null;
+
+  // Match the Landing page's status wording: the loading screen remains
+  // visible while the garage is still "OPENING", regardless of local cache.
+  const isGarageOpening = isLoading || !hasCheckoutSettings;
+  if (!isGarageOpening) return null;
+
+  const requiredKeys = getInitialLoadDatasetKeys(location.pathname, { isAdmin });
+  const completedDatasetCount = requiredKeys.filter((key) => loadedDatasets?.[key]).length;
+  const completedCount = completedDatasetCount + (hasCheckoutSettings ? 1 : 0);
+  const totalCount = Math.max(requiredKeys.length + 1, 1);
+  const progress = Math.round((completedCount / totalCount) * 100);
+
+  return (
+    <Motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="fixed inset-0 z-[99998] flex items-center justify-center bg-white/80 backdrop-blur-sm dark:bg-black/80"
+    >
+      <LoadingState
+        message={getPageLoadingLabel(location.pathname)}
+        progress={progress}
+        progressLabel={`${completedCount} of ${totalCount} data sources`}
+        className="py-0"
+      />
+    </Motion.div>
+  );
+};
+
 
 export default function App() {
   const { fetchInitialData, setToastMessage } = useStore();
@@ -329,6 +383,7 @@ export default function App() {
     <ThemeProvider>
         <BrowserRouter>
           <ScrollManager />
+          <InitialLoadOverlay />
           <SyncOverlay />
 
           <Layout>

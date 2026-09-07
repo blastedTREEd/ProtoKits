@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Package, Gift, Plus, Trash2, Box, ClockFading, Pencil, Search, Loader2, X, Wallet, AlertCircle, TrendingUp, Zap, Sparkles, ArrowBigDownDash, ArrowBigUpDash, ArrowBigRightDash, ArrowBigLeftDash, ChevronDown, MoreHorizontal, Image as ImageIcon, Settings } from 'lucide-react';
+import { Package, Gift, Plus, Trash2, Box, ClockFading, Pencil, Search, Loader2, X, Wallet, AlertCircle, TrendingUp, Zap, Sparkles, RefreshCw, ArrowBigDownDash, ArrowBigUpDash, ArrowBigRightDash, ArrowBigLeftDash, ChevronDown, MoreHorizontal, Image as ImageIcon, Settings } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
@@ -228,6 +228,14 @@ export default function Kits({ isActive = true }) {
   const isAdminView = useStore((state) => state.isAdminView);
   const shelf = useStore((state) => state.shelf);
   const storeKits = useStore((state) => state.kits);
+  const isPublicKitPagination = useStore((state) => state.isPublicKitPagination);
+  const hasMoreKits = useStore((state) => state.hasMoreKits);
+  const isLoadingMoreKits = useStore((state) => state.isLoadingMoreKits);
+  const getMoreKits = useStore((state) => state.getMoreKits);
+  const loadKitById = useStore((state) => state.loadKitById);
+  const loadAllKits = useStore((state) => state.loadAllKits);
+  const syncPublicCatalog = useStore((state) => state.syncPublicCatalog);
+  const setToastMessage = useStore((state) => state.setToastMessage);
   const deals = useStore((state) => state.deals);
   const addKit = useStore((state) => state.addKit);
   const user = useStore((state) => state.user);
@@ -260,6 +268,8 @@ export default function Kits({ isActive = true }) {
   const [isSalesDashboardModalOpen, setIsSalesDashboardModalOpen] = useState(false);
   const [isKitDataQualityModalOpen, setIsKitDataQualityModalOpen] = useState(false);
   const [isAdminToolsOpen, setIsAdminToolsOpen] = useState(false);
+  const [isSyncingPublicCatalog, setIsSyncingPublicCatalog] = useState(false);
+  const [publicCatalogSyncStatus, setPublicCatalogSyncStatus] = useState('');
   const kitCardRefs = useRef(new Map());
   const pendingRestoreRef = useRef(null);
   const location = useLocation();
@@ -795,6 +805,11 @@ export default function Kits({ isActive = true }) {
     return [routeKitWithStatus, ...visibleKits];
   }, [activeOfferKitIds, allFilteredKits, isAdmin, isAdminView, routeKitId, shelf, storeKits, visibleKits]);
 
+  useEffect(() => {
+    if (!routeKitId || isAdminView || (storeKits || []).some((kit) => String(kit.id) === String(routeKitId))) return;
+    void loadKitById(routeKitId);
+  }, [isAdminView, loadKitById, routeKitId, storeKits]);
+
   const activeOfferKits = useMemo(() => {
     const search = searchTerm.trim().toLowerCase();
     return (storeKits || []).filter(kit => {
@@ -1178,6 +1193,29 @@ export default function Kits({ isActive = true }) {
     { id: 'balances', label: 'Balances', icon: Wallet, tone: 'border-amber-500/20 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20', onClick: () => setIsSupplierBalancesModalOpen(true) },
     { id: 'sales', label: 'Sales', icon: TrendingUp, tone: 'border-indigo-500/20 bg-indigo-500/10 text-indigo-600 hover:bg-indigo-500/20', onClick: () => setIsSalesDashboardModalOpen(true) },
     { id: 'kit-data-quality', label: 'Fix Missing Kit Data', icon: Sparkles, tone: 'border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-600 hover:bg-fuchsia-500/20', onClick: () => setIsKitDataQualityModalOpen(true) },
+    { id: 'sync-public-catalog', label: 'Sync Public Catalog', icon: RefreshCw, tone: 'border-cyan-500/20 bg-cyan-500/10 text-cyan-600 hover:bg-cyan-500/20', onClick: async () => {
+      if (isSyncingPublicCatalog) return;
+      setIsSyncingPublicCatalog(true);
+      setPublicCatalogSyncStatus('Preparing sync…');
+      console.info('[Snorlax Garage] Public catalog sync started.');
+      setToastMessage('Preparing public catalog sync…');
+      try {
+        const result = await syncPublicCatalog((progress) => {
+          setPublicCatalogSyncStatus(progress.message || 'Syncing…');
+        });
+        console.info('[Snorlax Garage] Public catalog sync finished:', result);
+        setToastMessage(`Public catalog synced: ${result.synced} kits.`);
+      } catch (error) {
+        console.error('SG LOG: Public catalog sync failed:', error);
+        setPublicCatalogSyncStatus('Sync failed. Check the console.');
+        setToastMessage('Public catalog sync failed.');
+      } finally {
+        window.setTimeout(() => {
+          setIsSyncingPublicCatalog(false);
+          setPublicCatalogSyncStatus('');
+        }, 1200);
+      }
+    } },
   ];
 
   const renderAdminToolButtons = () => adminToolActions.map(({ id, label, icon, tone, onClick }) => (
@@ -1186,17 +1224,18 @@ export default function Kits({ isActive = true }) {
       type="button"
       onClick={() => {
         setIsAdminToolsOpen(false);
-        onClick();
+        void onClick();
       }}
+      disabled={id === 'sync-public-catalog' && isSyncingPublicCatalog}
       className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border shadow-sm transition-all hover:scale-110 active:scale-95 disabled:cursor-wait disabled:opacity-60 disabled:hover:scale-100 ${tone}`}
       aria-label={label}
       title={label}
-      aria-busy="false"
+      aria-busy={id === 'sync-public-catalog' && isSyncingPublicCatalog}
     >
-      {React.createElement(icon, {
+      {React.createElement(id === 'sync-public-catalog' && isSyncingPublicCatalog ? Loader2 : icon, {
         size: 20,
         strokeWidth: 2.5,
-        className: undefined
+        className: id === 'sync-public-catalog' && isSyncingPublicCatalog ? 'animate-spin' : undefined
       })}
     </button>
   ));
@@ -1330,8 +1369,31 @@ export default function Kits({ isActive = true }) {
     || activeOfferKits.length > 0
     || kitGroups.clearance.length > 0;
 
+  useEffect(() => {
+    // Keep the initial public catalog bounded. Search remains catalog-wide by
+    // promoting the public page to the full listener only when the user asks
+    // for a search, so normal browsing does not pay for the complete catalog.
+    if (!searchTerm.trim() || !isPublicKitPagination || isAdminView) return undefined;
+
+    const timer = window.setTimeout(() => {
+      void loadAllKits().catch((error) => {
+        console.error('SG LOG: Public catalog search hydration failed:', error);
+      });
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [isAdminView, isPublicKitPagination, loadAllKits, searchTerm]);
+
   return (
     <PageTemplate isDarkMode={isDarkMode}>
+      {isSyncingPublicCatalog && (
+        <div className="pointer-events-none fixed inset-x-0 bottom-24 z-[999998] flex justify-center px-4">
+          <div className="flex max-w-[min(92vw,32rem)] items-center gap-3 rounded-2xl border border-cyan-400/30 bg-neutral-950/90 px-5 py-3 text-[11px] font-black uppercase tracking-widest text-white shadow-2xl backdrop-blur-xl">
+            <Loader2 size={16} className="shrink-0 animate-spin text-cyan-300" />
+            <span className="truncate">{publicCatalogSyncStatus || 'Syncing public catalog…'}</span>
+          </div>
+        </div>
+      )}
       <div className="min-h-screen w-full bg-neutral-50 dark:bg-[#0a0a0a] transition-colors duration-500 pb-20 font-sans text-left">
         <div className={`sticky top-[56px] sm:top-[60px] z-[100] h-[60px] overflow-visible bg-neutral-50 dark:bg-[#0a0a0a] backdrop-blur-md border-b border-black/5 dark:border-white/5 ${contentHeaderMotion} ${isContentHeaderHidden ? '-translate-y-full md:translate-y-0' : 'translate-y-0'}`}>
           <div className="h-full w-full px-4 md:px-8 flex items-center gap-4">
@@ -1742,14 +1804,26 @@ export default function Kits({ isActive = true }) {
                     ))}
                   </p>
                   {!searchTerm && !isAdminView && (
-                    <button
-                      type="button"
-                      onClick={focusKitsSearch}
-                      aria-label="Search kits"
-                      className="mx-auto mt-4 flex size-10 items-center justify-center rounded-full text-neutral-900 transition-colors hover:bg-black/5 dark:text-white dark:hover:bg-white/10"
-                    >
-                      <Search size={22} strokeWidth={2} />
-                    </button>
+                    <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+                      {isPublicKitPagination && hasMoreKits && (
+                        <button
+                          type="button"
+                          onClick={() => void getMoreKits().catch((error) => console.error('SG LOG: Loading more kits failed:', error))}
+                          disabled={isLoadingMoreKits}
+                          className="rounded-full bg-blue-600 px-5 py-2 text-[11px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700 disabled:cursor-wait disabled:opacity-60"
+                        >
+                          {isLoadingMoreKits ? 'Loading kits…' : 'Load more kits'}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={focusKitsSearch}
+                        aria-label="Search kits"
+                        className="flex size-10 items-center justify-center rounded-full text-neutral-900 transition-colors hover:bg-black/5 dark:text-white dark:hover:bg-white/10"
+                      >
+                        <Search size={22} strokeWidth={2} />
+                      </button>
+                    </div>
                   )}
                 </div>
               )}

@@ -169,10 +169,13 @@ const normalizeKitIds = (ids = []) => [...new Set(
 )];
 
 const getMutuallyExclusivePairGroups = (deal = {}) => {
-  if (!Array.isArray(deal.kitIds) || deal.kitIds.length < 2) return [];
-
   const configuredPairs = (deal.mutuallyExclusivePairs || [])
-    .filter((pair) => pair?.bandaiId && pair?.bootlegId);
+    .filter((pair) => (
+      pair?.bandaiId
+      && pair?.bootlegId
+      && !(pair.bandaiStockKey && pair.bootlegStockKey)
+    ));
+  if ((!Array.isArray(deal.kitIds) || deal.kitIds.length < 2) && configuredPairs.length === 0) return [];
   const bandaiKitIds = normalizeKitIds(
     deal.mutuallyExclusiveGroups?.bandai || deal.bandaiKitIds || []
   );
@@ -190,6 +193,18 @@ const getMutuallyExclusivePairGroups = (deal = {}) => {
       ? [bandaiKitIds, bootlegKitIds]
       : [dealKitIds.slice(0, 1), dealKitIds.slice(1, 2)]];
 };
+
+const getMutuallyExclusiveStockPairs = (deal = {}) => (deal.mutuallyExclusivePairs || [])
+  .filter((pair) => (
+    pair?.bandaiId
+    && pair?.bootlegId
+    && pair.bandaiStockKey
+    && pair.bootlegStockKey
+  ))
+  .map((pair) => ({
+    first: { kitId: String(pair.bandaiId), stockKey: String(pair.bandaiStockKey) },
+    second: { kitId: String(pair.bootlegId), stockKey: String(pair.bootlegStockKey) }
+  }));
 
 const isActiveMutuallyExclusiveDeal = (deal = {}) => {
   if (!deal.isActive || deal.type !== 'mutually_exclusive') return false;
@@ -257,8 +272,14 @@ exports.syncMutuallyExclusiveShelf = onDocumentUpdated({
     getMutuallyExclusivePairGroups(deal).map(([firstGroup, secondGroup]) => ({
       deal,
       firstGroup,
-      secondGroup
-    }))
+      secondGroup,
+      stockPair: null
+    })).concat(getMutuallyExclusiveStockPairs(deal).map((stockPair) => ({
+      deal,
+      firstGroup: [stockPair.first.kitId],
+      secondGroup: [stockPair.second.kitId],
+      stockPair
+    })))
   ));
   const relevantGroups = dealGroups.filter(({ firstGroup, secondGroup }) => (
     firstGroup.includes(triggeredKitId) || secondGroup.includes(triggeredKitId)
@@ -314,10 +335,24 @@ exports.syncMutuallyExclusiveShelf = onDocumentUpdated({
       if (state?.stocks?.[stockKey]) Object.assign(state.stocks[stockKey], changes);
     };
 
-    const groupIsReserved = (groupIds) => groupIds.some((kitId) => {
+    const getGroupCustomerHoldCount = (groupIds) => groupIds.reduce((count, kitId) => {
       const kit = kitStates.get(kitId);
-      return kit && Object.values(kit.stocks || {}).some(stockHasCustomerHold);
-    });
+      if (!kit) return count;
+      return count + Object.values(kit.stocks || {}).filter(stockHasCustomerHold).length;
+    }, 0);
+
+    const getGroupStockEntries = (groupIds) => groupIds.flatMap((kitId) => {
+      const kit = kitStates.get(kitId);
+      return kit
+        ? Object.entries(kit.stocks || {}).map(([stockKey, stock]) => ({
+          kitId,
+          stockKey,
+          stock
+        }))
+        : [];
+    }).sort((first, second) => (
+      `${first.kitId}:${first.stockKey}`.localeCompare(`${second.kitId}:${second.stockKey}`)
+    ));
 
     const releaseDealShelfStocks = (deal, groupIds) => {
       groupIds.forEach((kitId) => {
@@ -343,49 +378,130 @@ exports.syncMutuallyExclusiveShelf = onDocumentUpdated({
       });
     };
 
-    const keepGroupOnShelf = (deal, groupIds) => {
-      groupIds.forEach((kitId) => {
+    const keepGroupOnShelf = (deal, groupIds, requiredStockCount) => {
+      const entries = getGroupStockEntries(groupIds);
+      const managedEntries = entries.filter(({ stock }) => (
+        stock.reservationType === 'admin' && stock.reservedByDealId === deal.id
+      ));
+      const eligibleEntries = entries.filter(({ stock }) => {
+        const isManagedHold = stock.reservationType === 'admin'
+          && stock.reservedByDealId === deal.id;
+        return !stockHasCustomerHold(stock)
+          && (!stock.isReserved || isManagedHold);
+      });
+      const targetEntries = eligibleEntries.slice(0, requiredStockCount);
+      const targetKeys = new Set(targetEntries.map(({ kitId, stockKey }) => `${kitId}:${stockKey}`));
+
+      // Mutual exclusion is stock-based: only the number of opposing stocks
+      // matching the customer-held count is placed on the admin shelf.
+      managedEntries.forEach(({ kitId, stockKey }) => {
+        if (targetKeys.has(`${kitId}:${stockKey}`)) return;
+        shelfDeletes.add(`b_kit_me_${deal.id}_${stockKey}`);
+        updateStock(kitId, stockKey, {
+          isReserved: false,
+          reservedBy: admin.firestore.FieldValue.delete(),
+          reservedAt: admin.firestore.FieldValue.delete(),
+          availableAt: admin.firestore.FieldValue.serverTimestamp(),
+          reservationType: admin.firestore.FieldValue.delete(),
+          reservedByDealId: admin.firestore.FieldValue.delete()
+        });
+        delete kitStates.get(kitId).stocks[stockKey].reservedByDealId;
+        delete kitStates.get(kitId).stocks[stockKey].reservationType;
+        delete kitStates.get(kitId).stocks[stockKey].reservedBy;
+        delete kitStates.get(kitId).stocks[stockKey].reservedAt;
+      });
+
+      targetEntries.forEach(({ kitId, stockKey, stock }) => {
         const kit = kitStates.get(kitId);
         if (!kit) return;
+        const isManagedHold = stock.reservationType === 'admin'
+          && stock.reservedByDealId === deal.id;
+        const shelfId = `b_kit_me_${deal.id}_${stockKey}`;
+        shelfSets.set(shelfId, buildMutualExclusionShelfItem(
+          kit,
+          stockKey,
+          stock,
+          deal.id,
+          fees
+        ));
 
-        Object.entries(kit.stocks || {}).forEach(([stockKey, stock]) => {
-          const isManagedHold = stock.reservationType === 'admin'
-            && stock.reservedByDealId === deal.id;
-          const isAvailable = !stock.isReserved && !stock.order?.orderId;
-          if (!isManagedHold && !isAvailable) return;
-
-          const shelfId = `b_kit_me_${deal.id}_${stockKey}`;
-          shelfSets.set(shelfId, buildMutualExclusionShelfItem(
-            kit,
-            stockKey,
-            stock,
-            deal.id,
-            fees
-          ));
-
-          if (isAvailable) {
-            updateStock(kitId, stockKey, {
-              isReserved: true,
-              reservedBy: null,
-              reservedAt: admin.firestore.FieldValue.serverTimestamp(),
-              reservationType: 'admin',
-              reservedByDealId: deal.id
-            });
-          }
-        });
+        if (!isManagedHold) {
+          updateStock(kitId, stockKey, {
+            isReserved: true,
+            reservedBy: null,
+            reservedAt: admin.firestore.FieldValue.serverTimestamp(),
+            reservationType: 'admin',
+            reservedByDealId: deal.id
+          });
+        }
       });
     };
 
-    relevantGroups.forEach(({ deal, firstGroup, secondGroup }) => {
-      const isFirstGroupReserved = groupIsReserved(firstGroup);
-      const isSecondGroupReserved = groupIsReserved(secondGroup);
+    const releaseManagedStock = (deal, kitId, stockKey) => {
+      const kit = kitStates.get(kitId);
+      const stock = kit?.stocks?.[stockKey];
+      if (!stock || stock.reservationType !== 'admin' || stock.reservedByDealId !== deal.id) return;
+      shelfDeletes.add(`b_kit_me_${deal.id}_${stockKey}`);
+      updateStock(kitId, stockKey, {
+        isReserved: false,
+        reservedBy: admin.firestore.FieldValue.delete(),
+        reservedAt: admin.firestore.FieldValue.delete(),
+        availableAt: admin.firestore.FieldValue.serverTimestamp(),
+        reservationType: admin.firestore.FieldValue.delete(),
+        reservedByDealId: admin.firestore.FieldValue.delete()
+      });
+    };
 
-      if (isFirstGroupReserved && !isSecondGroupReserved) {
-        keepGroupOnShelf(deal, secondGroup);
-      } else if (isSecondGroupReserved && !isFirstGroupReserved) {
-        keepGroupOnShelf(deal, firstGroup);
-      } else if (!isFirstGroupReserved && !isSecondGroupReserved) {
+    const keepStockPairOnShelf = (deal, target) => {
+      const kit = kitStates.get(target.kitId);
+      const stock = kit?.stocks?.[target.stockKey];
+      if (!kit || !stock || stockHasCustomerHold(stock)) return;
+      const isManagedHold = stock.reservationType === 'admin' && stock.reservedByDealId === deal.id;
+      if (stock.isReserved && !isManagedHold) return;
+
+      shelfSets.set(
+        `b_kit_me_${deal.id}_${target.stockKey}`,
+        buildMutualExclusionShelfItem(kit, target.stockKey, stock, deal.id, fees)
+      );
+      if (!isManagedHold) {
+        updateStock(target.kitId, target.stockKey, {
+          isReserved: true,
+          reservedBy: null,
+          reservedAt: admin.firestore.FieldValue.serverTimestamp(),
+          reservationType: 'admin',
+          reservedByDealId: deal.id
+        });
+      }
+    };
+
+    relevantGroups.filter(({ stockPair }) => !stockPair).forEach(({ deal, firstGroup, secondGroup }) => {
+      const firstGroupHoldCount = getGroupCustomerHoldCount(firstGroup);
+      const secondGroupHoldCount = getGroupCustomerHoldCount(secondGroup);
+
+      if (firstGroupHoldCount > 0 && secondGroupHoldCount === 0) {
+        keepGroupOnShelf(deal, secondGroup, firstGroupHoldCount);
+      } else if (secondGroupHoldCount > 0 && firstGroupHoldCount === 0) {
+        keepGroupOnShelf(deal, firstGroup, secondGroupHoldCount);
+      } else if (firstGroupHoldCount === 0 && secondGroupHoldCount === 0) {
         releaseDealShelfStocks(deal, [...firstGroup, ...secondGroup]);
+      }
+    });
+
+    relevantGroups.filter(({ stockPair }) => stockPair).forEach(({ deal, stockPair }) => {
+      const firstStock = kitStates.get(stockPair.first.kitId)?.stocks?.[stockPair.first.stockKey];
+      const secondStock = kitStates.get(stockPair.second.kitId)?.stocks?.[stockPair.second.stockKey];
+      const firstHeld = stockHasCustomerHold(firstStock);
+      const secondHeld = stockHasCustomerHold(secondStock);
+
+      if (firstHeld && !secondHeld) {
+        keepStockPairOnShelf(deal, stockPair.second);
+        releaseManagedStock(deal, stockPair.first.kitId, stockPair.first.stockKey);
+      } else if (secondHeld && !firstHeld) {
+        keepStockPairOnShelf(deal, stockPair.first);
+        releaseManagedStock(deal, stockPair.second.kitId, stockPair.second.stockKey);
+      } else if (!firstHeld && !secondHeld) {
+        releaseManagedStock(deal, stockPair.first.kitId, stockPair.first.stockKey);
+        releaseManagedStock(deal, stockPair.second.kitId, stockPair.second.stockKey);
       }
     });
 

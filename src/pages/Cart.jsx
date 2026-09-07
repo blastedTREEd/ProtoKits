@@ -622,27 +622,47 @@ export default function Cart() {
   }, [activeBasket, activeSelection, deals, offerNow]);
 
   const mutuallyExclusiveConflict = useMemo(() => {
-    const selectedKitIds = new Set(
-      activeBasket
-        .filter(item => activeSelection.includes(item.basketId) && item.type !== 'project' && item.id)
-        .map(item => item.id)
-    );
+    const selectedItems = activeBasket.filter(item => (
+      activeSelection.includes(item.basketId)
+      && item.type !== 'project'
+      && item.id
+    ));
+    const selectedKitIds = new Set(selectedItems.map(item => String(item.id)));
+    const getSelectedItemsForGroup = (groupIds = []) => selectedItems.filter(item => (
+      groupIds.map(String).includes(String(item.id))
+      && String(item.stockKey || item.selectedStockKey || item.key || 'default').trim()
+    ));
 
     return (deals || []).find(deal => {
       if (deal?.type !== 'mutually_exclusive' || deal.isActive === false) return false;
-      const dealKitIds = Array.from(new Set(deal.kitIds || []));
+      const dealKitIds = Array.from(new Set((deal.kitIds || []).map(String)));
       const configuredPairs = (deal.mutuallyExclusivePairs || []).filter(pair => pair?.bandaiId && pair?.bootlegId);
-      const bandaiKitIds = deal.mutuallyExclusiveGroups?.bandai || deal.bandaiKitIds || [];
-      const bootlegKitIds = deal.mutuallyExclusiveGroups?.bootleg || deal.bootlegKitIds || [];
+      const bandaiKitIds = (deal.mutuallyExclusiveGroups?.bandai || deal.bandaiKitIds || []).map(String);
+      const bootlegKitIds = (deal.mutuallyExclusiveGroups?.bootleg || deal.bootlegKitIds || []).map(String);
       const conflictingPair = configuredPairs.length > 0
-        ? configuredPairs.find(pair => selectedKitIds.has(pair.bandaiId) && selectedKitIds.has(pair.bootlegId))
+        ? configuredPairs.map(pair => ({
+            ...pair,
+            bandaiItems: pair.bandaiStockKey
+              ? selectedItems.filter(item => (
+                String(item.id) === String(pair.bandaiId)
+                && String(item.stockKey || item.selectedStockKey || item.key || 'default') === String(pair.bandaiStockKey)
+              ))
+              : getSelectedItemsForGroup([pair.bandaiId]),
+            bootlegItems: pair.bootlegStockKey
+              ? selectedItems.filter(item => (
+                String(item.id) === String(pair.bootlegId)
+                && String(item.stockKey || item.selectedStockKey || item.key || 'default') === String(pair.bootlegStockKey)
+              ))
+              : getSelectedItemsForGroup([pair.bootlegId])
+          })).find(pair => pair.bandaiItems.length > 0 && pair.bootlegItems.length > 0)
         : null;
       const hasGroupedRule = bandaiKitIds.length > 0 && bootlegKitIds.length > 0;
+      const groupedBandaiItems = getSelectedItemsForGroup(bandaiKitIds);
+      const groupedBootlegItems = getSelectedItemsForGroup(bootlegKitIds);
       const hasConflict = configuredPairs.length > 0
         ? Boolean(conflictingPair)
         : hasGroupedRule
-          ? bandaiKitIds.some(kitId => selectedKitIds.has(kitId))
-            && bootlegKitIds.some(kitId => selectedKitIds.has(kitId))
+          ? groupedBandaiItems.length > 0 && groupedBootlegItems.length > 0
         : dealKitIds.length >= 2 && dealKitIds.every(kitId => selectedKitIds.has(kitId));
       if (!hasConflict) return false;
 
@@ -653,8 +673,11 @@ export default function Cart() {
       return {
         ...deal,
         conflictKitIds: conflictingPair
-          ? [conflictingPair.bandaiId, conflictingPair.bootlegId]
-          : dealKitIds
+          ? [String(conflictingPair.bandaiId), String(conflictingPair.bootlegId)]
+          : dealKitIds,
+        conflictBasketIds: conflictingPair
+          ? [...conflictingPair.bandaiItems, ...conflictingPair.bootlegItems].map(item => item.basketId)
+          : [...groupedBandaiItems, ...groupedBootlegItems].map(item => item.basketId)
       };
     }) || null;
   }, [activeBasket, activeSelection, deals, offerNow]);
@@ -2353,14 +2376,13 @@ export default function Cart() {
                                 </div>
                                 <button
                                   onClick={() => {
-                                    const conflictKitIds = new Set(mutuallyExclusiveConflict.conflictKitIds || mutuallyExclusiveConflict.kitIds || []);
+                                    const conflictBasketIds = new Set(mutuallyExclusiveConflict.conflictBasketIds || []);
                                     const selectedConflictItem = activeBasket.find(item => (
-                                      activeSelection.includes(item.basketId) && conflictKitIds.has(item.id)
+                                      activeSelection.includes(item.basketId) && conflictBasketIds.has(item.basketId)
                                     ));
-                                    const keepKitId = selectedConflictItem?.id;
+                                    const keepBasketId = selectedConflictItem?.basketId;
                                     setManualSelectedIds(prev => prev.filter(basketId => {
-                                      const item = activeBasket.find(candidate => candidate.basketId === basketId);
-                                      return !item || !conflictKitIds.has(item.id) || item.id === keepKitId;
+                                      return !conflictBasketIds.has(basketId) || basketId === keepBasketId;
                                     }));
                                   }}
                                   className="px-10 py-3.5 rounded-full font-black uppercase tracking-widest text-xs bg-red-500 text-white shadow-lg shadow-red-500/20 hover:scale-105 transition-all"

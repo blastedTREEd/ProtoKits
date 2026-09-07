@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { db, auth } from '../firebase/firebase';
 import { 
-  collection, onSnapshot, doc, query, orderBy, where, limit, getDocs, getDoc, setDoc, updateDoc, deleteDoc, deleteField, serverTimestamp, addDoc, writeBatch, runTransaction
+  collection, onSnapshot, doc, query, orderBy, where, limit, startAfter, documentId, getDocs, getDoc, setDoc, updateDoc, deleteDoc, deleteField, serverTimestamp, addDoc, writeBatch, runTransaction
 } from 'firebase/firestore';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
 import {
@@ -161,7 +161,7 @@ const getAvailableStockCount = (kit) => {
   return Object.values(kit?.stocks || {}).filter((stock) => !stock?.order?.orderId && !stock?.isReserved).length;
 };
 
-const DATASET_KEYS = ['userProfile', 'stories', 'kits', 'printedProjects', 'deals', 'orders', 'basket', 'shelf', 'prints'];
+const DATASET_KEYS = ['userProfile', 'stories', 'homeKits', 'homeBlueprints', 'kits', 'printedProjects', 'deals', 'orders', 'basket', 'shelf', 'prints'];
 
 const createInitialDatasetState = (value) => DATASET_KEYS.reduce((result, key) => {
   result[key] = value;
@@ -175,6 +175,12 @@ const createInitialDatasetState = (value) => DATASET_KEYS.reduce((result, key) =
 const isEmptyCacheSnapshot = (snap) => Boolean(snap?.metadata?.fromCache && snap.empty);
 
 const updateSnapshotDatasetStatus = (get, key, snap) => {
+  if (get().initialLoadCacheStatus === 'unknown') {
+    get().noteInitialLoadSource(
+      snap?.metadata?.fromCache && !snap.empty ? 'cached' : 'cold'
+    );
+  }
+
   if (isEmptyCacheSnapshot(snap)) {
     get().setDatasetStatus(key, 'loading');
     return;
@@ -872,6 +878,71 @@ const PRINT_METHOD_ORDER = {
   '3mf': 1
 };
 
+const PUBLIC_KIT_PAGE_SIZE = 40;
+const PUBLIC_CATALOG_WRITE_CHUNK_SIZE = 100;
+
+const isPublicKitCatalogPath = (pathname = '') => (
+  pathname === '/kits' || pathname.startsWith('/kits/')
+);
+
+const PUBLIC_STOCK_FIELDS = [
+  'status',
+  'sellPrice',
+  'costPrice',
+  'publicReleaseDate',
+  'deliveryMonth',
+  'eta',
+  'boxCondition',
+  'kitCondition',
+  'issue',
+  'condition',
+  'isFreeShippingEligible',
+  'freeShippingUntil',
+  'freeShippingMethod',
+  'freeShippingSuboption',
+  'minDownpayment',
+  'timestamp',
+  'isReserved',
+  'reservationType',
+  'stockImages',
+  'kitImage'
+];
+
+const buildPublicKitSummary = (kit = {}) => {
+  const stocks = Object.entries(kit.stocks || {}).reduce((result, [stockKey, stock = {}]) => {
+    const publicStock = PUBLIC_STOCK_FIELDS.reduce((fields, field) => {
+      if (stock[field] !== undefined) fields[field] = stock[field];
+      return fields;
+    }, { key: stockKey });
+
+    // Public cards only need to know that a stock is linked to an order; the
+    // order ID and reservation owner must not be copied to a public read model.
+    if (stock.order) publicStock.order = { linked: true };
+    result[stockKey] = publicStock;
+    return result;
+  }, {});
+
+  return removeUndefinedValues({
+    id: kit.id,
+    name: kit.name || '',
+    brand: kit.brand || '',
+    specs: kit.specs || {},
+    series: kit.series || '',
+    image: kit.image || '',
+    images: Array.isArray(kit.images) ? kit.images : [],
+    searchName: kit.searchName || String(kit.name || '').toLowerCase(),
+    sellPrice: kit.sellPrice,
+    costPrice: kit.costPrice,
+    createdAt: kit.createdAt,
+    lastUpdated: kit.lastUpdated || kit.createdAt || 0,
+    lastRestockedAt: kit.lastRestockedAt,
+    lastAvailableAt: kit.lastAvailableAt,
+    hasAvailableStock: kit.hasAvailableStock,
+    stocks,
+    publicProjectionVersion: 1
+  });
+};
+
 const getRequirementValues = (requirements = {}) => (
   Object.entries(requirements)
     .sort(([keyA], [keyB]) => {
@@ -881,6 +952,11 @@ const getRequirementValues = (requirements = {}) => (
     })
     .map(([, value]) => value)
 );
+
+// Keep the admin catalog rebuild single-flight across mounted components and
+// rapid repeated clicks. The button-level disabled state is not atomic before
+// React has rendered the next state.
+let publicCatalogSyncPromise = null;
 
 const sortPrintMethods = (methods = []) => (
   [...methods].sort((a, b) => {
@@ -897,6 +973,10 @@ export const useStore = create(
     (set, get) => ({
       garageInfo: null,
       rates: {},
+      // Small public catalog slice used by the landing page. The full kits
+      // collection is loaded only when a catalog-dependent route is opened.
+      homeKits: [],
+      homeBlueprints: [],
       kits: [],
       printedProjects: [],
       stories: [],
@@ -926,7 +1006,15 @@ export const useStore = create(
       _prioUnsubs: [],
       _bgUnsubs: [],
       lastVisibleKit: null,
+      hasMoreKits: false,
+      isLoadingMoreKits: false,
+      isPublicKitPagination: false,
+      forceFullKitCatalog: false,
+      isPublicKitSummaryMode: false,
+      publicCatalogFallback: false,
       isLoading: true,
+      initialLoadCacheStatus: 'unknown',
+      initialLoadComplete: false,
       hasLoadedAllKits: false,
       isAdmin: false,
       isBanned: false,
@@ -949,6 +1037,11 @@ export const useStore = create(
       authRetry: null,
       storiesHeight: 0,
       unsubPrintResources: null,
+      unsubStories: null,
+      unsubHomeKits: null,
+      unsubHomeBlueprints: null,
+      unsubKits: null,
+      unsubCatalogPublic: null,
       unsubProjectVault: null,
       unsubOffers: null,
       _syncAllDealsPromise: null,
@@ -974,6 +1067,17 @@ export const useStore = create(
       },
 
       setLoading: (loading) => set({ isLoading: loading }),
+      noteInitialLoadSource: (source) => {
+        if (!['cached', 'cold'].includes(source)) return;
+        set((state) => {
+          if (source === 'cached' && state.initialLoadCacheStatus !== 'cached') {
+            return { initialLoadCacheStatus: 'cached' };
+          }
+          return state.initialLoadCacheStatus === 'unknown'
+            ? { initialLoadCacheStatus: source }
+            : state;
+        });
+      },
       setDatasetStatus: (key, status) => {
         if (!DATASET_KEYS.includes(key)) return;
         set((state) => {
@@ -1026,6 +1130,7 @@ export const useStore = create(
         console.log("SG LOG: setAdminView called with:", isEnabled, "Current:", get().isAdminView);
         if (get().isAdminView === isEnabled) return;
         set({ isAdminView: isEnabled });
+        queueMicrotask(() => get().startBackgroundListeners());
       },
       setLoginModalOpen: (isOpen) => set({ isLoginModalOpen: isOpen }),
       setPendingBasketItem: (item) => set({ pendingBasketItem: item }),
@@ -1047,19 +1152,20 @@ export const useStore = create(
         const { isAdmin } = get();
         return {
           stories: pathname === '/' || pathname === '',
-          // The landing-page highlights can use available kits to replace
-          // missing or unavailable project slots, so kits must be ready before
-          // the home route is released from its loading state.
-          kits: pathname === '/' || pathname === '' || pathname.startsWith('/kits') || pathname === '/cart' || pathname === '/basket' || pathname === '/shelf',
+          // Landing highlights use bounded public slices so the home route does
+          // not need the complete catalog or blueprint collections.
+          homeKits: pathname === '/' || pathname === '',
+          homeBlueprints: pathname === '/' || pathname === '',
+          kits: pathname.startsWith('/kits') || pathname === '/cart' || pathname === '/basket' || pathname === '/shelf',
           printedProjects: pathname === '/prints' || pathname.startsWith('/prints/'),
-          deals: pathname.startsWith('/kits'),
+          deals: pathname === '/' || pathname === '' || pathname.startsWith('/kits'),
           orders: pathname === '/orders' || pathname.startsWith('/orders/'),
           basket: pathname === '/cart' || pathname === '/basket' || pathname === '/shelf',
           // Admin shelf state is also consumed by the navbar and the kit cards.
           // Keep its live listener active on every admin route so collection
           // badges/counts do not depend on opening the shelf page first.
           shelf: isAdmin,
-          prints: pathname === '/' || pathname === '/prints' || pathname.startsWith('/prints/') || pathname === '/blueprints' || pathname === '/cart' || pathname === '/basket' || pathname === '/shelf'
+          prints: pathname === '/prints' || pathname.startsWith('/prints/') || pathname === '/blueprints' || pathname === '/cart' || pathname === '/basket' || pathname === '/shelf'
         };
       },
 
@@ -1078,6 +1184,8 @@ export const useStore = create(
 
         // Check page-specific datasets
         if (req.stories && !ds.stories) { set({ isLoading: true }); return; }
+        if (req.homeKits && !ds.homeKits) { set({ isLoading: true }); return; }
+        if (req.homeBlueprints && !ds.homeBlueprints) { set({ isLoading: true }); return; }
         if (req.kits && !ds.kits) { set({ isLoading: true }); return; }
         if (req.deals && !ds.deals) { set({ isLoading: true }); return; }
         if (req.orders && !ds.orders) { set({ isLoading: true }); return; }
@@ -1085,7 +1193,7 @@ export const useStore = create(
         if (req.shelf && !ds.shelf) { set({ isLoading: true }); return; }
         if (req.prints && !ds.prints) { set({ isLoading: true }); return; }
 
-        set({ isLoading: false });
+        set({ isLoading: false, initialLoadComplete: true });
         get().startBackgroundListeners();
       },
 
@@ -1114,6 +1222,8 @@ export const useStore = create(
 
         const pageReady = 
           (!req.stories || updated.stories) &&
+          (!req.homeKits || updated.homeKits) &&
+          (!req.homeBlueprints || updated.homeBlueprints) &&
           (!req.kits || updated.kits) &&
           (!req.deals || updated.deals) &&
           (!req.orders || updated.orders) &&
@@ -1122,7 +1232,7 @@ export const useStore = create(
           (!req.prints || updated.prints);
 
         if (pageReady) {
-          set({ isLoading: false });
+          set({ isLoading: false, initialLoadComplete: true });
           get().startBackgroundListeners();
         }
       },
@@ -1133,12 +1243,114 @@ export const useStore = create(
         const ds = get()._loadedDatasets;
         const req = get()._getPageRequirements(get()._activePath);
         const listenerKeys = get()._datasetListenerKeys || {};
+        const activePath = get()._activePath;
+        const isPublicCatalog = req.kits
+          && isPublicKitCatalogPath(activePath)
+          && !(get().isAdmin && get().isAdminView)
+          && !get().forceFullKitCatalog;
         const unsubs = [];
         const markListener = (key, isActive = true) => {
           set((state) => ({
             _datasetListenerKeys: { ...state._datasetListenerKeys, [key]: isActive }
           }));
         };
+        if (!isPublicCatalog && get().unsubCatalogPublic) {
+          get().unsubCatalogPublic();
+          set((state) => ({
+            unsubCatalogPublic: null,
+            _datasetListenerKeys: { ...state._datasetListenerKeys, catalogPublic: false }
+          }));
+        }
+        if (!req.stories && get().unsubStories) {
+          get().unsubStories();
+          set((state) => ({
+            unsubStories: null,
+            _datasetListenerKeys: { ...state._datasetListenerKeys, stories: false },
+            _loadedDatasets: { ...state._loadedDatasets, stories: false }
+          }));
+        }
+        if (!req.homeKits && get().unsubHomeKits) {
+          get().unsubHomeKits();
+          set((state) => ({
+            unsubHomeKits: null,
+            _datasetListenerKeys: { ...state._datasetListenerKeys, homeKits: false },
+            _loadedDatasets: { ...state._loadedDatasets, homeKits: false }
+          }));
+        }
+        if (!req.homeBlueprints && get().unsubHomeBlueprints) {
+          get().unsubHomeBlueprints();
+          set((state) => ({
+            unsubHomeBlueprints: null,
+            _datasetListenerKeys: { ...state._datasetListenerKeys, homeBlueprints: false },
+            _loadedDatasets: { ...state._loadedDatasets, homeBlueprints: false }
+          }));
+        }
+        const hydrateHomeDealKits = async (availableDeals = []) => {
+          const currentPath = get()._activePath;
+          if (!['/', '/kits'].includes(currentPath) || !Array.isArray(availableDeals)) return;
+
+          const dealKitIds = [...new Set(
+            availableDeals
+              .filter((deal) => deal?.isActive !== false)
+              .flatMap((deal) => [
+                ...(Array.isArray(deal?.kitIds) ? deal.kitIds : []),
+                ...(Array.isArray(deal?.clearanceKitIds) ? deal.clearanceKitIds : [])
+              ])
+              .filter(Boolean)
+              .map((kitId) => String(kitId))
+          )];
+          if (dealKitIds.length === 0) return;
+
+          const fetchedKits = [];
+          for (let index = 0; index < dealKitIds.length; index += 30) {
+            const batchIds = dealKitIds.slice(index, index + 30);
+            try {
+              const snap = await getDocs(query(
+                collection(db, 'kits'),
+                where(documentId(), 'in', batchIds)
+              ));
+              fetchedKits.push(...snap.docs.map((kitDoc) => ({ id: kitDoc.id, ...kitDoc.data() })));
+            } catch (error) {
+              console.error('SG LOG: Home deal kits lookup failed:', error);
+            }
+          }
+
+          if (fetchedKits.length === 0 || !['/', '/kits'].includes(get()._activePath)) return;
+          set((state) => {
+            const stateKey = get()._activePath === '/' ? 'homeKits' : 'kits';
+            const kitsById = new Map((state[stateKey] || []).map((kit) => [String(kit.id), kit]));
+            fetchedKits.forEach((kit) => kitsById.set(String(kit.id), kit));
+            return { [stateKey]: sortKitsByAvailability([...kitsById.values()]) };
+          });
+        };
+
+        // A role can resolve after the public listener has already started.
+        // Replace the bounded public listener with the full listener when an
+        // admin switches into the admin view, and do the reverse when leaving
+        // it. This keeps catalog reads scoped to the current workflow.
+        const desiredKitMode = isPublicCatalog
+          ? (get().isPublicKitSummaryMode ? 'public-summary' : 'public-page')
+          : (req.kits ? 'full' : null);
+        const currentKitMode = listenerKeys.kitsMode || null;
+        if (req.kits && currentKitMode && currentKitMode !== desiredKitMode) {
+          if (get().unsubKits) get().unsubKits();
+          if (get().unsubCatalogPublic) get().unsubCatalogPublic();
+          set((state) => ({
+            unsubKits: null,
+            unsubCatalogPublic: null,
+            _datasetListenerKeys: { ...state._datasetListenerKeys, kits: false, catalogPublic: false, kitsMode: null },
+            _loadedDatasets: { ...state._loadedDatasets, kits: false },
+            _datasetStatus: { ...state._datasetStatus, kits: 'loading' },
+            kits: [],
+            lastVisibleKit: null,
+            hasMoreKits: false,
+            hasLoadedAllKits: false,
+            isPublicKitPagination: false,
+            forceFullKitCatalog: false,
+            isPublicKitSummaryMode: false,
+            publicCatalogFallback: false
+          }));
+        }
 
         // 1. Stories (if not already prioritized)
         if (req.stories && !ds.stories && !listenerKeys.stories) {
@@ -1151,21 +1363,142 @@ export const useStore = create(
             markListener('stories', false);
             get().markLoaded('stories', { status: 'error' });
           });
+          set({ unsubStories: unsub });
           markListener('stories');
           unsubs.push(unsub);
         }
 
-        // 2. Kits (if not already prioritized) — fetch ALL kits directly
-        if (req.kits && !ds.kits && !listenerKeys.kits) {
-          const allKitsQuery = query(collection(db, "kits"), orderBy("lastUpdated", "desc"));
-          const unsub = onSnapshot(allKitsQuery, (snap) => {
+        // 2. Landing page kits — keep the first paint bounded. The full catalog
+        // listener is reserved for catalog-dependent routes below.
+        if (req.homeKits && !ds.homeKits && !listenerKeys.homeKits) {
+          const homeKitsQuery = query(
+            collection(db, 'kits'),
+            orderBy('lastUpdated', 'desc'),
+            limit(40)
+          );
+          const unsub = onSnapshot(homeKitsQuery, (snap) => {
+            const boundedKits = snap.docs
+              .map((kitDoc) => ({ id: kitDoc.id, ...kitDoc.data() }))
+              .filter((kit) => kit.productType !== 'printed-project' && kit.isPrintedProject !== true);
+            const boundedIds = new Set(boundedKits.map((kit) => String(kit.id)));
+            set((state) => ({
+              homeKits: sortKitsByAvailability([
+                ...boundedKits,
+                ...(state.homeKits || []).filter((kit) => !boundedIds.has(String(kit.id)))
+              ])
+            }));
+            updateSnapshotDatasetStatus(get, 'homeKits', snap);
+          }, (err) => {
+            console.error('SG LOG: Home kits subscription error:', err);
+            markListener('homeKits', false);
+            get().markLoaded('homeKits', { status: 'error' });
+          });
+          set({ unsubHomeKits: unsub });
+          markListener('homeKits');
+          unsubs.push(unsub);
+        }
+
+        // 3. Landing page project previews — enough for the home feed without
+        // downloading the complete blueprints collection.
+        if (req.homeBlueprints && !ds.homeBlueprints && !listenerKeys.homeBlueprints) {
+          const homeBlueprintsQuery = query(collection(db, 'blueprints'), limit(12));
+          const unsub = onSnapshot(homeBlueprintsQuery, (snap) => {
+            set({ homeBlueprints: docsToArray(snap) });
+            updateSnapshotDatasetStatus(get, 'homeBlueprints', snap);
+          }, (err) => {
+            console.error('SG LOG: Home blueprints subscription error:', err);
+            markListener('homeBlueprints', false);
+            get().markLoaded('homeBlueprints', { status: 'error' });
+          });
+          set({ unsubHomeBlueprints: unsub });
+          markListener('homeBlueprints');
+          unsubs.push(unsub);
+        }
+
+        // 4. Public catalog projection — when the one-time admin sync has
+        // populated catalogPublic, public browsing reads only this compact
+        // collection. Empty/error states fall back to the bounded kits query
+        // so existing installations remain usable before migration.
+        if (
+          isPublicCatalog
+          && !get().publicCatalogFallback
+          && !get()._loadedDatasets.kits
+          && !get()._datasetListenerKeys?.catalogPublic
+          && !get()._datasetListenerKeys?.kits
+        ) {
+          const publicCatalogQuery = query(
+            collection(db, 'catalogPublic'),
+            orderBy('lastUpdated', 'desc'),
+            limit(PUBLIC_KIT_PAGE_SIZE)
+          );
+          let unsubPublicCatalog = null;
+          unsubPublicCatalog = onSnapshot(publicCatalogQuery, (snap) => {
+            if (snap.empty) {
+              unsubPublicCatalog?.();
+              set((state) => ({
+                unsubCatalogPublic: null,
+                publicCatalogFallback: true,
+                isPublicKitSummaryMode: false,
+                _datasetListenerKeys: { ...state._datasetListenerKeys, catalogPublic: false },
+                _loadedDatasets: { ...state._loadedDatasets, kits: false }
+              }));
+              get().startBackgroundListeners();
+              return;
+            }
+
+            const summaryKits = snap.docs
+              .map((kitDoc) => ({ id: kitDoc.id, ...kitDoc.data() }))
+              .filter((kit) => kit.productType !== 'printed-project' && kit.isPrintedProject !== true);
+            set({
+              kits: sortKitsByAvailability(summaryKits),
+              lastVisibleKit: snap.docs[snap.docs.length - 1] || null,
+              hasMoreKits: snap.docs.length === PUBLIC_KIT_PAGE_SIZE,
+              hasLoadedAllKits: snap.docs.length < PUBLIC_KIT_PAGE_SIZE,
+              isPublicKitPagination: true,
+              isPublicKitSummaryMode: true
+            });
+            set((state) => ({
+              _datasetListenerKeys: { ...state._datasetListenerKeys, kitsMode: 'public-summary' }
+            }));
+            updateSnapshotDatasetStatus(get, 'kits', snap);
+          }, (error) => {
+            console.error('SG LOG: Public catalog projection subscription error:', error);
+            unsubPublicCatalog?.();
+            set((state) => ({
+              unsubCatalogPublic: null,
+              publicCatalogFallback: true,
+              isPublicKitSummaryMode: false,
+              _datasetListenerKeys: { ...state._datasetListenerKeys, catalogPublic: false },
+              _loadedDatasets: { ...state._loadedDatasets, kits: false }
+            }));
+            get().startBackgroundListeners();
+          });
+          set({ unsubCatalogPublic: unsubPublicCatalog });
+          markListener('catalogPublic');
+        }
+
+        // 5. Kits — public catalog pages are bounded; admin/cart/checkout use
+        // the full live collection because they need complete stock state.
+        if (
+          req.kits
+          && (!isPublicCatalog || get().publicCatalogFallback)
+          && !get()._loadedDatasets.kits
+          && !get()._datasetListenerKeys?.kits
+        ) {
+          const kitsQuery = isPublicCatalog
+            ? query(collection(db, 'kits'), orderBy('lastUpdated', 'desc'), limit(PUBLIC_KIT_PAGE_SIZE))
+            : query(collection(db, 'kits'), orderBy('lastUpdated', 'desc'));
+          const unsub = onSnapshot(kitsQuery, (snap) => {
             const allKits = snap.docs
               .map(doc => ({ id: doc.id, ...doc.data() }))
               .filter((kit) => kit.productType !== 'printed-project' && kit.isPrintedProject !== true);
             const sortedKits = sortKitsByAvailability(allKits);
             const nextState = {
               kits: sortedKits,
-              lastVisibleKit: snap.docs[snap.docs.length - 1]
+              lastVisibleKit: snap.docs[snap.docs.length - 1] || null,
+              hasMoreKits: isPublicCatalog && snap.docs.length === PUBLIC_KIT_PAGE_SIZE,
+              hasLoadedAllKits: !isPublicCatalog || snap.docs.length < PUBLIC_KIT_PAGE_SIZE,
+              isPublicKitPagination: isPublicCatalog
             };
 
             // A shelf snapshot can arrive before the kits snapshot that
@@ -1187,7 +1520,11 @@ export const useStore = create(
             markListener('kits', false);
             get().markLoaded('kits', { status: 'error' });
           });
+          set({ unsubKits: unsub });
           markListener('kits');
+          set((state) => ({
+            _datasetListenerKeys: { ...state._datasetListenerKeys, kitsMode: desiredKitMode }
+          }));
           unsubs.push(unsub);
         }
 
@@ -1254,9 +1591,11 @@ export const useStore = create(
         // 6. Deals (if not already prioritized)
         if (req.deals && !ds.deals && !listenerKeys.deals) {
           const unsubDeals = onSnapshot(collection(db, "deals"), (snap) => {
-            set({ deals: docsToArray(snap) });
+            const deals = docsToArray(snap);
+            set({ deals });
             updateSnapshotDatasetStatus(get, 'deals', snap);
             get().syncAllDeals();
+            void hydrateHomeDealKits(deals);
           }, (err) => {
             console.error("SG LOG: Background Deals subscription error:", err);
             markListener('deals', false);
@@ -1284,14 +1623,23 @@ export const useStore = create(
         prevPrioUnsubs.forEach(unsub => unsub && unsub());
         const prevBgUnsubs = get()._bgUnsubs || [];
         prevBgUnsubs.forEach(unsub => unsub && unsub());
+        if (get().unsubKits) get().unsubKits();
+        if (get().unsubCatalogPublic) get().unsubCatalogPublic();
 
         set({
           _prioUnsubs: [],
           _bgUnsubs: [],
+          unsubKits: null,
+          unsubCatalogPublic: null,
           _datasetListenerKeys: {},
           _backgroundListenersStarted: false,
           _isInitialAuthChecked: false,
           isLoading: true,
+          initialLoadCacheStatus: 'unknown',
+          initialLoadComplete: false,
+          forceFullKitCatalog: false,
+          isPublicKitSummaryMode: false,
+          publicCatalogFallback: false,
           _loadedDatasets: createInitialDatasetState(false),
           _datasetStatus: createInitialDatasetState('loading')
         });
@@ -1300,7 +1648,9 @@ export const useStore = create(
         const priorityKeys = Object.entries(currentReq).filter(([, value]) => value).map(([key]) => key);
         priorityKeys.forEach((key) => {
           const timeoutId = setTimeout(() => {
-            if (!get()._loadedDatasets[key]) {
+            // A cached session keeps the existing resilient timeout behavior.
+            // A cold session must stay gated until its listener really settles.
+            if (!get()._loadedDatasets[key] && get().initialLoadCacheStatus === 'cached') {
               console.warn(`SG LOG: ${key} listener is slow; rendering page while Firestore reconnects.`);
               get().markLoaded(key, { status: 'loading' });
             }
@@ -1382,7 +1732,19 @@ export const useStore = create(
 
           const bgUnsubs = get()._bgUnsubs || [];
           bgUnsubs.forEach(unsub => unsub && unsub());
-          set({ _bgUnsubs: [], _datasetListenerKeys: {}, _backgroundListenersStarted: false });
+          if (get().unsubStories) get().unsubStories();
+          if (get().unsubHomeKits) get().unsubHomeKits();
+          if (get().unsubHomeBlueprints) get().unsubHomeBlueprints();
+          set({
+            _bgUnsubs: [],
+            _datasetListenerKeys: {},
+            _backgroundListenersStarted: false,
+          unsubStories: null,
+          unsubHomeKits: null,
+          unsubHomeBlueprints: null,
+          unsubKits: null,
+          unsubCatalogPublic: null
+          });
 
           const bundleDealRestartTimer = get()._bundleDealRestartTimer;
           if (bundleDealRestartTimer) clearTimeout(bundleDealRestartTimer);
@@ -1407,12 +1769,66 @@ export const useStore = create(
       },
 
       getMoreKits: async () => {
-        // All kits are loaded on snapshot initialization. Client-side pagination is handled in pages/Kits.jsx.
+        const { isPublicKitPagination, hasMoreKits, lastVisibleKit, isLoadingMoreKits } = get();
+        if (!isPublicKitPagination || !hasMoreKits || !lastVisibleKit || isLoadingMoreKits) {
+          return get().kits || [];
+        }
+
+        set({ isLoadingMoreKits: true });
+        try {
+          const sourceCollection = get().isPublicKitSummaryMode ? 'catalogPublic' : 'kits';
+          const snap = await getDocs(query(
+            collection(db, sourceCollection),
+            orderBy('lastUpdated', 'desc'),
+            startAfter(lastVisibleKit),
+            limit(PUBLIC_KIT_PAGE_SIZE)
+          ));
+          const nextKits = snap.docs
+            .map((kitDoc) => ({ id: kitDoc.id, ...kitDoc.data() }))
+            .filter((kit) => kit.productType !== 'printed-project' && kit.isPrintedProject !== true);
+          const currentById = new Map((get().kits || []).map((kit) => [String(kit.id), kit]));
+          nextKits.forEach((kit) => currentById.set(String(kit.id), kit));
+          const hasMore = snap.docs.length === PUBLIC_KIT_PAGE_SIZE;
+          set({
+            kits: sortKitsByAvailability([...currentById.values()]),
+            lastVisibleKit: snap.docs[snap.docs.length - 1] || lastVisibleKit,
+            hasMoreKits: hasMore,
+            hasLoadedAllKits: !hasMore,
+            isLoadingMoreKits: false
+          });
+          return get().kits || [];
+        } catch (error) {
+          set({ isLoadingMoreKits: false });
+          console.error('SG LOG: Loading more public kits failed:', error);
+          throw error;
+        }
+      },
+
+      loadKitById: async (kitId) => {
+        if (!kitId) return null;
+        const existing = (get().kits || []).find((kit) => String(kit.id) === String(kitId));
+        if (existing) return existing;
+
+        try {
+          const sourceCollection = get().isPublicKitSummaryMode ? 'catalogPublic' : 'kits';
+          const snap = await getDoc(doc(db, sourceCollection, kitId));
+          if (!snap.exists()) return null;
+          const kit = { id: snap.id, ...snap.data() };
+          set((state) => {
+            const kitsById = new Map((state.kits || []).map((item) => [String(item.id), item]));
+            kitsById.set(String(kit.id), kit);
+            return { kits: sortKitsByAvailability([...kitsById.values()]) };
+          });
+          return kit;
+        } catch (error) {
+          console.error('SG LOG: Loading selected kit failed:', error);
+          return null;
+        }
       },
 
       loadAllKits: async () => {
         const currentKits = get().kits || [];
-        if (currentKits.length > 0 && get()._loadedDatasets.kits) return currentKits;
+        if (currentKits.length > 0 && get()._loadedDatasets.kits && !get().isPublicKitPagination) return currentKits;
 
         get().setDatasetStatus('kits', 'loading');
         try {
@@ -1420,14 +1836,99 @@ export const useStore = create(
           const allKits = sortKitsByAvailability(snap.docs
             .map(kitDoc => ({ id: kitDoc.id, ...kitDoc.data() }))
             .filter((kit) => kit.productType !== 'printed-project' && kit.isPrintedProject !== true));
-          set({ kits: allKits });
-          get().markLoaded('kits', { status: allKits.length > 0 ? 'ready' : 'empty' });
+          if (get().unsubKits) get().unsubKits();
+          if (get().unsubCatalogPublic) get().unsubCatalogPublic();
+          set((state) => ({
+            kits: allKits,
+            unsubKits: null,
+            unsubCatalogPublic: null,
+            lastVisibleKit: snap.docs[snap.docs.length - 1] || null,
+            hasMoreKits: false,
+            hasLoadedAllKits: true,
+            isPublicKitPagination: false,
+            forceFullKitCatalog: true,
+            _datasetListenerKeys: { ...state._datasetListenerKeys, kits: false, kitsMode: null },
+            _loadedDatasets: { ...state._loadedDatasets, kits: false },
+            _datasetStatus: { ...state._datasetStatus, kits: 'loading' }
+          }));
+          get().startBackgroundListeners();
           return allKits;
         } catch (error) {
           get().markLoaded('kits', { status: 'error' });
           throw error;
         }
 
+      },
+
+      syncPublicCatalog: async (onProgress) => {
+        if (!get().isAdmin) throw new Error('Admin account is required to sync the public catalog.');
+
+        if (publicCatalogSyncPromise) return publicCatalogSyncPromise;
+
+        publicCatalogSyncPromise = (async () => {
+          const report = (progress) => {
+            console.info('[Snorlax Garage] Public catalog sync:', progress.message, progress);
+            if (typeof onProgress === 'function') onProgress(progress);
+          };
+
+          report({ phase: 'reading', message: 'Reading kit catalog…' });
+          const [kitSnap, publicSnap] = await Promise.all([
+            getDocs(collection(db, 'kits')),
+            getDocs(collection(db, 'catalogPublic'))
+          ]);
+          const publicKits = kitSnap.docs
+            .map((kitDoc) => ({ id: kitDoc.id, ...kitDoc.data() }))
+            .filter((kit) => kit.productType !== 'printed-project' && kit.isPrintedProject !== true);
+          const publicIds = new Set(publicKits.map((kit) => String(kit.id)));
+          const writes = publicKits.map((kit) => ({
+            ref: doc(db, 'catalogPublic', kit.id),
+            data: buildPublicKitSummary(kit)
+          }));
+
+          report({ phase: 'writing', message: `Writing ${writes.length} kit summaries…`, total: writes.length, completed: 0 });
+          for (let index = 0; index < writes.length; index += PUBLIC_CATALOG_WRITE_CHUNK_SIZE) {
+            const chunk = writes.slice(index, index + PUBLIC_CATALOG_WRITE_CHUNK_SIZE);
+            const batch = writeBatch(db);
+            chunk.forEach(({ ref, data }) => batch.set(ref, data, { merge: true }));
+            await batch.commit();
+            const completed = Math.min(index + chunk.length, writes.length);
+            report({ phase: 'writing', message: `Wrote ${completed} of ${writes.length} kit summaries.`, total: writes.length, completed });
+            // Yield between batches so React can repaint and the page remains
+            // scrollable while a larger catalog is being synchronized.
+            await new Promise((resolve) => setTimeout(resolve, 0));
+          }
+
+          const staleRefs = publicSnap.docs
+            .filter((catalogDoc) => !publicIds.has(String(catalogDoc.id)))
+            .map((catalogDoc) => catalogDoc.ref);
+          for (let index = 0; index < staleRefs.length; index += 450) {
+            const batch = writeBatch(db);
+            staleRefs.slice(index, index + 450).forEach((ref) => batch.delete(ref));
+            await batch.commit();
+            report({ phase: 'cleaning', message: `Removed stale summary rows through ${Math.min(index + 450, staleRefs.length)} of ${staleRefs.length}.`, total: staleRefs.length, completed: Math.min(index + 450, staleRefs.length) });
+          }
+
+          report({ phase: 'complete', message: `Completed: ${writes.length} kits synced.`, total: writes.length, completed: writes.length, removed: staleRefs.length });
+          return { synced: writes.length, removed: staleRefs.length };
+        })();
+
+        try {
+          return await publicCatalogSyncPromise;
+        } finally {
+          publicCatalogSyncPromise = null;
+        }
+      },
+
+      syncPublicKitSummary: async (kitId) => {
+        if (!kitId || !get().isAdmin) return;
+        const kitRef = doc(db, 'kits', kitId);
+        const kitSnap = await getDoc(kitRef);
+        const publicRef = doc(db, 'catalogPublic', kitId);
+        if (!kitSnap.exists() || kitSnap.data()?.productType === 'printed-project' || kitSnap.data()?.isPrintedProject === true) {
+          await deleteDoc(publicRef);
+          return;
+        }
+        await setDoc(publicRef, buildPublicKitSummary({ id: kitSnap.id, ...kitSnap.data() }), { merge: true });
       },
 
       loadAllDeals: async () => {
@@ -2065,6 +2566,7 @@ export const useStore = create(
               hasAvailableStock: hasAvailable
             });
           }
+          await get().syncPublicKitSummary(targetKitId);
           console.log("SG DEBUG: addKit operation successful.");
           return { id: targetKitId };
         } catch (err) {
@@ -2076,6 +2578,7 @@ export const useStore = create(
       deleteKit: async (kitId) => {
         if (!kitId) return;
         await deleteDoc(doc(db, 'kits', kitId));
+        await get().syncPublicKitSummary(kitId);
       },
 
       deleteStock: async (kitId, stockKey) => {
@@ -2101,10 +2604,12 @@ export const useStore = create(
             hasAvailableStock: hasAvailable
           });
           await batch.commit();
+          await get().syncPublicKitSummary(kitId);
         } else {
           const batch = writeBatch(db);
           matchingShelfDocs.forEach((shelfDoc) => batch.delete(shelfDoc.ref));
           await batch.commit();
+          await get().syncPublicKitSummary(kitId);
         }
       },
 
@@ -2147,6 +2652,7 @@ export const useStore = create(
 
       updateStockPrice: async (kitId, stockKey, newPrice) => {
         await updateDoc(doc(db, 'kits', kitId), { [`stocks.${stockKey}.sellPrice`]: Number(newPrice) });
+        await get().syncPublicKitSummary(kitId);
       },
 
       priceBuiltOnhandKits: async () => {
@@ -2564,6 +3070,10 @@ export const useStore = create(
 
         if (!sgUser) {
           console.log("DEBUG: No sgUser found, switching to guest mode.");
+          // If no public listener has already reported a non-empty local
+          // cache, a guest session is a cold start and should remain gated
+          // until the required public datasets finish loading.
+          get().noteInitialLoadSource('cold');
           const guestProjectVault = JSON.parse(localStorage.getItem('sg_guest_project_vault') || '[]');
           const guestBasket = JSON.parse(localStorage.getItem('sg_guest_basket') || '[]');
           set({ user: null, isAnonymousUser: false, isAdmin: false, isAdminView: false, usersList: [], orders: [], notifyList: [], projectVault: guestProjectVault, guestBasket, shelf: [], userOffers: [], userOffersLoaded: true, unsubUser: null, unsubShelf: null, unsubAdmin: null, unsubBasket: null, unsubProjectVault: null, unsubOffers: null, syncStatus: 'Restoring local basket' });
@@ -2591,6 +3101,10 @@ export const useStore = create(
         const initialDocSnap = userResult.status === 'fulfilled' ? userResult.value : null;
         const vaultSnap = vaultResult.status === 'fulfilled' ? vaultResult.value : null;
         const isActuallyAdmin = Boolean(adminSnap?.exists());
+        const hasCachedAccountData = [adminSnap, initialDocSnap, vaultSnap].some((snapshot) => (
+          snapshot?.metadata?.fromCache && snapshot.exists()
+        ));
+        get().noteInitialLoadSource(hasCachedAccountData ? 'cached' : 'cold');
         console.log("DEBUG: Is user admin?", isActuallyAdmin);
 
         if (adminResult.status === 'rejected') {
@@ -3406,6 +3920,7 @@ export const useStore = create(
                 delete stocks[item.stockKey].reservedBy;
                 delete stocks[item.stockKey].reservedAt;
                 delete stocks[item.stockKey].reservationType;
+                delete stocks[item.stockKey].reservedByDealId;
               }
               const hasAvailable = Object.values(stocks).some(s => !s.order?.orderId && !s.isReserved);
               await updateDoc(doc(db, "kits", item.id), { 
@@ -3414,6 +3929,7 @@ export const useStore = create(
                 [`stocks.${item.stockKey}.reservedAt`]: null, 
                 [`stocks.${item.stockKey}.availableAt`]: serverTimestamp(),
                 [`stocks.${item.stockKey}.reservationType`]: deleteField(),
+                [`stocks.${item.stockKey}.reservedByDealId`]: deleteField(),
                 hasAvailableStock: hasAvailable,
                 lastAvailableAt: serverTimestamp(),
                 lastUpdated: serverTimestamp()
@@ -3721,7 +4237,8 @@ export const useStore = create(
           const normalizeKitIds = (ids = []) => [...new Set(
             (Array.isArray(ids) ? ids : [ids]).map(String).filter(Boolean)
           )];
-          const mutuallyExclusiveOpposingKitIds = new Set();
+          const mutuallyExclusiveGroupRules = [];
+          const mutuallyExclusiveStockRules = [];
           const mutuallyExclusiveLockKitIds = new Set();
 
           const stockHasCustomerHold = (stock = {}) => {
@@ -3740,6 +4257,15 @@ export const useStore = create(
           activeMutualDeals.forEach((deal) => {
             const configuredPairs = (deal.mutuallyExclusivePairs || [])
               .filter((pair) => pair?.bandaiId && pair?.bootlegId);
+            const stockSpecificPairs = configuredPairs.filter((pair) => pair.bandaiStockKey && pair.bootlegStockKey);
+            stockSpecificPairs.forEach((pair) => {
+              const first = { kitId: String(pair.bandaiId), stockKey: String(pair.bandaiStockKey) };
+              const second = { kitId: String(pair.bootlegId), stockKey: String(pair.bootlegStockKey) };
+              mutuallyExclusiveStockRules.push({ first, second });
+              mutuallyExclusiveLockKitIds.add(first.kitId);
+              mutuallyExclusiveLockKitIds.add(second.kitId);
+            });
+            const legacyConfiguredPairs = configuredPairs.filter((pair) => !(pair.bandaiStockKey && pair.bootlegStockKey));
             const bandaiKitIds = normalizeKitIds(
               deal.mutuallyExclusiveGroups?.bandai || deal.bandaiKitIds || []
             );
@@ -3747,12 +4273,14 @@ export const useStore = create(
               deal.mutuallyExclusiveGroups?.bootleg || deal.bootlegKitIds || []
             );
             const dealKitIds = normalizeKitIds(deal.kitIds || []);
-            const pairGroups = configuredPairs.length > 0
-              ? configuredPairs.map((pair) => [
+            const pairGroups = legacyConfiguredPairs.length > 0
+              ? legacyConfiguredPairs.map((pair) => [
                 normalizeKitIds([pair.bandaiId]),
                 normalizeKitIds([pair.bootlegId])
               ])
-              : [bandaiKitIds.length > 0 && bootlegKitIds.length > 0
+              : stockSpecificPairs.length > 0
+                ? []
+                : [bandaiKitIds.length > 0 && bootlegKitIds.length > 0
                 ? [bandaiKitIds, bootlegKitIds]
                 : [dealKitIds.slice(0, 1), dealKitIds.slice(1, 2)]];
 
@@ -3766,18 +4294,17 @@ export const useStore = create(
               if (!currentGroup) return;
 
               const opposingGroup = currentGroup === firstGroup ? secondGroup : firstGroup;
+              mutuallyExclusiveGroupRules.push({ currentGroup, opposingGroup });
               currentGroup.forEach((groupKitId) => mutuallyExclusiveLockKitIds.add(groupKitId));
-              opposingGroup.forEach((opposingKitId) => {
-                mutuallyExclusiveOpposingKitIds.add(opposingKitId);
-                mutuallyExclusiveLockKitIds.add(opposingKitId);
-              });
+              opposingGroup.forEach((opposingKitId) => mutuallyExclusiveLockKitIds.add(opposingKitId));
             });
           });
 
           // Read every kit in the rule before writing any of them. The
-          // opposing side is validated for customer holds, while all kits
-          // receive the same transaction marker so every checkout touching
-          // the rule conflicts with every other checkout touching the rule.
+          // Read every kit in the rule before writing any of them. The
+          // opposing side is validated per stock variant, while all kits
+          // receive the same transaction marker so competing checkouts still
+          // serialize against the same mutual-exclusion rule.
           const mutualKitSnapshots = new Map();
           for (const lockedKitId of mutuallyExclusiveLockKitIds) {
             if (String(lockedKitId) === String(kitId)) {
@@ -3787,14 +4314,53 @@ export const useStore = create(
 
             const lockedKitSnapshot = await transaction.get(doc(db, 'kits', lockedKitId));
             mutualKitSnapshots.set(String(lockedKitId), lockedKitSnapshot);
-            if (
-              mutuallyExclusiveOpposingKitIds.has(String(lockedKitId))
-              && lockedKitSnapshot.exists()
-              && Object.values(lockedKitSnapshot.data().stocks || {}).some(stockHasCustomerHold)
-            ) {
-              return;
-            }
           }
+
+          const getSnapshotStockEntries = (groupIds) => groupIds.flatMap((groupKitId) => {
+            const groupSnapshot = mutualKitSnapshots.get(String(groupKitId));
+            return groupSnapshot?.exists()
+              ? Object.entries(groupSnapshot.data().stocks || {}).map(([groupStockKey, stock]) => ({
+                kitId: String(groupKitId),
+                stockKey: groupStockKey,
+                stock
+              }))
+              : [];
+          }).sort((first, second) => (
+            `${first.kitId}:${first.stockKey}`.localeCompare(`${second.kitId}:${second.stockKey}`)
+          ));
+
+          const getSnapshotCustomerHoldCount = (groupIds) => getSnapshotStockEntries(groupIds)
+            .filter(({ stock }) => stockHasCustomerHold(stock)).length;
+          const mutuallyExclusiveBlockedStockKeys = new Set();
+
+          const getSnapshotStock = ({ kitId: targetKitId, stockKey: targetStockKey }) => (
+            mutualKitSnapshots.get(String(targetKitId))?.data()?.stocks?.[targetStockKey] || null
+          );
+
+          mutuallyExclusiveStockRules.forEach(({ first, second }) => {
+            const currentIsFirst = String(first.kitId) === String(kitId) && String(first.stockKey) === String(stockKey);
+            const currentIsSecond = String(second.kitId) === String(kitId) && String(second.stockKey) === String(stockKey);
+            if (!currentIsFirst && !currentIsSecond) return;
+            const opposingStock = getSnapshotStock(currentIsFirst ? second : first);
+            if (stockHasCustomerHold(opposingStock)) {
+              mutuallyExclusiveBlockedStockKeys.add(`${kitId}:${stockKey}`);
+            }
+          });
+
+          mutuallyExclusiveGroupRules.forEach(({ currentGroup, opposingGroup }) => {
+            const currentHoldCount = getSnapshotCustomerHoldCount(currentGroup);
+            const opposingHoldCount = getSnapshotCustomerHoldCount(opposingGroup);
+            if (currentHoldCount > 0 || opposingHoldCount === 0) return;
+
+            // Only the matching number of concrete stock variants is blocked.
+            // Other stock variants of the same kit remain purchasable.
+            getSnapshotStockEntries(currentGroup)
+              .filter(({ stock }) => !stockHasCustomerHold(stock) && !stock.isReserved)
+              .slice(0, opposingHoldCount)
+              .forEach(({ kitId: blockedKitId, stockKey: blockedStockKey }) => {
+                mutuallyExclusiveBlockedStockKeys.add(`${blockedKitId}:${blockedStockKey}`);
+              });
+          });
 
           if (options.offerId) {
             const offerSnap = await transaction.get(doc(db, 'hunts', options.offerId));
@@ -3838,10 +4404,11 @@ export const useStore = create(
           } else {
             const source = options.stockSource || (requestedStock ? getStockSource(requestedStock) : '');
             const availableEntries = stockEntries
-              .filter(([, stock]) => (
+              .filter(([availableStockKey, stock]) => (
                 !stock?.order?.orderId
                 && !stock?.isReserved
                 && stockMatchesSource(stock, source)
+                && !mutuallyExclusiveBlockedStockKeys.has(`${kitId}:${availableStockKey}`)
               ))
               .sort(compareCustomerStockEntries);
             selectedEntry = availableEntries[0] || null;
@@ -3850,11 +4417,12 @@ export const useStore = create(
             // ordinary customer-available stocks have been exhausted.
             if (!selectedEntry && options.allowAdminShelf) {
               const adminShelfEntries = stockEntries
-                .filter(([, stock]) => (
+                .filter(([adminShelfStockKey, stock]) => (
                   !stock?.order?.orderId
                   && stock?.isReserved
                   && stock?.reservationType === 'admin'
                   && stockMatchesSource(stock, source)
+                  && !mutuallyExclusiveBlockedStockKeys.has(`${kitId}:${adminShelfStockKey}`)
                 ))
                 .sort(compareCustomerStockEntries);
               selectedEntry = adminShelfEntries[0] || null;
@@ -4273,14 +4841,111 @@ export const useStore = create(
         const transferFee = fees.transferFee || 0;
 
         for (const deal of activeExclusions) {
-          if (!deal.kitIds || deal.kitIds.length < 2) continue;
+          const configuredPairs = (deal.mutuallyExclusivePairs || []).filter(pair => pair?.bandaiId && pair?.bootlegId);
+          const stockSpecificPairs = configuredPairs.filter(pair => pair.bandaiStockKey && pair.bootlegStockKey);
+          if ((!deal.kitIds || deal.kitIds.length < 2) && stockSpecificPairs.length === 0) continue;
 
           const bandaiKitIds = deal.mutuallyExclusiveGroups?.bandai || deal.bandaiKitIds || [];
           const bootlegKitIds = deal.mutuallyExclusiveGroups?.bootleg || deal.bootlegKitIds || [];
-          const configuredPairs = (deal.mutuallyExclusivePairs || []).filter(pair => pair?.bandaiId && pair?.bootlegId);
-          const pairGroups = configuredPairs.length > 0
-            ? configuredPairs.map(pair => [[pair.bandaiId], [pair.bootlegId]])
-            : [bandaiKitIds.length > 0 && bootlegKitIds.length > 0
+          const legacyConfiguredPairs = configuredPairs.filter(pair => !(pair.bandaiStockKey && pair.bootlegStockKey));
+
+          const hasCustomerHold = stock => {
+            const orderReference = stock?.order;
+            const hasOrder = typeof orderReference === 'object'
+              ? Boolean(
+                orderReference?.orderId
+                || orderReference?.orderDocId
+                || orderReference?.id
+                || Object.keys(orderReference || {}).length > 0
+              )
+              : Boolean(orderReference);
+            return hasOrder || Boolean(stock?.isReserved && stock.reservationType !== 'admin');
+          };
+
+          const releaseExactMutualStock = (kitId, stockKey) => {
+            const kit = kits.find(candidate => String(candidate.id) === String(kitId));
+            const stock = kit?.stocks?.[stockKey];
+            if (!stock || stock.reservationType !== 'admin' || stock.reservedByDealId !== deal.id) return;
+            const basketId = `b_kit_me_${deal.id}_${stockKey}`;
+            batch.delete(doc(db, 'shelf', basketId));
+            batch.update(doc(db, 'kits', kit.id), {
+              [`stocks.${stockKey}.isReserved`]: false,
+              [`stocks.${stockKey}.reservedBy`]: null,
+              [`stocks.${stockKey}.reservedAt`]: null,
+              [`stocks.${stockKey}.availableAt`]: serverTimestamp(),
+              [`stocks.${stockKey}.reservationType`]: deleteField(),
+              [`stocks.${stockKey}.reservedByDealId`]: deleteField(),
+              lastAvailableAt: serverTimestamp(),
+              lastUpdated: serverTimestamp()
+            });
+            hasChanges = true;
+          };
+
+          const keepExactMutualStock = (kitId, stockKey) => {
+            const kit = kits.find(candidate => String(candidate.id) === String(kitId));
+            const stock = kit?.stocks?.[stockKey];
+            if (!kit || !stock || hasCustomerHold(stock)) return;
+            const isManagedHold = stock.reservationType === 'admin' && stock.reservedByDealId === deal.id;
+            if (stock.isReserved && !isManagedHold) return;
+            const basketId = `b_kit_me_${deal.id}_${stockKey}`;
+            batch.set(doc(db, 'shelf', basketId), {
+              id: kit.id,
+              name: (kit.name || '').replace(/\s*\(Pre-Order\)\s*$/i, '') + ` (Excluded: ${kit.name})`,
+              image: kit.image || '',
+              brand: kit.brand || '',
+              specs: kit.specs || {},
+              price: Number(stock.sellPrice || 0) + handlingFee + installmentFee + transferFee,
+              costPrice: Number(stock.costPrice || 0),
+              sellPrice: Number(stock.sellPrice || 0),
+              status: stock.status || 'onhand',
+              eta: getStockEta(stock),
+              appliedHandlingFee: handlingFee,
+              appliedInstallmentFee: installmentFee,
+              appliedTransferFee: transferFee,
+              stockKey,
+              type: 'kit',
+              basketId,
+              minDownpayment: stock.minDownpayment || 0,
+              createdAt: new Date().toISOString(),
+              reservedByDealId: deal.id
+            });
+            if (!isManagedHold) {
+              batch.update(doc(db, 'kits', kit.id), {
+                [`stocks.${stockKey}.isReserved`]: true,
+                [`stocks.${stockKey}.reservedBy`]: user.uid,
+                [`stocks.${stockKey}.reservedAt`]: serverTimestamp(),
+                [`stocks.${stockKey}.reservationType`]: 'admin',
+                [`stocks.${stockKey}.reservedByDealId`]: deal.id,
+                lastUpdated: serverTimestamp()
+              });
+            }
+            hasChanges = true;
+          };
+
+          stockSpecificPairs.forEach(pair => {
+            const firstKit = kits.find(candidate => String(candidate.id) === String(pair.bandaiId));
+            const secondKit = kits.find(candidate => String(candidate.id) === String(pair.bootlegId));
+            const firstStock = firstKit?.stocks?.[pair.bandaiStockKey];
+            const secondStock = secondKit?.stocks?.[pair.bootlegStockKey];
+            const firstHeld = hasCustomerHold(firstStock);
+            const secondHeld = hasCustomerHold(secondStock);
+            if (firstHeld && !secondHeld) {
+              keepExactMutualStock(pair.bootlegId, pair.bootlegStockKey);
+              releaseExactMutualStock(pair.bandaiId, pair.bandaiStockKey);
+            } else if (secondHeld && !firstHeld) {
+              keepExactMutualStock(pair.bandaiId, pair.bandaiStockKey);
+              releaseExactMutualStock(pair.bootlegId, pair.bootlegStockKey);
+            } else if (!firstHeld && !secondHeld) {
+              releaseExactMutualStock(pair.bandaiId, pair.bandaiStockKey);
+              releaseExactMutualStock(pair.bootlegId, pair.bootlegStockKey);
+            }
+          });
+
+          const pairGroups = legacyConfiguredPairs.length > 0
+            ? legacyConfiguredPairs.map(pair => [[pair.bandaiId], [pair.bootlegId]])
+            : stockSpecificPairs.length > 0
+              ? []
+              : [bandaiKitIds.length > 0 && bootlegKitIds.length > 0
               ? [bandaiKitIds, bootlegKitIds]
               : [[deal.kitIds[0]], [deal.kitIds[1]]]];
 
@@ -4290,57 +4955,85 @@ export const useStore = create(
               .filter(Boolean));
             if (groupedKits.some(group => group.length === 0)) continue;
 
-            // A group is considered taken when any kit in that group has a
-            // customer reservation or an attached order. The opposite group is
-            // then kept off the shelf until the taken group becomes available.
-            const groupIsReserved = group => group.some(kit => Object.values(kit.stocks || {}).some(
-              stock => (stock.isReserved && stock.reservationType !== 'admin') || stock.order?.orderId
-            ));
-            const isFirstGroupReserved = groupIsReserved(groupedKits[0]);
-            const isSecondGroupReserved = groupIsReserved(groupedKits[1]);
-
-          // Helper to keep a kit to shelf
-          const keepToShelf = (targetKit) => {
-            const availableStocks = Object.entries(targetKit.stocks || {}).filter(
-              ([, s]) => !s.isReserved && !s.order?.orderId
+            const getGroupCustomerHoldCount = group => group.reduce(
+              (count, kit) => count + Object.values(kit.stocks || {}).filter(hasCustomerHold).length,
+              0
             );
-            if (availableStocks.length === 0) return;
+            const getGroupStockEntries = group => group.flatMap(kit => Object.entries(kit.stocks || {})
+              .map(([key, stock]) => ({ kit, key, stock })))
+              .sort((first, second) => `${first.kit.id}:${first.key}`.localeCompare(`${second.kit.id}:${second.key}`));
 
-            availableStocks.forEach(([key, stock]) => {
-              const basketId = `b_kit_me_${deal.id}_${key}`;
-              const clean = {
-                id: targetKit.id,
-                name: (targetKit.name || '').replace(/\s*\(Pre-Order\)\s*$/i, '') + ` (Excluded: ${targetKit.name})`,
-                image: targetKit.image || '',
-                brand: targetKit.brand || '',
-                specs: targetKit.specs || {},
-                price: Number(stock.sellPrice || 0) + handlingFee + installmentFee + transferFee,
-                costPrice: Number(stock.costPrice || 0),
-                sellPrice: Number(stock.sellPrice || 0),
-                status: stock.status || 'onhand',
-                eta: getStockEta(stock),
-                appliedHandlingFee: handlingFee,
-                appliedInstallmentFee: installmentFee,
-                appliedTransferFee: transferFee,
-                stockKey: key,
-                type: 'kit',
-                basketId,
-                minDownpayment: stock.minDownpayment || 0,
-                createdAt: new Date().toISOString(),
-                reservedByDealId: deal.id
-              };
-              batch.set(doc(db, 'shelf', basketId), clean);
-              batch.update(doc(db, 'kits', targetKit.id), {
-                [`stocks.${key}.isReserved`]: true,
-                [`stocks.${key}.reservedBy`]: user.uid,
-                [`stocks.${key}.reservedAt`]: serverTimestamp(),
-                [`stocks.${key}.reservationType`]: 'admin',
-                [`stocks.${key}.reservedByDealId`]: deal.id,
-                lastUpdated: serverTimestamp()
+            // Keep only as many opposing stock variants on the admin shelf as
+            // there are customer-held stock variants on the other side.
+            const keepToShelf = (targetGroup, requiredStockCount) => {
+              const entries = getGroupStockEntries(targetGroup);
+              const managedEntries = entries.filter(({ stock }) => (
+                stock.reservationType === 'admin' && stock.reservedByDealId === deal.id
+              ));
+              const eligibleEntries = entries.filter(({ stock }) => {
+                const isManagedHold = stock.reservationType === 'admin'
+                  && stock.reservedByDealId === deal.id;
+                return !hasCustomerHold(stock) && (!stock.isReserved || isManagedHold);
               });
-              hasChanges = true;
-            });
-          };
+              const targetEntries = eligibleEntries.slice(0, requiredStockCount);
+              const targetKeys = new Set(targetEntries.map(({ kit, key }) => `${kit.id}:${key}`));
+
+              managedEntries.forEach(({ kit, key }) => {
+                if (targetKeys.has(`${kit.id}:${key}`)) return;
+                const basketId = `b_kit_me_${deal.id}_${key}`;
+                batch.delete(doc(db, 'shelf', basketId));
+                batch.update(doc(db, 'kits', kit.id), {
+                  [`stocks.${key}.isReserved`]: false,
+                  [`stocks.${key}.reservedBy`]: null,
+                  [`stocks.${key}.reservedAt`]: null,
+                  [`stocks.${key}.availableAt`]: serverTimestamp(),
+                  [`stocks.${key}.reservationType`]: deleteField(),
+                  [`stocks.${key}.reservedByDealId`]: deleteField(),
+                  lastAvailableAt: serverTimestamp(),
+                  lastUpdated: serverTimestamp()
+                });
+                hasChanges = true;
+              });
+
+              targetEntries.forEach(({ kit, key, stock }) => {
+                const isManagedHold = stock.reservationType === 'admin'
+                  && stock.reservedByDealId === deal.id;
+                const basketId = `b_kit_me_${deal.id}_${key}`;
+                const clean = {
+                  id: kit.id,
+                  name: (kit.name || '').replace(/\s*\(Pre-Order\)\s*$/i, '') + ` (Excluded: ${kit.name})`,
+                  image: kit.image || '',
+                  brand: kit.brand || '',
+                  specs: kit.specs || {},
+                  price: Number(stock.sellPrice || 0) + handlingFee + installmentFee + transferFee,
+                  costPrice: Number(stock.costPrice || 0),
+                  sellPrice: Number(stock.sellPrice || 0),
+                  status: stock.status || 'onhand',
+                  eta: getStockEta(stock),
+                  appliedHandlingFee: handlingFee,
+                  appliedInstallmentFee: installmentFee,
+                  appliedTransferFee: transferFee,
+                  stockKey: key,
+                  type: 'kit',
+                  basketId,
+                  minDownpayment: stock.minDownpayment || 0,
+                  createdAt: new Date().toISOString(),
+                  reservedByDealId: deal.id
+                };
+                batch.set(doc(db, 'shelf', basketId), clean);
+                if (!isManagedHold) {
+                  batch.update(doc(db, 'kits', kit.id), {
+                    [`stocks.${key}.isReserved`]: true,
+                    [`stocks.${key}.reservedBy`]: user.uid,
+                    [`stocks.${key}.reservedAt`]: serverTimestamp(),
+                    [`stocks.${key}.reservationType`]: 'admin',
+                    [`stocks.${key}.reservedByDealId`]: deal.id,
+                    lastUpdated: serverTimestamp()
+                  });
+                }
+                hasChanges = true;
+              });
+            };
 
           // Helper to release a kit from shelf
           const releaseFromShelf = (targetKit) => {
@@ -4367,13 +5060,13 @@ export const useStore = create(
             });
           };
 
-            if (isFirstGroupReserved && !isSecondGroupReserved) {
-              // A BANDAI kit is taken, so its BOOTLEG partner stays on shelf.
-              groupedKits[1].forEach(kit => keepToShelf(kit));
-            } else if (isSecondGroupReserved && !isFirstGroupReserved) {
-              // A BOOTLEG kit is taken, so its BANDAI partner stays on shelf.
-              groupedKits[0].forEach(kit => keepToShelf(kit));
-            } else if (!isFirstGroupReserved && !isSecondGroupReserved) {
+            const firstGroupHoldCount = getGroupCustomerHoldCount(groupedKits[0]);
+            const secondGroupHoldCount = getGroupCustomerHoldCount(groupedKits[1]);
+            if (firstGroupHoldCount > 0 && secondGroupHoldCount === 0) {
+              keepToShelf(groupedKits[1], firstGroupHoldCount);
+            } else if (secondGroupHoldCount > 0 && firstGroupHoldCount === 0) {
+              keepToShelf(groupedKits[0], secondGroupHoldCount);
+            } else if (firstGroupHoldCount === 0 && secondGroupHoldCount === 0) {
               // Both partners are free, release reservations created by this deal.
               groupedKits.flat().forEach(kit => releaseFromShelf(kit));
             }

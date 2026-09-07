@@ -43,9 +43,13 @@ export default function LoadingState({
   message = "Synchronizing...",
   steps = [],
   fullPage = false,
-  className = "py-20"
+  className = "py-20",
+  progress = null,
+  progressLabel = ''
 }) {
   const stepLabelsKey = steps.map((step) => step.label).join('|');
+  const hasProgress = Number.isFinite(Number(progress));
+  const progressValue = hasProgress ? Math.min(100, Math.max(0, Number(progress))) : 0;
 
   const content = (
     <div className={`flex w-full max-w-sm flex-col items-center justify-center gap-4 px-5 ${className}`}>
@@ -56,7 +60,7 @@ export default function LoadingState({
           aria-hidden="true"
           className="h-12 w-12 object-contain opacity-80"
         />
-        <Loader2 className="absolute h-16 w-16 animate-spin text-blue-600/30 dark:text-blue-400/30" />
+        {!hasProgress && <Loader2 className="absolute h-16 w-16 animate-spin text-blue-600/30 dark:text-blue-400/30" />}
       </div>
 
       <div className="text-center">
@@ -64,6 +68,21 @@ export default function LoadingState({
           {message}
         </p>
       </div>
+
+      {hasProgress && (
+        <div className="w-full space-y-2" aria-live="polite">
+          <div className="h-2 w-full overflow-hidden rounded-full bg-blue-950/10 dark:bg-white/10" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(progressValue)}>
+            <div
+              className="h-full animate-pulse rounded-full bg-blue-600 transition-[width] duration-500 ease-out dark:bg-blue-400"
+              style={{ width: `${progressValue}%` }}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-3 text-[10px] font-black uppercase tracking-[0.16em] text-neutral-500 dark:text-neutral-400">
+            <span>{progressLabel || 'Loading'}</span>
+            <span>{Math.round(progressValue)}%</span>
+          </div>
+        </div>
+      )}
 
       {steps.length > 0 && <LoadingChecklist key={stepLabelsKey} steps={steps} />}
     </div>
