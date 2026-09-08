@@ -1527,14 +1527,19 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
   const onDeleteStock = async (stockItem) => {
     if (!selectedKitId || !stockItem.key) return;
     if (window.confirm(`Delete this stock entry (${stockItem.status} ${stockItem.eta || ''})?`)) {
+      const initialStockCount = stockHistory.length;
       setDeletingStockKeys((prev) => [...prev, stockItem.key]);
       try {
         await deleteStock(selectedKitId, stockItem.key);
         if (editingStockKey === stockItem.key) {
           cancelEditStock();
         }
+        const remainingStockCount = initialStockCount - 1;
+        if (remainingStockCount <= 1) {
+          onClose();
+        }
       } catch (error) {
-        console.error(error);
+        console.error('SG LOG: Error deleting stock entry:', error);
         alert('Failed to delete stock entry.');
       } finally {
         setDeletingStockKeys((prev) => prev.filter((k) => k !== stockItem.key));
@@ -1561,7 +1566,9 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
     if (selectedStockKeys.length === 0 || !selectedKitId) return;
     if (!window.confirm(`Permanently delete ${selectedStockKeys.length} selected stock variants? This cannot be undone.`)) return;
 
+    const initialStockCount = stockHistory.length;
     const keysToDelete = [...selectedStockKeys];
+    const remainingStockCount = initialStockCount - keysToDelete.length;
     setIsBatchDeletingStocks(true);
     setDeletingStockKeys((prev) => [...prev, ...keysToDelete]);
     try {
@@ -1577,6 +1584,9 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       }
       setSelectedStockKeys([]);
       setIsStockMultiSelect(false);
+      if (remainingStockCount <= 1) {
+        onClose();
+      }
     } catch (error) {
       console.error('SG LOG: Failed to batch delete stocks:', error);
       alert('Failed to delete selected stock entries.');
@@ -1761,6 +1771,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
 
     const payload = {
       id: selectedExistingKit?.id || null,
+      targetId: selectedExistingKit?.id || rawSelectedExistingKit?.id || selectedKitId || null,
       name: trimmedName.toUpperCase(),
       image: trimmedImage,
       images: (masterForm.images || []).map((image) => ({
@@ -1923,6 +1934,9 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       // Update Recent Edits
       const finalKitId = payload.id || result?.id || targetKitId;
       if (finalKitId) {
+        if (selectedKitId !== finalKitId) {
+          setSelectedKitId(finalKitId);
+        }
         setRecentEdits(prev => {
           const next = [finalKitId, ...prev.filter(id => id !== finalKitId)].slice(0, 6);
           localStorage.setItem('sg_recent_kit_edits', JSON.stringify(next));
@@ -1984,19 +1998,21 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
         setSavedSnapshot(createModalSnapshot(masterForm, nextStock, 'idle', finalKitId || selectedKitId, ''));
       }
     } catch (error) {
-      console.error(error);
-      alert('Failed to save kit.');
+      console.error('SG LOG: Error saving kit:', error);
+      if (!savedSuccessfully) {
+        alert('Failed to save kit.');
+      }
     } finally {
       setIsSaving(false);
       if (savedSuccessfully) {
         if (returnToMasterListOnSave) {
           setReturnToMasterListOnSave(false);
           setIsMasterListView(true);
-        } else if (!wasEditingExistingStock) {
+        } else if (!wasEditingExistingStock || stockHistory.length <= 1) {
           onClose();
         } else {
-          // Keep the modal open after editing an existing stock so additional
-          // stock details can be reviewed or adjusted without reopening it.
+          // Keep the modal open after editing an existing stock when more than 1 stock variant remains
+          // so additional stock details can be reviewed or adjusted without reopening it.
         }
       }
     }

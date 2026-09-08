@@ -161,6 +161,21 @@ const getAvailableStockCount = (kit) => {
   return Object.values(kit?.stocks || {}).filter((stock) => !stock?.order?.orderId && !stock?.isReserved).length;
 };
 
+const withNetworkTimeout = (promise, ms = 4000, label = 'write') => (
+  Promise.race([
+    Promise.resolve(promise).catch((err) => {
+      console.warn(`SG LOG: Non-fatal error during ${label}:`, err);
+      return null;
+    }),
+    new Promise((resolve) => {
+      setTimeout(() => {
+        console.warn(`SG LOG: ${label} server response timed out after ${ms}ms (offline or blocked by extension). Proceeding with local cache.`);
+        resolve(null);
+      }, ms);
+    })
+  ])
+);
+
 const DATASET_KEYS = ['userProfile', 'stories', 'homeKits', 'homeBlueprints', 'kits', 'printedProjects', 'deals', 'orders', 'basket', 'shelf', 'prints'];
 
 const createInitialDatasetState = (value) => DATASET_KEYS.reduce((result, key) => {
@@ -2497,7 +2512,7 @@ export const useStore = create(
           if (r) parts.push(r);
           const n = (masterInfo.name || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
           if (n) parts.push(n);
-          const targetKitId = requestedKitId || parts.join('_');
+          const targetKitId = requestedKitId || oldKitId || parts.join('_');
           console.log("SG DEBUG: Generated targetKitId:", targetKitId);
 
           const timing = new Date().toISOString();
@@ -2721,18 +2736,6 @@ export const useStore = create(
 
           const kitRef = doc(db, 'kits', targetKitId);
 
-          const withNetworkTimeout = (promise, ms = 4000, label = 'write') => (
-            Promise.race([
-              promise,
-              new Promise((resolve) => {
-                setTimeout(() => {
-                  console.warn(`SG LOG: ${label} server response timed out after ${ms}ms (offline or blocked by extension). Proceeding with local cache.`);
-                  resolve(null);
-                }, ms);
-              })
-            ])
-          );
-
           await withNetworkTimeout(
             setDoc(kitRef, isExistingKit ? cleanMaster : { ...cleanMaster, stocks }, { merge: true }),
             4000,
@@ -2750,14 +2753,8 @@ export const useStore = create(
               }
             });
           }
-          if (releasedShelfStockKey) {
+          if (releasedShelfStockKey && stocks[releasedShelfStockKey]) {
             stockUpdates[`stocks.${releasedShelfStockKey}`] = stocks[releasedShelfStockKey];
-            stockUpdates[`stocks.${releasedShelfStockKey}.isReserved`] = false;
-            stockUpdates[`stocks.${releasedShelfStockKey}.reservedBy`] = null;
-            stockUpdates[`stocks.${releasedShelfStockKey}.reservedAt`] = null;
-            stockUpdates[`stocks.${releasedShelfStockKey}.reservationType`] = deleteField();
-            stockUpdates[`stocks.${releasedShelfStockKey}.reservedByDealId`] = deleteField();
-            stockUpdates[`stocks.${releasedShelfStockKey}.availableAt`] = serverTimestamp();
           }
           stockUpdates.hasAvailableStock = hasAvailable;
 
@@ -2791,7 +2788,11 @@ export const useStore = create(
 
       deleteKit: async (kitId) => {
         if (!kitId) return;
-        await deleteDoc(doc(db, 'kits', kitId));
+        try {
+          await withNetworkTimeout(deleteDoc(doc(db, 'kits', kitId)), 4000, 'deleteDoc kit');
+        } catch (err) {
+          console.warn('SG LOG: Non-fatal error deleting kit doc:', err);
+        }
         try {
           await get().syncPublicKitSummary(kitId);
         } catch (syncErr) {
@@ -2802,21 +2803,37 @@ export const useStore = create(
       deleteStock: async (kitId, stockKey) => {
         if (!kitId || !stockKey) return;
         const kitRef = doc(db, 'kits', kitId);
-        const kitSnap = await getDoc(kitRef);
-        const shelfSnap = await getDocs(query(
-          collection(db, 'shelf'),
-          where('id', '==', kitId)
-        ));
-        const matchingShelfDocs = shelfSnap.docs.filter((shelfDoc) => (
-          shelfDoc.data()?.stockKey === stockKey
-        ));
+        let kitData = (get().kits || []).find((k) => k.id === kitId);
+        try {
+          const kitSnap = await withNetworkTimeout(getDoc(kitRef), 3000, 'deleteStock getDoc');
+          if (kitSnap?.exists?.()) {
+            kitData = kitSnap.data();
+          }
+        } catch (e) {
+          console.warn('SG LOG: Could not fetch fresh kit doc in deleteStock, using store state:', e);
+        }
+
+        let matchingShelfDocs = [];
+        try {
+          const shelfSnap = await withNetworkTimeout(
+            getDocs(query(collection(db, 'shelf'), where('id', '==', kitId))),
+            3000,
+            'deleteStock getDocs shelf'
+          );
+          if (shelfSnap?.docs) {
+            matchingShelfDocs = shelfSnap.docs.filter((shelfDoc) => (
+              shelfDoc.data()?.stockKey === stockKey
+            ));
+          }
+        } catch (e) {
+          console.warn('SG LOG: Could not query shelf in deleteStock:', e);
+        }
 
         const batch = writeBatch(db);
         matchingShelfDocs.forEach((shelfDoc) => batch.delete(shelfDoc.ref));
 
-        if (kitSnap.exists()) {
-          const kit = kitSnap.data();
-          const stocks = { ...(kit.stocks || {}) };
+        if (kitData) {
+          const stocks = { ...(kitData.stocks || {}) };
           delete stocks[stockKey];
           const hasAvailable = Object.values(stocks).some(s => !s.order?.orderId && !s.isReserved);
           batch.update(kitRef, {
@@ -2825,7 +2842,11 @@ export const useStore = create(
           });
         }
 
-        await batch.commit();
+        try {
+          await withNetworkTimeout(batch.commit(), 4000, 'deleteStock batch.commit');
+        } catch (batchErr) {
+          console.warn('SG LOG: Non-fatal error committing batch in deleteStock:', batchErr);
+        }
 
         // Update local Zustand state immediately so UI updates in real-time
         set((state) => ({
@@ -2853,22 +2874,38 @@ export const useStore = create(
       deleteStocks: async (kitId, stockKeys = []) => {
         if (!kitId || !Array.isArray(stockKeys) || stockKeys.length === 0) return;
         const kitRef = doc(db, 'kits', kitId);
-        const kitSnap = await getDoc(kitRef);
-        const shelfSnap = await getDocs(query(
-          collection(db, 'shelf'),
-          where('id', '==', kitId)
-        ));
+        let kitData = (get().kits || []).find((k) => k.id === kitId);
+        try {
+          const kitSnap = await withNetworkTimeout(getDoc(kitRef), 3000, 'deleteStocks getDoc');
+          if (kitSnap?.exists?.()) {
+            kitData = kitSnap.data();
+          }
+        } catch (e) {
+          console.warn('SG LOG: Could not fetch fresh kit doc in deleteStocks, using store state:', e);
+        }
+
         const stockKeySet = new Set(stockKeys);
-        const matchingShelfDocs = shelfSnap.docs.filter((shelfDoc) => (
-          stockKeySet.has(shelfDoc.data()?.stockKey)
-        ));
+        let matchingShelfDocs = [];
+        try {
+          const shelfSnap = await withNetworkTimeout(
+            getDocs(query(collection(db, 'shelf'), where('id', '==', kitId))),
+            3000,
+            'deleteStocks getDocs shelf'
+          );
+          if (shelfSnap?.docs) {
+            matchingShelfDocs = shelfSnap.docs.filter((shelfDoc) => (
+              stockKeySet.has(shelfDoc.data()?.stockKey)
+            ));
+          }
+        } catch (e) {
+          console.warn('SG LOG: Could not query shelf in deleteStocks:', e);
+        }
 
         const batch = writeBatch(db);
         matchingShelfDocs.forEach((shelfDoc) => batch.delete(shelfDoc.ref));
 
-        if (kitSnap.exists()) {
-          const kit = kitSnap.data();
-          const stocks = { ...(kit.stocks || {}) };
+        if (kitData) {
+          const stocks = { ...(kitData.stocks || {}) };
           stockKeys.forEach((key) => {
             delete stocks[key];
           });
@@ -2882,7 +2919,11 @@ export const useStore = create(
           batch.update(kitRef, updatePayload);
         }
 
-        await batch.commit();
+        try {
+          await withNetworkTimeout(batch.commit(), 4000, 'deleteStocks batch.commit');
+        } catch (batchErr) {
+          console.warn('SG LOG: Non-fatal error committing batch in deleteStocks:', batchErr);
+        }
 
         // Update local Zustand state immediately for all deleted keys
         set((state) => ({
