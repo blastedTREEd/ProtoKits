@@ -2544,6 +2544,19 @@ export const useStore = create(
             console.log("SG DEBUG: Variant added/updated. Key:", resolvedStockKey);
           }
 
+          if (kitData.otherStockUpdates && typeof kitData.otherStockUpdates === 'object') {
+            Object.entries(kitData.otherStockUpdates).forEach(([otherKey, otherStockData]) => {
+              if (stocks[otherKey] && otherKey !== resolvedStockKey) {
+                stocks[otherKey] = {
+                  ...stocks[otherKey],
+                  ...otherStockData,
+                  key: otherKey,
+                  lastUpdated: timing
+                };
+              }
+            });
+          }
+
           let releasedShelfStockKey = null;
 
           if (isRestock && resolvedStockKey) {
@@ -2707,11 +2720,35 @@ export const useStore = create(
           };
 
           const kitRef = doc(db, 'kits', targetKitId);
-          await setDoc(kitRef, isExistingKit ? cleanMaster : { ...cleanMaster, stocks }, { merge: true });
+
+          const withNetworkTimeout = (promise, ms = 4000, label = 'write') => (
+            Promise.race([
+              promise,
+              new Promise((resolve) => {
+                setTimeout(() => {
+                  console.warn(`SG LOG: ${label} server response timed out after ${ms}ms (offline or blocked by extension). Proceeding with local cache.`);
+                  resolve(null);
+                }, ms);
+              })
+            ])
+          );
+
+          await withNetworkTimeout(
+            setDoc(kitRef, isExistingKit ? cleanMaster : { ...cleanMaster, stocks }, { merge: true }),
+            4000,
+            'setDoc'
+          );
 
           const stockUpdates = {};
           if (resolvedStockKey) {
             stockUpdates[`stocks.${resolvedStockKey}`] = stocks[resolvedStockKey];
+          }
+          if (kitData.otherStockUpdates && typeof kitData.otherStockUpdates === 'object') {
+            Object.keys(kitData.otherStockUpdates).forEach((otherKey) => {
+              if (stocks[otherKey] && otherKey !== resolvedStockKey) {
+                stockUpdates[`stocks.${otherKey}`] = stocks[otherKey];
+              }
+            });
           }
           if (releasedShelfStockKey) {
             stockUpdates[`stocks.${releasedShelfStockKey}`] = stocks[releasedShelfStockKey];
@@ -2725,13 +2762,25 @@ export const useStore = create(
           stockUpdates.hasAvailableStock = hasAvailable;
 
           if (Object.keys(stockUpdates).length > 0) {
-            await updateDoc(kitRef, stockUpdates);
+            await withNetworkTimeout(
+              updateDoc(kitRef, stockUpdates),
+              4000,
+              'updateDoc'
+            );
           }
 
           set((state) => ({
             kits: state.kits.map((k) => (k.id === targetKitId ? { ...k, ...cleanMaster, stocks } : k))
           }));
-          await get().syncPublicKitSummary(targetKitId);
+          try {
+            await withNetworkTimeout(
+              get().syncPublicKitSummary(targetKitId),
+              4000,
+              'syncPublicKitSummary'
+            );
+          } catch (syncErr) {
+            console.warn('SG LOG: Non-fatal public catalog sync error after addKit:', syncErr);
+          }
           console.log("SG DEBUG: addKit operation successful.");
           return { id: targetKitId };
         } catch (err) {
@@ -2743,10 +2792,15 @@ export const useStore = create(
       deleteKit: async (kitId) => {
         if (!kitId) return;
         await deleteDoc(doc(db, 'kits', kitId));
-        await get().syncPublicKitSummary(kitId);
+        try {
+          await get().syncPublicKitSummary(kitId);
+        } catch (syncErr) {
+          console.warn('SG LOG: Non-fatal public catalog sync error after deleteKit:', syncErr);
+        }
       },
 
       deleteStock: async (kitId, stockKey) => {
+        if (!kitId || !stockKey) return;
         const kitRef = doc(db, 'kits', kitId);
         const kitSnap = await getDoc(kitRef);
         const shelfSnap = await getDocs(query(
@@ -2757,24 +2811,101 @@ export const useStore = create(
           shelfDoc.data()?.stockKey === stockKey
         ));
 
+        const batch = writeBatch(db);
+        matchingShelfDocs.forEach((shelfDoc) => batch.delete(shelfDoc.ref));
+
         if (kitSnap.exists()) {
           const kit = kitSnap.data();
-          const stocks = { ...kit.stocks };
+          const stocks = { ...(kit.stocks || {}) };
           delete stocks[stockKey];
           const hasAvailable = Object.values(stocks).some(s => !s.order?.orderId && !s.isReserved);
-          const batch = writeBatch(db);
-          matchingShelfDocs.forEach((shelfDoc) => batch.delete(shelfDoc.ref));
           batch.update(kitRef, {
             [`stocks.${stockKey}`]: deleteField(),
             hasAvailableStock: hasAvailable
           });
-          await batch.commit();
+        }
+
+        await batch.commit();
+
+        // Update local Zustand state immediately so UI updates in real-time
+        set((state) => ({
+          kits: (state.kits || []).map((k) => {
+            if (k.id !== kitId) return k;
+            const nextStocks = { ...(k.stocks || {}) };
+            delete nextStocks[stockKey];
+            const hasAvailable = Object.values(nextStocks).some(s => !s.order?.orderId && !s.isReserved);
+            return {
+              ...k,
+              stocks: nextStocks,
+              hasAvailableStock: hasAvailable
+            };
+          }),
+          shelf: (state.shelf || []).filter((item) => !(item.id === kitId && item.stockKey === stockKey))
+        }));
+
+        try {
           await get().syncPublicKitSummary(kitId);
-        } else {
-          const batch = writeBatch(db);
-          matchingShelfDocs.forEach((shelfDoc) => batch.delete(shelfDoc.ref));
-          await batch.commit();
+        } catch (syncErr) {
+          console.warn('SG LOG: Non-fatal public catalog sync error after stock delete:', syncErr);
+        }
+      },
+
+      deleteStocks: async (kitId, stockKeys = []) => {
+        if (!kitId || !Array.isArray(stockKeys) || stockKeys.length === 0) return;
+        const kitRef = doc(db, 'kits', kitId);
+        const kitSnap = await getDoc(kitRef);
+        const shelfSnap = await getDocs(query(
+          collection(db, 'shelf'),
+          where('id', '==', kitId)
+        ));
+        const stockKeySet = new Set(stockKeys);
+        const matchingShelfDocs = shelfSnap.docs.filter((shelfDoc) => (
+          stockKeySet.has(shelfDoc.data()?.stockKey)
+        ));
+
+        const batch = writeBatch(db);
+        matchingShelfDocs.forEach((shelfDoc) => batch.delete(shelfDoc.ref));
+
+        if (kitSnap.exists()) {
+          const kit = kitSnap.data();
+          const stocks = { ...(kit.stocks || {}) };
+          stockKeys.forEach((key) => {
+            delete stocks[key];
+          });
+          const hasAvailable = Object.values(stocks).some(s => !s.order?.orderId && !s.isReserved);
+          const updatePayload = {
+            hasAvailableStock: hasAvailable
+          };
+          stockKeys.forEach((key) => {
+            updatePayload[`stocks.${key}`] = deleteField();
+          });
+          batch.update(kitRef, updatePayload);
+        }
+
+        await batch.commit();
+
+        // Update local Zustand state immediately for all deleted keys
+        set((state) => ({
+          kits: (state.kits || []).map((k) => {
+            if (k.id !== kitId) return k;
+            const nextStocks = { ...(k.stocks || {}) };
+            stockKeys.forEach((key) => {
+              delete nextStocks[key];
+            });
+            const hasAvailable = Object.values(nextStocks).some(s => !s.order?.orderId && !s.isReserved);
+            return {
+              ...k,
+              stocks: nextStocks,
+              hasAvailableStock: hasAvailable
+            };
+          }),
+          shelf: (state.shelf || []).filter((item) => !(item.id === kitId && stockKeySet.has(item.stockKey)))
+        }));
+
+        try {
           await get().syncPublicKitSummary(kitId);
+        } catch (syncErr) {
+          console.warn('SG LOG: Non-fatal public catalog sync error after batch stock delete:', syncErr);
         }
       },
 

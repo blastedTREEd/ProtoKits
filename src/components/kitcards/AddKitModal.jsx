@@ -15,6 +15,7 @@ import {
   Image as ImageIcon,
   Loader2,
   PackagePlus,
+  Pencil,
   Save,
   Search,
   Sparkles,
@@ -26,7 +27,21 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useStore } from '../../store/useStore';
-import { getValidatedOrderStockSet, isStockInValidatedOrder, filterActiveKitStocks } from '../../utils/stockOrderUtils';
+import { db } from '../../firebase/firebase';
+import { doc, updateDoc } from 'firebase/firestore';
+import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
+import {
+  getEligibleStocksForSellPriceUpdate,
+  adjustParticipatingDealsOnSellPriceChange
+} from '../../utils/dealPricingSync';
+import {
+  getValidatedOrderStockSet,
+  isStockInValidatedOrder,
+  filterActiveKitStocks,
+  isStockAvailableForPurchase,
+  isStockInAdminShelf,
+  hasOrderAssociation
+} from '../../utils/stockOrderUtils';
 import {
   PRE_ORDER_BOX_CONDITION,
   PRE_ORDER_KIT_CONDITION,
@@ -864,7 +879,7 @@ export function CustomDateTimePicker({
 
 export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null }) {
   const { isDarkMode } = useTheme();
-  const { kits, deleteStock, deleteKit, shippingSettings, orders, subscribeOrders } = useStore();
+  const { kits, deleteStock, deleteStocks, deleteKit, shippingSettings, orders, subscribeOrders, deals, updateDeal, shelf } = useStore();
   const shippingMethods = shippingSettings?.shippingMethods || {};
   const [isSaving, setIsSaving] = useState(false);
 
@@ -901,6 +916,11 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       return [];
     }
   });
+
+  const [isStockMultiSelect, setIsStockMultiSelect] = useState(false);
+  const [selectedStockKeys, setSelectedStockKeys] = useState([]);
+  const [isBatchDeletingStocks, setIsBatchDeletingStocks] = useState(false);
+  const [deletingStockKeys, setDeletingStockKeys] = useState([]);
 
   const masterImageRef = useRef(null);
   const stockImageRef = useRef(null);
@@ -941,8 +961,12 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
   };
 
   const rawSelectedExistingKit = useMemo(() => {
-    if (editingKit?.id) return editingKit;
-    return (kits || []).find((kit) => kit.id === selectedKitId) || null;
+    const targetId = editingKit?.id || selectedKitId;
+    if (!targetId) return null;
+    // Always prefer the live kits array from the store so real-time
+    // Zustand state updates (e.g. deleteStock) are reflected immediately.
+    // Fall back to editingKit prop only when the kit hasn't loaded into the store yet.
+    return (kits || []).find((kit) => kit.id === targetId) || editingKit || null;
   }, [editingKit, kits, selectedKitId]);
 
   const selectedExistingKit = useMemo(() => {
@@ -1375,6 +1399,8 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
     setEditingStockKey('');
     setStockMode('idle');
     setShowSearchResults(false);
+    setIsStockMultiSelect(false);
+    setSelectedStockKeys([]);
     setMasterForm(nextMaster);
     setStockForm(nextStock);
     setSavedSnapshot(createModalSnapshot(nextMaster, nextStock, 'idle', kit.id || '', ''));
@@ -1385,6 +1411,8 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
     setEditingStockKey('');
     setStockMode('new');
     setShowSearchResults(false);
+    setIsStockMultiSelect(false);
+    setSelectedStockKeys([]);
     setMasterForm(DEFAULT_MASTER);
     const nextStock = { ...DEFAULT_STOCK, publicReleaseDate: '' };
     setStockForm(nextStock);
@@ -1499,6 +1527,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
   const onDeleteStock = async (stockItem) => {
     if (!selectedKitId || !stockItem.key) return;
     if (window.confirm(`Delete this stock entry (${stockItem.status} ${stockItem.eta || ''})?`)) {
+      setDeletingStockKeys((prev) => [...prev, stockItem.key]);
       try {
         await deleteStock(selectedKitId, stockItem.key);
         if (editingStockKey === stockItem.key) {
@@ -1507,7 +1536,53 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       } catch (error) {
         console.error(error);
         alert('Failed to delete stock entry.');
+      } finally {
+        setDeletingStockKeys((prev) => prev.filter((k) => k !== stockItem.key));
       }
+    }
+  };
+
+  const handleToggleSelectAllStocks = () => {
+    if (selectedStockKeys.length === stockHistory.length) {
+      setSelectedStockKeys([]);
+    } else {
+      setSelectedStockKeys(stockHistory.map((s) => s.key).filter(Boolean));
+    }
+  };
+
+  const handleToggleSelectStock = (key) => {
+    if (!key) return;
+    setSelectedStockKeys((prev) => (
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    ));
+  };
+
+  const handleBatchDeleteStocks = async () => {
+    if (selectedStockKeys.length === 0 || !selectedKitId) return;
+    if (!window.confirm(`Permanently delete ${selectedStockKeys.length} selected stock variants? This cannot be undone.`)) return;
+
+    const keysToDelete = [...selectedStockKeys];
+    setIsBatchDeletingStocks(true);
+    setDeletingStockKeys((prev) => [...prev, ...keysToDelete]);
+    try {
+      if (typeof deleteStocks === 'function') {
+        await deleteStocks(selectedKitId, keysToDelete);
+      } else {
+        for (const stockKey of keysToDelete) {
+          await deleteStock(selectedKitId, stockKey);
+        }
+      }
+      if (keysToDelete.includes(editingStockKey)) {
+        cancelEditStock();
+      }
+      setSelectedStockKeys([]);
+      setIsStockMultiSelect(false);
+    } catch (error) {
+      console.error('SG LOG: Failed to batch delete stocks:', error);
+      alert('Failed to delete selected stock entries.');
+    } finally {
+      setIsBatchDeletingStocks(false);
+      setDeletingStockKeys((prev) => prev.filter((k) => !keysToDelete.includes(k)));
     }
   };
 
@@ -1750,6 +1825,94 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       });
     }
 
+    // Check if admin changed sell price of a stock available for purchase or in admin shelf
+    const targetKitId = selectedExistingKit?.id || rawSelectedExistingKit?.id || null;
+    let previousSellPrice = null;
+    let newSellPrice = null;
+    let isEligiblePriceChange = false;
+
+    if (includesStock) {
+      newSellPrice = normalizeNumber(stockForm.sellPrice);
+      if (editingStockKey) {
+        const existingStock = rawSelectedExistingKit?.stocks?.[editingStockKey] || selectedExistingKit?.stocks?.[editingStockKey] || {};
+        previousSellPrice = Number(existingStock.sellPrice || 0);
+
+        const notValidated = !isStockInValidatedOrder(existingStock, targetKitId, validatedOrderStockData, editingStockKey);
+        const isAvail = isStockAvailableForPurchase(existingStock);
+        const isShelf = isStockInAdminShelf(existingStock, targetKitId, shelf, editingStockKey);
+
+        if (notValidated && (isAvail || isShelf)) {
+          isEligiblePriceChange = true;
+        }
+      } else if (rawSelectedExistingKit?.stocks) {
+        const existingActiveEntries = Object.entries(rawSelectedExistingKit.stocks).filter(([k, s]) => {
+          if (isStockInValidatedOrder(s, targetKitId, validatedOrderStockData, k)) return false;
+          return isStockAvailableForPurchase(s) || isStockInAdminShelf(s, targetKitId, shelf, k);
+        });
+        if (existingActiveEntries.length > 0) {
+          previousSellPrice = Number(existingActiveEntries[0][1]?.sellPrice || rawSelectedExistingKit.phPrice || 0);
+          isEligiblePriceChange = true;
+        }
+      }
+    } else if (rawSelectedExistingKit) {
+      newSellPrice = normalizeNumber(masterForm.phPrice);
+      previousSellPrice = Number(rawSelectedExistingKit.phPrice || 0);
+      if (previousSellPrice > 0 && newSellPrice > 0 && previousSellPrice !== newSellPrice) {
+        isEligiblePriceChange = true;
+      }
+    }
+
+    let priceDiff = 0;
+    let shelfDocsToUpdate = [];
+
+    if (
+      isEligiblePriceChange
+      && targetKitId
+      && Number.isFinite(previousSellPrice)
+      && previousSellPrice > 0
+      && Number.isFinite(newSellPrice)
+      && newSellPrice > 0
+      && previousSellPrice !== newSellPrice
+    ) {
+      priceDiff = newSellPrice - previousSellPrice;
+
+      // Identify other stocks that are available for purchase or in admin shelf
+      const eligibleResult = getEligibleStocksForSellPriceUpdate({
+        stocks: rawSelectedExistingKit?.stocks || {},
+        kitId: targetKitId,
+        validatedOrderStockData,
+        shelf,
+        excludeStockKey: editingStockKey,
+        newSellPrice
+      });
+
+      shelfDocsToUpdate = [...eligibleResult.shelfDocsToUpdate];
+
+      // Also check if the stock being directly edited is in admin shelf
+      if (editingStockKey) {
+        const editedStockObj = rawSelectedExistingKit?.stocks?.[editingStockKey];
+        if (isStockInAdminShelf(editedStockObj, targetKitId, shelf, editingStockKey)) {
+          const matchingShelf = (shelf || []).find(item => (
+            String(item?.id) === String(targetKitId) && String(item?.stockKey) === String(editingStockKey)
+          ));
+          if (matchingShelf?.basketId && !shelfDocsToUpdate.some(doc => doc.basketId === matchingShelf.basketId)) {
+            shelfDocsToUpdate.push({
+              basketId: matchingShelf.basketId,
+              stockKey: editingStockKey,
+              sellPrice: newSellPrice
+            });
+          }
+        }
+      }
+
+      if (Object.keys(eligibleResult.updates).length > 0) {
+        payload.otherStockUpdates = eligibleResult.updates;
+      }
+
+      // Synchronize master phPrice with new sell price
+      payload.phPrice = newSellPrice;
+    }
+
     let savedSuccessfully = false;
     try {
       console.log("SG DEBUG: Attempting to save kit payload:", payload);
@@ -1758,13 +1921,51 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       savedSuccessfully = true;
       
       // Update Recent Edits
-      const finalKitId = payload.id || result?.id;
+      const finalKitId = payload.id || result?.id || targetKitId;
       if (finalKitId) {
         setRecentEdits(prev => {
           const next = [finalKitId, ...prev.filter(id => id !== finalKitId)].slice(0, 6);
           localStorage.setItem('sg_recent_kit_edits', JSON.stringify(next));
           return next;
         });
+      }
+
+      // Update matching admin shelf documents in Firestore 'shelf' collection
+      if (shelfDocsToUpdate.length > 0) {
+        const { handlingFee: hFee, installmentFee: iFee, transferFee: tFee } = getCheckoutPaymentFees({
+          garageInfo: { checkoutSettings: shippingSettings },
+          adminData: { paymentSettings: shippingSettings?.paymentSettings }
+        });
+        for (const shelfDoc of shelfDocsToUpdate) {
+          try {
+            await Promise.race([
+              updateDoc(doc(db, 'shelf', shelfDoc.basketId), {
+                sellPrice: shelfDoc.sellPrice,
+                price: shelfDoc.sellPrice + hFee + iFee + tFee
+              }),
+              new Promise((r) => setTimeout(r, 2500))
+            ]);
+          } catch (shelfErr) {
+            console.warn('SG LOG: Could not update shelf doc on sell price change:', shelfErr);
+          }
+        }
+      }
+
+      // Adjust participating deals (bundle deals, flexi-bundles, wild deals)
+      if (priceDiff !== 0 && finalKitId) {
+        try {
+          await Promise.race([
+            adjustParticipatingDealsOnSellPriceChange({
+              deals,
+              kitId: finalKitId,
+              priceDiff,
+              updateDeal
+            }),
+            new Promise((r) => setTimeout(r, 3000))
+          ]);
+        } catch (dealErr) {
+          console.warn('SG LOG: Could not adjust participating deals:', dealErr);
+        }
       }
 
       if (payload.updateMasterOnly) {
@@ -2491,6 +2692,9 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                             type="button"
                                                             onClick={() => {
                                                                 applyKitToForm(kit);
+                                                                if (stock && stockKey) {
+                                                                    handleEditStock({ key: stockKey, ...stock });
+                                                                }
                                                                 setReturnToMasterListOnSave(true);
                                                                 setIsMasterListView(false);
                                                             }}
@@ -3008,14 +3212,74 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                 </p>
                                             </div>
                                         </div>
-                                        <button
-                                            type="button"
-                                            onClick={startNewStockEntry}
-                                            className="rounded-xl bg-emerald-600 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white shadow-lg shadow-emerald-600/20"
-                                        >
-                                            Add Stock
-                                        </button>
+                                        <div className="flex items-center gap-2">
+                                            {stockHistory.length > 0 && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setIsStockMultiSelect((prev) => !prev);
+                                                        setSelectedStockKeys([]);
+                                                    }}
+                                                    className={`rounded-xl px-3 py-2 text-[10px] font-black uppercase tracking-widest border transition-all ${
+                                                        isStockMultiSelect
+                                                            ? 'border-amber-500 bg-amber-500/20 text-amber-400 shadow-lg shadow-amber-500/10'
+                                                            : isDarkMode
+                                                                ? 'border-white/10 bg-white/5 hover:border-white/20'
+                                                                : 'border-black/10 bg-black/5 hover:border-black/20'
+                                                    }`}
+                                                >
+                                                    {isStockMultiSelect ? 'Cancel' : 'Multi-Select'}
+                                                </button>
+                                            )}
+                                            {!isStockMultiSelect && (
+                                                <button
+                                                    type="button"
+                                                    onClick={startNewStockEntry}
+                                                    className="rounded-xl bg-emerald-600 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white shadow-lg shadow-emerald-600/20 active:scale-95"
+                                                >
+                                                    Add Stock
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
+
+                                    {isStockMultiSelect && stockHistory.length > 0 && (
+                                        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5">
+                                            <div className="flex items-center gap-3">
+                                                <button
+                                                    type="button"
+                                                    onClick={handleToggleSelectAllStocks}
+                                                    className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-amber-400 hover:underline"
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedStockKeys.length > 0 && selectedStockKeys.length === stockHistory.length}
+                                                        onChange={handleToggleSelectAllStocks}
+                                                        className="h-3.5 w-3.5 rounded border-amber-500 text-amber-500 focus:ring-0"
+                                                    />
+                                                    <span>{selectedStockKeys.length === stockHistory.length ? 'Deselect All' : 'Select All'}</span>
+                                                </button>
+                                                <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">
+                                                    ({selectedStockKeys.length} of {stockHistory.length} selected)
+                                                </span>
+                                            </div>
+                                            {selectedStockKeys.length > 0 && (
+                                                <button
+                                                    type="button"
+                                                    onClick={handleBatchDeleteStocks}
+                                                    disabled={isBatchDeletingStocks}
+                                                    className="flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-white shadow-md shadow-red-600/20 transition-all hover:bg-red-500 active:scale-95 disabled:opacity-50"
+                                                >
+                                                    {isBatchDeletingStocks ? (
+                                                        <Loader2 size={12} className="animate-spin" />
+                                                    ) : (
+                                                        <Trash2 size={12} />
+                                                    )}
+                                                    <span>Delete ({selectedStockKeys.length})</span>
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
 
                                     {stockHistory.length > 0 ? (
                                         <div className="grid gap-3">
@@ -3023,20 +3287,38 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                 const normalizedStatus = normalizeStockStatus(stockItem.status);
                                                 const legacyConditions = extractLegacyConditions(stockItem);
                                                 const isActive = editingStockKey === stockItem.key;
+                                                const isSelected = selectedStockKeys.includes(stockItem.key);
+                                                const isDeleting = deletingStockKeys.includes(stockItem.key);
 
                                                 return (
                                                     <article
                                                         key={stockItem.key || `${stockItem.status}-${stockItem.eta}-${index}`}
+                                                        onClick={isDeleting ? undefined : isStockMultiSelect ? () => handleToggleSelectStock(stockItem.key) : undefined}
                                                         className={`space-y-3 rounded-[1.25rem] border p-4 transition-all ${
-                                                            isActive
-                                                                ? 'border-amber-500 bg-amber-500/10'
-                                                                : isDarkMode
-                                                                    ? 'border-white/10 bg-white/5'
-                                                                    : 'border-black/10 bg-neutral-50'
+                                                            isDeleting ? 'pointer-events-none opacity-35 grayscale' : ''
+                                                        } ${
+                                                            isStockMultiSelect && !isDeleting ? 'cursor-pointer select-none' : ''
+                                                        } ${
+                                                            isSelected && !isDeleting
+                                                                ? 'border-red-500 bg-red-500/10 shadow-lg shadow-red-500/10'
+                                                                : isActive
+                                                                    ? 'border-amber-500 bg-amber-500/10'
+                                                                    : isDarkMode
+                                                                        ? 'border-white/10 bg-white/5 hover:border-white/20'
+                                                                        : 'border-black/10 bg-neutral-50 hover:border-black/20'
                                                         }`}
                                                     >
                                                         <div className="flex items-center justify-between gap-3">
-                                                            <div className="flex min-w-0 items-center gap-1.5 whitespace-nowrap">
+                                                            <div className="flex min-w-0 items-center gap-2 whitespace-nowrap">
+                                                                {isStockMultiSelect && (
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={isSelected}
+                                                                        onChange={() => handleToggleSelectStock(stockItem.key)}
+                                                                        onClick={(e) => e.stopPropagation()}
+                                                                        className="h-4 w-4 rounded border-red-500 text-red-500 focus:ring-0"
+                                                                    />
+                                                                )}
                                                                 <span
                                                                     className={`shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest ${
                                                                         normalizedStatus === 'Onhand'
@@ -3052,32 +3334,41 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                                         : (normalizedStatus === 'Onhand' ? 'Available' : stockItem.eta || 'TBA')}
                                                                 </span>
                                                             </div>
-                                                            <div className="flex shrink-0 items-center gap-1">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleEditStock(stockItem)}
-                                                                className="rounded-xl border border-white/10 p-2 opacity-70 transition-all hover:border-amber-500 hover:text-amber-500 hover:opacity-100"
-                                                                title="Edit variant"
-                                                            >
-                                                                <Tag size={14} />
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleDuplicateStock(stockItem)}
-                                                                className="rounded-xl border border-white/10 p-2 opacity-70 transition-all hover:border-blue-500 hover:text-blue-500 hover:opacity-100"
-                                                                title="Duplicate variant"
-                                                            >
-                                                                <Copy size={14} />
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => onDeleteStock(stockItem)}
-                                                                className="rounded-xl border border-white/10 p-2 opacity-70 transition-all hover:border-red-500 hover:text-red-500 hover:opacity-100"
-                                                                title="Delete variant"
-                                                            >
-                                                                <Trash2 size={14} />
-                                                            </button>
-                                                            </div>
+                                                                <div className="flex shrink-0 items-center gap-1">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleEditStock(stockItem);
+                                                                    }}
+                                                                    className="rounded-xl border border-white/10 p-2 opacity-70 transition-all hover:border-amber-500 hover:text-amber-500 hover:opacity-100"
+                                                                    title="Edit variant"
+                                                                >
+                                                                    <Tag size={14} />
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleDuplicateStock(stockItem);
+                                                                    }}
+                                                                    className="rounded-xl border border-white/10 p-2 opacity-70 transition-all hover:border-blue-500 hover:text-blue-500 hover:opacity-100"
+                                                                    title="Duplicate variant"
+                                                                >
+                                                                    <Copy size={14} />
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        onDeleteStock(stockItem);
+                                                                    }}
+                                                                    className="rounded-xl border border-white/10 p-2 opacity-70 transition-all hover:border-red-500 hover:text-red-500 hover:opacity-100"
+                                                                    title="Delete variant"
+                                                                >
+                                                                    <Trash2 size={14} />
+                                                                </button>
+                                                                </div>
                                                         </div>
 
                                                         <div className="grid grid-cols-2 gap-2 text-left text-[10px] font-bold uppercase tracking-widest opacity-65">
@@ -3133,14 +3424,29 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                 : 'Creating a new stock entry'}
                                             </p>
                                         </div>
-                                        <button
-                                            onClick={cancelEditStock}
-                                            className={`rounded-xl border px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-all ${
-                                            stockMode === 'edit' ? 'border-amber-500 text-amber-500' : 'border-emerald-500 text-emerald-500'
-                                            }`}
-                                        >
-                                            Cancel
-                                        </button>
+                                        <div className="flex items-center gap-2">
+                                            {stockMode === 'edit' && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setEditingStockKey('');
+                                                        setStockMode('new');
+                                                    }}
+                                                    className="rounded-xl border border-blue-500/30 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-blue-500 transition-all hover:bg-blue-500 hover:text-white"
+                                                    title="Duplicate as new variant"
+                                                >
+                                                    Duplicate
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={cancelEditStock}
+                                                className={`rounded-xl border px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-all ${
+                                                stockMode === 'edit' ? 'border-amber-500 text-amber-500' : 'border-emerald-500 text-emerald-500'
+                                                }`}
+                                            >
+                                                Cancel
+                                            </button>
+                                        </div>
                                         </div>
 
                                         <>

@@ -29,7 +29,9 @@ export function isLegacyOrderRecord(order) {
 export function hasValidatedFirstReceipt(order) {
   if (!order) return false;
   const status = String(order.status || '').trim().toLowerCase();
-  if (status === 'cancelled' || status === 'canceled') return false;
+  if (status === 'cancelled' || status === 'canceled' || status === 'invalid') return false;
+  if (order.isMaintenanceOrder) return false;
+  if (order.paymentReview?.decision === 'rejected' || order.paymentReview?.decision === 'invalid') return false;
 
   // Must have a receipt or balanceReceipt
   if (!order.receipt && !order.balanceReceipt) return false;
@@ -160,3 +162,41 @@ export function filterActiveKitStocks(stocksMap = {}, kitId, validatedData = {})
   }
   return result;
 }
+
+/**
+ * Checks if a stock is associated with an order reference.
+ */
+export function hasOrderAssociation(stock) {
+  const orderReference = stock?.order;
+  if (!orderReference) return false;
+  if (typeof orderReference !== 'object') return Boolean(orderReference);
+  return Boolean(
+    orderReference.orderId
+    || orderReference.orderDocId
+    || orderReference.id
+    || Object.keys(orderReference).length > 0
+  );
+}
+
+/**
+ * Checks if a stock is available for purchase (not reserved and not tied to an order).
+ */
+export function isStockAvailableForPurchase(stock) {
+  if (!stock) return false;
+  return !stock.isReserved && !hasOrderAssociation(stock);
+}
+
+/**
+ * Checks if a stock is in the admin shelf.
+ */
+export function isStockInAdminShelf(stock, kitId = '', shelf = [], stockKey = '') {
+  if (!stock) return false;
+  if (stock.reservationType === 'admin') return true;
+  if (stock.isReserved && !hasOrderAssociation(stock) && stock.reservationType !== 'customer') return true;
+  if (Array.isArray(shelf) && kitId) {
+    const key = String(stockKey || stock.key || stock.id || '');
+    return shelf.some(item => String(item?.id) === String(kitId) && String(item?.stockKey) === key);
+  }
+  return false;
+}
+

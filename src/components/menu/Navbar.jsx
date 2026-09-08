@@ -13,7 +13,8 @@ import { FaFacebook } from 'react-icons/fa';
 import { useTheme } from '../../context/ThemeContext';
 import { useStore } from '../../store/useStore';
 import { preloadKits } from '../../routePreloads';
-import { signOut, signInWithPopup } from 'firebase/auth'; 
+import { signOut, signInWithPopup, signInWithRedirect } from 'firebase/auth'; 
+import { getReadableAuthErrorMessage } from '../../utils/authUtils';
 import { auth, fbProvider, googleProvider } from '../../firebase/firebase';
 import AccountSettingsModal from './AccountSettingsModal';
 import OperationsModal from './OperationsModal';
@@ -754,8 +755,8 @@ useEffect(() => {
       useStore.getState().setAuthAttemptStatus(authAttemptId, 'Syncing Profile');
       setIsProfileOpen(false);
     } catch (err) {
-      console.error(err);
-      setAuthError('Authentication failed');
+      console.error('SG AUTH ERROR (Facebook):', err?.code, err?.message, err);
+      setAuthError(getReadableAuthErrorMessage(err));
       useStore.getState().failAuthAttempt(authAttemptId, err);
     }
   };
@@ -769,9 +770,19 @@ useEffect(() => {
       useStore.getState().setAuthAttemptStatus(authAttemptId, 'Syncing Profile');
       setIsProfileOpen(false);
     } catch (err) {
-      console.error(err);
-      setAuthError('Authentication failed');
+      console.error('SG AUTH ERROR (Google):', err?.code, err?.message, err);
+      setAuthError(getReadableAuthErrorMessage(err));
       useStore.getState().failAuthAttempt(authAttemptId, err);
+    }
+  };
+
+  const handleRedirectLogin = async (provider = googleProvider) => {
+    try {
+      setAuthError(null);
+      await signInWithRedirect(auth, provider);
+    } catch (err) {
+      console.error('SG AUTH REDIRECT ERROR:', err?.code, err?.message, err);
+      setAuthError(getReadableAuthErrorMessage(err));
     }
   };
 
