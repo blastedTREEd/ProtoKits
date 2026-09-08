@@ -94,6 +94,9 @@ export const normalizePrinterRecord = (printer = {}) => {
     bedLevelMins: numberOrFallback(printer.bedLevelMins ?? printer.bedlevellingMins ?? printer.bedLevelingMins ?? printer.bootLevelMins, 0),
     bootLevelMins: numberOrFallback(printer.bootLevelMins ?? printer.bedLevelMins ?? printer.bedlevellingMins, 0),
     compatibleFilamentTypes: getPrinterCompatibleFilamentTypes(printer),
+    printTimeAdjustments: (printer.printTimeAdjustments && typeof printer.printTimeAdjustments === 'object')
+      ? printer.printTimeAdjustments
+      : {},
     feederIds: Array.isArray(printer.feederIds)
       ? printer.feederIds.map((id) => String(id))
       : Array.isArray(printer.feeders)
@@ -139,4 +142,95 @@ export const isFilamentCompatibleWithPrinter = (printer, filament) => {
   const allowedTypes = getPrinterCompatibleFilamentTypes(printer);
   if (allowedTypes.length === 0) return true;
   return allowedTypes.includes(normalizeFilamentType(filament?.type));
+};
+
+/**
+ * Returns the print time adjustment percentage for a given filament type on a printer.
+ * @param {Object} printer
+ * @param {string} filamentType
+ * @returns {number} Adjustment percentage (e.g. 15 for +15%, or 0)
+ */
+export const getPrintTimeAdjustment = (printer, filamentType) => {
+  if (!printer || !filamentType) return 0;
+  const adjustments = printer.printTimeAdjustments;
+  if (!adjustments || typeof adjustments !== 'object') return 0;
+  const key = normalizeFilamentType(filamentType);
+  const value = Number(adjustments[key]);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+};
+
+/**
+ * Calculates the adjusted print time for an item or job based on individual material print time adjustments.
+ * Proportional time allocation is derived from each material's explicit or equal weight share.
+ * @param {Object} printer - Printer record
+ * @param {Object} item - Print item / job containing material details
+ * @param {number} rawTime - Base unadjusted slicer time in minutes
+ * @returns {{ adjustedTime: number, effectiveAdjustmentPercent: number, adjustments: Array<{ type: string, percent: number, weightShare: number }> }}
+ */
+export const calculateItemAdjustedPrintTime = (printer, item, rawTime = 0) => {
+  const baseTime = Number(rawTime) || 0;
+  if (baseTime <= 0 || !printer) {
+    return { adjustedTime: baseTime, effectiveAdjustmentPercent: 0, adjustments: [] };
+  }
+
+  const mats = (item?.normalizedMaterials && item.normalizedMaterials.length > 0)
+    ? item.normalizedMaterials
+    : [item?.normalizedMaterial || item?.material].filter(Boolean);
+
+  if (!mats.length) {
+    return { adjustedTime: baseTime, effectiveAdjustmentPercent: 0, adjustments: [] };
+  }
+
+  const explicitWeights = item?.materialWeights || {};
+  const totalItemWeight = Number(item?.normalizedWeight ?? item?.weight ?? 0);
+
+  // Compute weight for each material
+  const materialShares = mats.map((mat) => {
+    const matKey = String(mat.materialId || mat.id || '');
+    const explicitW = Number(explicitWeights[matKey] ?? (matKey ? explicitWeights[String(mat.id)] : undefined));
+    const fallbackW = totalItemWeight > 0 ? (totalItemWeight / mats.length) : 1;
+    const weight = Number.isFinite(explicitW) && explicitW > 0 ? explicitW : fallbackW;
+    const type = normalizeFilamentType(mat.type);
+    const percent = getPrintTimeAdjustment(printer, type);
+    return { mat, type, weight, percent };
+  });
+
+  const totalCalculatedWeight = materialShares.reduce((sum, m) => sum + m.weight, 0);
+
+  if (totalCalculatedWeight <= 0) {
+    // Fallback: simple average
+    const totalPercent = materialShares.reduce((sum, m) => sum + m.percent, 0);
+    const avgPercent = totalPercent / materialShares.length;
+    const adjustedTime = Math.round(baseTime * (1 + avgPercent / 100));
+    return {
+      adjustedTime,
+      effectiveAdjustmentPercent: Number(avgPercent.toFixed(2)),
+      adjustments: materialShares.map((m) => ({ type: m.type, percent: m.percent, weightShare: 1 / materialShares.length }))
+    };
+  }
+
+  let totalAdjustedTime = 0;
+  const appliedAdjustments = [];
+
+  materialShares.forEach((m) => {
+    const weightShare = m.weight / totalCalculatedWeight;
+    const sliceTime = baseTime * weightShare;
+    const adjustedSlice = sliceTime * (1 + (m.percent / 100));
+    totalAdjustedTime += adjustedSlice;
+    appliedAdjustments.push({
+      type: m.type,
+      percent: m.percent,
+      weightShare
+    });
+  });
+
+  const effectiveAdjustmentPercent = baseTime > 0
+    ? Number((((totalAdjustedTime - baseTime) / baseTime) * 100).toFixed(2))
+    : 0;
+
+  return {
+    adjustedTime: Math.round(totalAdjustedTime),
+    effectiveAdjustmentPercent,
+    adjustments: appliedAdjustments
+  };
 };

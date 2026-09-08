@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Check, Gauge, Layers2, Plus, Printer, PrinterCheck, PrinterX, Search, Trash2, Undo2, X, Zap } from 'lucide-react';
+import { Calculator, Check, ChevronDown, ChevronUp, Gauge, Layers2, Plus, Printer, PrinterCheck, PrinterX, Search, Trash2, Undo2, X, Zap } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { COMMON_FILAMENT_TYPES, PRINTER_STATUSES, normalizeFeederRecord, normalizeFilamentType, normalizePrinterRecord, normalizePrinterStatus } from '../../utils/printerCompatibility';
 
@@ -17,6 +17,7 @@ const EMPTY_FORM = {
   autoFeedType: '',
   autoFeedMax: 1,
   compatibleFilamentTypes: [],
+  printTimeAdjustments: {},
   feederId: ''
 };
 
@@ -67,7 +68,10 @@ const getFormData = (printer = {}) => {
   compatibleFilamentTypes: (Array.isArray(normalizedPrinter.compatibleFilamentTypes)
     ? normalizedPrinter.compatibleFilamentTypes
     : []
-  ).map(normalizeFilamentType)
+  ).map(normalizeFilamentType),
+  printTimeAdjustments: (normalizedPrinter.printTimeAdjustments && typeof normalizedPrinter.printTimeAdjustments === 'object')
+    ? { ...normalizedPrinter.printTimeAdjustments }
+    : {}
   });
 };
 
@@ -115,6 +119,14 @@ export default function PrinterManagerModal({ onClose }) {
   const [feederForm, setFeederForm] = useState(EMPTY_FEEDER_FORM);
   const [isSaving, setIsSaving] = useState(false);
   const [statusUpdatingId, setStatusUpdatingId] = useState(null);
+
+  // Mini Calculator state for Print Time Overrun
+  const [calcTargetType, setCalcTargetType] = useState('');
+  const [calcSlicerHrs, setCalcSlicerHrs] = useState('');
+  const [calcSlicerMins, setCalcSlicerMins] = useState('');
+  const [calcActualHrs, setCalcActualHrs] = useState('');
+  const [calcActualMins, setCalcActualMins] = useState('');
+  const [showCalculator, setShowCalculator] = useState(false);
 
   const filamentTypes = useMemo(() => (
     [...new Set([
@@ -198,6 +210,13 @@ export default function PrinterManagerModal({ onClose }) {
   };
 
   const updateField = (key, value) => setFormData((current) => ({ ...current, [key]: value }));
+  const updateAdjustment = (type, value) => setFormData((current) => ({
+    ...current,
+    printTimeAdjustments: {
+      ...(current.printTimeAdjustments || {}),
+      [normalizeFilamentType(type)]: value
+    }
+  }));
   const updateCapacity = (key, value) => setFormData((current) => ({
     ...current,
     buildCapacity: { ...current.buildCapacity, [key]: value }
@@ -242,7 +261,14 @@ export default function PrinterManagerModal({ onClose }) {
             max: Math.max(1, Math.round(numberValue(formData.autoFeedMax, 1)))
           }
         : null,
-      compatibleFilamentTypes: (formData.compatibleFilamentTypes || []).map(normalizeFilamentType)
+      compatibleFilamentTypes: (formData.compatibleFilamentTypes || []).map(normalizeFilamentType),
+      printTimeAdjustments: Object.entries(formData.printTimeAdjustments || {}).reduce((acc, [type, val]) => {
+        const num = Number(val);
+        if (Number.isFinite(num) && num > 0) {
+          acc[normalizeFilamentType(type)] = Math.round(num * 10) / 10;
+        }
+        return acc;
+      }, {})
     };
 
     setIsSaving(true);
@@ -437,6 +463,7 @@ export default function PrinterManagerModal({ onClose }) {
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {filamentTypes.map((type) => {
             const isSelected = (formData.compatibleFilamentTypes || []).includes(type);
+            const currentAdj = Number(formData.printTimeAdjustments?.[type] || 0);
             return (
               <button
                 key={type}
@@ -447,14 +474,208 @@ export default function PrinterManagerModal({ onClose }) {
                     ? (formData.compatibleFilamentTypes || []).filter((item) => item !== type)
                     : [...(formData.compatibleFilamentTypes || []), type]
                 )}
-                className={`rounded-xl border px-3 py-2 text-left text-[13px] font-black uppercase transition-all ${isSelected ? 'border-blue-500 bg-blue-600 text-white shadow-md shadow-blue-600/20' : 'border-[var(--color-border)] bg-[var(--color-bg)] opacity-60 hover:border-blue-500/50 hover:opacity-100'}`}
+                className={`flex items-center justify-between rounded-xl border px-3 py-2 text-left text-[13px] font-black uppercase transition-all ${isSelected ? 'border-blue-500 bg-blue-600 text-white shadow-md shadow-blue-600/20' : 'border-[var(--color-border)] bg-[var(--color-bg)] opacity-60 hover:border-blue-500/50 hover:opacity-100'}`}
               >
-                <Check size={13} strokeWidth={4} className={`mr-2 inline transition-opacity ${isSelected ? 'opacity-100' : 'opacity-20'}`} />
-                {type}
+                <div className="flex items-center truncate">
+                  <Check size={13} strokeWidth={4} className={`mr-2 shrink-0 transition-opacity ${isSelected ? 'opacity-100' : 'opacity-20'}`} />
+                  <span className="truncate">{type}</span>
+                </div>
+                {isSelected && currentAdj > 0 && (
+                  <span className="ml-1 rounded bg-black/20 px-1.5 py-0.5 text-[11px] font-black text-amber-300">
+                    +{currentAdj}%
+                  </span>
+                )}
               </button>
             );
           })}
         </div>
+
+        {/* Mini Calculator for Print Time Overrun */}
+        {(() => {
+          const selectedTypes = (formData.compatibleFilamentTypes || []).length > 0
+            ? formData.compatibleFilamentTypes
+            : filamentTypes;
+          
+          const effectiveTargetType = (calcTargetType && selectedTypes.includes(calcTargetType))
+            ? calcTargetType
+            : (selectedTypes[0] || '');
+
+          const slicerTotalMins = (numberValue(calcSlicerHrs, 0) * 60) + numberValue(calcSlicerMins, 0);
+          const actualTotalMins = (numberValue(calcActualHrs, 0) * 60) + numberValue(calcActualMins, 0);
+          const hasInputs = slicerTotalMins > 0 && actualTotalMins > 0;
+          const calculatedPct = (hasInputs && actualTotalMins > slicerTotalMins)
+            ? Math.round(((actualTotalMins - slicerTotalMins) / slicerTotalMins) * 100 * 10) / 10
+            : 0;
+          const extraMins = actualTotalMins > slicerTotalMins ? actualTotalMins - slicerTotalMins : 0;
+
+          return (
+            <div className="mt-4 space-y-3 rounded-2xl border border-blue-500/20 bg-blue-500/5 p-4">
+              <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setShowCalculator(!showCalculator)}
+                  className="flex items-center gap-2 text-[13px] font-black uppercase tracking-widest text-blue-500 transition-opacity hover:opacity-80"
+                >
+                  <Calculator size={16} />
+                  <span>Print Time Overrun Calculator</span>
+                  {showCalculator ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </button>
+                <span className="text-[11px] font-bold uppercase tracking-wider opacity-40">
+                  Find % increase from slicer
+                </span>
+              </div>
+
+              {showCalculator && (
+                <div className="space-y-3 pt-2 animate-in slide-in-from-top-2 duration-200">
+                  <p className="text-[12px] font-bold text-[var(--color-text-main)] opacity-70">
+                    Enter the slicer estimate and actual measured print time for a test print to calculate how much extra time this filament takes.
+                  </p>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <label className="space-y-1">
+                      <span className="text-[11px] font-black uppercase tracking-widest opacity-40">Target Filament</span>
+                      <select
+                        value={effectiveTargetType}
+                        onChange={(e) => setCalcTargetType(e.target.value)}
+                        className="w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-[13px] font-bold text-[var(--color-text-main)] outline-none focus:border-blue-500"
+                      >
+                        {selectedTypes.map((type) => (
+                          <option key={type} value={type}>{type}</option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <div className="space-y-1">
+                      <span className="text-[11px] font-black uppercase tracking-widest opacity-40">Slicer Estimated Time</span>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <input
+                          type="number"
+                          min="0"
+                          value={calcSlicerHrs}
+                          onChange={(e) => setCalcSlicerHrs(e.target.value)}
+                          placeholder="Hrs"
+                          className="w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] px-2.5 py-2 text-[13px] font-bold text-[var(--color-text-main)] outline-none focus:border-blue-500"
+                        />
+                        <input
+                          type="number"
+                          min="0"
+                          max="59"
+                          value={calcSlicerMins}
+                          onChange={(e) => setCalcSlicerMins(e.target.value)}
+                          placeholder="Mins"
+                          className="w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] px-2.5 py-2 text-[13px] font-bold text-[var(--color-text-main)] outline-none focus:border-blue-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <span className="text-[11px] font-black uppercase tracking-widest opacity-40">Actual Measured Time</span>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <input
+                          type="number"
+                          min="0"
+                          value={calcActualHrs}
+                          onChange={(e) => setCalcActualHrs(e.target.value)}
+                          placeholder="Hrs"
+                          className="w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] px-2.5 py-2 text-[13px] font-bold text-[var(--color-text-main)] outline-none focus:border-blue-500"
+                        />
+                        <input
+                          type="number"
+                          min="0"
+                          max="59"
+                          value={calcActualMins}
+                          onChange={(e) => setCalcActualMins(e.target.value)}
+                          placeholder="Mins"
+                          className="w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] px-2.5 py-2 text-[13px] font-bold text-[var(--color-text-main)] outline-none focus:border-blue-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {hasInputs && (
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-500/20 bg-blue-500/10 p-3">
+                      <div>
+                        <div className="text-[14px] font-black uppercase tracking-tight text-blue-600 dark:text-blue-400">
+                          {calculatedPct > 0 ? `+${calculatedPct}% Print Time Overrun` : 'No overrun (prints on time or faster)'}
+                        </div>
+                        <div className="text-[12px] font-bold opacity-60">
+                          {extraMins > 0 ? `${extraMins} mins slower than slicer estimate` : 'Measured time does not exceed slicer estimate'}
+                        </div>
+                      </div>
+
+                      {calculatedPct > 0 && effectiveTargetType && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            updateAdjustment(effectiveTargetType, calculatedPct);
+                            // Also ensure target type is selected in compatibleFilamentTypes if not already
+                            if (!(formData.compatibleFilamentTypes || []).includes(effectiveTargetType)) {
+                              updateField('compatibleFilamentTypes', [...(formData.compatibleFilamentTypes || []), effectiveTargetType]);
+                            }
+                          }}
+                          className="rounded-xl bg-blue-600 px-3.5 py-2 text-[12px] font-black uppercase tracking-wider text-white shadow-md transition-transform hover:scale-105"
+                        >
+                          Apply +{calculatedPct}% to {effectiveTargetType}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* Configured Per-Filament Adjustment Inputs */}
+        {(() => {
+          const activeTypes = (formData.compatibleFilamentTypes || []).length > 0
+            ? formData.compatibleFilamentTypes
+            : [];
+
+          if (activeTypes.length === 0) return null;
+
+          return (
+            <div className="mt-3 space-y-2 rounded-2xl border border-[var(--color-border)] bg-black/5 p-4 dark:bg-white/5">
+              <div className="flex items-center justify-between">
+                <span className="text-[13px] font-black uppercase tracking-widest opacity-60">
+                  Print Time Increase (%) Per Filament
+                </span>
+                <span className="text-[11px] font-bold uppercase tracking-wider opacity-40">
+                  Labor & Electricity Adjustments
+                </span>
+              </div>
+              <p className="text-[12px] font-bold opacity-50">
+                Adds extra hours to labor monitoring and electricity calculations for filaments that print slower than slicer estimates.
+              </p>
+
+              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+                {activeTypes.map((type) => {
+                  const val = formData.printTimeAdjustments?.[type] ?? '';
+                  return (
+                    <div key={type} className="flex items-center justify-between gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5">
+                      <span className="truncate text-[13px] font-black uppercase tracking-tight opacity-70">
+                        {type}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          min="0"
+                          max="500"
+                          step="0.5"
+                          value={val}
+                          onChange={(e) => updateAdjustment(type, e.target.value)}
+                          placeholder="0"
+                          className="w-16 rounded-lg border border-[var(--color-border)] bg-transparent px-2 py-1 text-right text-[13px] font-black text-blue-600 outline-none focus:border-blue-500"
+                        />
+                        <span className="text-[12px] font-black opacity-40">%</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       <div className="flex gap-2 pt-1">

@@ -6,7 +6,7 @@ import {
   Wrench
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
-import { getPrinterFeeders } from '../../utils/printerCompatibility';
+import { getPrinterFeeders, calculateItemAdjustedPrintTime } from '../../utils/printerCompatibility';
 
 const DEFAULT_SPOOL_WEIGHT = 1000;
 
@@ -197,12 +197,36 @@ export default function CostBreakdown({
 
     const seenProductionJobs = new Set();
     const validItems = items.flatMap((item) => {
-      if (!Array.isArray(item.productionJobs) || item.productionJobs.length === 0) return [item];
+      if (!Array.isArray(item.productionJobs) || item.productionJobs.length === 0) {
+        const printer = item.printer || (printers || []).find((p) => String(p.id) === String(item.printerId)) || activePrinter;
+        const rawTime = getItemTime(item);
+        const itemMats = item.normalizedMaterials?.length ? item.normalizedMaterials : [item.normalizedMaterial].filter(Boolean);
+        const { adjustedTime, effectiveAdjustmentPercent, adjustments } = calculateItemAdjustedPrintTime(
+          printer,
+          { ...item, materialWeights: item.materialWeights, normalizedMaterials: itemMats, normalizedWeight: getItemWeight(item) },
+          rawTime
+        );
+        return [{
+          ...item,
+          rawTime,
+          normalizedTime: adjustedTime,
+          effectiveAdjustmentPercent,
+          printTimeAdjustmentsApplied: adjustments
+        }];
+      }
       return item.productionJobs.map((job, jobIndex) => {
         const jobId = String(job.id || `${item.id}-${jobIndex}`);
         if (seenProductionJobs.has(jobId)) return null;
         seenProductionJobs.add(jobId);
         const printer = job.printer || (printers || []).find((p) => String(p.id) === String(job.printerId)) || activePrinter;
+        const rawTime = firstPositiveNumber(job.time, item.normalizedTime);
+        const jobMaterials = item.normalizedMaterials?.length ? item.normalizedMaterials : [item.normalizedMaterial].filter(Boolean);
+        const { adjustedTime, effectiveAdjustmentPercent, adjustments } = calculateItemAdjustedPrintTime(
+          printer,
+          { ...item, materialWeights: job.materialWeights || item.materialWeights, normalizedMaterials: jobMaterials, normalizedWeight: firstPositiveNumber(job.weight, item.normalizedWeight) },
+          rawTime
+        );
+
         return {
           ...item,
           id: job.id,
@@ -211,7 +235,10 @@ export default function CostBreakdown({
           jobIndex,
           itemName: job.buildPlateNo ? `Build Plate ${job.buildPlateNo}` : `${item.itemName} Part ${job.no || jobIndex + 1}`,
           normalizedWeight: firstPositiveNumber(job.weight, item.normalizedWeight),
-          normalizedTime: firstPositiveNumber(job.time, item.normalizedTime),
+          rawTime,
+          normalizedTime: adjustedTime,
+          effectiveAdjustmentPercent,
+          printTimeAdjustmentsApplied: adjustments,
           swapMins: Number(job.swapMins || 0),
           sliced: {
             ...(item.sliced || {}),
@@ -597,14 +624,11 @@ export default function CostBreakdown({
     const handlingMins = filamentHandlingEvents * 5;
     
     const printerRuntimeRows = Object.values(printerStates).map((state) => {
-      const printMins = validItems
-        .filter((item) => getPrinterKey(getJobPrinter(item)) === state.key)
-        .reduce((sum, item) => sum + item.normalizedTime, 0);
-      const swapMins = validItems
-        .filter((item) => getPrinterKey(getJobPrinter(item)) === state.key)
-        .reduce((sum, item) => sum + getCfsSwapMins(item), 0);
+      const printerItems = validItems.filter((item) => getPrinterKey(getJobPrinter(item)) === state.key);
+      const printMins = printerItems.reduce((sum, item) => sum + item.normalizedTime, 0);
+      const swapMins = printerItems.reduce((sum, item) => sum + getCfsSwapMins(item), 0);
       const startupMins = [...state.initializedDays].length * (getBootupTime(state.printer) + getBedLevelTime(state.printer));
-      const hasCfsRuntime = validItems.some((item) => getPrinterKey(getJobPrinter(item)) === state.key && item.usesCfs === true);
+      const hasCfsRuntime = printerItems.some((item) => item.usesCfs === true);
       const baseWattage = parseFloat(state.printer?.wattage || 0);
       let feederWattage = 0;
       if (hasCfsRuntime && state.printer) {
@@ -612,11 +636,18 @@ export default function CostBreakdown({
         feederWattage = connectedFeeders.reduce((sum, unit) => sum + (parseFloat(unit.wattage) || 0), 0);
       }
       const printerWattage = baseWattage + feederWattage;
+
+      // Extract unique filament adjustments applied on this printer
+      const printerAdjustments = [...new Set(
+        printerItems.flatMap((item) => (item.printTimeAdjustmentsApplied || []).filter((a) => a.percent > 0).map((a) => `+${a.percent}% ${a.type}`))
+      )];
+
       return {
         printerName: getPrinterLabel(state.printer),
         wattage: printerWattage,
         runtimeMins: printMins + swapMins + startupMins + state.overnightIdleMins + (handlingMins / Math.max(1, Object.keys(printerStates).length)),
-        printTimeOnly: printMins + swapMins
+        printTimeOnly: printMins + swapMins,
+        appliedAdjustments: printerAdjustments
       };
     });
     
@@ -689,11 +720,21 @@ export default function CostBreakdown({
       }
 
       costMonitoringLabor += dayCost;
+      
+      // Find adjustments that applied to items scheduled in this day's bucket
+      const dayAdjustments = [...new Set(
+        (dayBucket.plates || []).flatMap((plate) => {
+          const matchedItem = validItems.find((vi) => String(vi.id || vi.parentId || vi.index) === String(plate.id));
+          return (matchedItem?.printTimeAdjustmentsApplied || []).filter((a) => a.percent > 0).map((a) => `+${a.percent}% ${a.type}`);
+        })
+      )];
+
       dailyTierBreakdown.push({ 
         day: dayBucket.day, 
         printer: dayBucket.printerName, 
         total: dayCost, 
-        breakdown: dayBreakdown 
+        breakdown: dayBreakdown,
+        adjustments: dayAdjustments
       });
     });
     
@@ -786,7 +827,11 @@ export default function CostBreakdown({
           {
             title: 'Print Monitoring',
             items: dailyTierBreakdown.flatMap(d => [
-                { label: `Day ${d.day} (${d.printer})`, sub: `${(d.breakdown.reduce((s, b) => s + b.hours, 0)).toFixed(1)} hrs monitored`, calc: `₱${formatCurrency(d.total)}` },
+                { 
+                  label: `Day ${d.day} (${d.printer})`, 
+                  sub: `${(d.breakdown.reduce((s, b) => s + b.hours, 0)).toFixed(1)} hrs monitored${d.adjustments?.length > 0 ? ` • includes ${d.adjustments.join(', ')}` : ''}`, 
+                  calc: `₱${formatCurrency(d.total)}` 
+                },
                 ...d.breakdown.map(b => ({
                     label: `  - ${b.tier === 'Standard' ? 'Standard' : `Tier (${b.tier}hr)`}${b.cycle ? ` (Cycle ${b.cycle})` : ''}`,
                     sub: `${b.hours.toFixed(1)} hrs @ ₱${b.rate}/hr`,
@@ -814,7 +859,15 @@ export default function CostBreakdown({
           {
             title: 'Consumption',
             items: [
-              { label: 'Printer Power', sub: `${printerRuntimeRows.length} printer(s) used • includes ${formatMinutes(totalSwapMins)} multicolor swaps`, calc: `₱${formatCurrency(kwhP * currentRates.elecRate)}` },
+              { 
+                label: 'Printer Power', 
+                sub: `${printerRuntimeRows.length} printer(s) used • includes ${formatMinutes(totalSwapMins)} multicolor swaps${
+                  printerRuntimeRows.some(r => r.appliedAdjustments?.length > 0)
+                    ? ` • ${printerRuntimeRows.flatMap(r => r.appliedAdjustments).filter(Boolean).join(', ')}`
+                    : ''
+                }`, 
+                calc: `₱${formatCurrency(kwhP * currentRates.elecRate)}` 
+              },
               { label: 'Soldering Iron', sub: `${currentRates.ironPower}W used`, calc: `₱${formatCurrency(kwhI * currentRates.elecRate)}` }
             ]
           },
