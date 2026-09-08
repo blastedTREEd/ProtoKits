@@ -261,6 +261,7 @@ export default function BundleHighlights() {
 
     const hasActiveFreeShipping = (stock) => {
       if (!stock?.isFreeShippingEligible) return false;
+      if (!stock?.freeShippingMethod || stock.freeShippingMethod === 'All') return false;
       const expiry = getTimestamp(stock.freeShippingUntil);
       return !expiry || expiry > now;
     };
@@ -442,7 +443,7 @@ export default function BundleHighlights() {
               <div className="flex w-full min-w-0 items-center justify-between gap-2 pb-1">
                 <div className="flex min-w-0 flex-1 flex-col items-start pb-1 text-left">
                   <span className={`block w-full truncate text-[14px] font-bold uppercase tracking-tighter ${isAdmin && isAdminView ? 'text-blue-500 dark:text-blue-400' : 'text-emerald-500 dark:text-emerald-400'}`}>
-                    {isAdmin && isAdminView ? 'EDIT DEAL' : getDealGrabLabel(deal)}
+                    {isAdmin && isAdminView ? 'EDIT DEAL' : getDealGrabLabel(deal, bundleDisplayTotals)}
                   </span>
                   {isAdmin && isAdminView ? (
                     <>

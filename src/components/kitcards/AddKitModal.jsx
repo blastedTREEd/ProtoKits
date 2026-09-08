@@ -1327,8 +1327,8 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       paidToSupplier: normalizedStatus === 'Onhand' ? prev.costPrice : prev.paidToSupplier,
       isFreeShippingEligible: normalizedStatus === 'Onhand' ? false : prev.isFreeShippingEligible,
       freeShippingUntil: normalizedStatus === 'Onhand' ? '' : prev.freeShippingUntil,
-      freeShippingMethod: normalizedStatus === 'Onhand' ? 'All' : prev.freeShippingMethod,
-      freeShippingSuboption: normalizedStatus === 'Onhand' ? 'All' : prev.freeShippingSuboption,
+      freeShippingMethod: normalizedStatus === 'Onhand' ? '' : prev.freeShippingMethod,
+      freeShippingSuboption: normalizedStatus === 'Onhand' ? '' : prev.freeShippingSuboption,
       ...(normalizedStatus === 'Pre-Order'
         ? { boxCondition: PRE_ORDER_BOX_CONDITION, kitCondition: PRE_ORDER_KIT_CONDITION }
         : {})
@@ -1476,8 +1476,8 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       kitImage: stockItem.kitImage || '',
       isFreeShippingEligible: Boolean(stockItem.isFreeShippingEligible),
       freeShippingUntil: stockItem.freeShippingUntil || '',
-      freeShippingMethod: stockItem.freeShippingMethod || 'All',
-      freeShippingSuboption: stockItem.freeShippingSuboption || 'All'
+      freeShippingMethod: stockItem.freeShippingMethod && stockItem.freeShippingMethod !== 'All' ? stockItem.freeShippingMethod : '',
+      freeShippingSuboption: stockItem.freeShippingSuboption && stockItem.freeShippingSuboption !== 'All' ? stockItem.freeShippingSuboption : ''
     }));
   };
 
@@ -1519,8 +1519,8 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       stockImages: normalizeStockImages(stockItem),
       isFreeShippingEligible: Boolean(stockItem.isFreeShippingEligible),
       freeShippingUntil: stockItem.freeShippingUntil || '',
-      freeShippingMethod: stockItem.freeShippingMethod || 'All',
-      freeShippingSuboption: stockItem.freeShippingSuboption || 'All'
+      freeShippingMethod: stockItem.freeShippingMethod && stockItem.freeShippingMethod !== 'All' ? stockItem.freeShippingMethod : '',
+      freeShippingSuboption: stockItem.freeShippingSuboption && stockItem.freeShippingSuboption !== 'All' ? stockItem.freeShippingSuboption : ''
     }));
   };
 
@@ -1769,6 +1769,11 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       return;
     }
 
+    if (includesStock && stockForm.isFreeShippingEligible && (!stockForm.freeShippingMethod || stockForm.freeShippingMethod === 'All')) {
+      alert('Select a courier for free shipping or turn the free shipping flag off.');
+      return;
+    }
+
     const payload = {
       id: selectedExistingKit?.id || null,
       targetId: selectedExistingKit?.id || rawSelectedExistingKit?.id || selectedKitId || null,
@@ -1830,8 +1835,8 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
         kitImage: stockForm.kitImage || '',
         isFreeShippingEligible: stockForm.isFreeShippingEligible,
         freeShippingUntil: stockForm.isFreeShippingEligible ? stockForm.freeShippingUntil : '',
-        freeShippingMethod: stockForm.isFreeShippingEligible ? (stockForm.freeShippingMethod || 'All') : '',     
-        freeShippingSuboption: stockForm.isFreeShippingEligible ? (stockForm.freeShippingSuboption || 'All') : '', 
+        freeShippingMethod: stockForm.isFreeShippingEligible ? (stockForm.freeShippingMethod || '') : '',     
+        freeShippingSuboption: stockForm.isFreeShippingEligible ? (stockForm.freeShippingSuboption || '') : '', 
         timestamp: existingStock.timestamp || Date.now()
       });
     }
@@ -2177,8 +2182,8 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
         kitImage: '',
         isFreeShippingEligible: stockForm.isFreeShippingEligible,
         freeShippingUntil: stockForm.isFreeShippingEligible ? stockForm.freeShippingUntil : '',
-        freeShippingMethod: stockForm.isFreeShippingEligible ? (stockForm.freeShippingMethod || 'All') : 'All',
-        freeShippingSuboption: stockForm.isFreeShippingEligible ? (stockForm.freeShippingSuboption || 'All') : 'All',
+        freeShippingMethod: stockForm.isFreeShippingEligible ? (stockForm.freeShippingMethod || '') : '',
+        freeShippingSuboption: stockForm.isFreeShippingEligible ? (stockForm.freeShippingSuboption || '') : '',
         timestamp: Date.now()
       }
     };
@@ -2347,7 +2352,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       ['BOX IMAGE', ({ stock }) => stock.boxImage],
       ['KIT IMAGE', ({ stock }) => stock.kitImage],
       ['STOCK IMAGE URLS', ({ stock }) => (stock.stockImages || []).map((image) => image.url).filter(Boolean).join(' | ')],
-      ['FREE SHIPPING ELIGIBLE', ({ stock }) => stock.isFreeShippingEligible ? 'YES' : 'NO'],
+      ['FREE SHIPPING ELIGIBLE', ({ stock }) => (stock.isFreeShippingEligible && stock.freeShippingMethod && stock.freeShippingMethod !== 'All') ? 'YES' : 'NO'],
       ['FREE SHIPPING UNTIL', ({ stock }) => stock.freeShippingUntil],
       ['FREE SHIPPING METHOD', ({ stock }) => stock.freeShippingMethod],
       ['FREE SHIPPING SUBOPTION', ({ stock }) => stock.freeShippingSuboption],

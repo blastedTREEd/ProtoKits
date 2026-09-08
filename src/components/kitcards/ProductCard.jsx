@@ -20,6 +20,7 @@ import {
 } from '../../utils/bundlePricing';
 import { formatOfferCountdown, isOfferCheckoutActive } from '../../utils/offerUtils';
 import { getStockStandaloneSellPrice } from '../../utils/standalonePricing';
+import { getBundleDisplayTotals } from '../../utils/bundleDisplayPricing';
 import { getDealDiscountAmount, getDealGrabLabel, getDealSaveUpToLabel } from '../../utils/dealSavings';
 import { getStockEta } from '../../utils/stockDates';
 import { isFlexiBundleDeal, isPerKitClearanceDeal, isWildSaleDeal, isClearanceKitActive, getActiveClearanceKitIds, getClearanceDisplayLabel } from '../../utils/dealTypes';
@@ -303,9 +304,30 @@ function getClearanceDealPricing(deal, allKits = []) {
       costPrice: Number(sourceStock?.costPrice || kit?.costPrice || 0)
     };
   });
+
+  const clearanceDiscountOverrides = { ...(deal.clearanceDiscounts || {}) };
+  activeClearanceKitIds.forEach((kitId) => {
+    const storedClearancePrice = Number(deal.kitDiscounts?.[kitId]?.clearancePrice || 0);
+    const row = rows.find((candidate) => String(candidate.kitId) === String(kitId));
+    const storedPriceDiscount = row && storedClearancePrice > 0
+      ? Math.max(0, row.sellPrice - storedClearancePrice)
+      : 0;
+
+    if (storedPriceDiscount > 0) {
+      clearanceDiscountOverrides[kitId] = storedPriceDiscount;
+      return;
+    }
+
+    const configuredDiscount = clearanceDiscountOverrides[kitId];
+    if (configuredDiscount !== '' && configuredDiscount !== null && configuredDiscount !== undefined) return;
+
+    const storedDiscount = Number(deal.kitDiscounts?.[kitId]?.discount || 0);
+    if (storedDiscount > 0) clearanceDiscountOverrides[kitId] = storedDiscount;
+  });
+
   return isFlexiBundleDeal(deal)
-    ? getFlexiBundlePreviewPricing(rows, activeClearanceKitIds, deal.clearanceDiscounts || {})
-    : getClearanceBundlePricing(rows, activeClearanceKitIds, deal.clearanceDiscounts || {});
+    ? getFlexiBundlePreviewPricing(rows, activeClearanceKitIds, clearanceDiscountOverrides)
+    : getClearanceBundlePricing(rows, activeClearanceKitIds, clearanceDiscountOverrides);
 }
 
 function getBundleKitPrice(deal, dealKit, allKits = []) {
@@ -355,7 +377,11 @@ function getBundleKitPrice(deal, dealKit, allKits = []) {
     };
   });
   const normalTotal = rows.reduce((sum, row) => sum + row.sellPrice, 0);
-  const discountAmount = Number(deal.discountAmount ?? Math.max(0, normalTotal - Number(deal.bundlePrice || 0))) || 0;
+  const discountAmount = Number(
+    deal.bundlePrice !== undefined && deal.bundlePrice !== null && deal.bundlePrice !== ''
+      ? Math.max(0, normalTotal - Number(deal.bundlePrice || 0))
+      : (deal.discountAmount ?? 0)
+  ) || 0;
   const pricedRows = getBundleDealPricing(rows, discountAmount).rows;
   const target = pricedRows.find(row => row.kit.id === dealKit.id);
 
@@ -944,6 +970,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   const isFSEligible = useMemo(() => {
     return visibleStocks.some(s => {
       if (!s.isFreeShippingEligible || s.isReserved || hasOrderAssociation(s)) return false;
+      if (!s.freeShippingMethod || s.freeShippingMethod === 'All') return false;
       const expiry = s.freeShippingUntil ? new Date(s.freeShippingUntil).getTime() : 0;
       return expiry === 0 || now < expiry;
     });
@@ -1412,8 +1439,8 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       eta: getStockEta(stockForBasket),
       isFreeShippingEligible: stockForBasket.isFreeShippingEligible || false,
       freeShippingUntil: stockForBasket.freeShippingUntil || '',
-      freeShippingMethod: stockForBasket.freeShippingMethod || 'All',
-      freeShippingSuboption: stockForBasket.freeShippingSuboption || 'All'
+      freeShippingMethod: stockForBasket.freeShippingMethod && stockForBasket.freeShippingMethod !== 'All' ? stockForBasket.freeShippingMethod : '',
+      freeShippingSuboption: stockForBasket.freeShippingSuboption && stockForBasket.freeShippingSuboption !== 'All' ? stockForBasket.freeShippingSuboption : ''
     });
     if (!isAdminView) setToastMessage("Added to cart!");
     closeProductModal();
@@ -1526,8 +1553,8 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
           eta: getStockEta(finalStock),
           isFreeShippingEligible: finalStock.isFreeShippingEligible || false,
           freeShippingUntil: finalStock.freeShippingUntil || '',
-          freeShippingMethod: finalStock.freeShippingMethod || 'All',
-          freeShippingSuboption: finalStock.freeShippingSuboption || 'All'
+          freeShippingMethod: finalStock.freeShippingMethod && finalStock.freeShippingMethod !== 'All' ? finalStock.freeShippingMethod : '',
+          freeShippingSuboption: finalStock.freeShippingSuboption && finalStock.freeShippingSuboption !== 'All' ? finalStock.freeShippingSuboption : ''
         });
         setLoginModalOpen(true);
         closeProductModal();
@@ -1550,8 +1577,8 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
         eta: getStockEta(finalStock),
         isFreeShippingEligible: finalStock.isFreeShippingEligible || false,
         freeShippingUntil: finalStock.freeShippingUntil || '',
-        freeShippingMethod: finalStock.freeShippingMethod || 'All',
-        freeShippingSuboption: finalStock.freeShippingSuboption || 'All'
+        freeShippingMethod: finalStock.freeShippingMethod && finalStock.freeShippingMethod !== 'All' ? finalStock.freeShippingMethod : '',
+        freeShippingSuboption: finalStock.freeShippingSuboption && finalStock.freeShippingSuboption !== 'All' ? finalStock.freeShippingSuboption : ''
       });
       if (isAdmin && isAdminView) closeProductModal(); else navigate('/cart');
     }
@@ -1764,8 +1791,9 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     const isAvailabilityGroup = !isCollectionGroup && !isBundleDealGroup;
     const hasFreeShipping = isAvailabilityGroup && group.items.some(item => {
       const isEligible = item.isFreeShippingEligible;
+      const hasCourier = item.freeShippingMethod && item.freeShippingMethod !== 'All';
       const until = item.freeShippingUntil;
-      if (!isEligible) return false;
+      if (!isEligible || !hasCourier) return false;
       if (!until) return true;
       return Date.now() < new Date(until).getTime();
     });
@@ -2051,7 +2079,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                           {selectedBundleDealDetails?.deal
                                             ? selectedBundleDealDetails.isClearance
                                               ? <>&#8369;{modalClearanceDiscount.toLocaleString()} OFF ELIGIBLE</>
-                                              : <>&#8369;{getDealDiscountAmount(activeBundleDeal).toLocaleString()} OFF ELIGIBLE</>
+                                              : <>&#8369;{getDealDiscountAmount(activeBundleDeal, getBundleDisplayTotals(activeBundleDeal, allKits, isAdmin && isAdminView)).toLocaleString()} OFF ELIGIBLE</>
                                             : isWildSaleOnHandSelected
                                               ? <>&#8369;{wildSaleModalDiscount.toLocaleString()} OFF</>
                                             : isLimitedTimeAcceptedOffer
@@ -2116,7 +2144,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                           {selectedBundleDealDetails?.deal
                                             ? selectedBundleDealDetails.isClearance
                                               ? <>&#8369;{modalClearanceDiscount.toLocaleString()} OFF ELIGIBLE</>
-                                              : <>&#8369;{getDealDiscountAmount(activeBundleDeal).toLocaleString()} OFF ELIGIBLE</>
+                                              : <>&#8369;{getDealDiscountAmount(activeBundleDeal, getBundleDisplayTotals(activeBundleDeal, allKits, isAdmin && isAdminView)).toLocaleString()} OFF ELIGIBLE</>
                                             : isWildSaleOnHandSelected
                                               ? <>&#8369;{wildSaleModalDiscount.toLocaleString()} OFF</>
                                             : isLimitedTimeAcceptedOffer
@@ -2219,6 +2247,9 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                 : '';
                               const clearancePricing = isClearanceDeal
                                 ? getClearanceDealPricing(deal, allKits)
+                                : null;
+                              const bundleDisplayTotals = !isClearanceDeal
+                                ? getBundleDisplayTotals(deal, allKits, isAdmin && isAdminView)
                                 : null;
                               const clearanceRowsByKitId = new Map(
                                 (clearancePricing?.rows || []).map(row => [String(row.kitId), row])
@@ -2390,7 +2421,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                       <p className="text-[16px] font-black uppercase italic leading-none text-emerald-600">
                                         {isClearanceDeal
                                           ? `SAVE UP TO ₱${clearanceOfferTotal.toLocaleString()} OFF`
-                                          : getDealSaveUpToLabel(deal, { kitCount: includedKits.length })}
+                                          : getDealSaveUpToLabel(deal, { kitCount: includedKits.length, dynamicTotals: bundleDisplayTotals })}
                                       </p>
                                     </div>
                                   </div>
@@ -2441,7 +2472,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                       <p className="text-[15px] font-black italic leading-none text-emerald-600">
                                         {(isClearanceDeal
                                           ? `GRAB ₱${clearanceOfferTotal.toLocaleString()} OFF`
-                                          : getDealGrabLabel(deal)
+                                          : getDealGrabLabel(deal, bundleDisplayTotals)
                                         ).replace(/^GRAB\b/i, 'GRAB UP TO')}
                                       </p>
                                     </div>
@@ -2466,7 +2497,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                         </div>
                       </div>
                     </div>
-                    <div className={`grid transition-all duration-300 ease-in-out overflow-hidden ${selectedStock && selectedStock.isFreeShippingEligible && (!selectedStock.freeShippingUntil || now < new Date(selectedStock.freeShippingUntil).getTime()) ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+                    <div className={`grid transition-all duration-300 ease-in-out overflow-hidden ${selectedStock && selectedStock.isFreeShippingEligible && selectedStock.freeShippingMethod && selectedStock.freeShippingMethod !== 'All' && (!selectedStock.freeShippingUntil || now < new Date(selectedStock.freeShippingUntil).getTime()) ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
                         <div className="overflow-hidden">
                             <div className="w-full mb-2 bg-emerald-500 rounded-lg p-1.5 flex items-center justify-center backdrop-blur-sm">
                                 <span className="text-white font-black italic uppercase tracking-[0.2em] text-[11px] drop-shadow-md">

@@ -53,6 +53,7 @@ export const getBundleDisplayTotals = (deal, kits = [], isAdminView = false) => 
   return {
     discountedPrice: Math.max(0, discountedPrice),
     sellTotal: Math.max(0, fallbackSellTotal || getNumber(deal?.totalSell)),
-    costTotal: Math.max(0, rows.reduce((total, row) => total + row.costPrice, 0))
+    costTotal: Math.max(0, rows.reduce((total, row) => total + row.costPrice, 0)),
+    discountAmount: Math.max(0, (fallbackSellTotal || getNumber(deal?.totalSell)) - Math.max(0, discountedPrice))
   };
 };

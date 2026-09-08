@@ -113,7 +113,11 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onAd
       };
     });
     const normalTotal = pricingRows.reduce((sum, row) => sum + row.refPrice, 0);
-    const discountAmount = Number(deal?.discountAmount ?? Math.max(0, normalTotal - Number(deal?.bundlePrice || 0))) || 0;
+    const discountAmount = Number(
+      deal?.bundlePrice !== undefined && deal?.bundlePrice !== null && deal?.bundlePrice !== ''
+        ? Math.max(0, normalTotal - Number(deal?.bundlePrice || 0))
+        : (deal?.discountAmount ?? 0)
+    ) || 0;
     const pricing = getBundleDealPricing(pricingRows, discountAmount).rows.map(row => ({
       ...row,
       distributedPrice: row.finalPrice

@@ -97,6 +97,8 @@ export function getClearancePrice(costPrice = 0, sellPrice = 0, discountOverride
 // Resolve the original per-source offer amount. Prefer the per-source setting
 // so an aggregate legacy total cannot be mistaken for this kit's offer.
 export function getFlexiOfferedDiscount(deal = {}, sourceKitId = '', fallback = 0) {
+  if (Number(fallback) > 0) return Math.max(0, Math.round(Number(fallback)));
+
   const normalizedId = String(sourceKitId || '');
   const configured = deal?.clearanceDiscounts?.[normalizedId]
     ?? deal?.clearanceDiscounts?.[sourceKitId];
@@ -107,7 +109,6 @@ export function getFlexiOfferedDiscount(deal = {}, sourceKitId = '', fallback = 
   const storedDiscount = deal?.kitDiscounts?.[normalizedId]?.discount
     ?? deal?.kitDiscounts?.[sourceKitId]?.discount;
   if (Number(storedDiscount) > 0) return Math.max(0, Math.round(Number(storedDiscount)));
-  if (Number(fallback) > 0) return Math.max(0, Math.round(Number(fallback)));
 
   return Math.max(0, Math.round(Number(deal?.discountAmount) || 0));
 }

@@ -887,6 +887,8 @@ const hasCheckoutSettings = (admin) => {
 const isFreeShippingActive = (item = {}, stock = null) => {
   const eligible = Boolean(item.isFreeShippingEligible || stock?.isFreeShippingEligible);
   if (!eligible) return false;
+  const promoMethod = item.freeShippingMethod || stock?.freeShippingMethod || '';
+  if (!promoMethod || promoMethod === 'All') return false;
   const until = item.freeShippingUntil || stock?.freeShippingUntil || '';
   if (!until) return true;
   const expiry = new Date(until).getTime();
@@ -895,25 +897,50 @@ const isFreeShippingActive = (item = {}, stock = null) => {
 
 const normalizePromoValue = (value) => String(value ?? '').trim().toLowerCase();
 const promoValuesMatch = (a, b) => normalizePromoValue(a) === normalizePromoValue(b);
-const normalizeFreeShippingPromoSuboption = (suboption) => {
-  const normalized = String(suboption ?? '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-  if (normalized === 'cod' || normalized.includes('cashondelivery')) {
-    return 'standard-delivery';
+
+const isSuboptionMatchingPromo = (candidate, promoSub) => {
+  if (!candidate || !promoSub) return false;
+  if (promoValuesMatch(candidate, promoSub)) return true;
+  const normCand = String(candidate || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const normPromo = String(promoSub || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (normCand === normPromo) return true;
+
+  // COD must never match non-COD promos
+  const isCodCand = normCand === 'cod' || normCand.includes('cashondelivery');
+  const isCodPromo = normPromo === 'cod' || normPromo.includes('cashondelivery');
+  if (isCodCand !== isCodPromo) return false;
+
+  const standardDeliveryAliases = [
+    'delivery',
+    'standarddelivery',
+    'standard',
+    'cop',
+    'cashonpickup',
+    'seller',
+    'sellerbooking'
+  ];
+  if (standardDeliveryAliases.includes(normCand) && standardDeliveryAliases.includes(normPromo)) {
+    return true;
   }
-  return suboption;
+
+  return false;
 };
 
-const isItemShippingEligibleForFreeShipping = (item, method, suboptionVal) => {
+const isItemShippingEligibleForFreeShipping = (item, method, suboptionVal = null) => {
   if (!isFreeShippingActive(item, null)) return false;
   
-  const promoMethod = item.freeShippingMethod || 'All';
-  if (promoMethod === 'All') return true;
+  const promoMethod = item.freeShippingMethod || '';
+  if (!promoMethod || promoMethod === 'All') return false;
   if (!promoValuesMatch(promoMethod, method)) return false;
   
-  const promoSub = normalizeFreeShippingPromoSuboption(item.freeShippingSuboption || 'All');
-  if (promoSub === 'All') return true;
+  const promoSub = item.freeShippingSuboption || '';
+  if (!suboptionVal || (Array.isArray(suboptionVal) && suboptionVal.length === 1 && suboptionVal[0] === 'All')) {
+    return true;
+  }
+  if (!promoSub || promoSub === 'All') return true;
+
   const suboptionCandidates = Array.isArray(suboptionVal) ? suboptionVal : [suboptionVal];
-  return suboptionCandidates.some(candidate => promoValuesMatch(candidate, promoSub));
+  return suboptionCandidates.some(candidate => isSuboptionMatchingPromo(candidate, promoSub));
 };
 
 const getSuboptionCandidatesFromKey = (shippingMethods, method, subKey) => {
@@ -1168,10 +1195,12 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   const deliveryDataRef = useRef(deliveryData);
   const checkoutDataRef = useRef(checkoutData);
   const hasPreselectedRef = useRef(false);
+  const hasPreselectedShippingRef = useRef(false);
 
   useEffect(() => {
     if (!isOpen) {
       hasPreselectedRef.current = false;
+      hasPreselectedShippingRef.current = false;
     }
   }, [isOpen]);
 
@@ -1480,8 +1509,8 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
           : getStockStandaloneSellPrice(itemWithIdentity, kit),
         isFreeShippingEligible: isFreeShippingActive(itemWithIdentity, kit?.stocks?.[stockKey]),
         freeShippingUntil: item.freeShippingUntil || kit?.stocks?.[stockKey]?.freeShippingUntil || '',
-        freeShippingMethod: item.freeShippingMethod || kit?.stocks?.[stockKey]?.freeShippingMethod || 'All',
-        freeShippingSuboption: item.freeShippingSuboption || kit?.stocks?.[stockKey]?.freeShippingSuboption || 'All'
+        freeShippingMethod: (item.freeShippingMethod && item.freeShippingMethod !== 'All') ? item.freeShippingMethod : (kit?.stocks?.[stockKey]?.freeShippingMethod && kit?.stocks?.[stockKey]?.freeShippingMethod !== 'All') ? kit.stocks[stockKey].freeShippingMethod : '',
+        freeShippingSuboption: (item.freeShippingSuboption && item.freeShippingSuboption !== 'All') ? item.freeShippingSuboption : (kit?.stocks?.[stockKey]?.freeShippingSuboption && kit?.stocks?.[stockKey]?.freeShippingSuboption !== 'All') ? kit.stocks[stockKey].freeShippingSuboption : ''
       };
     });
 
@@ -1814,8 +1843,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
 
   const isMethodFreeShipping = useCallback((method, subKey = null) => {
     if (checkoutItems.length === 0) return false;
-    // Gamitin ang label ng suboption para sa free shipping matching
-    const suboptionVal = getSuboptionCandidatesFromKey(storeAdmin?.shippingMethods, method, subKey);
+    const suboptionVal = subKey ? getSuboptionCandidatesFromKey(storeAdmin?.shippingMethods, method, subKey) : null;
     return checkoutItems.some(item =>
       isItemShippingEligibleForFreeShipping(item, method, suboptionVal)
     );
@@ -1849,8 +1877,8 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     // Check if any checkout item has a free shipping promo configured for this methodName
     const hasFreeForMethod = checkoutItems.some(item => {
       if (!isFreeShippingActive(item, null)) return false;
-      const promoMethod = item.freeShippingMethod || 'All';
-      return promoMethod === 'All' || promoValuesMatch(promoMethod, methodName);
+      const promoMethod = item.freeShippingMethod || '';
+      return promoMethod !== 'All' && promoValuesMatch(promoMethod, methodName);
     });
 
     if (!hasFreeForMethod) {
@@ -2097,16 +2125,16 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   }, [getRankedSuboptions]);
 
   const preferredShippingMethod = useMemo(() => {
-    const hasPreOrderFreeShipping = hasPreOrders && checkoutItems.some(item => (
+    const preOrderFreeShippingItem = checkoutItems.find(item => (
       isPreOrderKitCheckoutItem(item) && isFreeShippingActive(item, null)
     ));
 
-    if (hasPreOrderFreeShipping) {
-      const freeShippingMethod = shippingOptions.find(method => (
-        isMethodFreeShipping(method)
-        || getRankedSuboptions(method).some(option => option.isFree)
-      ));
-      if (freeShippingMethod) return freeShippingMethod;
+    if (preOrderFreeShippingItem) {
+      const targetMethod = preOrderFreeShippingItem.freeShippingMethod;
+      if (targetMethod && targetMethod !== 'All') {
+        const matchingOption = shippingOptions.find(m => promoValuesMatch(m, targetMethod));
+        if (matchingOption) return matchingOption;
+      }
     }
 
     const userOrders = (orders || [])
@@ -2180,8 +2208,47 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   const buildShippingData = useCallback((m, sourceData) => {
     const methodConfig = enabledShippingMethods?.[m] || storeAdmin?.shippingMethods?.[m];
     
-    // Find best suboption
-    let bestSubKey = getBestSuboptionKey(m, methodConfig);
+    // Check if there is a pre-order item with free shipping promo for this courier
+    const freeShippingItem = checkoutItems.find(item =>
+      isPreOrderKitCheckoutItem(item) &&
+      isFreeShippingActive(item, null) &&
+      promoValuesMatch(item.freeShippingMethod, m)
+    );
+    const configuredSuboption = freeShippingItem?.freeShippingSuboption;
+
+    let bestSubKey = '';
+
+    if (configuredSuboption && configuredSuboption !== 'All') {
+      if (methodConfig?.suboptions && Object.keys(methodConfig.suboptions).length > 0) {
+        const matchingEntry = Object.entries(methodConfig.suboptions).find(([subKey]) => {
+          if (promoValuesMatch(subKey, configuredSuboption)) return true;
+          const candidates = getSuboptionCandidatesFromKey(storeAdmin?.shippingMethods, m, subKey);
+          return candidates.some(c => isSuboptionMatchingPromo(c, configuredSuboption));
+        });
+        if (matchingEntry) {
+          bestSubKey = matchingEntry[0];
+        }
+      }
+
+      if (!bestSubKey && ['SPX Express', 'LBC', 'Lalamove'].includes(m)) {
+        const subKeys = m === 'LBC' ? ['cop', 'cod']
+          : m === 'Lalamove' ? ['self', 'seller']
+          : ['delivery', 'cod'];
+        const matched = subKeys.find(subKey => {
+          if (promoValuesMatch(subKey, configuredSuboption)) return true;
+          const candidates = getSuboptionCandidatesFromKey(storeAdmin?.shippingMethods, m, subKey);
+          return candidates.some(c => isSuboptionMatchingPromo(c, configuredSuboption));
+        });
+        if (matched) {
+          bestSubKey = matched;
+        }
+      }
+    }
+
+    // Find best suboption fallback
+    if (!bestSubKey) {
+      bestSubKey = getBestSuboptionKey(m, methodConfig);
+    }
     if (!bestSubKey && ['SPX Express', 'LBC', 'Lalamove'].includes(m)) {
       const subKeys = m === 'LBC' ? ['cop', 'cod']
         : m === 'Lalamove' ? ['self', 'seller']
@@ -2230,17 +2297,30 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       meetupLocationIndex = 0;
     }
 
+    const spxType = m === 'SPX Express'
+      ? (bestSubKey === 'cod' ? 'Cash On Delivery' : 'Standard Delivery')
+      : sourceData?.spxType || 'Standard Delivery';
+    const lbcType = m === 'LBC'
+      ? (bestSubKey === 'cod' ? 'COD' : 'COP')
+      : sourceData?.lbcType || 'COP';
+    const lalamoveType = m === 'Lalamove'
+      ? (bestSubKey === 'self' ? 'Self-Booking' : 'Seller-Booking')
+      : sourceData?.lalamoveType || 'Seller-Booking';
+
     return {
       ...sourceData,
       shippingMethod: m,
       selectedSuboption: bestSubKey,
+      spxType,
+      lbcType,
+      lalamoveType,
       customSuboption: '',
       pickupLocation,
       pickupLocationIndex,
       meetupLocation,
       meetupLocationIndex
     };
-  }, [enabledShippingMethods, getBestSuboptionKey, storeAdmin, checkoutItems, isMethodFreeShipping, pickupPoints, selfPickupPoints, rateCheckingPickupIndex]);
+  }, [enabledShippingMethods, getBestSuboptionKey, storeAdmin, checkoutItems, isMethodFreeShipping, pickupPoints, selfPickupPoints, rateCheckingPickupIndex, isPreOrderKitCheckoutItem]);
 
   const handleShippingChange = useCallback((m) => {
     let newCheckoutData;
@@ -2699,8 +2779,8 @@ const handleFinalizeOrder = async () => {
           offerExpiresAt: item.offerExpiresAt || null,
           isFreeShippingEligible: item.isFreeShippingEligible || false,
           freeShippingUntil: item.freeShippingUntil || '',
-          freeShippingMethod: item.freeShippingMethod || 'All',
-          freeShippingSuboption: item.freeShippingSuboption || 'All',
+          freeShippingMethod: item.freeShippingMethod && item.freeShippingMethod !== 'All' ? item.freeShippingMethod : '',
+          freeShippingSuboption: item.freeShippingSuboption && item.freeShippingSuboption !== 'All' ? item.freeShippingSuboption : '',
           // FIX: Prevents undefined crash on projects since they don't use shelf stock keys
           stockKey: item.stockKey || null,
           stockSource: item.stockSource || null,
@@ -3003,7 +3083,10 @@ const handleFinalizeOrder = async () => {
       const timer = setTimeout(() => {
 
 
-        if (!checkoutData.shippingMethod && preferredShippingMethod) {
+        if (!hasPreselectedShippingRef.current && preferredShippingMethod) {
+          handleShippingChange(preferredShippingMethod);
+          hasPreselectedShippingRef.current = true;
+        } else if (!checkoutData.shippingMethod && preferredShippingMethod) {
           handleShippingChange(preferredShippingMethod);
         }
 
@@ -3391,7 +3474,7 @@ const handleFinalizeOrder = async () => {
         ? (isAppliedClearanceDeal && String(dealTag).toUpperCase() === 'WILD DEAL'
           ? 'bg-amber-400 text-black'
           : 'bg-emerald-600 text-white')
-        : 'bg-blue-600';
+        : 'bg-blue-600 text-white';
       return {
         id: item.basketId || item.stockKey || item.id || idx,
         image: displayImage,

@@ -1321,7 +1321,9 @@ export default function Cart() {
     const stock = kit?.stocks?.[item.stockKey];
     const freeShippingUntil = item.freeShippingUntil || stock?.freeShippingUntil || '';
     const expiry = freeShippingUntil ? new Date(freeShippingUntil).getTime() : 0;
+    const promoMethod = (item.freeShippingMethod && item.freeShippingMethod !== 'All') ? item.freeShippingMethod : (stock?.freeShippingMethod && stock?.freeShippingMethod !== 'All') ? stock.freeShippingMethod : '';
     const isFreeShippingEligible = Boolean(item.isFreeShippingEligible || stock?.isFreeShippingEligible) &&
+      Boolean(promoMethod) &&
       (!freeShippingUntil || Number.isNaN(expiry) || Date.now() < expiry);
 
     return {
@@ -1341,8 +1343,8 @@ export default function Cart() {
         : Number(item.appliedTransferFee) > 0 ? Number(item.appliedTransferFee) : transferFee,
       isFreeShippingEligible,
       freeShippingUntil,
-      freeShippingMethod: item.freeShippingMethod || stock?.freeShippingMethod || 'All',
-      freeShippingSuboption: item.freeShippingSuboption || stock?.freeShippingSuboption || 'All'
+      freeShippingMethod: promoMethod,
+      freeShippingSuboption: (item.freeShippingSuboption && item.freeShippingSuboption !== 'All') ? item.freeShippingSuboption : (stock?.freeShippingSuboption && stock?.freeShippingSuboption !== 'All') ? stock.freeShippingSuboption : ''
     };
   }, [getEffectiveItemPrice, handlingFee, installmentFee, transferFee, kits]);
 

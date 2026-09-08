@@ -3178,6 +3178,9 @@ export const useStore = create(
       },
 
       updateDeal: async (dealId, patch) => {
+        set((state) => ({
+          deals: (state.deals || []).map((d) => (d.id === dealId ? { ...d, ...patch } : d))
+        }));
         await updateDoc(doc(db, "deals", dealId), { ...patch, lastUpdated: serverTimestamp() });
       },
 

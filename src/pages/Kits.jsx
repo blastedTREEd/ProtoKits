@@ -624,6 +624,7 @@ export default function Kits({ isActive = true }) {
 
         const hasFreeShipping = stocksArray.some(s => {
           if (!s.isFreeShippingEligible) return false;
+          if (!s.freeShippingMethod || s.freeShippingMethod === 'All') return false;
           if (s.freeShippingUntil) {
             const expiry = new Date(s.freeShippingUntil).getTime();
             if (!Number.isNaN(expiry) && Date.now() >= expiry) return false;
@@ -1220,8 +1221,8 @@ export default function Kits({ isActive = true }) {
       appliedTransferFee: transferFee,
       isFreeShippingEligible: item.stock?.isFreeShippingEligible || false,
       freeShippingUntil: item.stock?.freeShippingUntil || '',
-      freeShippingMethod: item.stock?.freeShippingMethod || 'All',
-      freeShippingSuboption: item.stock?.freeShippingSuboption || 'All'
+      freeShippingMethod: item.stock?.freeShippingMethod && item.stock?.freeShippingMethod !== 'All' ? item.stock.freeShippingMethod : '',
+      freeShippingSuboption: item.stock?.freeShippingSuboption && item.stock?.freeShippingSuboption !== 'All' ? item.stock.freeShippingSuboption : ''
     };
     
     // Always prepare the items for checkout
@@ -1375,7 +1376,7 @@ export default function Kits({ isActive = true }) {
             <div className="mt-auto min-w-0 min-h-[50px] flex flex-col justify-end">
               <div className="flex items-center justify-between gap-2 min-w-0 w-full pb-1">
                 <div className="flex flex-col items-start pb-1 min-w-0 flex-1 text-left">
-                  <span className={`text-[14px] font-bold uppercase tracking-tighter truncate w-full block ${(isAdmin && isAdminView) ? 'text-blue-500 dark:text-blue-400' : 'text-emerald-500 dark:text-emerald-400'}`}>{(isAdmin && isAdminView) ? 'EDIT DEAL' : getDealGrabLabel(deal)}</span>
+                  <span className={`text-[14px] font-bold uppercase tracking-tighter truncate w-full block ${(isAdmin && isAdminView) ? 'text-blue-500 dark:text-blue-400' : 'text-emerald-500 dark:text-emerald-400'}`}>{(isAdmin && isAdminView) ? 'EDIT DEAL' : getDealGrabLabel(deal, bundleDisplayTotals)}</span>
                   <div className="flex items-baseline gap-1 w-full min-w-0">
                     {isAdmin && isAdminView ? (
                       <>
@@ -1610,7 +1611,7 @@ export default function Kits({ isActive = true }) {
                           <div className="mt-auto min-w-0 min-h-[50px] flex flex-col justify-end">
                             <div className="flex items-center justify-between gap-2 min-w-0 w-full pb-1">
                                 <div className="flex flex-col items-start pb-1 min-w-0 flex-1 text-left">
-                                  <span className={`text-[14px] font-bold uppercase tracking-tighter truncate w-full block ${(isAdmin && isAdminView) ? 'text-blue-500 dark:text-blue-400' : 'text-emerald-500 dark:text-emerald-400'}`}>{(isAdmin && isAdminView) ? 'EDIT DEAL' : getDealGrabLabel(deal)}</span>
+                                  <span className={`text-[14px] font-bold uppercase tracking-tighter truncate w-full block ${(isAdmin && isAdminView) ? 'text-blue-500 dark:text-blue-400' : 'text-emerald-500 dark:text-emerald-400'}`}>{(isAdmin && isAdminView) ? 'EDIT DEAL' : getDealGrabLabel(deal, bundleDisplayTotals)}</span>
                                   <div className="flex items-baseline gap-1 w-full min-w-0">
                                      {isAdmin && isAdminView ? (
                                        <>
