@@ -17,7 +17,9 @@ import {
   isPrinterAvailableForCostEstimation,
   isPrinterAvailableForScheduling,
   normalizePrinterRecord,
-  normalizePrinterStatus
+  normalizePrinterStatus,
+  getOriginalPrinterId,
+  getOriginalProjectConfiguration
 } from '../../utils/printerCompatibility';
 import CostBreakdown from './CostBreakdown';
 import { LiaGoogleDrive } from 'react-icons/lia';
@@ -308,6 +310,16 @@ const printerCanAccommodateProjectDetail = (
 const getProjectPrinterCandidates = (printers, project, details = [], targetDetail = null) => {
   const availablePrinters = Array.isArray(printers) ? printers : [];
   const detailsToCheck = details.length > 0 ? details : [project];
+
+  const originalPrinterIds = [
+    targetDetail?.originalPrinterId,
+    project?.originalPrinterId,
+    ...detailsToCheck.flatMap((detail) => [
+      detail?.originalPrinterId,
+      ...(detail?.productionJobs || []).map((job) => job?.originalPrinterId)
+    ])
+  ].filter(Boolean).map(String);
+
   const allAssignedPrinterIds = [
     project?.printerId,
     ...detailsToCheck.flatMap((detail) => [
@@ -315,6 +327,7 @@ const getProjectPrinterCandidates = (printers, project, details = [], targetDeta
       ...(detail?.productionJobs || []).map((job) => job?.printerId)
     ])
   ].filter(Boolean).map(String);
+
   const preferredPrinterIds = targetDetail
     ? [
       targetDetail?.printerId,
@@ -322,6 +335,7 @@ const getProjectPrinterCandidates = (printers, project, details = [], targetDeta
       project?.printerId
     ].filter(Boolean).map(String)
     : allAssignedPrinterIds;
+
   const uniquePreferredIds = [...new Set(preferredPrinterIds)];
   const uniqueOtherAssignedIds = [...new Set(allAssignedPrinterIds)]
     .filter((id) => !uniquePreferredIds.includes(id));
@@ -333,9 +347,21 @@ const getProjectPrinterCandidates = (printers, project, details = [], targetDeta
     (printer) => !assignedCandidateIds.has(String(printer.id))
   );
 
+  // If the original configured printer is available and operational, it takes top precedence!
+  const originalCandidates = [...new Set(originalPrinterIds)]
+    .map((id) => availablePrinters.find((printer) => String(printer.id) === id))
+    .filter(Boolean);
+  const operationalOriginals = originalCandidates.filter(isProjectPrinterOperational);
+
+  const prioritizedCandidates = [
+    ...operationalOriginals,
+    ...assignedCandidates.filter((p) => !operationalOriginals.some((op) => String(op.id) === String(p.id))),
+    ...fallbackCandidates.filter((p) => !operationalOriginals.some((op) => String(op.id) === String(p.id)))
+  ];
+
   return {
     detailsToCheck,
-    candidates: [...assignedCandidates, ...fallbackCandidates]
+    candidates: prioritizedCandidates
   };
 };
 
@@ -1315,10 +1341,17 @@ export default function ProjectCard({
 
     if (!detailsChanged && !projectPrinterChanged) return null;
 
+    const preservedOriginalPrinterId = project?.originalPrinterId || currentProjectPrinterId || projectCostPrinterSelection.printer.id;
+    const preservedOriginalPrinterName = project?.originalPrinterName || project?.printerName || getProjectPrinterLabel(projectCostPrinterSelection.printer);
+    const isTemporaryPrinter = String(projectCostPrinterSelection.printer.id) !== String(preservedOriginalPrinterId);
+
     return {
       ...project,
       printerId: projectCostPrinterSelection.printer.id,
       printerName: getProjectPrinterLabel(projectCostPrinterSelection.printer),
+      originalPrinterId: preservedOriginalPrinterId,
+      originalPrinterName: preservedOriginalPrinterName,
+      isTemporaryPrinter,
       projectDetails: nextDetails
     };
   }, [details, project, projectCostPrinterSelection]);
@@ -1328,6 +1361,7 @@ export default function ProjectCard({
     return JSON.stringify({
       project: automaticRepriceData.id || automaticRepriceData.vaultId || '',
       printer: automaticRepriceData.printerId || '',
+      originalPrinter: automaticRepriceData.originalPrinterId || '',
       details: (automaticRepriceData.projectDetails || []).map((detail) => ({
         printerId: detail.printerId || '',
         jobs: (detail.productionJobs || []).map((job) => job.printerId || '')
@@ -1386,6 +1420,9 @@ export default function ProjectCard({
     const patch = {
       printerId: automaticRepriceData.printerId,
       printerName: automaticRepriceData.printerName,
+      originalPrinterId: automaticRepriceData.originalPrinterId,
+      originalPrinterName: automaticRepriceData.originalPrinterName,
+      isTemporaryPrinter: automaticRepriceData.isTemporaryPrinter,
       projectDetails: automaticRepriceData.projectDetails,
       totals: nextTotals,
       sellPrice: calculated.basePrice ?? project?.sellPrice,
@@ -1691,7 +1728,7 @@ export default function ProjectCard({
   const handleModifyProject = (e) => {
     e.stopPropagation();
     if (!onModify) return;
-    onModify(getActionProjectData());
+    onModify(getOriginalProjectConfiguration(project));
     closeProjectModal();
   };
 
@@ -1822,7 +1859,7 @@ export default function ProjectCard({
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        onModify(project);
+                        onModify(getOriginalProjectConfiguration(project));
                       }}
                       className="h-8 flex-1 rounded-full bg-black/70 text-white backdrop-blur-md border border-white/10 shadow-lg flex items-center justify-center gap-1.5 active:scale-95 transition-all"
                       title="Modify project"

@@ -545,7 +545,8 @@ const recomputePersistedProject = (project, resources = {}) => {
     filamentInventory = []
   } = resources;
 
-  const currentPrinter = (printers || []).find((p) => String(p.id) === String(source.printerId || projectDetails[0]?.printerId)) || null;
+  const targetPrinterId = source.originalPrinterId || source.printerId || projectDetails[0]?.originalPrinterId || projectDetails[0]?.printerId;
+  const currentPrinter = (printers || []).find((p) => String(p.id) === String(targetPrinterId)) || null;
 
   const calculated = computeProjectCosts({
     data: source,
@@ -600,6 +601,8 @@ const recomputePersistedProject = (project, resources = {}) => {
 
   const nextSource = {
     ...source,
+    originalPrinterId: source.originalPrinterId || source.printerId || targetPrinterId,
+    originalPrinterName: source.originalPrinterName || source.printerName || (currentPrinter ? [currentPrinter.brand, currentPrinter.model || currentPrinter.name].filter(Boolean).join(' ') : ''),
     totals: nextTotals,
     sellPrice: parsedBase > 0 ? parsedBase : source.sellPrice,
     displayPrice: parsedTotal > 0 ? parsedTotal : source.displayPrice,

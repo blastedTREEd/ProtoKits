@@ -804,6 +804,7 @@ export default function Orders() {
       scrollY: window.scrollY
     };
     setSelectedOrder(order);
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
   }, [activeTab]);
 
   const closeSelectedOrder = useCallback(() => {
@@ -1217,6 +1218,7 @@ export default function Orders() {
 
     moveOrderToTargetTab(notificationOrder);
     setSelectedOrder(notificationOrder);
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
     navigate(`/orders/${encodeURIComponent(notificationOrder.orderId || notificationOrder.id)}`, { replace: true, state: null });
   }, [isAdminMode, location.pathname, moveOrderToTargetTab, navigate, notificationOrderId, orders, routeOrderId]);
 
@@ -1251,6 +1253,7 @@ export default function Orders() {
 
     moveOrderToTargetTab(routeOrder);
     setSelectedOrder(routeOrder);
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
   }, [isAdminMode, isLoading, moveOrderToTargetTab, navigate, orders, routeOrderId, user]);
 
   const selectedOrderId = selectedOrder?.id;

@@ -165,7 +165,9 @@ export const computeProjectCosts = ({
         rawTime,
         normalizedTime: adjustedTime,
         effectiveAdjustmentPercent,
-        printTimeAdjustmentsApplied: adjustments
+        printTimeAdjustmentsApplied: adjustments,
+        printer,
+        printerId: item.printerId || printer?.id
       }];
     }
     return item.productionJobs.map((job, jobIndex) => {
@@ -506,6 +508,9 @@ export const computeProjectCosts = ({
         const plateId = `${String(item.id ?? item.index)}-${dNum}-${b.plates.length}`;
         b.plates.push({ 
           id: plateId, 
+          itemId: item.id,
+          parentId: item.parentId,
+          printTimeAdjustmentsApplied: item.printTimeAdjustmentsApplied,
           name: item.itemName, 
           time: workload, 
           scheduledMins: workload, 
@@ -550,7 +555,7 @@ export const computeProjectCosts = ({
         const workload = Math.round(item.normalizedTime + mPlcTime + mSetTime + init);
         const b = getDayBucket(dNum, filLabel, state.printer);
         b.totalMins += workload; b.setupMins += (mSetTime + init); b.installMins += mPlcTime; b.printMins += item.normalizedTime;
-        b.plates.push({ id: itemKey, name: item.itemName, time: workload, scheduledMins: workload, printMins: item.normalizedTime, setupMins: mSetTime + init, installMins: mPlcTime, postPrintHeatsetMins: (pExtra.heatsets > 0 ? (parseFloat(extraRates.heatsetSetupRate) || 0) : 0) + (pExtra.heatsets * (parseFloat(extraRates.heatsetPlacementRate) || 0)), filament: filLabel, printerName: getPrinterLabel(state.printer), magnets: pExtra.magnets, heatsets: pExtra.heatsets, startDay: dNum, endDay: Math.floor((state.currentTime + workload - 0.1) / MINUTES_PER_DAY) + 1 });
+        b.plates.push({ id: itemKey, itemId: item.id, parentId: item.parentId, printTimeAdjustmentsApplied: item.printTimeAdjustmentsApplied, name: item.itemName, time: workload, scheduledMins: workload, printMins: item.normalizedTime, setupMins: mSetTime + init, installMins: mPlcTime, postPrintHeatsetMins: (pExtra.heatsets > 0 ? (parseFloat(extraRates.heatsetSetupRate) || 0) : 0) + (pExtra.heatsets * (parseFloat(extraRates.heatsetPlacementRate) || 0)), filament: filLabel, printerName: getPrinterLabel(state.printer), magnets: pExtra.magnets, heatsets: pExtra.heatsets, startDay: dNum, endDay: Math.floor((state.currentTime + workload - 0.1) / MINUTES_PER_DAY) + 1 });
         state.currentTime += workload;
       });
       injectTask(state, `purge-${state.key}-${gIdx}`, `Purge & Cleanup: ${filLabel}`, group[0].normalizedMaterial.purgeTime, filLabel);
@@ -658,8 +663,10 @@ export const computeProjectCosts = ({
     
     const dayAdjustments = [...new Set(
       (dayBucket.plates || []).flatMap((plate) => {
-        const matchedItem = validItems.find((vi) => String(vi.id || vi.parentId || vi.index) === String(plate.id));
-        return (matchedItem?.printTimeAdjustmentsApplied || []).filter((a) => a.percent > 0).map((a) => `+${a.percent}% ${a.type}`);
+        const adjs = (Array.isArray(plate.printTimeAdjustmentsApplied) && plate.printTimeAdjustmentsApplied.length > 0)
+          ? plate.printTimeAdjustmentsApplied
+          : (validItems.find((vi) => String(vi.id || vi.parentId || vi.index) === String(plate.itemId || plate.id))?.printTimeAdjustmentsApplied || []);
+        return adjs.filter((a) => a.percent > 0).map((a) => `+${a.percent}% ${a.type}`);
       })
     )];
 
@@ -789,15 +796,31 @@ export const computeProjectCosts = ({
         {
           title: 'Consumption',
           items: [
-            { 
-              label: 'Printer Power', 
-              sub: `${printerRuntimeRows.length} printer(s) used • includes ${formatMinutes(totalSwapMins)} multicolor swaps${
-                printerRuntimeRows.some(r => r.appliedAdjustments?.length > 0)
-                  ? ` • ${printerRuntimeRows.flatMap(r => r.appliedAdjustments).filter(Boolean).join(', ')}`
-                  : ''
-              }`, 
-              calc: `₱${formatCurrency(kwhP * currentRates.elecRate)}` 
-            },
+            ...(printerRuntimeRows.length === 0
+              ? [{ label: 'Printer Power', sub: '0m runtime', calc: '₱0.00' }]
+              : printerRuntimeRows.length === 1
+                ? [{
+                    label: `Printer Power (${printerRuntimeRows[0].printerName})`,
+                    sub: `${formatMinutes(printerRuntimeRows[0].runtimeMins)} runtime (${printerRuntimeRows[0].wattage}W)${totalSwapMins > 0 ? ` • ${formatMinutes(totalSwapMins)} swaps` : ''}${
+                      printerRuntimeRows[0].appliedAdjustments?.length > 0
+                        ? ` • includes ${printerRuntimeRows[0].appliedAdjustments.join(', ')}`
+                        : ''
+                    }`,
+                    calc: `₱${formatCurrency(kwhP * currentRates.elecRate)}`
+                  }]
+                : printerRuntimeRows.map((row) => {
+                    const rowKwh = (row.wattage / 1000) * (row.runtimeMins / 60);
+                    const rowCost = rowKwh * currentRates.elecRate;
+                    const adjText = row.appliedAdjustments?.length > 0
+                      ? ` • includes ${row.appliedAdjustments.join(', ')}`
+                      : '';
+                    return {
+                      label: `Printer Power (${row.printerName})`,
+                      sub: `${formatMinutes(row.runtimeMins)} runtime (${row.wattage}W)${adjText}`,
+                      calc: `₱${formatCurrency(rowCost)}`
+                    };
+                  })
+            ),
             { label: 'Soldering Iron', sub: `${currentRates.ironPower}W used`, calc: `₱${formatCurrency(kwhI * currentRates.elecRate)}` }
           ]
         },

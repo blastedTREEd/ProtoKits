@@ -25,7 +25,8 @@ import {
   getPrinterFeeders,
   isFilamentCompatibleWithPrinter,
   isPrinterAvailableForCostEstimation,
-  normalizePrinterRecord
+  normalizePrinterRecord,
+  normalizePrinterStatus
 } from '../utils/printerCompatibility';
 import { findFirstAvailable, getOccupiedDates } from '../components/calculator/GarageCalendar';
 import ProjectStatusGrid from '../components/calculator/ProjectStatusGrid';
@@ -155,23 +156,34 @@ const printerCanAccommodateProjectDetail = (printer, detail, feeders, filamentIn
 const getBestProjectPrinter = (printers, project, feeders, filamentInventory) => {
   const details = Array.isArray(project?.projectDetails) ? project.projectDetails : [];
   const detailsToCheck = details.length > 0 ? details : [project];
+  const originalIds = [
+    project?.originalPrinterId,
+    ...detailsToCheck.flatMap((detail) => [detail?.originalPrinterId, ...(detail?.productionJobs || []).map((job) => job?.originalPrinterId)])
+  ].filter(Boolean).map(String);
   const assignedIds = [
     project?.printerId,
     ...detailsToCheck.flatMap((detail) => [detail?.printerId, ...(detail?.productionJobs || []).map((job) => job?.printerId)])
   ].filter(Boolean).map(String);
+  const originalCandidates = [...new Set(originalIds)]
+    .map((id) => (printers || []).find((printer) => String(printer.id) === id && normalizePrinterStatus(printer?.status, printer) === 'available'))
+    .filter(Boolean);
   const assignedCandidates = [...new Set(assignedIds)]
     .map((id) => (printers || []).find((printer) => String(printer.id) === id))
     .filter(Boolean);
-  const assignedCandidateIds = new Set(assignedCandidates.map((printer) => String(printer.id)));
+  const preferredCandidates = [
+    ...originalCandidates,
+    ...assignedCandidates.filter((p) => !originalCandidates.some((op) => String(op.id) === String(p.id)))
+  ];
+  const preferredCandidateIds = new Set(preferredCandidates.map((printer) => String(printer.id)));
   const candidates = [
-    ...assignedCandidates,
-    ...(printers || []).filter((printer) => !assignedCandidateIds.has(String(printer.id)))
+    ...preferredCandidates,
+    ...(printers || []).filter((printer) => !preferredCandidateIds.has(String(printer.id)))
   ];
   const detailSelections = detailsToCheck.map((detail) => candidates.find((printer) => (
     printerCanAccommodateProjectDetail(printer, detail, feeders, filamentInventory)
   )) || null);
   return {
-    printer: detailSelections[0] || assignedCandidates[0] || null,
+    printer: detailSelections[0] || preferredCandidates[0] || null,
     isCompatible: detailSelections.length > 0 && detailSelections.every(Boolean),
     detailSelections
   };

@@ -45,7 +45,9 @@ const isCompletedLegacyOrder = (order) => (
 const isOrderRelatedNotification = (notification) => (
   !notification?.notificationKind
   || notification.notificationKind === 'admin_receipt'
-  || Boolean(notification.orderId)
+  || notification.notificationKind === 'admin_legacy_completion'
+  || Boolean(notification?.orderId)
+  || isLegacyOrderRecord(notification)
 );
 
 const clearBrowserNotificationCounter = () => {
@@ -583,23 +585,23 @@ useEffect(() => {
     }
 
     setIsNotificationModalOpen(false);
-    if (notification.notificationKind === 'admin_offer') {
-      navigate('/notify-list');
+    if (isOrderRelatedNotification(notification)) {
+      navigate('/orders', { state: { openOrderId: notification.id || notification.orderId } });
       return;
     }
-    if (notification.notificationKind === 'admin_receipt') {
-      navigate('/orders', { state: { openOrderId: notification.id } });
+    if (notification.notificationKind === 'admin_offer') {
+      navigate('/notify-list');
       return;
     }
     if (notification.notificationKind === 'wild_sale') {
       navigate('/kits', { state: { focusDealsSection: true, focusWildSaleDealId: notification.dealId } });
       return;
     }
-    if (notification.notificationKind && notification.kitId) {
+    if (notification.kitId) {
       navigate(`/kits/${encodeURIComponent(notification.kitId)}`);
       return;
     }
-    navigate('/orders', { state: { openOrderId: notification.id } });
+    navigate('/orders', { state: { openOrderId: notification.id || notification.orderId } });
   };
 
   const handleDismissNotification = (notification) => {

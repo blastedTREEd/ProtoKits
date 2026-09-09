@@ -3,7 +3,7 @@ import {
   Receipt, Wallet, ArrowLeft, RotateCcw,
   ListChecks, Clock, Coins, SlidersHorizontal,
   Save, ShoppingBag, TrendingUp, TrendingDown, Undo2, X, Tag, RefreshCw, Check, Layers,
-  Disc3
+  Disc3, Zap
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 // import { useTheme } from '../../context/ThemeContext';
@@ -139,6 +139,11 @@ export default function ProjectCost({
   const basePriceAmount = parseMoney(totals.basePrice || totals.total);
   const isStlProject = String(data?.method?.name || '').trim().toUpperCase() === 'STL';
 
+  const targetOriginalPrinterId = data?.originalPrinterId || (isEditMode ? data?.printerId : null);
+  const isUsingAvailabilityFallback = Boolean(
+    targetOriginalPrinterId && activePrinter?.id && String(targetOriginalPrinterId) !== String(activePrinter.id)
+  );
+
   const hasPendingRateChanges = useMemo(() => {
     return RATE_SECTIONS.some((section) => {
       const source = storeRates?.[section.id] || {};
@@ -265,11 +270,41 @@ export default function ProjectCost({
           ? { extras: calculatedTotals.extras ?? previousTotals.extras }
           : {}
       };
+
+      const rawDetails = Array.isArray(data?.projectDetails) ? data.projectDetails : [];
+      const configuredPrinterId = data?.originalPrinterId
+        || data?.printerId
+        || activePrinter?.id
+        || rawDetails[0]?.originalPrinterId
+        || rawDetails[0]?.printerId
+        || null;
+      const configuredPrinterName = data?.originalPrinterName
+        || data?.printerName
+        || (activePrinter ? [activePrinter.brand, activePrinter.model || activePrinter.name].filter(Boolean).join(' ') : '')
+        || rawDetails[0]?.originalPrinterName
+        || rawDetails[0]?.printerName
+        || '';
+
+      const normalizedDetails = rawDetails.map((detail) => ({
+        ...detail,
+        printerId: detail.originalPrinterId || configuredPrinterId || detail.printerId,
+        printerName: detail.originalPrinterName || configuredPrinterName || detail.printerName,
+        originalPrinterId: detail.originalPrinterId || configuredPrinterId || detail.printerId,
+        originalPrinterName: detail.originalPrinterName || configuredPrinterName || detail.printerName
+      }));
+
       const projectPayload = {
         ...data,
+        printerId: configuredPrinterId,
+        printerName: configuredPrinterName,
+        originalPrinterId: configuredPrinterId,
+        originalPrinterName: configuredPrinterName,
+        isTemporaryPrinter: false,
+        ...(normalizedDetails.length > 0 ? { projectDetails: normalizedDetails } : {}),
         source: isAdmin && isAdminView ? 'admin-estimate' : 'customer-estimate',
         listingType: 'estimate',
         totals: nextTotals,
+        originalTotals: nextTotals,
         ...(Object.keys(draftRates || {}).length > 0
           ? { rates: draftRates }
           : data?.rates !== undefined
@@ -420,7 +455,19 @@ export default function ProjectCost({
             </div>
         )}
 
-        {isStlProject && (
+        {isUsingAvailabilityFallback && (
+          <div className="mt-3 pt-3 border-t border-white/20 flex flex-col gap-1">
+            <div className="flex items-center gap-1.5 text-[12px] font-black uppercase tracking-wider text-amber-300">
+              <Zap size={14} fill="currentColor" />
+              <span>Recomputed for Current Machine Availability</span>
+            </div>
+            <p className="text-[11px] font-medium text-white/90 normal-case tracking-normal leading-relaxed">
+              Calculated using available printer <span className="font-black italic uppercase text-white">{activePrinter?.brand} {activePrinter?.model || activePrinter?.name}</span>. The original configured setup will be preserved upon saving.
+            </p>
+          </div>
+        )}
+
+        {isStlProject && !isUsingAvailabilityFallback && (
           <div className="mt-2 text-[13px] font-black uppercase tracking-widest opacity-60">
             This may change after project setup*
           </div>

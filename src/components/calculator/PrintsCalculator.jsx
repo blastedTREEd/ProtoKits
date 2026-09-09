@@ -367,12 +367,21 @@ export default function PrintsCalculator({
         </div>
         
         {isEditMode ? (
-          <div className="text-[14px] font-black uppercase tracking-widest text-[var(--color-primary)] text-center mb-2 py-2 rounded-full">
-            MODIFYING {modifyingProjectName}
+          <div className="flex flex-col items-center gap-1 mb-2">
+            <div className="text-[13px] font-black uppercase tracking-widest text-[var(--color-primary)] text-center py-1 px-4 rounded-full bg-[var(--color-primary)]/10 border border-[var(--color-primary)]/20">
+              MODIFYING ORIGINAL CONFIGURATION: {modifyingProjectName}
+            </div>
+            <p className="text-[11px] font-semibold text-neutral-500 dark:text-neutral-400 text-center px-4 leading-tight">
+              Estimates are calculated using the best available printer. Pricing and timeline may adjust dynamically based on machine availability or rates.
+            </p>
           </div>
-        ) : estimationLimitReached && (
+        ) : estimationLimitReached ? (
           <div className="text-[14px] font-black uppercase tracking-widest text-red-600 animate-pulse text-center mb-2 py-2 rounded-full">
             LIMIT REACHED. DELETE SAVED PROJECT.
+          </div>
+        ) : (
+          <div className="text-[11px] font-semibold text-neutral-500 dark:text-neutral-400 text-center mb-2 px-4 leading-tight">
+            Estimates are calculated using the best available printer. Pricing and timeline may adjust dynamically based on machine availability or rates.
           </div>
         )}
 

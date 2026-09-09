@@ -234,3 +234,63 @@ export const calculateItemAdjustedPrintTime = (printer, item, rawTime = 0) => {
     adjustments: appliedAdjustments
   };
 };
+
+/**
+ * Extracts the original configured printer ID from a project or detail.
+ * Falls back to current printerId if no originalPrinterId is explicitly set.
+ */
+export const getOriginalPrinterId = (project, detail = null) => {
+  return (
+    detail?.originalPrinterId
+    || project?.originalPrinterId
+    || detail?.printerId
+    || (Array.isArray(detail?.productionJobs) ? detail.productionJobs[0]?.printerId : null)
+    || project?.printerId
+    || (Array.isArray(project?.projectDetails) ? project.projectDetails[0]?.printerId : null)
+    || null
+  );
+};
+
+/**
+ * Returns a project object restored to its original configured printer and baseline specs,
+ * stripping any temporary fallback printer assignments that were applied for live availability.
+ */
+export const getOriginalProjectConfiguration = (project) => {
+  if (!project || typeof project !== 'object') return project;
+
+  const originalPrinterId = project.originalPrinterId || project.printerId || null;
+  const originalPrinterName = project.originalPrinterName || project.printerName || '';
+  const rawDetails = Array.isArray(project.projectDetails) ? project.projectDetails : [];
+
+  const restoredDetails = rawDetails.map((detail) => {
+    const detailOriginalId = detail.originalPrinterId || originalPrinterId || detail.printerId || null;
+    const detailOriginalName = detail.originalPrinterName || originalPrinterName || detail.printerName || '';
+    const restoredJobs = Array.isArray(detail.productionJobs)
+      ? detail.productionJobs.map((job) => ({
+          ...job,
+          printerId: job.originalPrinterId || detailOriginalId || job.printerId,
+          printerName: job.originalPrinterName || detailOriginalName || job.printerName
+        }))
+      : detail.productionJobs;
+
+    return {
+      ...detail,
+      printerId: detailOriginalId,
+      printerName: detailOriginalName,
+      ...(Array.isArray(detail.productionJobs) ? { productionJobs: restoredJobs } : {})
+    };
+  });
+
+  return {
+    ...project,
+    printerId: originalPrinterId,
+    printerName: originalPrinterName,
+    ...(restoredDetails.length > 0 ? { projectDetails: restoredDetails } : {}),
+    ...(project.originalTotals ? { totals: project.originalTotals } : {}),
+    ...(project.originalSellPrice != null ? { sellPrice: project.originalSellPrice } : {}),
+    ...(project.originalDisplayPrice != null ? { displayPrice: project.originalDisplayPrice } : {}),
+    ...(project.originalMinDownpayment != null ? { minDownpayment: project.originalMinDownpayment } : {}),
+    isTemporaryPrinter: false
+  };
+};
+
