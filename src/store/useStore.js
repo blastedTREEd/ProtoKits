@@ -11,6 +11,7 @@ import {
   withStockConditionDefaults
 } from '../utils/stockConditions';
 import { normalizeFeederRecord, normalizePrinterRecord, normalizePrinterStatus } from '../utils/printerCompatibility';
+import { computeProjectCosts } from '../utils/calculationEngine';
 import { getStockEta } from '../utils/stockDates';
 import { compactOrderPayload, getPayloadByteSize } from '../utils/orderPayload';
 import { isFlexiBundleDeal, isPerKitClearanceDeal } from '../utils/dealTypes';
@@ -530,66 +531,93 @@ const getProjectElectricityRateSnapshot = (project) => (
   || {}
 );
 
-const repriceSavedProject = (project, previousElectricityRates, nextElectricityRates, markupPercent = 20) => {
+const recomputePersistedProject = (project, resources = {}) => {
   if (!project || typeof project !== 'object') return null;
   const nested = project?.projectData && typeof project.projectData === 'object';
   const source = nested ? project.projectData : project;
-  const totals = source?.totals;
-  if (!totals || typeof totals !== 'object') return null;
+  const projectDetails = source?.projectDetails;
+  if (!Array.isArray(projectDetails) || projectDetails.length === 0) return null;
 
-  const oldEffectiveRate = getEffectiveElectricityRate(previousElectricityRates);
-  const newEffectiveRate = getEffectiveElectricityRate(nextElectricityRates);
-  if (!oldEffectiveRate || !newEffectiveRate || oldEffectiveRate === newEffectiveRate) return null;
+  const {
+    storeRates = {},
+    printers = [],
+    feeders = [],
+    filamentInventory = []
+  } = resources;
 
-  const markupMultiplier = 1 + ((Number(markupPercent) || 20) / 100);
-  const storedKwh = Number(totals.electricityKwh);
-  const usageKwh = Number.isFinite(storedKwh) && storedKwh > 0
-    ? storedKwh
-    : getProjectElectricityUsage(project);
-  const oldElectricity = parseProjectAmount(totals.electricity)
-    || (usageKwh * oldEffectiveRate * markupMultiplier);
-  if (!Number.isFinite(oldElectricity) || oldElectricity <= 0) return null;
+  const currentPrinter = (printers || []).find((p) => String(p.id) === String(source.printerId || projectDetails[0]?.printerId)) || null;
 
-  const newElectricity = usageKwh > 0
-    ? usageKwh * newEffectiveRate * markupMultiplier
-    : oldElectricity * (newEffectiveRate / oldEffectiveRate);
-  const delta = newElectricity - oldElectricity;
-  if (!Number.isFinite(delta) || Math.abs(delta) < 0.005) return null;
+  const calculated = computeProjectCosts({
+    data: source,
+    activePrinter: currentPrinter,
+    dbSettings: {},
+    storeRates,
+    printers,
+    feeders,
+    filamentInventory,
+    isInventoryMode: false
+  });
 
-  const oldTotal = parseProjectAmount(totals.total || source.displayPrice || project.price);
-  const oldBase = parseProjectAmount(totals.basePrice || oldTotal);
-  if (!oldTotal && !oldBase) return null;
-  const oldDownpayment = parseProjectAmount(totals.dp || source.minDownpayment || project.minDownpayment);
+  if (!calculated || !calculated.total || !calculated.timeline) return null;
+
+  const currentTotals = source?.totals || {};
+  if (
+    String(currentTotals.total) === String(calculated.total)
+    && String(currentTotals.basePrice) === String(calculated.basePrice)
+    && String(currentTotals.dp) === String(calculated.dp)
+    && String(currentTotals.electricity) === String(calculated.electricity)
+    && String(currentTotals.labor) === String(calculated.labor)
+    && String(currentTotals.filament) === String(calculated.filament)
+    && String(currentTotals.maintenance) === String(calculated.maintenance)
+    && String(currentTotals.extras) === String(calculated.extras)
+  ) {
+    return null; // No price change, skip writing
+  }
+
   const nextTotals = {
-    ...totals,
-    electricity: newElectricity.toFixed(2),
-    electricityKwh: Number((usageKwh || 0).toFixed(6)),
-    electricityRate: Number(newEffectiveRate.toFixed(6)),
-    electricityMarkupMultiplier: Number(markupMultiplier.toFixed(6)),
-    total: Math.ceil(oldTotal + delta).toLocaleString(),
-    basePrice: Math.ceil(oldBase + delta).toLocaleString(),
-    ...(oldDownpayment > 0 ? { dp: (Math.ceil((oldDownpayment + delta) / 10) * 10).toLocaleString() } : {}),
-    ...(totals.totalProfit !== undefined
-      ? { totalProfit: (parseProjectAmount(totals.totalProfit) + (delta / markupMultiplier) * (markupMultiplier - 1)).toFixed(2) }
-      : {})
+    ...currentTotals,
+    total: calculated.total,
+    basePrice: calculated.basePrice,
+    dp: calculated.dp,
+    days: calculated.timeline?.days ?? currentTotals.days,
+    timeline: calculated.timeline ?? currentTotals.timeline,
+    totalProfit: calculated.totalProfit ?? currentTotals.totalProfit,
+    totalTakeHome: calculated.totalTakeHome ?? currentTotals.totalTakeHome,
+    electricity: calculated.electricity,
+    electricityKwh: calculated.electricityKwh,
+    electricityRate: calculated.electricityRate,
+    electricityMarkupMultiplier: calculated.electricityMarkupMultiplier,
+    filament: calculated.filament,
+    labor: calculated.labor,
+    maintenance: calculated.maintenance,
+    extras: calculated.extras,
+    details: calculated.details
   };
+
+  const parsedTotal = parseProjectAmount(calculated.total);
+  const parsedBase = parseProjectAmount(calculated.basePrice);
+  const parsedDp = parseProjectAmount(calculated.dp);
 
   const nextSource = {
     ...source,
     totals: nextTotals,
-    sellPrice: Math.ceil(oldBase + delta),
-    displayPrice: Math.ceil(oldTotal + delta),
-    minDownpayment: oldDownpayment > 0 ? Math.ceil((oldDownpayment + delta) / 10) * 10 : source.minDownpayment
+    sellPrice: parsedBase > 0 ? parsedBase : source.sellPrice,
+    displayPrice: parsedTotal > 0 ? parsedTotal : source.displayPrice,
+    minDownpayment: parsedDp > 0 ? parsedDp : source.minDownpayment,
+    pricingUpdatedAt: new Date().toISOString()
   };
 
   if (nested) {
     return {
       ...project,
       projectData: nextSource,
-      price: Math.ceil(oldTotal + delta),
-      minDownpayment: nextSource.minDownpayment
+      price: parsedTotal > 0 ? parsedTotal : project.price,
+      sellPrice: parsedBase > 0 ? parsedBase : project.sellPrice,
+      minDownpayment: parsedDp > 0 ? parsedDp : project.minDownpayment,
+      pricingUpdatedAt: new Date().toISOString()
     };
   }
+
   return nextSource;
 };
 
@@ -601,45 +629,152 @@ const commitInChunks = async (updates) => {
   }
 };
 
-const repricePersistedProjects = async (previousRates, nextRates) => {
-  const previousElectricityRates = previousRates?.['electricity-cost'] || {};
-  const nextElectricityRates = nextRates?.['electricity-cost'] || {};
-  const markupPercent = nextRates?.['print-cost']?.markupRate ?? previousRates?.['print-cost']?.markupRate ?? 20;
-  const blueprintSnap = await getDocs(collection(db, 'blueprints'));
-  const vaultSnap = await getDocs(collection(db, 'projectVaults'));
+const recomputeAllPersistedProjects = async (reason = 'manual') => {
+  console.info(`SG LOG: Starting automatic recomputation of all persisted projects (Reason: ${reason})...`);
+  const state = useStore.getState();
+  const resources = {
+    storeRates: state.rates || {},
+    printers: state.printers || [],
+    feeders: state.feeders || [],
+    filamentInventory: state.filamentInventory || []
+  };
+
+  if (!resources.storeRates || Object.keys(resources.storeRates).length === 0) {
+    console.warn('SG LOG: Skipping recomputation - storeRates not loaded yet.');
+    return 0;
+  }
+
+  const [blueprintSnap, vaultSnap, kitSnap] = await Promise.all([
+    getDocs(collection(db, 'blueprints')),
+    getDocs(collection(db, 'projectVaults')),
+    getDocs(query(collection(db, 'kits'), where('productType', '==', 'printed-project')))
+  ]);
+
   const blueprintUpdates = [];
   const vaultUpdates = [];
+  const kitUpdates = [];
   const nextBlueprints = [];
+  const updatedEstimationsMap = new Map(); // estimationId -> updatedProjectData
   const currentUid = getCurrentUserUidForPricing();
   let currentVault = null;
 
+  // 1. Recompute Blueprints (Garage)
   blueprintSnap.docs.forEach((projectDoc) => {
     const project = { id: projectDoc.id, ...projectDoc.data() };
-    const repriced = repriceSavedProject(project, previousElectricityRates, nextElectricityRates, markupPercent);
-    if (!repriced) return;
-    const { id, ...data } = repriced;
-    blueprintUpdates.push({ ref: doc(db, 'blueprints', projectDoc.id), data: { ...data, pricingUpdatedAt: new Date().toISOString() } });
-    nextBlueprints.push(repriced);
+    const recomputed = recomputePersistedProject(project, resources);
+    if (!recomputed) return;
+    const { id, ...data } = recomputed;
+    blueprintUpdates.push({
+      ref: doc(db, 'blueprints', projectDoc.id),
+      data: { ...data, pricingUpdatedAt: new Date().toISOString() }
+    });
+    nextBlueprints.push(recomputed);
+    updatedEstimationsMap.set(String(projectDoc.id), recomputed);
   });
 
+  // 2. Recompute User Vaults
   vaultSnap.docs.forEach((vaultDoc) => {
     const data = vaultDoc.data() || {};
     const items = Array.isArray(data.items) ? data.items : [];
-    const nextItems = items.map((project) => repriceSavedProject(project, previousElectricityRates, nextElectricityRates, markupPercent) || project);
-    if (JSON.stringify(nextItems) === JSON.stringify(items)) return;
-    vaultUpdates.push({
-      ref: doc(db, 'projectVaults', vaultDoc.id),
-      data: { items: nextItems, pricingUpdatedAt: new Date().toISOString() }
+    let hasChanges = false;
+    const nextItems = items.map((project) => {
+      const recomputed = recomputePersistedProject(project, resources);
+      if (recomputed) {
+        hasChanges = true;
+        if (project.id || project.vaultId) {
+          updatedEstimationsMap.set(String(project.id || project.vaultId), recomputed);
+        }
+        return recomputed;
+      }
+      return project;
     });
-    if (vaultDoc.id === currentUid) currentVault = nextItems;
+
+    if (hasChanges) {
+      vaultUpdates.push({
+        ref: doc(db, 'projectVaults', vaultDoc.id),
+        data: { items: nextItems, pricingUpdatedAt: new Date().toISOString() }
+      });
+      if (vaultDoc.id === currentUid) currentVault = nextItems;
+    }
   });
 
-  await commitInChunks([...blueprintUpdates, ...vaultUpdates]);
-  useStore.setState((state) => ({
-    ...(nextBlueprints.length > 0 ? { blueprints: (state.blueprints || []).map((project) => nextBlueprints.find((next) => next.id === project.id) || project) } : {}),
-    ...(currentVault ? { projectVault: currentVault } : {})
-  }));
-  return blueprintUpdates.length + vaultUpdates.length;
+  // 3. Recompute Printed Projects (Kits with productType == 'printed-project')
+  kitSnap.docs.forEach((kitDoc) => {
+    const kit = { id: kitDoc.id, ...kitDoc.data() };
+    const sourceId = kit.sourceEstimationId;
+    if (!sourceId) return;
+
+    const sourceEstimation = updatedEstimationsMap.get(String(sourceId));
+    if (!sourceEstimation) return;
+
+    const totals = sourceEstimation?.totals || sourceEstimation?.projectData?.totals || {};
+    const total = parseProjectAmount(totals.total || totals.basePrice);
+    const labor = parseProjectAmount(totals.labor);
+    const details = sourceEstimation?.projectDetails || sourceEstimation?.projectData?.projectDetails || [];
+    const quantity = Math.max(1, Number(details[0]?.quantity) || 1);
+    const newPerPieceCost = Math.max(0, Math.ceil(Math.max(0, total - labor) / quantity));
+
+    if (!Number.isFinite(newPerPieceCost) || newPerPieceCost <= 0) return;
+
+    const existingCost = Number(kit.costPrice || 0);
+    if (existingCost === newPerPieceCost) return;
+
+    const currentStocks = kit.stocks || {};
+    const updatedStocks = {};
+    let stockChanged = false;
+
+    Object.entries(currentStocks).forEach(([stockKey, stock]) => {
+      if (stock?.status === 'Onhand' && !stock?.order?.orderId && !stock?.isReserved) {
+        updatedStocks[stockKey] = {
+          ...stock,
+          costPrice: newPerPieceCost,
+          sellPrice: newPerPieceCost
+        };
+        stockChanged = true;
+      } else {
+        updatedStocks[stockKey] = stock;
+      }
+    });
+
+    const kitPatch = {
+      costPrice: newPerPieceCost,
+      sellPrice: newPerPieceCost,
+      ...(stockChanged ? { stocks: updatedStocks } : {}),
+      pricingUpdatedAt: new Date().toISOString()
+    };
+
+    kitUpdates.push({
+      ref: doc(db, 'kits', kitDoc.id),
+      data: kitPatch
+    });
+  });
+
+  const totalUpdates = blueprintUpdates.length + vaultUpdates.length + kitUpdates.length;
+  if (totalUpdates > 0) {
+    await commitInChunks([...blueprintUpdates, ...vaultUpdates, ...kitUpdates]);
+    useStore.setState((s) => ({
+      ...(nextBlueprints.length > 0 ? { blueprints: (s.blueprints || []).map((project) => nextBlueprints.find((next) => next.id === project.id) || project) } : {}),
+      ...(currentVault ? { projectVault: currentVault } : {})
+    }));
+    console.info(`SG LOG: Successfully recomputed and updated ${totalUpdates} document(s) (Blueprints: ${blueprintUpdates.length}, Vaults: ${vaultUpdates.length}, Printed Stock: ${kitUpdates.length}).`);
+  } else {
+    console.info('SG LOG: All persisted projects are already up to date. Zero documents needed writing.');
+  }
+
+  return totalUpdates;
+};
+
+let recomputeDebounceTimer = null;
+const schedulePersistedProjectsRecompute = (reason = 'change') => {
+  if (recomputeDebounceTimer) {
+    clearTimeout(recomputeDebounceTimer);
+  }
+  recomputeDebounceTimer = setTimeout(() => {
+    recomputeDebounceTimer = null;
+    recomputeAllPersistedProjects(reason).catch((err) => {
+      console.error('SG LOG: Automatic persisted project recomputation failed:', err);
+    });
+  }, 800);
 };
 
 const getCurrentUserUidForPricing = () => auth?.currentUser?.uid || null;
@@ -3689,6 +3824,7 @@ export const useStore = create(
 
         try {
           await updateDoc(doc(db, 'printers', id), normalizedPatch);
+          schedulePersistedProjectsRecompute(`printers/${id}`);
         } catch (error) {
           set({ printers: previousPrinters });
           throw error;
@@ -3704,6 +3840,7 @@ export const useStore = create(
 
         try {
           await deleteDoc(doc(db, 'printers', id));
+          schedulePersistedProjectsRecompute(`printers/${id}/delete`);
         } catch (error) {
           set({ printers: previousPrinters });
           throw error;
@@ -4005,6 +4142,7 @@ export const useStore = create(
             await updateDoc(doc(db, "filaments", id), patch);
           }
           console.log('Store: updateFilament Firestore update successful');
+          schedulePersistedProjectsRecompute(`filaments/${id}`);
         } catch (error) {
           console.error('Store: updateFilament Firestore error:', error);
           set({ filamentInventory: previousInventory });
@@ -4018,6 +4156,7 @@ export const useStore = create(
         set((state) => ({ filamentInventory: (state.filamentInventory || []).filter((f) => String(f.id) !== String(id)) }));
         try {
           await deleteDoc(doc(db, "filaments", id));
+          schedulePersistedProjectsRecompute(`filaments/${id}/delete`);
         } catch (error) {
           set({ filamentInventory: previousInventory });
           throw error;
@@ -4054,21 +4193,7 @@ export const useStore = create(
         try {
           await setDoc(doc(db, 'rates', rateId), normalizedPatch, { merge: true });
 
-          if (
-            rateId === 'electricity-cost'
-            && Object.prototype.hasOwnProperty.call(normalizedPatch, 'electricityRate')
-            && getEffectiveElectricityRate(previousRates['electricity-cost'] || {})
-              !== getEffectiveElectricityRate(nextRates['electricity-cost'] || {})
-          ) {
-            try {
-              const updatedProjectCount = await repricePersistedProjects(previousRates, nextRates);
-              console.info(`SG LOG: Repriced ${updatedProjectCount} persisted project collection(s) after electricity rate update.`);
-            } catch (pricingError) {
-              // Keep the rate update successful, but surface the sync failure
-              // so it can be retried without reverting the administrator's rate.
-              console.error('SG LOG: Persisted project repricing failed:', pricingError);
-            }
-          }
+          schedulePersistedProjectsRecompute(`rates/${rateId}`);
         } catch (error) {
           set({ rates: previousRates });
           throw error;
