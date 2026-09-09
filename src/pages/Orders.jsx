@@ -1002,7 +1002,7 @@ export default function Orders() {
   }, [manualOrderData.city, manualOrderData.province, manualOrderData.zipCode, showManualOrderModal]);
 
   useEffect(() => {
-    loadPrintResources();
+    return loadPrintResources();
   }, [loadPrintResources]);
 
   useEffect(() => {

@@ -294,3 +294,244 @@ export const getOriginalProjectConfiguration = (project) => {
   };
 };
 
+const getProjectDimensionsForResolution = (detail = {}) => {
+  const config = detail.config || {};
+  const dimensions = detail.dimensions || {};
+  const unit = String(detail.unit || config.unit || dimensions.unit || 'mm').trim().toLowerCase();
+  const multiplier = unit === 'cm' ? 10 : (unit === 'in' || unit === 'inch' || unit === 'inches' ? 25.4 : 1);
+  const values = [
+    detail.length ?? config.length ?? dimensions.length ?? dimensions.l ?? detail.baseMM_length,
+    detail.width ?? config.width ?? dimensions.width ?? dimensions.w ?? detail.baseMM_width,
+    detail.height ?? config.height ?? dimensions.height ?? dimensions.h ?? detail.baseMM_height
+  ].map((value) => Number(value) * multiplier);
+
+  return values.every((value) => Number.isFinite(value) && value > 0) ? values : null;
+};
+
+const getProjectMaterialEntriesForResolution = (detail = {}, filamentInventory = []) => {
+  const entries = Array.isArray(detail.materials) && detail.materials.length > 0
+    ? detail.materials
+    : Array.isArray(detail.normalizedMaterials) && detail.normalizedMaterials.length > 0
+      ? detail.normalizedMaterials
+      : Array.isArray(detail.materialSlots) && detail.materialSlots.length > 0
+        ? detail.materialSlots
+        : [detail.material, detail.normalizedMaterial].filter(Boolean);
+
+  return entries.map((entry) => {
+    const source = entry?.material || entry?.normalizedMaterial || entry;
+    const materialId = entry?.materialId || source?.materialId || source?.id;
+    const inventoryMatch = (filamentInventory || []).find((filament) => (
+      materialId && String(filament.id) === String(materialId)
+    ));
+    return {
+      ...source,
+      ...(inventoryMatch || {}),
+      id: source?.id || materialId,
+      materialId
+    };
+  }).filter((material) => material && (material.id || material.materialId || material.type || material.name));
+};
+
+const isProjectDetailCompatibleWithPrinter = (
+  printer,
+  detail = {},
+  feeders = [],
+  filamentInventory = []
+) => {
+  if (!printer || !isPrinterAvailableForCostEstimation(printer)) return false;
+
+  const normalizedPrinter = normalizePrinterRecord(printer);
+  const dimensions = getProjectDimensionsForResolution(detail);
+  if (dimensions && !dimensions.every((value, index) => (
+    value <= [normalizedPrinter.buildCapacity.x, normalizedPrinter.buildCapacity.y, normalizedPrinter.buildCapacity.z][index]
+  ))) {
+    return false;
+  }
+
+  const materials = getProjectMaterialEntriesForResolution(detail, filamentInventory);
+  if (materials.some((material) => !isFilamentCompatibleWithPrinter(normalizedPrinter, material))) return false;
+
+  const jobMaterialIds = (detail.productionJobs || []).flatMap((job) => job?.materialIds || []);
+  const requiredSlots = Math.max(
+    1,
+    materials.length || new Set(jobMaterialIds.map(String)).size || 0
+  );
+  const compatibleFeeders = getPrinterFeeders(normalizedPrinter, feeders);
+  if (requiredSlots > 1 && compatibleFeeders.length === 0) return false;
+
+  const feederSlots = compatibleFeeders.reduce((total, feeder) => total + (Number(feeder.filamentSlots) || 0), 0);
+  const availableSlots = Math.max(feederSlots || normalizedPrinter.filamentSlots || 1, 1);
+  return availableSlots >= requiredSlots;
+};
+
+const getResolvedPrinterLabel = (printer) => (
+  printer ? [printer.brand || printer.manufacturer, printer.model || printer.name].filter(Boolean).join(' ') : ''
+);
+
+const findPrinterById = (printers, id) => (
+  id == null || id === ''
+    ? null
+    : (printers || []).find((printer) => String(printer.id) === String(id)) || null
+);
+
+/**
+ * Resolves temporary printer assignments without changing the original
+ * configured printer IDs. This is shared by background project repricing and
+ * any future non-React recalculation path.
+ */
+export const resolveProjectPrinterAssignments = (project, resources = {}) => {
+  if (!project || typeof project !== 'object') return { project, activePrinter: null, changed: false };
+
+  const printers = Array.isArray(resources.printers) ? resources.printers : [];
+  const feeders = Array.isArray(resources.feeders) ? resources.feeders : [];
+  const filamentInventory = Array.isArray(resources.filamentInventory) ? resources.filamentInventory : [];
+  const sourceDetails = Array.isArray(project.projectDetails) ? project.projectDetails : [];
+  const projectOriginalId = project.originalPrinterId || null;
+  const projectCurrentId = project.printerId || null;
+
+  const getCandidates = (detail, job = null) => {
+    const explicitOriginalId = job?.originalPrinterId
+      || detail?.originalPrinterId
+      || projectOriginalId
+      || null;
+    const currentId = job?.printerId || detail?.printerId || projectCurrentId || null;
+    // Legacy projects may not have originalPrinterId yet. In that case the
+    // currently saved assignment is the source configuration and must be
+    // captured before selecting a temporary fallback.
+    const originalId = explicitOriginalId || currentId;
+    const orderedIds = [...new Set([originalId, currentId].filter(Boolean).map(String))];
+    const assigned = orderedIds.map((id) => findPrinterById(printers, id)).filter(Boolean);
+    const assignedIds = new Set(assigned.map((printer) => String(printer.id)));
+    return {
+      originalId,
+      currentId,
+      candidates: [
+        ...assigned,
+        ...printers.filter((printer) => !assignedIds.has(String(printer.id)))
+      ]
+    };
+  };
+
+  const resolveOne = (detail, job = null) => {
+    const { originalId, currentId, candidates } = getCandidates(detail, job);
+    const costCompatible = candidates.filter((printer) => (
+      isProjectDetailCompatibleWithPrinter(printer, detail, feeders, filamentInventory)
+    ));
+    const selected = costCompatible.find(isPrinterAvailableForScheduling)
+      || costCompatible[0]
+      || findPrinterById(printers, currentId)
+      || findPrinterById(printers, originalId)
+      || null;
+    const originalPrinter = findPrinterById(printers, originalId);
+    const originalName = job?.originalPrinterName
+      || detail?.originalPrinterName
+      || project.originalPrinterName
+      || getResolvedPrinterLabel(originalPrinter)
+      || (originalId ? (job?.printerName || detail?.printerName || project.printerName || '') : '');
+    const selectedId = selected?.id || currentId || originalId || null;
+    const selectedName = getResolvedPrinterLabel(selected) || job?.printerName || detail?.printerName || project.printerName || '';
+
+    return {
+      selected,
+      selectedId,
+      selectedName,
+      originalId: originalId || selectedId,
+      originalName: originalName || (originalId === selectedId ? selectedName : '')
+    };
+  };
+
+  let activePrinter = null;
+  let changed = false;
+  let anyTemporaryPrinter = false;
+
+  const projectDetails = sourceDetails.map((detail) => {
+    const jobs = Array.isArray(detail.productionJobs) ? detail.productionJobs : [];
+    if (jobs.length === 0) {
+      const resolved = resolveOne(detail);
+      if (!activePrinter && resolved.selected) activePrinter = resolved.selected;
+      const nextDetail = {
+        ...detail,
+        printer: resolved.selected || null,
+        ...(resolved.selectedId ? { printerId: resolved.selectedId } : {}),
+        ...(resolved.selectedName ? { printerName: resolved.selectedName } : {}),
+        ...(resolved.originalId ? { originalPrinterId: resolved.originalId } : {}),
+        ...(resolved.originalName ? { originalPrinterName: resolved.originalName } : {})
+      };
+      const temporary = Boolean(resolved.selectedId && resolved.originalId && String(resolved.selectedId) !== String(resolved.originalId));
+      anyTemporaryPrinter = anyTemporaryPrinter || temporary;
+      changed = changed
+        || String(detail.printerId || '') !== String(nextDetail.printerId || '')
+        || String(detail.printer?.id || '') !== String(nextDetail.printer?.id || '')
+        || String(detail.originalPrinterId || '') !== String(nextDetail.originalPrinterId || '');
+      return nextDetail;
+    }
+
+    const resolvedJobs = jobs.map((job) => {
+      const resolved = resolveOne(detail, job);
+      if (!activePrinter && resolved.selected) activePrinter = resolved.selected;
+      const temporary = Boolean(resolved.selectedId && resolved.originalId && String(resolved.selectedId) !== String(resolved.originalId));
+      anyTemporaryPrinter = anyTemporaryPrinter || temporary;
+      const nextJob = {
+        ...job,
+        printer: resolved.selected || null,
+        ...(resolved.selectedId ? { printerId: resolved.selectedId } : {}),
+        ...(resolved.selectedName ? { printerName: resolved.selectedName } : {}),
+        ...(resolved.originalId ? { originalPrinterId: resolved.originalId } : {}),
+        ...(resolved.originalName ? { originalPrinterName: resolved.originalName } : {})
+      };
+      changed = changed
+        || String(job.printerId || '') !== String(nextJob.printerId || '')
+        || String(job.printer?.id || '') !== String(nextJob.printer?.id || '')
+        || String(job.originalPrinterId || '') !== String(nextJob.originalPrinterId || '');
+      return nextJob;
+    });
+
+    const firstJob = resolvedJobs[0];
+    const detailOriginalId = detail.originalPrinterId
+      || firstJob?.originalPrinterId
+      || projectOriginalId
+      || detail.printerId
+      || null;
+    const detailOriginalName = detail.originalPrinterName
+      || firstJob?.originalPrinterName
+      || project.originalPrinterName
+      || firstJob?.printerName
+      || detail.printerName
+      || '';
+    const nextDetail = {
+      ...detail,
+      printer: firstJob?.printer || null,
+      ...(firstJob?.printerId ? { printerId: firstJob.printerId } : {}),
+      ...(firstJob?.printerName ? { printerName: firstJob.printerName } : {}),
+      ...(detailOriginalId ? { originalPrinterId: detailOriginalId } : {}),
+      ...(detailOriginalName ? { originalPrinterName: detailOriginalName } : {}),
+      productionJobs: resolvedJobs
+    };
+    changed = changed
+      || String(detail.printerId || '') !== String(nextDetail.printerId || '')
+      || String(detail.printer?.id || '') !== String(nextDetail.printer?.id || '')
+      || String(detail.originalPrinterId || '') !== String(nextDetail.originalPrinterId || '');
+    return nextDetail;
+  });
+
+  const firstDetail = projectDetails[0];
+  const resolvedProject = {
+    ...project,
+    ...(projectDetails.length > 0 ? { projectDetails } : {}),
+    ...(firstDetail?.printerId ? { printerId: firstDetail.printerId } : {}),
+    ...(firstDetail?.printerName ? { printerName: firstDetail.printerName } : {}),
+    ...(projectOriginalId || firstDetail?.originalPrinterId || projectCurrentId
+      ? { originalPrinterId: projectOriginalId || firstDetail?.originalPrinterId || projectCurrentId }
+      : {}),
+    ...(project.originalPrinterName || firstDetail?.originalPrinterName || project.printerName
+      ? { originalPrinterName: project.originalPrinterName || firstDetail?.originalPrinterName || project.printerName }
+      : {}),
+    isTemporaryPrinter: anyTemporaryPrinter
+  };
+
+  changed = changed
+    || String(project.printerId || '') !== String(resolvedProject.printerId || '')
+    || Boolean(project.isTemporaryPrinter) !== Boolean(resolvedProject.isTemporaryPrinter);
+
+  return { project: resolvedProject, activePrinter, changed };
+};

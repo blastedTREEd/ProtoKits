@@ -247,7 +247,7 @@ export default function Prints() {
 
   useEffect(() => {
     loadBlueprints();
-    loadPrintResources();
+    return loadPrintResources();
   }, [loadBlueprints, loadPrintResources]);
 
   useEffect(() => {
@@ -706,7 +706,7 @@ export default function Prints() {
               })}
 
               {/* --- Section Divider: Printed Projects --- */}
-              {((isAdmin && isAdminView) || sortedPrintedProjects.length > 0) && (
+              {sortedPrintedProjects.length > 0 && (
                 <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[90] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50 px-4 py-2 backdrop-blur-md dark:bg-[#0a0a0a] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderMotion} ${sectionHeaderPosition}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[13px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Printed Projects</span>

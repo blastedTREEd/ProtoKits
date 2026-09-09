@@ -41,7 +41,12 @@ export default function ProjectPreview({
     [plates, effectiveActiveId]
   );
   
-  const selectedPrinter = useMemo(() => printers.find((p) => p.id === activePlate.printerId && isPrinterAvailableForCostEstimation(p)), [printers, activePlate.printerId]);
+  // Maintenance printers can still be used for estimation. Unavailable
+  // printers are not active selections, but remain visible in the picker.
+  const selectedPrinter = useMemo(() => printers.find((p) => (
+    String(p.id) === String(activePlate.printerId)
+    && isPrinterAvailableForCostEstimation(p)
+  )), [printers, activePlate.printerId]);
   const compatibleFilamentTypes = useMemo(() => getPrinterCompatibleFilamentTypes(selectedPrinter), [selectedPrinter]);
 
   const getCompatibleFeeders = useCallback((printer) => {
@@ -573,13 +578,19 @@ export default function ProjectPreview({
               </div>
               {isSelectingPrinter && (
                 <div className="mt-1 border-t border-black/10 dark:border-white/10">
-                  {printers.filter((p) => String(p.id) !== String(activePlate?.printerId) && isPrinterAvailableForCostEstimation(p)).map((p, index) => {
+                  {printers.filter((p) => (
+                    String(p.id) !== String(activePlate?.printerId)
+                    || normalizePrinterStatus(p.status, p) === 'unavailable'
+                  )).map((p, index) => {
                     const printerStatus = normalizePrinterStatus(p.status, p);
+                    const isUnavailable = printerStatus === 'unavailable';
                     return (
                       <button
                         key={p.id}
                         type="button"
+                        disabled={isUnavailable}
                         onClick={(e) => {
+                          if (isUnavailable) return;
                           e.stopPropagation();
                           const hasFeeder = getCompatibleFeeders(p).length > 0;
                           setPreviewData(prev => (prev || []).map(plate => (
@@ -590,7 +601,7 @@ export default function ProjectPreview({
                         }}
                         className={`w-full py-4 flex items-center justify-between gap-4 text-left transition-colors ${
                           index > 0 ? 'border-t border-black/10 dark:border-white/10' : ''
-                        } hover:text-[var(--color-primary)]`}
+                        } ${isUnavailable ? 'cursor-not-allowed opacity-50' : 'hover:text-[var(--color-primary)]'}`}
                       >
                         <div className="min-w-0 flex flex-col gap-1">
                           <div className="flex flex-wrap items-baseline gap-2 min-w-0">
@@ -604,8 +615,8 @@ export default function ProjectPreview({
                             {getPrinterFilamentSlots(p)} Filament {getPrinterFilamentSlots(p) === 1 ? 'Slot' : 'Slots'}
                           </span>
                         </div>
-                        <span className={`text-[13px] font-bold uppercase px-2.5 py-1 rounded-lg shrink-0 ${printerStatus === 'available' ? 'text-green-600' : 'text-amber-600'}`}>
-                          {printerStatus}
+                        <span className={`text-[13px] font-bold uppercase px-2.5 py-1 rounded-lg shrink-0 ${printerStatus === 'available' ? 'text-green-600' : printerStatus === 'maintenance' ? 'text-amber-600' : 'text-red-600'}`}>
+                          {isUnavailable ? 'unavailable · not selectable' : printerStatus}
                         </span>
                       </button>
                     );

@@ -51,6 +51,17 @@ Remaining Spark-plan risks to monitor:
 - **Admin Users Dashboard:** Fetches all users, orders, admins, and individual user subcollections (`basket`, `projectVaults`) on mount. Acceptable for internal admin usage, but will require pagination or cloud function aggregation if user count grows significantly.
 - **Admin Shelf Listener:** Unbounded collection listener active on all admin routes. Safe while shelf items remain under ~100 docs.
 
+### Spark-plan optimization follow-up (Updated 2026-09-09)
+
+The subscription and repricing paths were reviewed with the free Spark plan as a hard constraint. The following changes were applied without introducing paid-only Firebase services:
+
+- **Print-resource listeners are route-lifetime scoped.** `printers`, `feeders`, `filaments`, `rates`, `extras`, and `methods` are still shared between Prints and Orders when both are mounted, but their reference-counted cleanup now closes the six listeners after the last consumer leaves. This prevents a first visit to either route from keeping the listeners active for the rest of the browser session.
+- **Repricing reads are role-scoped.** Admin sessions retain the required full pass over `blueprints`, all `projectVaults`, and printed-project kits so a rate, filament, feeder, or printer change can persist the catalog-wide update. Regular users no longer attempt a full `projectVaults` collection read (which is rejected by the rules); they use the already-live blueprint snapshot and read only their own vault document when needed.
+- **Regular-user repricing remains reactive locally.** Because shared blueprint and printed-project writes belong to the admin path, a regular user's live fallback price is updated in Zustand without attempting unauthorized catalog writes. The user's own vault remains writable under the existing owner rule.
+- **Overlapping recomputations are coalesced.** If a second resource snapshot arrives while a repricing scan is still running, the store queues one follow-up pass instead of starting another overlapping full scan. The existing 800 ms debounce still combines near-simultaneous printer, feeder, filament, and rate changes.
+
+The remaining largest Spark read cost is the intentional admin-wide repricing scan after a pricing-resource change. It is now limited to the admin workflow, while the client continues to preserve the requirement that resource changes update saved project pricing and that UI values update without a reload. Firebase CLI database inspection was not available in the offline development environment, so the configured database/region in `firebase.json` remains the source of deployment configuration for this audit.
+
 ---
 
 ## 🗃️ 2. Firestore Collection Schema

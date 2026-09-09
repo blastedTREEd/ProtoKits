@@ -132,6 +132,11 @@ const normalizePrepareDetails = (details = []) => (
       materialSlots,
       quantity: Number(detail?.quantity || config.quantity || 1),
       printerId: detail?.printerId || detail?.productionJobs?.[0]?.printerId || null,
+      // Existing projects already have an intentional printer assignment.
+      // Keep the edit flow from auto-optimizing it before the user confirms
+      // their changes; a new project still starts with no prepareData and is
+      // optimized normally by ProjectPrepare.
+      isManualPrinter: detail?.isManualPrinter ?? true,
       useCfs: detail?.useCfs ?? detail?.productionJobs?.some((job) => job?.usesCfs === true),
       colorSwaps: detail?.sliced?.colorSwaps ?? detail?.sliced?.filamentChangePercent ?? ''
     };

@@ -2,8 +2,8 @@ import React, { useState, useCallback, useMemo } from 'react';
 import {
   Receipt, Wallet, ArrowLeft, RotateCcw,
   ListChecks, Clock, Coins, SlidersHorizontal,
-  Save, ShoppingBag, TrendingUp, TrendingDown, Undo2, X, Tag, RefreshCw, Check, Layers,
-  Disc3, Zap
+  Save, ShoppingBag, TrendingUp, TrendingDown, Undo2, X, Tag, RefreshCw, Check,
+  Disc3, Zap, Printer
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 // import { useTheme } from '../../context/ThemeContext';
@@ -272,33 +272,93 @@ export default function ProjectCost({
       };
 
       const rawDetails = Array.isArray(data?.projectDetails) ? data.projectDetails : [];
-      const configuredPrinterId = data?.originalPrinterId
-        || data?.printerId
-        || activePrinter?.id
-        || rawDetails[0]?.originalPrinterId
-        || rawDetails[0]?.printerId
-        || null;
-      const configuredPrinterName = data?.originalPrinterName
-        || data?.printerName
-        || (activePrinter ? [activePrinter.brand, activePrinter.model || activePrinter.name].filter(Boolean).join(' ') : '')
-        || rawDetails[0]?.originalPrinterName
-        || rawDetails[0]?.printerName
-        || '';
+      // During an edit, the printer fields coming out of the calculator are
+      // the user's intentional new source configuration. Outside edit mode,
+      // originalPrinter* remains authoritative and fallback pricing must not
+      // rewrite it.
+      const configuredPrinterId = isEditMode
+        ? data?.printerId
+          || rawDetails[0]?.printerId
+          || activePrinter?.id
+          || data?.originalPrinterId
+          || rawDetails[0]?.originalPrinterId
+          || null
+        : data?.originalPrinterId
+          || data?.printerId
+          || activePrinter?.id
+          || rawDetails[0]?.originalPrinterId
+          || rawDetails[0]?.printerId
+          || null;
+      const configuredPrinterName = isEditMode
+        ? data?.printerName
+          || rawDetails[0]?.printerName
+          || (activePrinter ? [activePrinter.brand, activePrinter.model || activePrinter.name].filter(Boolean).join(' ') : '')
+          || data?.originalPrinterName
+          || rawDetails[0]?.originalPrinterName
+          || ''
+        : data?.originalPrinterName
+          || data?.printerName
+          || (activePrinter ? [activePrinter.brand, activePrinter.model || activePrinter.name].filter(Boolean).join(' ') : '')
+          || rawDetails[0]?.originalPrinterName
+          || rawDetails[0]?.printerName
+          || '';
 
-      const normalizedDetails = rawDetails.map((detail) => ({
-        ...detail,
-        printerId: detail.originalPrinterId || configuredPrinterId || detail.printerId,
-        printerName: detail.originalPrinterName || configuredPrinterName || detail.printerName,
-        originalPrinterId: detail.originalPrinterId || configuredPrinterId || detail.printerId,
-        originalPrinterName: detail.originalPrinterName || configuredPrinterName || detail.printerName
-      }));
+      const normalizedDetails = rawDetails.map((detail) => {
+        const detailOriginalId = isEditMode
+          ? detail.printerId
+            || detail.productionJobs?.[0]?.printerId
+            || configuredPrinterId
+            || detail.originalPrinterId
+          : detail.originalPrinterId || configuredPrinterId || detail.printerId;
+        const detailOriginalName = isEditMode
+          ? detail.printerName
+            || detail.productionJobs?.[0]?.printerName
+            || configuredPrinterName
+            || detail.originalPrinterName
+          : detail.originalPrinterName || configuredPrinterName || detail.printerName;
+        const normalizedJobs = Array.isArray(detail.productionJobs)
+          ? detail.productionJobs.map((job) => {
+              // A job may represent a different plate/model printer than its
+              // parent detail. Preserve that assignment independently.
+              const jobOriginalId = isEditMode
+                ? job.printerId || detailOriginalId || job.originalPrinterId
+                : job.originalPrinterId || job.printerId || detailOriginalId;
+              const jobOriginalName = isEditMode
+                ? job.printerName || detailOriginalName || job.originalPrinterName
+                : job.originalPrinterName || job.printerName || detailOriginalName;
+              return {
+                ...job,
+                printerId: jobOriginalId,
+                printerName: jobOriginalName,
+                originalPrinterId: jobOriginalId,
+                originalPrinterName: jobOriginalName
+              };
+            })
+          : detail.productionJobs;
+
+        return {
+          ...detail,
+          printerId: detailOriginalId,
+          printerName: detailOriginalName,
+          originalPrinterId: detailOriginalId,
+          originalPrinterName: detailOriginalName,
+          ...(Array.isArray(detail.productionJobs) ? { productionJobs: normalizedJobs } : {})
+        };
+      });
+
+      const savedPrinterId = isEditMode
+        ? normalizedDetails[0]?.printerId || configuredPrinterId
+        : configuredPrinterId;
+      const savedPrinterName = isEditMode
+        ? normalizedDetails[0]?.printerName || configuredPrinterName
+        : configuredPrinterName;
 
       const projectPayload = {
         ...data,
-        printerId: configuredPrinterId,
-        printerName: configuredPrinterName,
-        originalPrinterId: configuredPrinterId,
-        originalPrinterName: configuredPrinterName,
+        printerId: savedPrinterId,
+        printerName: savedPrinterName,
+        originalPrinterId: savedPrinterId,
+        originalPrinterName: savedPrinterName,
         isTemporaryPrinter: false,
         ...(normalizedDetails.length > 0 ? { projectDetails: normalizedDetails } : {}),
         source: isAdmin && isAdminView ? 'admin-estimate' : 'customer-estimate',
@@ -332,23 +392,6 @@ export default function ProjectCost({
   };
 
   const checklist = useMemo(() => {
-    const schedule = totals.timeline?.schedule || [];
-    const uniquePlateIds = new Set();
-    
-    // 1. Existing schedule-based plate counting (covers split parts and multicolor)
-    schedule.forEach((day) => {
-      day.plates?.forEach((plate) => {
-        if (plate.id) {
-            const id = String(plate.id);
-            if (id.includes('batch-prep') || id.startsWith('load-') || id.startsWith('purge-') || id.includes('load-cfs') || id.includes('purge-cfs')) {
-                return;
-            }
-            // Use unique ID for each split part/job
-            uniquePlateIds.add(id);
-        }
-      });
-    });
-
     const allExtras = data?.extras || [];
     const countHardware = (keys) => allExtras
       .filter((extra) => keys.some((key) => (extra?.name || '').toLowerCase().includes(key)))
@@ -372,14 +415,62 @@ export default function ProjectCost({
       }))
       .filter((extra) => extra.quantity > 0);
 
+    // Count the actual printer assignments used by each build plate/model.
+    // Production jobs are used when available so projects with different
+    // printers per plate/model are represented separately.
+    const printerGroups = new Map();
+    const sourceDetails = Array.isArray(data?.projectDetails) ? data.projectDetails : [];
+    sourceDetails.forEach((detail, detailIndex) => {
+      const jobs = Array.isArray(detail?.productionJobs) && detail.productionJobs.length > 0
+        ? detail.productionJobs
+        : [detail];
+
+      jobs.forEach((job, jobIndex) => {
+        const printerId = job?.printerId
+          || detail?.printerId
+          || job?.originalPrinterId
+          || detail?.originalPrinterId
+          || data?.printerId
+          || data?.originalPrinterId
+          || null;
+        const printerName = job?.printerName
+          || job?.printer?.name
+          || [job?.printer?.brand, job?.printer?.model].filter(Boolean).join(' ')
+          || detail?.printerName
+          || detail?.originalPrinterName
+          || data?.printerName
+          || data?.originalPrinterName
+          || (activePrinter ? [activePrinter.brand, activePrinter.model || activePrinter.name].filter(Boolean).join(' ') : '')
+          || 'No printer assigned';
+        const groupKey = printerId ? String(printerId) : printerName;
+        const assignmentId = job?.id || detail?.id || `${detailIndex}-${jobIndex}`;
+
+        if (!printerGroups.has(groupKey)) {
+          printerGroups.set(groupKey, {
+            label: printerName,
+            assignmentIds: new Set()
+          });
+        }
+        printerGroups.get(groupKey).assignmentIds.add(String(assignmentId));
+      });
+    });
+
+    const printers = Array.from(printerGroups.values()).map((printer) => ({
+      label: printer.label,
+      quantity: printer.assignmentIds.size,
+      unitLabel: isStlProject
+        ? (printer.assignmentIds.size === 1 ? 'Model' : 'Models')
+        : (printer.assignmentIds.size === 1 ? 'Build Plate' : 'Build Plates')
+    }));
+
     return {
-      totalBuildPlates: uniquePlateIds.size,
+      printers,
       materials,
       extras,
       magnets: countHardware(['magnet']),
       heatsets: countHardware(['heatset'])
     };
-  }, [totals.timeline?.schedule, totals.details?.filament, data?.extras]) || {};
+  }, [activePrinter, data, isStlProject, totals.details?.filament]) || {};
 
   const footerActions = (
     <div className="fixed left-1/2 bottom-0 md:bottom-[5dvh] z-[260] w-full max-w-[calc(100vw-2rem)] md:max-w-2xl lg:max-w-2xl -translate-x-1/2 px-3 pb-5 pt-8 lg:rounded-b-[2rem]">
@@ -499,17 +590,19 @@ export default function ProjectCost({
         </div>
 
         <div className="space-y-2">
-          {checklist?.totalBuildPlates > 0 && (
-            <div className="flex items-center justify-between w-full bg-[var(--color-surface)] px-4 py-2.5 rounded-2xl border border-[var(--color-border)]">
-              <div className="flex items-center gap-2">
-                <Layers size={18} strokeWidth={2} className="text-blue-500" />
-                <span className="text-[13px] font-black uppercase opacity-80">Build Plates Quantity</span>
+          {checklist?.printers?.map((printer, index) => (
+            <div key={`printer-${printer.label}-${index}`} className="flex items-center justify-between w-full bg-[var(--color-surface)] px-4 py-2.5 rounded-2xl border border-[var(--color-border)]">
+              <div className="flex items-center gap-2 min-w-0">
+                <Printer size={18} strokeWidth={2} className="text-blue-500 flex-none" />
+                <div className="min-w-0">
+                  <span className="text-[13px] font-black uppercase opacity-80 truncate block">{printer.label}</span>
+                </div>
               </div>
-              <span className="text-[13px] font-black text-blue-600 italic uppercase">
-                {checklist.totalBuildPlates} {checklist.totalBuildPlates === 1 ? 'Build Plate' : 'Build Plates'}
+              <span className="text-[13px] font-black text-blue-600 italic uppercase whitespace-nowrap">
+                {printer.quantity} {printer.unitLabel}
               </span>
             </div>
-          )}
+          ))}
           {checklist?.materials?.map((material, index) => (
             <div key={`material-${material.label}-${index}`} className="flex items-center justify-between w-full bg-[var(--color-surface)] px-4 py-2.5 rounded-2xl border border-[var(--color-border)]">
               <div className="flex items-center gap-2 min-w-0">

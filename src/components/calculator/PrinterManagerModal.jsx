@@ -86,7 +86,9 @@ const statusTone = (status) => status === 'available'
     ? 'bg-amber-500/10 text-amber-600'
     : 'bg-red-500/10 text-red-600';
 
-const STATUS_CYCLE = ['available', 'unavailable', 'maintenance'];
+// The status button follows the operational workflow: available →
+// maintenance → unavailable → available.
+const STATUS_CYCLE = ['available', 'maintenance', 'unavailable'];
 
 const getNextStatus = (status) => {
   const currentStatus = normalizePrinterStatus(status);

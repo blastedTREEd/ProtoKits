@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { X, Wallet, AlertCircle, Package, ExternalLink, ArrowRight, Loader2, Info, CheckSquare, CheckCircle2 } from 'lucide-react';
+import { X, Wallet, AlertCircle, Package, ExternalLink, ArrowRight, Loader2, Info, CheckSquare, CheckCircle2, Undo2 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useStore } from '../../store/useStore';
 
@@ -9,12 +9,15 @@ function resolveImage(idOrUrl, imagesArray) {
   const match = (imagesArray || []).find(img => img.id === idOrUrl);
   return match?.url || '';
 }
-import { collection, getDocs, doc, updateDoc, serverTimestamp, query, where, writeBatch } from 'firebase/firestore';
-import { db } from '../../firebase/firebase';
+import { collection, getDocs, getDoc, doc, updateDoc, deleteField, serverTimestamp, query, where, writeBatch } from 'firebase/firestore';
+import { auth, db } from '../../firebase/firebase';
+import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
+import { getStockEta } from '../../utils/stockDates';
+import { hasOrderAssociation } from '../../utils/stockOrderUtils';
 
 export default function SupplierBalancesModal({ isOpen, onClose }) {
   const { isDarkMode } = useTheme();
-  const { kits: storeKits, deleteStock } = useStore();
+  const { kits: storeKits, deleteStock, deleteStocks, shippingSettings } = useStore();
   const [allKits, setAllKits] = useState([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const onCloseRef = useRef(onClose);
@@ -321,26 +324,16 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
       if (!window.confirm("This pre-order is fully paid to the supplier. Cancel it and keep the stock visible as REFUND PENDING until the supplier refund is received?")) return;
 
       try {
-        const kit = allKits.find(candidate => candidate.id === item.kitId) || storeKits.find(candidate => candidate.id === item.kitId);
+        const kitRef = doc(db, 'kits', item.kitId);
+        const kitSnapshot = await getDoc(kitRef);
+        const kit = kitSnapshot.exists()
+          ? { id: kitSnapshot.id, ...kitSnapshot.data() }
+          : allKits.find(candidate => candidate.id === item.kitId) || storeKits.find(candidate => candidate.id === item.kitId);
         if (!kit?.stocks?.[item.key]) throw new Error('Stock item no longer exists.');
-        const hasAvailableStock = Object.entries(kit.stocks).some(([key, stock]) => (
-          key !== item.key && !stock.order?.orderId && !stock.isReserved
-        ));
-
-        await updateDoc(doc(db, 'kits', item.kitId), {
-          [`stocks.${item.key}.isReserved`]: true,
-          [`stocks.${item.key}.reservedBy`]: null,
-          [`stocks.${item.key}.reservedAt`]: null,
-          [`stocks.${item.key}.reservationType`]: 'supplier-refund',
-          [`stocks.${item.key}.supplierRefundStatus`]: 'pending',
-          [`stocks.${item.key}.supplierRefundAmount`]: item.paid,
-          [`stocks.${item.key}.supplierRefundRequestedAt`]: serverTimestamp(),
-          hasAvailableStock,
-          lastUpdated: serverTimestamp()
-        });
 
         // A supplier-cancelled stock must not remain in the separate admin
-        // shelf collection while it is waiting for a refund.
+        // shelf collection while it is waiting for a refund. If it was the
+        // admin-held stock, promote the lowest-cost available replacement.
         const shelfSnap = await getDocs(query(
           collection(db, 'shelf'),
           where('id', '==', item.kitId)
@@ -348,13 +341,144 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
         const matchingShelfDocs = shelfSnap.docs.filter((shelfDoc) => (
           shelfDoc.data()?.stockKey === item.key
         ));
-        if (matchingShelfDocs.length > 0) {
-          const shelfBatch = writeBatch(db);
-          matchingShelfDocs.forEach((shelfDoc) => shelfBatch.delete(shelfDoc.ref));
-          await shelfBatch.commit();
+
+        const shelfStock = kit.stocks[item.key];
+        const wasAdminShelfStock = matchingShelfDocs.length > 0
+          || (
+            shelfStock?.isReserved === true
+            && shelfStock?.reservationType === 'admin'
+            && !hasOrderAssociation(shelfStock)
+          );
+        const adminShelfCost = Number(shelfStock?.costPrice ?? item.cost);
+        const replacementCandidates = wasAdminShelfStock
+          ? Object.entries(kit.stocks || {})
+            .filter(([key, stock]) => (
+              key !== item.key
+              && !stock?.isReserved
+              && !hasOrderAssociation(stock)
+              && stock?.supplierRefundStatus !== 'pending'
+              && Number(stock?.costPrice) > 0
+            ))
+            .map(([key, stock]) => ({ key, stock, cost: Number(stock.costPrice) }))
+            .sort((a, b) => a.cost - b.cost || String(a.key).localeCompare(String(b.key)))
+          : [];
+        const replacement = replacementCandidates.find((candidate) => (
+          Number.isFinite(adminShelfCost)
+          && candidate.cost < adminShelfCost
+        )) || null;
+        const replacementShelfDoc = replacement
+          ? shelfSnap.docs.find((shelfDoc) => shelfDoc.data()?.stockKey === replacement.key)
+          : null;
+        const replacementKey = replacement?.key || null;
+        const replacementBasketId = replacement
+          ? replacementShelfDoc?.id || `shelf_${item.kitId}_${replacement.key}`
+          : null;
+
+        const nextStocks = Object.fromEntries(
+          Object.entries(kit.stocks || {}).map(([key, stock]) => [key, { ...stock }])
+        );
+        nextStocks[item.key] = {
+          ...nextStocks[item.key],
+          isReserved: true,
+          reservedBy: null,
+          reservedAt: null,
+          reservationType: 'supplier-refund',
+          supplierRefundStatus: 'pending',
+          supplierRefundAmount: item.paid,
+          supplierRefundRequestedAt: serverTimestamp()
+        };
+
+        let replacementShelfItem = null;
+        if (replacement) {
+          const replacementStock = nextStocks[replacement.key];
+          const { handlingFee, installmentFee, transferFee } = getCheckoutPaymentFees({
+            garageInfo: { checkoutSettings: shippingSettings },
+            adminData: { paymentSettings: shippingSettings?.paymentSettings }
+          });
+          const sellPrice = Number(replacementStock.sellPrice || 0);
+          const stockStatus = replacementStock.status || 'onhand';
+          const stockSource = String(stockStatus).toLowerCase().includes('pre')
+            || String(stockStatus).toLowerCase().includes('batch')
+            ? 'preorder'
+            : 'onhand';
+
+          nextStocks[replacement.key] = {
+            ...replacementStock,
+            isReserved: true,
+            reservationType: 'admin',
+            reservedBy: auth.currentUser?.uid || 'admin',
+            reservedAt: serverTimestamp()
+          };
+          replacementShelfItem = {
+            ...(replacementShelfDoc?.data() || {}),
+            id: item.kitId,
+            name: String(kit.name || '').replace(/\s*\(Pre-Order\)\s*$/i, ''),
+            image: resolveImage(kit.image, kit.images),
+            brand: kit.brand || '',
+            specs: kit.specs || {},
+            price: sellPrice + handlingFee + installmentFee + transferFee,
+            costPrice: Number(replacementStock.costPrice || 0),
+            sellPrice,
+            status: stockStatus,
+            eta: getStockEta(replacementStock),
+            appliedHandlingFee: handlingFee,
+            appliedInstallmentFee: installmentFee,
+            appliedTransferFee: transferFee,
+            stockKey: replacement.key,
+            stockSource,
+            type: 'kit',
+            basketId: replacementBasketId,
+            minDownpayment: replacementStock.minDownpayment || 0,
+            isBundleItem: false,
+            isClearanceBundle: false,
+            clearanceKitIds: [],
+            bundleId: null,
+            bundleName: null,
+            bundleSize: null,
+            bundleFeeShare: 0,
+            bundleReferencePrice: 0,
+            allowShelfBundle: true,
+            appliedBundlePrice: null,
+            createdAt: replacementShelfDoc?.data()?.createdAt || new Date().toISOString()
+          };
         }
 
-        alert("Stock cancelled and retained as refund pending.");
+        const hasAvailableStock = Object.entries(nextStocks).some(([key, stock]) => (
+          key !== item.key
+          && key !== replacementKey
+          && !stock?.order?.orderId
+          && !stock?.isReserved
+        ));
+        const cancellationUpdates = {
+          [`stocks.${item.key}.isReserved`]: true,
+          [`stocks.${item.key}.reservedBy`]: null,
+          [`stocks.${item.key}.reservedAt`]: null,
+          [`stocks.${item.key}.reservationType`]: 'supplier-refund',
+          [`stocks.${item.key}.supplierRefundStatus`]: 'pending',
+          [`stocks.${item.key}.supplierRefundAmount`]: item.paid,
+          [`stocks.${item.key}.supplierRefundRequestedAt`]: serverTimestamp(),
+          [`stocks.${item.key}.supplierRefundWasAdminShelf`]: wasAdminShelfStock,
+          hasAvailableStock,
+          lastUpdated: serverTimestamp()
+        };
+        if (replacement) {
+          cancellationUpdates[`stocks.${replacement.key}.isReserved`] = true;
+          cancellationUpdates[`stocks.${replacement.key}.reservedBy`] = auth.currentUser?.uid || 'admin';
+          cancellationUpdates[`stocks.${replacement.key}.reservedAt`] = serverTimestamp();
+          cancellationUpdates[`stocks.${replacement.key}.reservationType`] = 'admin';
+        }
+
+        const shelfBatch = writeBatch(db);
+        shelfBatch.update(kitRef, cancellationUpdates);
+        matchingShelfDocs.forEach((shelfDoc) => shelfBatch.delete(shelfDoc.ref));
+        if (replacementShelfItem) {
+          shelfBatch.set(doc(db, 'shelf', replacementBasketId), replacementShelfItem);
+        }
+        await shelfBatch.commit();
+
+        alert(replacement
+          ? "Stock cancelled and retained as refund pending. A replacement stock was moved to the admin shelf."
+          : "Stock cancelled and retained as refund pending.");
         await refreshKits();
       } catch (e) {
         console.error("Refund-pending cancellation failed", e);
@@ -375,6 +499,106 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
     }
   };
 
+  const reverseSupplierCancellation = async (item) => {
+    if (!item.isRefundPending) return;
+    if (!window.confirm('Reverse this supplier cancellation? The stock will become active again and the refund-pending hold will be removed.')) return;
+
+    try {
+      const kitRef = doc(db, 'kits', item.kitId);
+      const kitSnapshot = await getDoc(kitRef);
+      if (!kitSnapshot.exists()) throw new Error('Stock item no longer exists.');
+
+      const kit = { id: kitSnapshot.id, ...kitSnapshot.data() };
+      const stock = kit.stocks?.[item.key];
+      if (!stock || stock.supplierRefundStatus !== 'pending') {
+        throw new Error('This stock is no longer awaiting a supplier refund.');
+      }
+
+      const shelfSnap = await getDocs(query(
+        collection(db, 'shelf'),
+        where('id', '==', item.kitId)
+      ));
+      const currentShelfDocs = shelfSnap.docs.filter((shelfDoc) => (
+        shelfDoc.data()?.stockKey && shelfDoc.data()?.stockKey !== item.key
+      ));
+      const shouldRestoreAdminShelf = stock.supplierRefundWasAdminShelf === true && currentShelfDocs.length === 0;
+      const updates = {
+        [`stocks.${item.key}.isReserved`]: shouldRestoreAdminShelf,
+        [`stocks.${item.key}.reservedBy`]: shouldRestoreAdminShelf ? (auth.currentUser?.uid || 'admin') : null,
+        [`stocks.${item.key}.reservedAt`]: shouldRestoreAdminShelf ? serverTimestamp() : null,
+        [`stocks.${item.key}.availableAt`]: shouldRestoreAdminShelf ? deleteField() : serverTimestamp(),
+        [`stocks.${item.key}.reservationType`]: shouldRestoreAdminShelf ? 'admin' : deleteField(),
+        [`stocks.${item.key}.supplierRefundStatus`]: deleteField(),
+        [`stocks.${item.key}.supplierRefundAmount`]: deleteField(),
+        [`stocks.${item.key}.supplierRefundRequestedAt`]: deleteField(),
+        [`stocks.${item.key}.supplierRefundWasAdminShelf`]: deleteField(),
+        hasAvailableStock: shouldRestoreAdminShelf
+          ? Object.entries(kit.stocks || {}).some(([key, candidate]) => (
+            key !== item.key && !candidate?.order?.orderId && !candidate?.isReserved
+          ))
+          : true,
+        lastUpdated: serverTimestamp()
+      };
+
+      const batch = writeBatch(db);
+      batch.update(kitRef, updates);
+
+      if (shouldRestoreAdminShelf) {
+        const { handlingFee, installmentFee, transferFee } = getCheckoutPaymentFees({
+          garageInfo: { checkoutSettings: shippingSettings },
+          adminData: { paymentSettings: shippingSettings?.paymentSettings }
+        });
+        const sellPrice = Number(stock.sellPrice || 0);
+        const status = stock.status || 'onhand';
+        const stockSource = String(status).toLowerCase().includes('pre')
+          || String(status).toLowerCase().includes('batch')
+          ? 'preorder'
+          : 'onhand';
+        const shelfItem = {
+          id: item.kitId,
+          name: String(kit.name || '').replace(/\s*\(Pre-Order\)\s*$/i, ''),
+          image: resolveImage(kit.image, kit.images),
+          brand: kit.brand || '',
+          specs: kit.specs || {},
+          price: sellPrice + handlingFee + installmentFee + transferFee,
+          costPrice: Number(stock.costPrice || 0),
+          sellPrice,
+          status,
+          eta: getStockEta(stock),
+          appliedHandlingFee: handlingFee,
+          appliedInstallmentFee: installmentFee,
+          appliedTransferFee: transferFee,
+          stockKey: item.key,
+          stockSource,
+          type: 'kit',
+          basketId: `shelf_${item.kitId}_${item.key}`,
+          minDownpayment: stock.minDownpayment || 0,
+          isBundleItem: false,
+          isClearanceBundle: false,
+          clearanceKitIds: [],
+          bundleId: null,
+          bundleName: null,
+          bundleSize: null,
+          bundleFeeShare: 0,
+          bundleReferencePrice: 0,
+          allowShelfBundle: true,
+          appliedBundlePrice: null,
+          createdAt: new Date().toISOString()
+        };
+        batch.set(doc(db, 'shelf', shelfItem.basketId), shelfItem);
+      }
+
+      await batch.commit();
+      alert(shouldRestoreAdminShelf
+        ? 'Supplier cancellation reversed and stock restored to the admin shelf.'
+        : 'Supplier cancellation reversed and stock restored as available.');
+      await refreshKits();
+    } catch (error) {
+      console.error('Supplier cancellation reversal failed', error);
+      alert(error.message || 'Failed to reverse supplier cancellation.');
+    }
+  };
+
   const markRefunded = async (item) => {
     if (!item.isRefundPending) return;
     if (!window.confirm(`Confirm that the supplier refund of ₱${item.refundAmount.toLocaleString()} was received? This will permanently delete the retained stock record.`)) return;
@@ -386,6 +610,33 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
     } catch (e) {
       console.error("Refunded stock removal failed", e);
       alert("Failed to remove the refunded stock.");
+    }
+  };
+
+  const handleRefundedGroup = async (group) => {
+    const refundItems = group.items.filter(item => item.isRefundPending);
+    if (refundItems.length === 0) return;
+
+    if (!window.confirm(`REFUNDED ALL CONFIRMATION:\n\nConfirm supplier refunds for all ${refundItems.length} pending stock item${refundItems.length === 1 ? '' : 's'} in this group? This will permanently delete the retained stock records.`)) return;
+
+    setIsSyncing(true);
+    try {
+      const stockKeysByKit = refundItems.reduce((groups, item) => {
+        if (!groups[item.kitId]) groups[item.kitId] = [];
+        groups[item.kitId].push(item.key);
+        return groups;
+      }, {});
+
+      await Promise.all(
+        Object.entries(stockKeysByKit).map(([kitId, stockKeys]) => deleteStocks(kitId, stockKeys))
+      );
+      alert(`Refunded All Successful! Removed ${refundItems.length} refunded stock item${refundItems.length === 1 ? '' : 's'}.`);
+      await refreshKits();
+    } catch (error) {
+      console.error('Bulk supplier refund update failed:', error);
+      alert('Failed to remove some refunded stock items.');
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -485,15 +736,25 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
                           {group.label}
                         </h4>
                         
-                        {/* PAID ALL BUTTON */}
-                        <button
-                          onClick={() => handlePayGroup(group)}
-                          disabled={isSyncing || group.items.filter(item => Number(item.paid || 0) === 0).length === 0}
-                          className="ml-1 flex shrink-0 items-center gap-1 rounded-md bg-blue-600 px-2 py-1 text-[10px] font-black uppercase leading-tight tracking-tight text-white transition-all hover:bg-blue-700 disabled:opacity-50 md:ml-2 md:py-0.5 md:text-[12px]"
-                        >
-                          <CheckSquare size={10} />
-                          Paid All ({group.items.filter(item => Number(item.paid || 0) === 0).length})
-                        </button>
+                        {group.label === 'SUPPLIER REFUND PENDING' ? (
+                          <button
+                            onClick={() => handleRefundedGroup(group)}
+                            disabled={isSyncing || group.items.length === 0}
+                            className="ml-1 flex shrink-0 items-center gap-1 rounded-md bg-purple-600 px-2 py-1 text-[10px] font-black uppercase leading-tight tracking-tight text-white transition-all hover:bg-purple-700 disabled:opacity-50 md:ml-2 md:py-0.5 md:text-[12px]"
+                          >
+                            <CheckCircle2 size={10} />
+                            Refunded All ({group.items.length})
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handlePayGroup(group)}
+                            disabled={isSyncing || group.items.filter(item => Number(item.paid || 0) === 0).length === 0}
+                            className="ml-1 flex shrink-0 items-center gap-1 rounded-md bg-blue-600 px-2 py-1 text-[10px] font-black uppercase leading-tight tracking-tight text-white transition-all hover:bg-blue-700 disabled:opacity-50 md:ml-2 md:py-0.5 md:text-[12px]"
+                          >
+                            <CheckSquare size={10} />
+                            Paid All ({group.items.filter(item => Number(item.paid || 0) === 0).length})
+                          </button>
+                        )}
                       </div>
                       <div className="min-w-0 text-right">
                         <span className="mr-1 inline-block max-w-[4.5rem] align-middle text-[10px] font-black uppercase leading-tight tracking-[0.12em] opacity-30 md:mr-2 md:max-w-none md:text-[12px] md:tracking-widest">Monthly Total</span>
@@ -640,15 +901,26 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
                           )}
                           <div className="mt-2 flex flex-wrap justify-end gap-1">
                             {item.isRefundPending ? (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  markRefunded(item);
-                                }}
-                                className="inline-flex items-center gap-1 rounded-lg bg-purple-600 px-2 py-1 text-[11px] font-black uppercase text-white hover:bg-purple-700 transition-all"
-                              >
-                                <CheckCircle2 size={12} /> Refunded
-                              </button>
+                              <>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    reverseSupplierCancellation(item);
+                                  }}
+                                  className="inline-flex items-center gap-1 rounded-lg bg-amber-500 px-2 py-1 text-[11px] font-black uppercase text-white hover:bg-amber-600 transition-all"
+                                >
+                                  <Undo2 size={12} /> Reverse
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    markRefunded(item);
+                                  }}
+                                  className="inline-flex items-center gap-1 rounded-lg bg-purple-600 px-2 py-1 text-[11px] font-black uppercase text-white hover:bg-purple-700 transition-all"
+                                >
+                                  <CheckCircle2 size={12} /> Refunded
+                                </button>
+                              </>
                             ) : (
                               <>
                               {!isOnHand && (

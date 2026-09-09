@@ -10,7 +10,7 @@ import {
   ONHAND_KIT_CONDITION,
   withStockConditionDefaults
 } from '../utils/stockConditions';
-import { normalizeFeederRecord, normalizePrinterRecord, normalizePrinterStatus } from '../utils/printerCompatibility';
+import { normalizeFeederRecord, normalizePrinterRecord, normalizePrinterStatus, resolveProjectPrinterAssignments } from '../utils/printerCompatibility';
 import { computeProjectCosts } from '../utils/calculationEngine';
 import { getStockEta } from '../utils/stockDates';
 import { compactOrderPayload, getPayloadByteSize } from '../utils/orderPayload';
@@ -313,15 +313,21 @@ const reconcileAdminShelfSnapshot = async (shelfSnap, knownKits = []) => {
     const kitsSnap = await getDocs(collection(db, 'kits'));
     kitsSnap.docs.forEach((kitDoc) => kitsById.set(kitDoc.id, { id: kitDoc.id, ...kitDoc.data() }));
   }
-  const missingKitIds = [...new Set(
+  const shelfReferencedKitIds = [...new Set(
     shelfSnap.docs
       .map((shelfDoc) => shelfDoc.data())
-      .filter((item) => item?.stockKey && item?.id && !kitsById.has(String(item.id)))
+      .filter((item) => item?.stockKey && item?.id && (
+        !kitsById.has(String(item.id))
+        || !kitsById.get(String(item.id))?.stocks?.[item.stockKey]
+      ))
       .map((item) => String(item.id))
   )];
 
-  for (let index = 0; index < missingKitIds.length; index += 10) {
-    const batchIds = missingKitIds.slice(index, index + 10);
+  // A shelf write and a kits listener callback can arrive in either order.
+  // Refresh any kit whose current in-memory snapshot does not contain a
+  // referenced stock before deciding that the shelf row is orphaned.
+  for (let index = 0; index < shelfReferencedKitIds.length; index += 10) {
+    const batchIds = shelfReferencedKitIds.slice(index, index + 10);
     const kitsSnap = await getDocs(query(
       collection(db, 'kits'),
       where('__name__', 'in', batchIds)
@@ -372,6 +378,156 @@ const getStockCostPrice = (stock) => {
 const getStockSource = (stock) => {
   const status = String(stock?.status || '').trim().toLowerCase();
   return status.includes('pre') || status.includes('batch') ? 'preorder' : 'onhand';
+};
+
+const isPotentialAdminShelfStock = (stock) => {
+  if (!stock || hasOrderAssociation(stock) || stock.supplierRefundStatus === 'pending') return false;
+  const reservationType = String(stock.reservationType || '').trim().toLowerCase();
+  return reservationType === 'admin'
+    || (stock.isReserved && !['customer', 'supplier-refund'].includes(reservationType));
+};
+
+const rebalanceAdminShelfFromFreshFirestore = async ({ kitId, masterInfo, userId, candidateStockKey }) => {
+  if (!kitId) return false;
+
+  const kitRef = doc(db, 'kits', kitId);
+  const [kitSnap, shelfSnap] = await Promise.all([
+    getDoc(kitRef),
+    getDocs(query(collection(db, 'shelf'), where('id', '==', kitId)))
+  ]);
+  if (!kitSnap.exists()) return false;
+
+  const kit = { id: kitSnap.id, ...kitSnap.data() };
+  const stocks = kit.stocks || {};
+  const shelfEntries = shelfSnap.docs.map((shelfDoc) => ({
+    ...shelfDoc.data(),
+    basketId: shelfDoc.id
+  }));
+  const shelfEntryByStockKey = new Map();
+  shelfEntries.forEach((shelfItem) => {
+    const key = String(shelfItem.stockKey || '');
+    if (key && stocks[key] && !shelfEntryByStockKey.has(key)) {
+      shelfEntryByStockKey.set(key, shelfItem);
+    }
+  });
+
+  const adminShelfKeys = new Set([
+    ...shelfEntryByStockKey.keys(),
+    ...Object.entries(stocks)
+      .filter(([, stock]) => isPotentialAdminShelfStock(stock))
+      .map(([stockKey]) => stockKey)
+  ]);
+  if (adminShelfKeys.size === 0) return false;
+
+  const eligibleStocks = Object.entries(stocks)
+    .filter(([stockKey, stock]) => (
+      Number(stock?.costPrice) > 0
+      && !hasOrderAssociation(stock)
+      && stock?.supplierRefundStatus !== 'pending'
+      && (adminShelfKeys.has(stockKey) || !stock?.isReserved)
+    ))
+    .map(([stockKey, stock]) => ({
+      stockKey,
+      stock,
+      costPrice: Number(stock.costPrice),
+      isAdminShelfStock: adminShelfKeys.has(stockKey)
+    }))
+    .sort((a, b) => (
+      a.costPrice - b.costPrice
+      || Number(b.isAdminShelfStock) - Number(a.isAdminShelfStock)
+      || String(a.stockKey).localeCompare(String(b.stockKey))
+    ));
+  const currentShelfStocks = eligibleStocks
+    .filter((entry) => entry.isAdminShelfStock)
+    .sort((a, b) => a.costPrice - b.costPrice || String(a.stockKey).localeCompare(String(b.stockKey)));
+  const currentShelfWinner = currentShelfStocks[0];
+  if (!currentShelfWinner) return false;
+
+  const candidate = eligibleStocks.find((entry) => String(entry.stockKey) === String(candidateStockKey));
+  const winner = candidate
+    && !candidate.isAdminShelfStock
+    && candidate.costPrice < currentShelfWinner.costPrice
+    ? candidate
+    : currentShelfWinner;
+
+  const nextStocks = Object.fromEntries(
+    Object.entries(stocks).map(([stockKey, stock]) => [stockKey, { ...stock }])
+  );
+  const releasedStockKeys = [...adminShelfKeys].filter((stockKey) => stockKey !== winner.stockKey);
+  releasedStockKeys.forEach((stockKey) => {
+    if (!nextStocks[stockKey]) return;
+    nextStocks[stockKey] = {
+      ...nextStocks[stockKey],
+      isReserved: false,
+      availableAt: new Date().toISOString()
+    };
+    delete nextStocks[stockKey].reservedBy;
+    delete nextStocks[stockKey].reservedAt;
+    delete nextStocks[stockKey].reservationType;
+    delete nextStocks[stockKey].reservedByDealId;
+  });
+  nextStocks[winner.stockKey] = {
+    ...nextStocks[winner.stockKey],
+    isReserved: true,
+    reservationType: 'admin',
+    reservedBy: nextStocks[winner.stockKey].reservedBy || userId || 'admin',
+    reservedAt: nextStocks[winner.stockKey].reservedAt || new Date().toISOString()
+  };
+
+  const { handlingFee, installmentFee, transferFee } = getCheckoutPaymentFees({
+    garageInfo: { checkoutSettings: useStore.getState().shippingSettings },
+    adminData: { paymentSettings: useStore.getState().shippingSettings?.paymentSettings }
+  });
+  const winnerShelfEntry = shelfEntryByStockKey.get(String(winner.stockKey));
+  const winnerStock = nextStocks[winner.stockKey];
+  const winnerBasketId = winnerShelfEntry?.basketId || `shelf_${kitId}_${winner.stockKey}`;
+  const winnerShelfItem = {
+    ...(winnerShelfEntry || {}),
+    id: kitId,
+    name: String(masterInfo?.name || kit.name || '').replace(/\s*\(Pre-Order\)\s*$/i, ''),
+    image: masterInfo?.image || kit.image || '',
+    brand: masterInfo?.brand || kit.brand || '',
+    specs: masterInfo?.specs || kit.specs || {},
+    price: Number(winnerStock.sellPrice || 0) + handlingFee + installmentFee + transferFee,
+    costPrice: Number(winnerStock.costPrice || 0),
+    sellPrice: Number(winnerStock.sellPrice || 0),
+    status: winnerStock.status || 'onhand',
+    eta: getStockEta(winnerStock),
+    appliedHandlingFee: handlingFee,
+    appliedInstallmentFee: installmentFee,
+    appliedTransferFee: transferFee,
+    stockKey: winner.stockKey,
+    stockSource: getStockSource(winnerStock),
+    type: 'kit',
+    basketId: winnerBasketId,
+    minDownpayment: winnerStock.minDownpayment || 0,
+    isBundleItem: false,
+    isClearanceBundle: false,
+    clearanceKitIds: [],
+    bundleId: null,
+    bundleName: null,
+    bundleSize: null,
+    bundleFeeShare: 0,
+    bundleReferencePrice: 0,
+    allowShelfBundle: true,
+    appliedBundlePrice: null,
+    createdAt: winnerShelfEntry?.createdAt || new Date().toISOString()
+  };
+
+  const batch = writeBatch(db);
+  batch.update(kitRef, {
+    stocks: nextStocks,
+    hasAvailableStock: Object.values(nextStocks).some((stock) => !stock?.order?.orderId && !stock?.isReserved),
+    lastUpdated: serverTimestamp()
+  });
+  shelfEntries
+    .filter((shelfItem) => adminShelfKeys.has(String(shelfItem.stockKey)))
+    .forEach((shelfItem) => batch.delete(doc(db, 'shelf', shelfItem.basketId)));
+  batch.set(doc(db, 'shelf', winnerBasketId), winnerShelfItem);
+  const commitResult = await withNetworkTimeout(batch.commit(), 4000, 'fresh admin shelf rebalance');
+  if (commitResult === null) return false;
+
+  return { stocks: nextStocks, shelfItem: winnerShelfItem };
 };
 
 const stockMatchesSource = (stock, source) => !source || getStockSource(stock) === source;
@@ -523,6 +679,38 @@ const getProjectElectricityUsage = (project) => {
   return Number.isFinite(usageKwh) ? usageKwh : 0;
 };
 
+const getPrintResourceSnapshot = (state) => ({
+  printers: state?.printers || [],
+  feeders: state?.feeders || [],
+  filamentInventory: state?.filamentInventory || []
+});
+
+// A card can still have an automatic fallback write in flight when the
+// original printer comes back online. Do not let that stale temporary patch
+// overwrite a newer, valid original-printer assignment.
+const isStaleTemporaryPrinterPatch = (currentProject, patch, resources) => {
+  if (
+    !currentProject
+    || patch?.isTemporaryPrinter !== true
+    || !patch?.originalPrinterId
+    || !patch?.printerId
+  ) return false;
+
+  const resolutionSource = currentProject.originalPrinterId
+    ? currentProject
+    : {
+      ...currentProject,
+      originalPrinterId: patch.originalPrinterId,
+      originalPrinterName: patch.originalPrinterName || currentProject.originalPrinterName
+    };
+  const resolved = resolveProjectPrinterAssignments(resolutionSource, resources);
+  const resolvedPrinterId = resolved?.project?.printerId;
+  if (!resolvedPrinterId) return false;
+
+  return !resolved.project.isTemporaryPrinter
+    && String(resolvedPrinterId) !== String(patch.printerId);
+};
+
 // Project repricing is kept independent from React so the admin rate update
 // can migrate persisted estimates without opening every calculator modal.
 const getProjectElectricityRateSnapshot = (project) => (
@@ -545,11 +733,14 @@ const recomputePersistedProject = (project, resources = {}) => {
     filamentInventory = []
   } = resources;
 
-  const targetPrinterId = source.originalPrinterId || source.printerId || projectDetails[0]?.originalPrinterId || projectDetails[0]?.printerId;
-  const currentPrinter = (printers || []).find((p) => String(p.id) === String(targetPrinterId)) || null;
+  const resolvedAssignments = resolveProjectPrinterAssignments(source, resources);
+  const calculationSource = resolvedAssignments.project;
+  const currentPrinter = resolvedAssignments.activePrinter
+    || (printers || []).find((p) => String(p.id) === String(calculationSource?.printerId))
+    || null;
 
   const calculated = computeProjectCosts({
-    data: source,
+    data: calculationSource,
     activePrinter: currentPrinter,
     dbSettings: {},
     storeRates,
@@ -563,7 +754,8 @@ const recomputePersistedProject = (project, resources = {}) => {
 
   const currentTotals = source?.totals || {};
   if (
-    String(currentTotals.total) === String(calculated.total)
+    !resolvedAssignments.changed
+    && String(currentTotals.total) === String(calculated.total)
     && String(currentTotals.basePrice) === String(calculated.basePrice)
     && String(currentTotals.dp) === String(calculated.dp)
     && String(currentTotals.electricity) === String(calculated.electricity)
@@ -600,9 +792,9 @@ const recomputePersistedProject = (project, resources = {}) => {
   const parsedDp = parseProjectAmount(calculated.dp);
 
   const nextSource = {
-    ...source,
-    originalPrinterId: source.originalPrinterId || source.printerId || targetPrinterId,
-    originalPrinterName: source.originalPrinterName || source.printerName || (currentPrinter ? [currentPrinter.brand, currentPrinter.model || currentPrinter.name].filter(Boolean).join(' ') : ''),
+    ...calculationSource,
+    originalPrinterId: source.originalPrinterId || calculationSource.originalPrinterId || source.printerId,
+    originalPrinterName: source.originalPrinterName || calculationSource.originalPrinterName || source.printerName || (currentPrinter ? [currentPrinter.brand, currentPrinter.model || currentPrinter.name].filter(Boolean).join(' ') : ''),
     totals: nextTotals,
     sellPrice: parsedBase > 0 ? parsedBase : source.sellPrice,
     displayPrice: parsedTotal > 0 ? parsedTotal : source.displayPrice,
@@ -647,10 +839,25 @@ const recomputeAllPersistedProjects = async (reason = 'manual') => {
     return 0;
   }
 
+  const isAdmin = Boolean(state.isAdmin);
+  const currentUid = getCurrentUserUidForPricing();
   const [blueprintSnap, vaultSnap, kitSnap] = await Promise.all([
-    getDocs(collection(db, 'blueprints')),
-    getDocs(collection(db, 'projectVaults')),
-    getDocs(query(collection(db, 'kits'), where('productType', '==', 'printed-project')))
+    // Admin resource changes must update every persisted project. A normal
+    // user already has the live blueprint snapshot in memory, so avoid a
+    // second full public-collection read just to derive a local price view.
+    isAdmin ? getDocs(collection(db, 'blueprints')) : Promise.resolve(null),
+    // projectVaults is owner-scoped for regular users. Reading the collection
+    // as a normal user is both wasteful and rejected by the security rules.
+    isAdmin
+      ? getDocs(collection(db, 'projectVaults'))
+      : currentUid
+        ? getDoc(doc(db, 'projectVaults', currentUid))
+        : Promise.resolve(null),
+    // Printed-project kit prices are shared catalog data and are persisted by
+    // the admin recomputation pass only.
+    isAdmin
+      ? getDocs(query(collection(db, 'kits'), where('productType', '==', 'printed-project')))
+      : Promise.resolve(null)
   ]);
 
   const blueprintUpdates = [];
@@ -658,25 +865,33 @@ const recomputeAllPersistedProjects = async (reason = 'manual') => {
   const kitUpdates = [];
   const nextBlueprints = [];
   const updatedEstimationsMap = new Map(); // estimationId -> updatedProjectData
-  const currentUid = getCurrentUserUidForPricing();
   let currentVault = null;
 
   // 1. Recompute Blueprints (Garage)
-  blueprintSnap.docs.forEach((projectDoc) => {
-    const project = { id: projectDoc.id, ...projectDoc.data() };
+  const blueprintProjects = isAdmin
+    ? blueprintSnap.docs.map((projectDoc) => ({ id: projectDoc.id, ...projectDoc.data() }))
+    : (state.blueprints || []);
+  blueprintProjects.forEach((project) => {
     const recomputed = recomputePersistedProject(project, resources);
     if (!recomputed) return;
-    const { id, ...data } = recomputed;
-    blueprintUpdates.push({
-      ref: doc(db, 'blueprints', projectDoc.id),
-      data: { ...data, pricingUpdatedAt: new Date().toISOString() }
-    });
+    const { id: blueprintId, ...data } = recomputed;
+    if (isAdmin) {
+      blueprintUpdates.push({
+        ref: doc(db, 'blueprints', blueprintId),
+        data: { ...data, pricingUpdatedAt: new Date().toISOString() }
+      });
+    }
     nextBlueprints.push(recomputed);
-    updatedEstimationsMap.set(String(projectDoc.id), recomputed);
+    updatedEstimationsMap.set(String(blueprintId), recomputed);
   });
 
   // 2. Recompute User Vaults
-  vaultSnap.docs.forEach((vaultDoc) => {
+  const vaultDocs = isAdmin
+    ? vaultSnap.docs
+    : vaultSnap?.exists()
+      ? [vaultSnap]
+      : [];
+  vaultDocs.forEach((vaultDoc) => {
     const data = vaultDoc.data() || {};
     const items = Array.isArray(data.items) ? data.items : [];
     let hasChanges = false;
@@ -702,7 +917,7 @@ const recomputeAllPersistedProjects = async (reason = 'manual') => {
   });
 
   // 3. Recompute Printed Projects (Kits with productType == 'printed-project')
-  kitSnap.docs.forEach((kitDoc) => {
+  (kitSnap?.docs || []).forEach((kitDoc) => {
     const kit = { id: kitDoc.id, ...kitDoc.data() };
     const sourceId = kit.sourceEstimationId;
     if (!sourceId) return;
@@ -755,28 +970,51 @@ const recomputeAllPersistedProjects = async (reason = 'manual') => {
   const totalUpdates = blueprintUpdates.length + vaultUpdates.length + kitUpdates.length;
   if (totalUpdates > 0) {
     await commitInChunks([...blueprintUpdates, ...vaultUpdates, ...kitUpdates]);
+    console.info(`SG LOG: Successfully recomputed and updated ${totalUpdates} document(s) (Blueprints: ${blueprintUpdates.length}, Vaults: ${vaultUpdates.length}, Printed Stock: ${kitUpdates.length}).`);
+  } else {
+    console.info('SG LOG: All persisted projects are already up to date. Zero documents needed writing.');
+  }
+
+  // Regular users cannot persist shared blueprint or printed-project changes,
+  // but their already-loaded project cards still need the live fallback price.
+  // Keep that local update independent from the admin-only write batch.
+  if (nextBlueprints.length > 0 || currentVault) {
     useStore.setState((s) => ({
       ...(nextBlueprints.length > 0 ? { blueprints: (s.blueprints || []).map((project) => nextBlueprints.find((next) => next.id === project.id) || project) } : {}),
       ...(currentVault ? { projectVault: currentVault } : {})
     }));
-    console.info(`SG LOG: Successfully recomputed and updated ${totalUpdates} document(s) (Blueprints: ${blueprintUpdates.length}, Vaults: ${vaultUpdates.length}, Printed Stock: ${kitUpdates.length}).`);
-  } else {
-    console.info('SG LOG: All persisted projects are already up to date. Zero documents needed writing.');
   }
 
   return totalUpdates;
 };
 
 let recomputeDebounceTimer = null;
+let recomputeInFlight = null;
+let queuedRecomputeReason = null;
 const schedulePersistedProjectsRecompute = (reason = 'change') => {
+  if (recomputeInFlight) {
+    // A resource update received while the scan is running should trigger one
+    // follow-up pass, but never a second overlapping full-collection scan.
+    queuedRecomputeReason = reason;
+    return;
+  }
   if (recomputeDebounceTimer) {
     clearTimeout(recomputeDebounceTimer);
   }
   recomputeDebounceTimer = setTimeout(() => {
     recomputeDebounceTimer = null;
-    recomputeAllPersistedProjects(reason).catch((err) => {
-      console.error('SG LOG: Automatic persisted project recomputation failed:', err);
-    });
+    recomputeInFlight = recomputeAllPersistedProjects(reason)
+      .catch((err) => {
+        console.error('SG LOG: Automatic persisted project recomputation failed:', err);
+      })
+      .finally(() => {
+        recomputeInFlight = null;
+        if (queuedRecomputeReason) {
+          const nextReason = queuedRecomputeReason;
+          queuedRecomputeReason = null;
+          schedulePersistedProjectsRecompute(nextReason);
+        }
+      });
   }, 800);
 };
 
@@ -854,6 +1092,7 @@ const docsToArray = (snap) => snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 const sharedOrderSubscriptions = new Map();
 const sharedNotifySubscriptions = new Map();
 const sharedUsersSubscriptions = new Map();
+let printResourcesRefCount = 0;
 
 const buildOrderStockTargets = (order = {}) => {
   const targets = [];
@@ -1913,6 +2152,7 @@ export const useStore = create(
           const unsubPrint = get().unsubPrintResources;
           if (unsubPrint) {
             unsubPrint();
+            printResourcesRefCount = 0;
             set((state) => ({
               loadedData: { ...state.loadedData, printResources: false },
               unsubPrintResources: null
@@ -2234,7 +2474,22 @@ export const useStore = create(
         if ((get().methods || []).length === 0) {
           set({ methods: sortPrintMethods(DEFAULT_PRINT_METHODS) });
         }
-        if (get().unsubPrintResources) return;
+        if (get().unsubPrintResources) {
+          printResourcesRefCount += 1;
+          let released = false;
+          return () => {
+            if (released) return;
+            released = true;
+            printResourcesRefCount = Math.max(0, printResourcesRefCount - 1);
+            if (printResourcesRefCount > 0) return;
+            const unsubscribe = get().unsubPrintResources;
+            unsubscribe?.();
+            set((state) => ({
+              loadedData: { ...state.loadedData, printResources: false },
+              unsubPrintResources: null
+            }));
+          };
+        }
 
         const unsubMethods = onSnapshot(collection(db, "methods"), (snap) => {
           const methods = snap.docs.map((d) => ({
@@ -2254,18 +2509,21 @@ export const useStore = create(
 
         const unsubPrinters = onSnapshot(collection(db, "printers"), (snap) => {
           set({ printers: docsToArray(snap).map(normalizePrinterRecord) });
+          schedulePersistedProjectsRecompute('printers/snapshot');
         }, (err) => {
           console.error("SG LOG: Printers subscription error:", err);
         });
 
         const unsubFeeders = onSnapshot(collection(db, "feeders"), (snap) => {
           set({ feeders: docsToArray(snap).map(normalizeFeederRecord) });
+          schedulePersistedProjectsRecompute('feeders/snapshot');
         }, (err) => {
           console.error("SG LOG: Feeders subscription error:", err);
         });
 
         const unsubFilaments = onSnapshot(collection(db, "filaments"), (snap) => {
           set({ filamentInventory: docsToArray(snap) });
+          schedulePersistedProjectsRecompute('filaments/snapshot');
         }, (err) => {
           console.error("SG LOG: Filaments subscription error:", err);
         });
@@ -2274,6 +2532,7 @@ export const useStore = create(
           const rates = {};
           snap.forEach((d) => { rates[d.id] = d.data(); });
           set({ rates });
+          schedulePersistedProjectsRecompute('rates/snapshot');
         }, (err) => {
           console.error("SG LOG: Rates subscription error:", err);
         });
@@ -2284,6 +2543,7 @@ export const useStore = create(
           console.error("SG LOG: Extras subscription error:", err);
         });
 
+        printResourcesRefCount = 1;
         set((state) => ({
           loadedData: { ...state.loadedData, printResources: true },
           unsubPrintResources: () => {
@@ -2295,6 +2555,20 @@ export const useStore = create(
             unsubExtras();
           }
         }));
+
+        let released = false;
+        return () => {
+          if (released) return;
+          released = true;
+          printResourcesRefCount = Math.max(0, printResourcesRefCount - 1);
+          if (printResourcesRefCount > 0) return;
+          const unsubscribe = get().unsubPrintResources;
+          unsubscribe?.();
+          set((state) => ({
+            loadedData: { ...state.loadedData, printResources: false },
+            unsubPrintResources: null
+          }));
+        };
       },
 
       subscribeOrders: (scope = {}) => {
@@ -2691,6 +2965,15 @@ export const useStore = create(
           const isRestock = Boolean(normalizedNewStock && (!stockUpdateKey || !stocks[stockUpdateKey]));
           // Compute stockKey ONCE so both blocks use the same key
           const resolvedStockKey = (!updateMasterOnly && normalizedNewStock) ? (stockUpdateKey || `stock_${Date.now()}`) : null;
+          const previousResolvedStock = resolvedStockKey ? stocks[resolvedStockKey] : null;
+          const shouldRebalanceAdminShelf = Boolean(
+            normalizedNewStock
+            && resolvedStockKey
+            && (
+              isRestock
+              || Number(previousResolvedStock?.costPrice || 0) !== Number(normalizedNewStock.costPrice || 0)
+            )
+          );
 
           if (resolvedStockKey) {
             stocks[resolvedStockKey] = { ...normalizedNewStock, key: resolvedStockKey, lastUpdated: timing };
@@ -2710,151 +2993,192 @@ export const useStore = create(
             });
           }
 
-          let releasedShelfStockKey = null;
+          const releasedShelfStockKeys = [];
+          const shelfDocsToDelete = [];
+          const shelfDocsToWrite = [];
 
-          if (isRestock && resolvedStockKey) {
-            // Check if any existing stock of this kit is in the admin shelf
-            const existingShelfStockEntry = Object.entries(stocks).find(([key, s]) => (
-              key !== resolvedStockKey
-              && (s.reservationType === 'admin' || (s.isReserved && !s.order?.orderId))
-            ));
-
-            // Also check shelf collection documents for this kit
-            const shelfTargetIds = [targetKitId, oldKitId].filter(Boolean);
+          if (shouldRebalanceAdminShelf) {
+            // Keep the lowest-cost eligible stock on the admin shelf. The
+            // marker on the kit stock is the primary source, while shelf
+            // documents also recover older records whose marker was lost.
+            const shelfTargetIds = [...new Set([targetKitId, oldKitId].filter(Boolean))];
             let shelfSnap = null;
             if (shelfTargetIds.length > 0) {
               try {
-                const shelfQuery = query(collection(db, 'shelf'), where('id', 'in', shelfTargetIds));
-                shelfSnap = await getDocs(shelfQuery);
+                const shelfSnapshots = await Promise.all(
+                  shelfTargetIds.map((kitId) => getDocs(query(
+                    collection(db, 'shelf'),
+                    where('id', '==', kitId)
+                  )))
+                );
+                const shelfDocs = shelfSnapshots.flatMap((snapshot) => snapshot.docs);
+                shelfSnap = { docs: shelfDocs };
               } catch (e) {
-                console.warn('SG LOG: Could not query shelf collection by ID in addKit:', e);
+                console.warn('SG LOG: Could not query shelf collection by kit ID in addKit:', e);
               }
             }
 
-            const shelfDocEntry = shelfSnap?.docs?.find(d => {
-              const data = d.data();
-              return data.stockKey && data.stockKey !== resolvedStockKey && stocks[data.stockKey];
+            const shelfEntriesById = new Map();
+            (shelfSnap?.docs || []).forEach((shelfDoc) => {
+              const data = shelfDoc.data() || {};
+              if (data.stockKey && stocks[data.stockKey]) {
+                shelfEntriesById.set(shelfDoc.id, { ...data, basketId: shelfDoc.id });
+              }
+            });
+            (get().shelf || []).forEach((shelfItem) => {
+              if (
+                shelfItem?.stockKey
+                && stocks[shelfItem.stockKey]
+                && shelfTargetIds.some((kitId) => String(shelfItem.id) === String(kitId))
+                && shelfItem.basketId
+                && !shelfEntriesById.has(shelfItem.basketId)
+              ) {
+                shelfEntriesById.set(shelfItem.basketId, shelfItem);
+              }
             });
 
-            const shelfStockKey = existingShelfStockEntry?.[0] || shelfDocEntry?.data()?.stockKey;
-            const shelfBasketId = shelfDocEntry?.id || (get().shelf || []).find(i => (i.id === targetKitId || i.id === oldKitId) && i.stockKey === shelfStockKey)?.basketId;
+            const shelfEntries = [...shelfEntriesById.values()];
+            const shelfEntryByStockKey = new Map();
+            shelfEntries.forEach((shelfItem) => {
+              if (!shelfEntryByStockKey.has(String(shelfItem.stockKey))) {
+                shelfEntryByStockKey.set(String(shelfItem.stockKey), shelfItem);
+              }
+            });
 
-            if (shelfStockKey && stocks[shelfStockKey]) {
-              const shelfStock = stocks[shelfStockKey];
-              const shelfCostPrice = Number(shelfStock.costPrice);
-              const newCostPrice = Number(normalizedNewStock.costPrice);
-              const hasShelfCost = Number.isFinite(shelfCostPrice) && shelfCostPrice > 0;
-              const hasNewCost = Number.isFinite(newCostPrice) && newCostPrice > 0;
+            const adminShelfKeys = new Set(
+              Object.entries(stocks)
+                .filter(([key, stock]) => (
+                  !hasOrderAssociation(stock)
+                  && (
+                    stock?.reservationType === 'admin'
+                    || (
+                      stock?.isReserved
+                      && !['customer', 'supplier-refund'].includes(String(stock?.reservationType || '').trim().toLowerCase())
+                    )
+                    || shelfEntryByStockKey.has(String(key))
+                  )
+                ))
+                .map(([key]) => key)
+            );
 
-              if (hasShelfCost && hasNewCost) {
-                if (newCostPrice < shelfCostPrice) {
-                  // New stock has LOWER cost price: keep new stock in admin shelf, release previous shelf stock
-                  releasedShelfStockKey = shelfStockKey;
-                  stocks[shelfStockKey] = {
-                    ...stocks[shelfStockKey],
-                    isReserved: false
+            if (adminShelfKeys.size > 0) {
+              const eligibleStocks = Object.entries(stocks)
+                .filter(([key, stock]) => {
+                  if (hasOrderAssociation(stock)) return false;
+                  const isAdminShelfStock = adminShelfKeys.has(key);
+                  const isAvailableStock = !stock?.isReserved;
+                  return (isAdminShelfStock || isAvailableStock) && Number(stock?.costPrice) > 0;
+                })
+                .map(([key, stock]) => ({
+                  key,
+                  stock,
+                  costPrice: Number(stock.costPrice),
+                  isAdminShelfStock: adminShelfKeys.has(key)
+                }))
+                .sort((a, b) => (
+                  a.costPrice - b.costPrice
+                  || Number(b.isAdminShelfStock) - Number(a.isAdminShelfStock)
+                  || String(a.key).localeCompare(String(b.key))
+                ));
+
+              const currentShelfWinner = eligibleStocks
+                .filter((entry) => entry.isAdminShelfStock)
+                .sort((a, b) => (
+                  a.costPrice - b.costPrice
+                  || String(a.key).localeCompare(String(b.key))
+                ))[0];
+              const candidateStock = eligibleStocks.find((entry) => entry.key === resolvedStockKey);
+              const winner = candidateStock
+                && !candidateStock.isAdminShelfStock
+                && currentShelfWinner
+                && candidateStock.costPrice < currentShelfWinner.costPrice
+                ? candidateStock
+                : currentShelfWinner;
+              if (winner) {
+                const shelfKeysToRelease = [...adminShelfKeys].filter((key) => key !== winner.key);
+                shelfKeysToRelease.forEach((key) => {
+                  if (!stocks[key]) return;
+                  stocks[key] = {
+                    ...stocks[key],
+                    isReserved: false,
+                    availableAt: timing
                   };
-                  delete stocks[shelfStockKey].reservedBy;
-                  delete stocks[shelfStockKey].reservedAt;
-                  delete stocks[shelfStockKey].reservationType;
-                  delete stocks[shelfStockKey].reservedByDealId;
-                  stocks[shelfStockKey].availableAt = timing;
+                  delete stocks[key].reservedBy;
+                  delete stocks[key].reservedAt;
+                  delete stocks[key].reservationType;
+                  delete stocks[key].reservedByDealId;
+                  releasedShelfStockKeys.push(key);
 
-                  if (shelfBasketId) {
-                    try {
-                      await deleteDoc(doc(db, 'shelf', shelfBasketId));
-                    } catch (err) {
-                      console.error('SG LOG: Failed to delete previous shelf doc:', err);
-                    }
+                  const shelfItem = shelfEntryByStockKey.get(String(key));
+                  if (shelfItem?.basketId) {
+                    shelfDocsToDelete.push({
+                      basketId: shelfItem.basketId,
+                      stockKey: key
+                    });
                   }
+                });
 
-                  // Put new stock in admin shelf
-                  stocks[resolvedStockKey] = {
-                    ...stocks[resolvedStockKey],
-                    isReserved: true,
-                    reservationType: 'admin',
-                    reservedBy: get().user?.uid || 'admin',
-                    reservedAt: timing
-                  };
-
-                  const newBasketId = `shelf_${targetKitId}_${resolvedStockKey}`;
-                  const { handlingFee: hFee, installmentFee: iFee, transferFee: tFee } = getCheckoutPaymentFees({
-                    garageInfo: { checkoutSettings: get().shippingSettings },
-                    adminData: { paymentSettings: get().shippingSettings?.paymentSettings }
-                  });
-                  const basePrice = Number(normalizedNewStock.sellPrice || 0);
-                  const cleanShelfItem = {
-                    id: targetKitId,
-                    name: (masterInfo.name || '').replace(/\s*\(Pre-Order\)\s*$/i, ''),
-                    image: masterInfo.image || '',
-                    brand: masterInfo.brand || '',
-                    specs: masterInfo.specs || {},
-                    price: basePrice + hFee + iFee + tFee,
-                    costPrice: newCostPrice,
-                    sellPrice: basePrice,
-                    status: normalizedNewStock.status || 'onhand',
-                    eta: getStockEta(normalizedNewStock),
-                    appliedHandlingFee: hFee,
-                    appliedInstallmentFee: iFee,
-                    appliedTransferFee: tFee,
-                    stockKey: resolvedStockKey,
-                    stockSource: getStockSource(normalizedNewStock),
-                    type: 'kit',
-                    basketId: newBasketId,
-                    minDownpayment: normalizedNewStock.minDownpayment || 0,
-                    isBundleItem: false,
-                    isClearanceBundle: false,
-                    clearanceKitIds: [],
-                    bundleId: null,
-                    bundleName: null,
-                    bundleSize: null,
-                    bundleFeeShare: 0,
-                    bundleReferencePrice: 0,
-                    allowShelfBundle: true,
-                    appliedBundlePrice: null,
-                    createdAt: timing
-                  };
-
-                  try {
-                    await setDoc(doc(db, 'shelf', newBasketId), cleanShelfItem);
-                  } catch (err) {
-                    console.error('SG LOG: Failed to write new shelf item to db:', err);
-                  }
-
-                  set((state) => ({
-                    shelf: (state.shelf || [])
-                      .filter((item) => item.basketId !== shelfBasketId && item.stockKey !== shelfStockKey)
-                      .concat(cleanShelfItem)
-                  }));
-                } else {
-                  // shelfCostPrice <= newCostPrice:
-                  // The existing shelf stock already has the lowest cost price!
-                  // Keep shelf stock in the shelf. New stock remains regular available stock.
-                }
-              } else {
-                // Cost price comparison not applicable: release the stock in admin shelf
-                releasedShelfStockKey = shelfStockKey;
-                stocks[shelfStockKey] = {
-                  ...stocks[shelfStockKey],
-                  isReserved: false
+                const currentWinner = stocks[winner.key];
+                stocks[winner.key] = {
+                  ...currentWinner,
+                  isReserved: true,
+                  reservationType: 'admin',
+                  reservedBy: currentWinner.reservedBy || get().user?.uid || 'admin',
+                  reservedAt: currentWinner.reservedAt || timing
                 };
-                delete stocks[shelfStockKey].reservedBy;
-                delete stocks[shelfStockKey].reservedAt;
-                delete stocks[shelfStockKey].reservationType;
-                delete stocks[shelfStockKey].reservedByDealId;
-                stocks[shelfStockKey].availableAt = timing;
 
-                if (shelfBasketId) {
-                  try {
-                    await deleteDoc(doc(db, 'shelf', shelfBasketId));
-                  } catch (err) {
-                    console.error('SG LOG: Failed to delete released shelf doc:', err);
-                  }
-                }
+                const { handlingFee: hFee, installmentFee: iFee, transferFee: tFee } = getCheckoutPaymentFees({
+                  garageInfo: { checkoutSettings: get().shippingSettings },
+                  adminData: { paymentSettings: get().shippingSettings?.paymentSettings }
+                });
+                const winnerShelfItem = shelfEntryByStockKey.get(String(winner.key));
+                const winnerBasketId = winnerShelfItem?.basketId || `shelf_${targetKitId}_${winner.key}`;
+                const winnerSellPrice = Number(currentWinner.sellPrice || 0);
+                const shelfPayload = {
+                  ...(winnerShelfItem || {}),
+                  id: targetKitId,
+                  name: (masterInfo.name || '').replace(/\s*\(Pre-Order\)\s*$/i, ''),
+                  image: masterInfo.image || '',
+                  brand: masterInfo.brand || '',
+                  specs: masterInfo.specs || {},
+                  price: winnerSellPrice + hFee + iFee + tFee,
+                  costPrice: Number(currentWinner.costPrice || 0),
+                  sellPrice: winnerSellPrice,
+                  status: currentWinner.status || 'onhand',
+                  eta: getStockEta(currentWinner),
+                  appliedHandlingFee: hFee,
+                  appliedInstallmentFee: iFee,
+                  appliedTransferFee: tFee,
+                  stockKey: winner.key,
+                  stockSource: getStockSource(currentWinner),
+                  type: 'kit',
+                  basketId: winnerBasketId,
+                  minDownpayment: currentWinner.minDownpayment || 0,
+                  isBundleItem: false,
+                  isClearanceBundle: false,
+                  clearanceKitIds: [],
+                  bundleId: null,
+                  bundleName: null,
+                  bundleSize: null,
+                  bundleFeeShare: 0,
+                  bundleReferencePrice: 0,
+                  allowShelfBundle: true,
+                  appliedBundlePrice: null,
+                  createdAt: winnerShelfItem?.createdAt || timing
+                };
+                shelfDocsToWrite.push({ basketId: winnerBasketId, data: shelfPayload });
 
-                set((state) => ({
-                  shelf: (state.shelf || []).filter((item) => item.basketId !== shelfBasketId && item.stockKey !== shelfStockKey)
-                }));
+                // A stale duplicate shelf row for the winner should not
+                // survive the rebalance when multiple rows exist.
+                shelfEntries
+                  .filter((shelfItem) => (
+                    String(shelfItem.stockKey) === String(winner.key)
+                    && shelfItem.basketId !== winnerBasketId
+                  ))
+                  .forEach((shelfItem) => shelfDocsToDelete.push({
+                    basketId: shelfItem.basketId,
+                    stockKey: winner.key
+                  }));
               }
             }
           }
@@ -2874,12 +3198,6 @@ export const useStore = create(
 
           const kitRef = doc(db, 'kits', targetKitId);
 
-          await withNetworkTimeout(
-            setDoc(kitRef, isExistingKit ? cleanMaster : { ...cleanMaster, stocks }, { merge: true }),
-            4000,
-            'setDoc'
-          );
-
           const stockUpdates = {};
           if (resolvedStockKey) {
             stockUpdates[`stocks.${resolvedStockKey}`] = stocks[resolvedStockKey];
@@ -2891,21 +3209,71 @@ export const useStore = create(
               }
             });
           }
-          if (releasedShelfStockKey && stocks[releasedShelfStockKey]) {
-            stockUpdates[`stocks.${releasedShelfStockKey}`] = stocks[releasedShelfStockKey];
-          }
+          releasedShelfStockKeys.forEach((stockKey) => {
+            if (stocks[stockKey]) {
+              stockUpdates[`stocks.${stockKey}`] = stocks[stockKey];
+            }
+          });
           stockUpdates.hasAvailableStock = hasAvailable;
 
-          if (Object.keys(stockUpdates).length > 0) {
-            await withNetworkTimeout(
-              updateDoc(kitRef, stockUpdates),
-              4000,
-              'updateDoc'
-            );
+          const saveBatch = writeBatch(db);
+          if (isExistingKit) {
+            // update() supports the dotted stocks.<key> field paths above;
+            // set({ merge: true }) treats those paths differently and can
+            // reject a normal stock-add save.
+            saveBatch.update(kitRef, { ...cleanMaster, ...stockUpdates });
+          } else {
+            saveBatch.set(kitRef, { ...cleanMaster, stocks }, { merge: true });
+          }
+          for (const shelfDoc of shelfDocsToDelete) {
+            saveBatch.delete(doc(db, 'shelf', shelfDoc.basketId));
+          }
+          for (const shelfDoc of shelfDocsToWrite) {
+            saveBatch.set(doc(db, 'shelf', shelfDoc.basketId), shelfDoc.data);
+          }
+          await withNetworkTimeout(saveBatch.commit(), 4000, 'addKit save batch');
+
+          // Re-read the committed documents and apply the candidate-vs-shelf
+          // rule from the authoritative Firestore state. This also repairs
+          // older records whose stock reservation marker is incomplete.
+          let freshRebalance = null;
+          if (shouldRebalanceAdminShelf) {
+            try {
+              freshRebalance = await rebalanceAdminShelfFromFreshFirestore({
+                kitId: targetKitId,
+                masterInfo,
+                userId: get().user?.uid || auth.currentUser?.uid || 'admin',
+                candidateStockKey: resolvedStockKey
+              });
+              if (freshRebalance?.stocks) {
+                stocks = freshRebalance.stocks;
+              }
+            } catch (rebalanceError) {
+              console.warn('SG LOG: Fresh admin shelf rebalance failed:', rebalanceError);
+            }
           }
 
           set((state) => ({
-            kits: state.kits.map((k) => (k.id === targetKitId ? { ...k, ...cleanMaster, stocks } : k))
+            kits: state.kits.map((k) => (k.id === targetKitId ? { ...k, ...cleanMaster, stocks } : k)),
+            ...(shelfDocsToDelete.length > 0 || shelfDocsToWrite.length > 0
+              ? {
+                shelf: (state.shelf || [])
+                  .filter((item) => (
+                    !shelfDocsToDelete.some((deleted) => deleted.basketId === item.basketId)
+                    && !shelfDocsToDelete.some((deleted) => (
+                      String(deleted.stockKey) === String(item.stockKey)
+                      && String(item.id) === String(targetKitId)
+                    ))
+                  ))
+                  .concat(shelfDocsToWrite.map((shelfDoc) => shelfDoc.data))
+                  .concat(
+                    freshRebalance?.shelfItem
+                    && !shelfDocsToWrite.some((shelfDoc) => shelfDoc.basketId === freshRebalance.shelfItem.basketId)
+                      ? [freshRebalance.shelfItem]
+                      : []
+                  )
+              }
+              : {})
           }));
           try {
             await withNetworkTimeout(
@@ -3807,6 +4175,7 @@ export const useStore = create(
 
         try {
           await setDoc(ref, nextPrinter);
+          schedulePersistedProjectsRecompute(`printers/${ref.id}`);
         } catch (error) {
           set({ printers: previousPrinters });
           throw error;
@@ -3869,6 +4238,7 @@ export const useStore = create(
 
         try {
           await setDoc(ref, normalizedData);
+          schedulePersistedProjectsRecompute(`feeders/${ref.id}`);
         } catch (error) {
           set({ feeders: previousFeeders });
           throw error;
@@ -3889,6 +4259,7 @@ export const useStore = create(
 
         try {
           await updateDoc(doc(db, 'feeders', id), normalizedPatch);
+          schedulePersistedProjectsRecompute(`feeders/${id}`);
         } catch (error) {
           set({ feeders: previousFeeders });
           throw error;
@@ -3904,6 +4275,7 @@ export const useStore = create(
 
         try {
           await deleteDoc(doc(db, 'feeders', id));
+          schedulePersistedProjectsRecompute(`feeders/${id}/delete`);
         } catch (error) {
           set({ feeders: previousFeeders });
           throw error;
@@ -3927,6 +4299,7 @@ export const useStore = create(
         });
         try {
           await setDoc(ref, { ...d, id: ref.id });
+          schedulePersistedProjectsRecompute(`filaments/${ref.id}`);
         } catch (error) {
           set({ filamentInventory: previousInventory });
           throw error;
@@ -4378,31 +4751,49 @@ export const useStore = create(
           if (isAdminContext) {
             const shelfCount = newList.filter(i => i.id === item.id).length;
             set({ toastMessage: `${shelfCount} in shelf` });
-            await deleteDoc(doc(db, 'shelf', basketId));
-            const kitSnap = await getDoc(doc(db, "kits", item.id));
-            if (kitSnap.exists() && kitSnap.data().stocks?.[item.stockKey]?.reservationType === 'admin') {
+            const kitRef = doc(db, "kits", item.id);
+            const kitSnap = await getDoc(kitRef);
+            const shelfBatch = writeBatch(db);
+            shelfBatch.delete(doc(db, 'shelf', basketId));
+
+            if (kitSnap.exists()) {
               const kitData = kitSnap.data();
-              const stocks = { ...kitData.stocks };
-              if (stocks[item.stockKey]) {
-                stocks[item.stockKey].isReserved = false;
+              const stock = kitData.stocks?.[item.stockKey];
+              // The shelf document is authoritative for an admin-shelf
+              // reservation. Do not require reservationType === 'admin';
+              // older shelf rows may have only isReserved or no marker.
+              const canReleaseStock = stock
+                && !hasOrderAssociation(stock)
+                && stock.supplierRefundStatus !== 'pending';
+              if (canReleaseStock) {
+                const stocks = Object.fromEntries(
+                  Object.entries(kitData.stocks || {}).map(([stockKey, stockValue]) => [stockKey, { ...stockValue }])
+                );
+                stocks[item.stockKey] = {
+                  ...stocks[item.stockKey],
+                  isReserved: false,
+                  availableAt: serverTimestamp()
+                };
                 delete stocks[item.stockKey].reservedBy;
                 delete stocks[item.stockKey].reservedAt;
                 delete stocks[item.stockKey].reservationType;
                 delete stocks[item.stockKey].reservedByDealId;
+
+                const hasAvailable = Object.values(stocks).some(s => !s.order?.orderId && !s.isReserved);
+                shelfBatch.update(kitRef, {
+                  [`stocks.${item.stockKey}.isReserved`]: false,
+                  [`stocks.${item.stockKey}.reservedBy`]: deleteField(),
+                  [`stocks.${item.stockKey}.reservedAt`]: deleteField(),
+                  [`stocks.${item.stockKey}.availableAt`]: serverTimestamp(),
+                  [`stocks.${item.stockKey}.reservationType`]: deleteField(),
+                  [`stocks.${item.stockKey}.reservedByDealId`]: deleteField(),
+                  hasAvailableStock: hasAvailable,
+                  lastAvailableAt: serverTimestamp(),
+                  lastUpdated: serverTimestamp()
+                });
               }
-              const hasAvailable = Object.values(stocks).some(s => !s.order?.orderId && !s.isReserved);
-              await updateDoc(doc(db, "kits", item.id), { 
-                [`stocks.${item.stockKey}.isReserved`]: false, 
-                [`stocks.${item.stockKey}.reservedBy`] : null, 
-                [`stocks.${item.stockKey}.reservedAt`]: null, 
-                [`stocks.${item.stockKey}.availableAt`]: serverTimestamp(),
-                [`stocks.${item.stockKey}.reservationType`]: deleteField(),
-                [`stocks.${item.stockKey}.reservedByDealId`]: deleteField(),
-                hasAvailableStock: hasAvailable,
-                lastAvailableAt: serverTimestamp(),
-                lastUpdated: serverTimestamp()
-              });
             }
+            await shelfBatch.commit();
           } else {
             await deleteDoc(doc(db, 'users', user.uid, 'basket', basketId));
           }
@@ -5037,6 +5428,16 @@ export const useStore = create(
       updateBlueprint: async (blueprintId, pData) => {
         const { user } = get();
         if (!blueprintId) throw new Error('Missing blueprint id.');
+        const blueprintRef = doc(db, 'blueprints', blueprintId);
+        if (pData?.isTemporaryPrinter === true) {
+          const currentSnapshot = await getDoc(blueprintRef);
+          const currentProject = currentSnapshot.exists()
+            ? { id: currentSnapshot.id, ...currentSnapshot.data() }
+            : null;
+          if (isStaleTemporaryPrinterPatch(currentProject, pData, getPrintResourceSnapshot(get()))) {
+            return;
+          }
+        }
         const cleanProjectData = removeUndefinedValues(pData || {});
         const blueprintData = {
           ...cleanProjectData,
@@ -5046,7 +5447,7 @@ export const useStore = create(
           canAddToBasket: pData.canAddToBasket !== false,
           isPublished: true
         };
-        await setDoc(doc(db, 'blueprints', blueprintId), blueprintData, { merge: true });
+        await setDoc(blueprintRef, blueprintData, { merge: true });
         set((state) => ({
           blueprints: (state.blueprints || []).map((project) => project.id === blueprintId
             ? {
@@ -5111,6 +5512,10 @@ export const useStore = create(
         const { user, projectVault } = get();
         if (!vId) throw new Error('Missing vault project id.');
         if (!user) {
+          const currentProject = (projectVault || []).find((project) => project.vaultId === vId);
+          if (isStaleTemporaryPrinterPatch(currentProject, pData, getPrintResourceSnapshot(get()))) {
+            return;
+          }
           const newVault = (projectVault || []).map((project) => (
             project.vaultId === vId
               ? { ...project, ...pData, vaultId: vId, status: project.status || 'Draft', updatedAt: new Date().toISOString() }
@@ -5130,11 +5535,18 @@ export const useStore = create(
           const storedItems = snapshot.exists() && Array.isArray(snapshot.data()?.items)
             ? snapshot.data().items
             : (projectVault || []);
-          const updatedVault = storedItems.map((project) => (
-            project.vaultId === vId
-              ? { ...project, ...pData, vaultId: vId, status: project.status || 'Draft', updatedAt: new Date().toISOString() }
-              : project
-          ));
+          const currentProject = storedItems.find((project) => project.vaultId === vId);
+          const updatedVault = isStaleTemporaryPrinterPatch(
+            currentProject,
+            pData,
+            getPrintResourceSnapshot(get())
+          )
+            ? storedItems
+            : storedItems.map((project) => (
+              project.vaultId === vId
+                ? { ...project, ...pData, vaultId: vId, status: project.status || 'Draft', updatedAt: new Date().toISOString() }
+                : project
+            ));
           transaction.set(vaultRef, { items: updatedVault, uid: user.uid }, { merge: true });
           return updatedVault;
         });

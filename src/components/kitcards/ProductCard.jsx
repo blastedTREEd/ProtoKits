@@ -24,7 +24,7 @@ import { getBundleDisplayTotals } from '../../utils/bundleDisplayPricing';
 import { getDealDiscountAmount, getDealGrabLabel, getDealSaveUpToLabel } from '../../utils/dealSavings';
 import { getStockEta } from '../../utils/stockDates';
 import { isFlexiBundleDeal, isPerKitClearanceDeal, isWildSaleDeal, isClearanceKitActive, getActiveClearanceKitIds, getClearanceDisplayLabel } from '../../utils/dealTypes';
-import { getValidatedOrderStockSet, isStockInValidatedOrder, filterActiveKitStocks } from '../../utils/stockOrderUtils';
+import { getValidatedOrderStockSet, filterActiveKitStocks } from '../../utils/stockOrderUtils';
 import UniversalImage from '../common/UniversalImage';
 
 // Resolves an image ID to its URL from the images array.
@@ -607,11 +607,13 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   const isPendingRelease = timeLeft !== "";
 
   const getPublicStatus = useCallback((stock) => {
-    if (isAdmin && isAdminView) return { isPublic: true };
+    // Admins are eligible for early access even while viewing the public
+    // catalog, so release dates must not hide their stocks or show a timer.
+    if (isAdmin) return { isPublic: true };
     if (!stock?.publicReleaseDate) return { isPublic: true };
     const releaseTime = new Date(stock.publicReleaseDate).getTime();
     return { isPublic: now >= releaseTime, releaseTime };
-  }, [isAdmin, isAdminView, now]);
+  }, [isAdmin, now]);
 
   const productPath = kitId ? `/kits/${encodeURIComponent(kitId)}` : '/kits';
   const isRouteSelectedProduct = !!kitId && routeKitId === kitId;
@@ -769,6 +771,19 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     return (shelf || []).find(item => item.id === kitId);
   }, [shelf, kitId]);
 
+  const highestCostShelfItem = useMemo(() => {
+    const kitShelfItems = (shelf || [])
+      .filter(item => String(item.id) === String(kitId))
+      .map(item => ({
+        ...item,
+        costPrice: getStockCostPrice(stockList.find(stock => String(stock.key) === String(item.stockKey)) || item)
+      }));
+    return kitShelfItems.sort((a, b) => (
+      getStockCostPrice(b) - getStockCostPrice(a)
+      || String(b.stockKey || '').localeCompare(String(a.stockKey || ''))
+    ))[0] || null;
+  }, [shelf, kitId, stockList]);
+
   const shelfCount = useMemo(() => {
     return (shelf || []).filter(item => item.id === kitId).length;
   }, [shelf, kitId]);
@@ -922,14 +937,32 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   }, [availabilityGroups]);
 
   const selectableAvailabilityGroups = useMemo(() => {
-    return isAdmin && isAdminView
+    const groups = isAdmin && isAdminView
       ? [...availabilityGroups, ...collectionGroupedVariants]
       : availabilityGroups;
+
+    // Deals are customer-facing purchase options. Admin pricing is based on
+    // the selected availability/collection group, so keep deal groups out of
+    // the admin selector entirely.
+    return isAdmin && isAdminView
+      ? groups.filter(group => group.tag !== 'bundleDeal')
+      : groups;
   }, [isAdmin, isAdminView, availabilityGroups, collectionGroupedVariants]);
 
   const selectedAvailabilityGroup = useMemo(() => {
     return selectableAvailabilityGroups.find(group => group.key === selectedGroupLabel) || null;
   }, [selectableAvailabilityGroups, selectedGroupLabel]);
+
+  const adminSelectedGroupCost = useMemo(() => {
+    if (!(isAdmin && isAdminView)) return null;
+
+    const group = selectedAvailabilityGroup;
+    const costs = (group?.items || [])
+      .map(item => getStockCostPrice(item))
+      .filter(price => Number.isFinite(price) && price > 0);
+
+    return costs.length > 0 ? Math.min(...costs) : null;
+  }, [isAdmin, isAdminView, selectedAvailabilityGroup]);
 
   const availabilityHeaderGroup = selectedAvailabilityGroup?.tag === 'bundleDeal'
     ? visibleAvailabilityGroups[0]
@@ -939,11 +972,6 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   const isSelectedCollectionGroup = ['collection', 'acceptedOffer'].includes(selectedAvailabilityGroup?.tag);
   const selectedBundleDealDetails = selectedAvailabilityGroup?.dealDetails || null;
   const conditionDetailsStock = selectedBundleDealDetails?.currentKitStock || selectedStock;
-  const selectedShelfItem = useMemo(() => {
-    if (!isSelectedCollectionGroup || !selectedStock || selectedAvailabilityGroup?.tag === 'acceptedOffer') return null;
-    return (shelf || []).find(item => item.id === kitId && item.stockKey === selectedStock.key) || null;
-  }, [isSelectedCollectionGroup, selectedAvailabilityGroup?.tag, selectedStock, shelf, kitId]);
-
   const isClearanceDeal = bundleDealDetails.some(detail => detail.isClearance);
   const isWildSale = bundleDealDetails.some(detail => isWildSaleDeal(detail.deal));
   const activeWildSaleDetail = bundleDealDetails
@@ -964,8 +992,9 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   );
 
   const isEarlyAccess = useMemo(() => {
+    if (isAdmin) return false;
     return stockList.some(s => s.publicReleaseDate && new Date(s.publicReleaseDate).getTime() > now);
-  }, [stockList, now]);
+  }, [isAdmin, stockList, now]);
 
   const isFSEligible = useMemo(() => {
     return visibleStocks.some(s => {
@@ -1045,6 +1074,10 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
 
     return { cost, sell };
   }, [stockList, isAdminView, shelf, kit, kitId]);
+
+  const adminDisplayedCost = isAdmin && isAdminView
+    ? (adminSelectedGroupCost ?? adminDisplayInfo?.cost ?? 0)
+    : 0;
 
   const handleSelectGroup = useCallback((group) => {
     setSelectedGroupLabel(group.key || group.label);
@@ -1956,7 +1989,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                 ₱{adminDisplayInfo.sell.toLocaleString()}
                               </span>
                               <span className="text-[15px] font-bold tracking-tighter leading-none text-blue-600 dark:text-blue-400 shrink-0">
-                                ₱{adminDisplayInfo.cost.toLocaleString()}
+                                ₱{adminDisplayedCost.toLocaleString()}
                               </span>
                             </>
                           ) : (
@@ -1978,7 +2011,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                           e.stopPropagation(); 
                           if (gridButtonConfig.action === 'release') {
                             if (window.confirm("Are you sure you want to release this stock back to the public?")) {
-                              removeFromBasket(shelfItem.basketId);
+                              removeFromBasket(highestCostShelfItem?.basketId);
                             }
                           } else if (gridButtonConfig.action === 'keep') {
                             handleAddToCart(); 
@@ -2113,7 +2146,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                     ₱{(adminDisplayInfo?.sell || 0).toLocaleString()}
                                   </p>
                                   <p className="text-[24px] sm:text-4xl font-black italic tracking-tighter leading-none text-blue-600 dark:text-blue-400 flex">
-                                    ₱{(adminDisplayInfo?.cost || 0).toLocaleString()}
+                                    ₱{adminDisplayedCost.toLocaleString()}
                                   </p>
                                 </div>
                               )}
@@ -2178,7 +2211,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                                     ₱{(adminDisplayInfo?.sell || 0).toLocaleString()}
                                   </p>
                                   <p className="text-[24px] lg:text-[34px] font-black italic tracking-tighter leading-none text-blue-600 dark:text-blue-400 flex">
-                                    ₱{(adminDisplayInfo?.cost || 0).toLocaleString()}
+                                    ₱{adminDisplayedCost.toLocaleString()}
                                   </p>
                                 </div>
                               )}
@@ -2230,7 +2263,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                         </div>
                       )}
 
-                      {nonWildSaleDealDetails.length > 0 && (
+                      {!isAdminView && nonWildSaleDealDetails.length > 0 && (
                         <div className="pt-4 space-y-2">
                           <h4 className="text-[14px] font-bold uppercase tracking-[0.1em] text-neutral-600 dark:text-neutral-300 flex items-center gap-2 text-left">
                             <Gift size={18} /> DEALS
@@ -2508,7 +2541,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                     </div>
                     <div className="flex flex-col sm:flex-row md:flex-col lg:flex-row sm:items-center lg:items-center justify-between sm:gap-6 lg:gap-6">
                       <div className="flex-1 w-full flex sm:justify-end lg:justify-end">
-                          {isPendingRelease && availableCount === 0 && !(isAdmin && isAdminView) ? (
+                          {isPendingRelease && availableCount === 0 && !isAdmin ? (
                             <div className="w-full sm:w-auto lg:w-auto px-8 py-4 rounded-3xl bg-neutral-900 text-white text-center font-black italic uppercase tracking-widest">{timeLeft}</div>
                           ) : isNotifyState ? (
                             <div className="flex w-full items-stretch gap-2">
@@ -2577,11 +2610,11 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                               </button>
                               <button 
                                 onClick={() => {
-                                  if (selectedShelfItem && window.confirm("Are you sure you want to release this stock back to the public?")) {
-                                    removeFromBasket(selectedShelfItem.basketId);
+                                  if (highestCostShelfItem && window.confirm("Are you sure you want to release the highest-cost shelf stock back to the public?")) {
+                                    removeFromBasket(highestCostShelfItem.basketId);
                                   }
                                 }} 
-                                disabled={!selectedShelfItem}
+                                disabled={!highestCostShelfItem}
                                 className="flex-1 flex items-center justify-center gap-2 px-2 py-4 rounded-full text-white font-black italic uppercase text-[12px] tracking-widest shadow-lg transition-all active:scale-95 whitespace-nowrap disabled:opacity-30 bg-gradient-to-br from-amber-500 to-orange-600 shadow-orange-500/20"
                               >
                                 <PackageMinus size={14} /> RELEASE

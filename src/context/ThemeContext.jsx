@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 
 // 1. Create the context
 const ThemeContext = createContext(undefined);
@@ -9,18 +9,20 @@ export function ThemeProvider({ children }) {
   const [isDarkMode, setIsDarkMode] = useState(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('snorlax-theme');
-      return saved !== null ? JSON.parse(saved) : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      // Keep first-time visitors in the light theme. A visitor's OS theme
+      // should not silently override the app's own default.
+      return saved !== null ? JSON.parse(saved) : false;
     }
-    return true;
+    return false;
   });
 
   // Spectral mode state
   const [isSpectralMode, setIsSpectralMode] = useState(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('snorlax-spectral');
-      return saved !== null ? JSON.parse(saved) : true;
+      return saved !== null ? JSON.parse(saved) : false;
     }
-    return true;
+    return false;
   });
 
   // Sync Dark mode
@@ -41,7 +43,7 @@ export function ThemeProvider({ children }) {
     localStorage.setItem('snorlax-spectral', JSON.stringify(isSpectralMode));
   }, [isSpectralMode]);
 
-  const toggleTheme = () => {
+  const toggleTheme = useCallback(() => {
     setIsDarkMode(prev => {
       const next = !prev;
       if (!next) {
@@ -55,12 +57,12 @@ export function ThemeProvider({ children }) {
       }
       return next;
     });
-  };
+  }, [isSpectralMode]);
 
-  const toggleSpectralMode = () => {
+  const toggleSpectralMode = useCallback(() => {
     if (!isDarkMode) return; // Prevent turning on spectral mode in light mode
     setIsSpectralMode(prev => !prev);
-  };
+  }, [isDarkMode]);
 
   // Memoize the value
   const value = useMemo(() => ({

@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  Box, CalendarDays, Clock, Zap, Plus, Lock, Edit3, Trash2, Printer, PackageMinus,
+  Box, CalendarDays, Clock, Zap, Plus, Lock, Edit3, Trash2, PackageMinus,
   X, Weight, Layers, AlertTriangle, Link2, Unlink2, ExternalLink, ChevronRight, ChevronLeft,
   ShoppingBasket, Play, Pause, FileText, ShieldCheck, CheckCircle2, XCircle, ImagePlus,
   Settings, Pencil, PencilSparkles, Sparkles
@@ -269,14 +269,6 @@ const isProjectPrinterOperational = (printer = {}) => {
   return isPrinterAvailableForScheduling(printer);
 };
 
-const getProjectPrinterStatusTextClass = (printerSelection, printer) => (
-  normalizePrinterStatus(printer?.status, printer) === 'maintenance'
-    ? 'text-amber-500'
-    : printerSelection?.isCompatible && isProjectPrinterOperational(printer)
-      ? 'text-emerald-600'
-      : 'text-red-500'
-);
-
 const printerFitsProjectDimensions = (printer, dimensions) => {
   if (!dimensions) return true;
   const capacity = normalizePrinterRecord(printer).buildCapacity;
@@ -311,13 +303,20 @@ const getProjectPrinterCandidates = (printers, project, details = [], targetDeta
   const availablePrinters = Array.isArray(printers) ? printers : [];
   const detailsToCheck = details.length > 0 ? details : [project];
 
+  const targetOriginalPrinterIds = targetDetail
+    ? [
+      targetDetail?.originalPrinterId,
+      ...(targetDetail?.productionJobs || []).map((job) => job?.originalPrinterId)
+    ]
+    : [];
+  const projectOriginalPrinterIds = [project?.originalPrinterId];
+  const allOriginalPrinterIds = detailsToCheck.flatMap((detail) => [
+    detail?.originalPrinterId,
+    ...(detail?.productionJobs || []).map((job) => job?.originalPrinterId)
+  ]);
   const originalPrinterIds = [
-    targetDetail?.originalPrinterId,
-    project?.originalPrinterId,
-    ...detailsToCheck.flatMap((detail) => [
-      detail?.originalPrinterId,
-      ...(detail?.productionJobs || []).map((job) => job?.originalPrinterId)
-    ])
+    ...(targetDetail ? targetOriginalPrinterIds : allOriginalPrinterIds),
+    ...(targetDetail && targetOriginalPrinterIds.some(Boolean) ? [] : projectOriginalPrinterIds)
   ].filter(Boolean).map(String);
 
   const allAssignedPrinterIds = [
@@ -438,6 +437,46 @@ const getProjectPrinterLabel = (printer) => (
     : ''
 );
 
+const ProjectDetailPrinterLines = ({ printerEvaluation, item = {}, project = {} }) => {
+  const configuredPrinters = printerEvaluation?.configuredPrinters?.length > 0
+    ? printerEvaluation.configuredPrinters
+    : [{
+      printer: printerEvaluation?.configuredPrinter,
+      name: printerEvaluation?.configuredLabel
+        || item?.printerName
+        || item?.originalPrinterName
+        || project?.printerName
+        || project?.originalPrinterName
+    }];
+
+  const getStatusClass = (printer) => {
+    if (!printer) return 'text-red-500 line-through';
+    const status = normalizePrinterStatus(printer?.status, printer);
+    if (status === 'maintenance') return 'text-amber-600 line-through';
+    if (status === 'unavailable') return 'text-red-500 line-through';
+    return '';
+  };
+
+  return (
+    <div className="mt-1 space-y-0.5 text-[14px] font-bold uppercase leading-tight">
+      {configuredPrinters.filter((printer) => printer?.name).map((printer, index) => (
+        <div key={`${printer.name}-${index}`} className={`truncate ${getStatusClass(printer.printer)}`}>
+          {printer.name}
+        </div>
+      ))}
+      {printerEvaluation?.replacementPrinter ? (
+        <div className="truncate text-blue-600">
+          {getProjectPrinterLabel(printerEvaluation.replacementPrinter)}
+        </div>
+      ) : printerEvaluation && !printerEvaluation.canPrint ? (
+        <div className="text-red-500">
+          NO COMPATIBLE PRINTER AVAILABLE
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
 const getProjectMaterial = (item = {}, filamentInventory = []) => {
   const material = item.normalizedMaterial || item.material?.material || item.material || {};
   const materialId = material.id || item.materialId || item.material?.materialId;
@@ -514,6 +553,211 @@ const getProjectDetailItemLabel = (project, methodLabel, item = {}, index = 0) =
   if (method === '3MF') return `Build Plate ${itemNumber}`;
   if (method === 'STL') return `Model ${itemNumber}`;
   return item?.itemName || `Item ${itemNumber}`;
+};
+
+const evaluateProjectPrintersAndPlates = (
+  printers = [],
+  project = {},
+  details = [],
+  feeders = [],
+  filamentInventory = [],
+  methodLabel = ''
+) => {
+  const detailsToCheck = details.length > 0 ? details : [project];
+
+  // Evaluate each build plate / detail individually
+  const plateEvaluations = detailsToCheck.map((item, index) => {
+    const itemLabel = getProjectDetailItemLabel(project, methodLabel, item, index);
+    const jobConfiguredIds = (item?.productionJobs || [])
+      .map((job) => job?.originalPrinterId || job?.printerId)
+      .filter(Boolean)
+      .map(String);
+    const configuredPrinterIds = (
+      jobConfiguredIds.length > 0
+        ? jobConfiguredIds
+        : item?.originalPrinterId
+          ? [item.originalPrinterId]
+          : project?.originalPrinterId
+            ? [project.originalPrinterId]
+            : [item?.printerId, project?.printerId, getOriginalPrinterId(project, item)]
+    ).filter(Boolean).map(String);
+    const uniqueConfiguredPrinterIds = [...new Set(configuredPrinterIds)];
+    const configuredPrinterRecords = uniqueConfiguredPrinterIds.map((printerId) => {
+      const printer = (printers || []).find((candidate) => String(candidate.id) === printerId) || null;
+      const matchingJob = (item?.productionJobs || []).find((job) => String(job?.originalPrinterId || job?.printerId || '') === printerId);
+      return {
+        printerId,
+        printer,
+        name: printer
+          ? getProjectPrinterLabel(printer)
+          : (matchingJob?.originalPrinterName || matchingJob?.printerName || item?.originalPrinterName || item?.printerName || project?.originalPrinterName || project?.printerName || 'No printer assigned')
+      };
+    });
+    const configuredPrinterId = configuredPrinterRecords[0]?.printerId || null;
+    const configuredPrinterName = configuredPrinterRecords.map((record) => record.name).filter(Boolean).join(', ')
+      || item?.originalPrinterName
+      || item?.printerName
+      || project?.originalPrinterName
+      || project?.printerName
+      || '';
+
+    const configuredPrinter = configuredPrinterId
+      ? (printers || []).find((p) => String(p.id) === String(configuredPrinterId)) || null
+      : null;
+
+    const configuredLabel = configuredPrinter
+      ? getProjectPrinterLabel(configuredPrinter)
+      : (configuredPrinterName || 'No printer assigned');
+
+    const configuredFits = configuredPrinterRecords.length > 0
+      && configuredPrinterRecords.every((record) => (
+        record.printer
+        && isProjectPrinterOperational(record.printer)
+        && printerCanAccommodateProjectDetail(
+          record.printer,
+          item,
+          feeders,
+          filamentInventory,
+          isProjectPrinterOperational
+        )
+      ));
+
+    // Get candidate list for this plate (ordered: operational original, assigned, fallback)
+    const { candidates } = getProjectPrinterCandidates(printers, project, detailsToCheck, item);
+
+    // Operational replacement printer if configured printer cannot print
+    const replacementPrinter = !configuredFits
+      ? candidates.find((p) => (
+          String(p.id) !== String(configuredPrinterId)
+          && printerCanAccommodateProjectDetail(
+            p,
+            item,
+            feeders,
+            filamentInventory,
+            isProjectPrinterOperational
+          )
+        )) || null
+      : null;
+
+    const assignedPrinter = configuredFits ? configuredPrinter : replacementPrinter;
+    const canPrint = Boolean(assignedPrinter);
+    const isReplaced = canPrint && Boolean(replacementPrinter);
+
+    let issueReason = '';
+    if (!canPrint) {
+      const normalizedStatus = configuredPrinter
+        ? normalizePrinterStatus(configuredPrinter.status, configuredPrinter)
+        : 'unavailable';
+
+      if (normalizedStatus === 'maintenance') {
+        issueReason = 'Printer in maintenance; no compatible replacement available';
+      } else if (normalizedStatus === 'unavailable' || !configuredPrinter) {
+        issueReason = 'Configured printer unavailable; no compatible replacement available';
+      } else {
+        issueReason = 'Plate exceeds printer build capacity or has incompatible materials; no replacement found';
+      }
+    }
+
+    return {
+      index,
+      item,
+      itemLabel,
+      configuredPrinterId,
+      configuredPrinterName,
+      configuredPrinter,
+      configuredLabel,
+      configuredPrinters: configuredPrinterRecords,
+      configuredFits,
+      replacementPrinter,
+      assignedPrinter,
+      canPrint,
+      isReplaced,
+      issueReason
+    };
+  });
+
+  // Group by configured printer to list all printers configured in saved project
+  const configuredMap = new Map();
+  plateEvaluations.forEach((evalItem) => {
+    const configuredPrinters = evalItem.configuredPrinters?.length > 0
+      ? evalItem.configuredPrinters
+      : [{
+        printerId: evalItem.configuredPrinterId,
+        name: evalItem.configuredLabel,
+        printer: evalItem.configuredPrinter
+      }];
+
+    configuredPrinters.forEach((configuredPrinter) => {
+      const key = configuredPrinter.printerId
+        ? String(configuredPrinter.printerId)
+        : (configuredPrinter.name || 'unassigned');
+
+      if (!configuredMap.has(key)) {
+        configuredMap.set(key, {
+          key,
+          printerId: configuredPrinter.printerId,
+          name: configuredPrinter.name,
+          printer: configuredPrinter.printer,
+          plates: []
+        });
+      }
+      configuredMap.get(key).plates.push(evalItem);
+    });
+  });
+
+  const configuredPrintersList = Array.from(configuredMap.values()).map((entry) => {
+    const allPlatesCanPrint = entry.plates.every((p) => p.canPrint);
+    const anyPlateReplaced = entry.plates.some((p) => p.isReplaced);
+    const anyPlateUnprintable = entry.plates.some((p) => !p.canPrint);
+
+    // Distinct replacement printers used across this configured printer's plates
+    const replacementPrinters = [
+      ...new Set(
+        entry.plates
+          .map((p) => p.replacementPrinter)
+          .filter(Boolean)
+          .map((p) => getProjectPrinterLabel(p))
+      )
+    ];
+
+    const normalizedStatus = entry.printer
+      ? normalizePrinterStatus(entry.printer.status, entry.printer)
+      : 'unavailable';
+
+    let statusBadge = 'AVAILABLE';
+    let statusClass = 'text-emerald-600';
+
+    if (anyPlateUnprintable) {
+      statusBadge = normalizedStatus === 'maintenance' ? 'MAINTENANCE' : 'UNAVAILABLE';
+      statusClass = normalizedStatus === 'maintenance' ? 'text-amber-500' : 'text-red-500';
+    } else if (anyPlateReplaced) {
+      statusBadge = 'REPLACED';
+      statusClass = 'text-blue-500';
+    } else if (normalizedStatus === 'maintenance') {
+      statusBadge = 'MAINTENANCE';
+      statusClass = 'text-amber-500';
+    }
+
+    return {
+      ...entry,
+      allPlatesCanPrint,
+      anyPlateReplaced,
+      anyPlateUnprintable,
+      replacementPrinters,
+      statusBadge,
+      statusClass
+    };
+  });
+
+  const allBuildPlatesCanBePrinted = plateEvaluations.length > 0 && plateEvaluations.every((p) => p.canPrint);
+  const unprintablePlates = plateEvaluations.filter((p) => !p.canPrint);
+
+  return {
+    plateEvaluations,
+    configuredPrintersList,
+    allBuildPlatesCanBePrinted,
+    unprintablePlates
+  };
 };
 
 const getProjectImageUrl = (image, images = []) => {
@@ -618,7 +862,8 @@ const GarageProjectSummary = ({
   lowestPrice,
   printers,
   isDarkMode,
-  titleEditor = null
+  titleEditor = null,
+  printersAndPlates = null
 }) => {
   const condition = project?.conditionDetails || project?.conditions || {};
   const boxCondition = project?.boxCondition || condition.box || project?.box;
@@ -638,29 +883,16 @@ const GarageProjectSummary = ({
   ].filter(Boolean);
   const hasConditions = boxCondition || kitCondition;
   const isSTLProject = String(project?.method?.name || methodLabel || '').toUpperCase() === 'STL';
-  const printerSelection = getBestProjectPrinter(
+
+  const resolvedPrintersAndPlates = printersAndPlates || evaluateProjectPrintersAndPlates(
     printers,
     project,
     details,
     feeders,
-    filamentInventory
+    filamentInventory,
+    methodLabel
   );
-  const assignedPrinter = printerSelection.printer;
-  const fallbackPrinterName = project?.printerName
-    || details.flatMap((detail) => detail?.productionJobs || []).map((job) => job?.printerName).find(Boolean);
-  const printerLabel = assignedPrinter
-    ? [assignedPrinter.brand || assignedPrinter.manufacturer, assignedPrinter.model || assignedPrinter.name].filter(Boolean).join(' ')
-    : fallbackPrinterName;
-  const normalizedPrinterStatus = assignedPrinter
-    ? normalizePrinterStatus(assignedPrinter.status, assignedPrinter)
-    : 'unavailable';
-  const printerStatus = assignedPrinter
-    ? (normalizedPrinterStatus === 'maintenance'
-      ? 'MAINTENANCE'
-      : printerSelection.isCompatible
-        ? normalizedPrinterStatus.toUpperCase()
-        : 'UNAVAILABLE')
-    : 'UNAVAILABLE';
+  const { plateEvaluations } = resolvedPrintersAndPlates;
 
   return (
     <div className="p-6 sm:p-8 lg:p-10 space-y-7">
@@ -699,23 +931,6 @@ const GarageProjectSummary = ({
           </div>
         </section>
       )}
-
-      <section className="space-y-2">
-        <h3 className="flex items-center gap-2 text-[14px] font-black uppercase tracking-[0.14em]">
-          <Printer size={17} strokeWidth={2.5} /> 3D Printer
-        </h3>
-        <div className="flex items-center justify-between gap-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-4 py-3 text-[14px] font-black uppercase">
-          <span className="min-w-0 truncate">
-            {printerLabel || 'No printer assigned'}
-          </span>
-          <span className={`shrink-0 text-[12px] font-black uppercase ${getProjectPrinterStatusTextClass(
-            printerSelection,
-            assignedPrinter
-          )}`}>
-            {printerStatus}
-          </span>
-        </div>
-      </section>
 
       {eta && (
         <section className="space-y-2">
@@ -777,6 +992,11 @@ const GarageProjectSummary = ({
                         </div>
                       );
                     })()}
+                    <ProjectDetailPrinterLines
+                      printerEvaluation={plateEvaluations?.[index]}
+                      item={item}
+                      project={project}
+                    />
                   </div>
                 </div>
                 {isSTLProject ? (
@@ -1278,6 +1498,15 @@ export default function ProjectCard({
     setIsModalOpen(true);
   };
 
+  const projectPrintersAndPlates = useMemo(() => evaluateProjectPrintersAndPlates(
+    printers,
+    project,
+    details,
+    feeders,
+    filamentInventory,
+    methodLabel
+  ), [details, feeders, filamentInventory, methodLabel, printers, project]);
+
   const projectPrinterSelection = useMemo(() => getBestProjectPrinter(
       printers,
       project,
@@ -1294,15 +1523,22 @@ export default function ProjectCard({
     filamentInventory
   ), [details, feeders, filamentInventory, printers, project]);
 
-  // Maintenance is a scheduling delay, not a capability failure. A project
-  // may still be ordered when a compatible maintenance printer can process it;
-  // the queue/calendar will place it after the downtime.
-  const printerCanProcessProject = projectCostPrinterSelection.isCompatible;
+  // If any build plate cannot be printed due to printer availability
+  // or replacement compatibility issue, the project cannot be ordered or added to basket.
+  const printerCanProcessProject = projectCostPrinterSelection.isCompatible
+    && projectPrintersAndPlates.allBuildPlatesCanBePrinted;
 
   // If the assigned printer becomes unavailable, resolve another cost-capable
   // printer and recalculate from the existing project inputs. This intentionally
   // does not reopen or overwrite the calculator's source fields.
   const automaticRepriceData = useMemo(() => {
+    const originalConfigurationFulfilled = projectPrintersAndPlates.plateEvaluations.length > 0
+      && projectPrintersAndPlates.plateEvaluations.every((evaluation) => evaluation.configuredFits);
+
+    // A valid original configuration is the source of truth. Repricing is
+    // only a temporary fallback for a project that cannot currently be printed
+    // as configured.
+    if (originalConfigurationFulfilled) return null;
     if (!projectCostPrinterSelection.isCompatible || !projectCostPrinterSelection.printer) return null;
 
     const nextDetails = details.map((detail, index) => {
@@ -1310,19 +1546,47 @@ export default function ProjectCard({
       if (!nextPrinter) return detail;
 
       const printerName = getProjectPrinterLabel(nextPrinter);
+      const detailOriginalId = detail.originalPrinterId
+        || project?.originalPrinterId
+        || detail.productionJobs?.[0]?.originalPrinterId
+        || detail.printerId
+        || detail.productionJobs?.[0]?.printerId
+        || nextPrinter.id;
+      const detailOriginalName = detail.originalPrinterName
+        || project?.originalPrinterName
+        || detail.productionJobs?.[0]?.originalPrinterName
+        || detail.printerName
+        || detail.productionJobs?.[0]?.printerName
+        || getProjectPrinterLabel(nextPrinter);
       const nextJobs = Array.isArray(detail.productionJobs)
-        ? detail.productionJobs.map((job) => ({
-          ...job,
-          printerId: nextPrinter.id,
-          printerName,
-          printer: nextPrinter
-        }))
+        ? detail.productionJobs.map((job) => {
+          const jobOriginalId = job.originalPrinterId
+            || detail.originalPrinterId
+            || project?.originalPrinterId
+            || job.printerId
+            || nextPrinter.id;
+          const jobOriginalName = job.originalPrinterName
+            || detail.originalPrinterName
+            || project?.originalPrinterName
+            || job.printerName
+            || printerName;
+          return {
+            ...job,
+            printerId: nextPrinter.id,
+            printerName,
+            originalPrinterId: jobOriginalId,
+            originalPrinterName: jobOriginalName,
+            printer: nextPrinter
+          };
+        })
         : detail.productionJobs;
 
       return {
         ...detail,
         printerId: nextPrinter.id,
         printerName,
+        originalPrinterId: detailOriginalId,
+        originalPrinterName: detailOriginalName,
         printer: nextPrinter,
         ...(Array.isArray(detail.productionJobs) ? { productionJobs: nextJobs } : {})
       };
@@ -1354,7 +1618,7 @@ export default function ProjectCard({
       isTemporaryPrinter,
       projectDetails: nextDetails
     };
-  }, [details, project, projectCostPrinterSelection]);
+  }, [details, project, projectCostPrinterSelection, projectPrintersAndPlates]);
 
   const automaticRepriceKey = useMemo(() => {
     if (!automaticRepriceData) return '';
@@ -1444,22 +1708,6 @@ export default function ProjectCard({
   }, [automaticRepriceData, automaticRepriceKey, isBlueprint, isVault, project, updateBlueprint, updateProjectInVault]);
 
   const projectPrinter = projectPrinterSelection.printer;
-  const normalizedProjectPrinterStatus = projectPrinter
-    ? normalizePrinterStatus(projectPrinter.status, projectPrinter)
-    : 'unavailable';
-
-  const projectPrinterLabel = projectPrinter
-    ? [projectPrinter.brand || projectPrinter.manufacturer, projectPrinter.model || projectPrinter.name]
-      .filter(Boolean)
-      .join(' ')
-    : 'NO COMPATIBLE PRINTER';
-  const projectPrinterStatus = projectPrinter
-    ? projectPrinterSelection.isCompatible
-      ? normalizedProjectPrinterStatus.toUpperCase()
-      : normalizedProjectPrinterStatus === 'maintenance'
-        ? 'MAINTENANCE'
-        : 'UNAVAILABLE'
-    : 'UNAVAILABLE';
   const materialStatus = useMemo(() => {
     const detailsToCheck = details.length > 0 ? details : [project];
     const materialEntries = detailsToCheck.flatMap((detail) => {
@@ -1675,6 +1923,7 @@ export default function ProjectCard({
 
     return {
       ...project,
+      canAddToBasket,
       ...(details.length > 0 ? { projectDetails: actionDetails } : {}),
       ...((automaticRepriceData?.printerId || projectPrinter?.id) ? { printerId: automaticRepriceData?.printerId || projectPrinter.id } : {}),
       ...(isVault ? { gdriveLink: fileLink, licenseAcknowledged } : {}),
@@ -1709,7 +1958,7 @@ export default function ProjectCard({
 
   const handleAddProjectToBasket = async (e, { closeModal = false } = {}) => {
     e.stopPropagation();
-    if (!canAddToBasket || !vaultReadyForBasket || !onBasketAction) return;
+    if (!canAddToBasket || !vaultReadyForBasket || !onBasketAction || !projectPrintersAndPlates.allBuildPlatesCanBePrinted) return;
     try {
       await onBasketAction(e, getActionProjectData());
     } catch {
@@ -1720,7 +1969,7 @@ export default function ProjectCard({
 
   const handleOrderProjectNow = (e) => {
     e.stopPropagation();
-    if (!canAddToBasket || !vaultReadyForOrder || !onOrderNow) return;
+    if (!canAddToBasket || !vaultReadyForOrder || !onOrderNow || !projectPrintersAndPlates.allBuildPlatesCanBePrinted) return;
     onOrderNow(getActionProjectData());
     closeProjectModal();
   };
@@ -1768,7 +2017,9 @@ export default function ProjectCard({
     ? 'Rename Project'
     : vaultNeedsFileLink
       ? 'Enter Valid Link'
-      : 'Add to Cart';
+      : printerIssue
+        ? 'Printer Issue'
+        : 'Add to Cart';
   const vaultPrimaryActionDisabled = isPublicVaultView
     && !vaultNeedsProjectName
     && !vaultNeedsFileLink
@@ -2090,6 +2341,7 @@ export default function ProjectCard({
                       printers={printers}
                       isDarkMode={isDarkMode}
                       titleEditor={projectNameEditor}
+                      printersAndPlates={projectPrintersAndPlates}
                     />
                   ) : (
                   <div className="p-6 sm:p-8 lg:p-10 space-y-8">
@@ -2171,23 +2423,6 @@ export default function ProjectCard({
                       </div>
                     </div>
 
-                    <section className="space-y-2">
-                      <h3 className="flex items-center gap-2 text-[14px] font-black uppercase tracking-[0.14em]">
-                        <Printer size={17} strokeWidth={2.5} /> 3D Printer
-                      </h3>
-                      <div className="flex items-center justify-between gap-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-4 py-3 text-[14px] font-black uppercase">
-                        <span className="min-w-0 truncate">
-                          {projectPrinterLabel}
-                        </span>
-                        <span className={`shrink-0 text-[12px] font-black uppercase ${getProjectPrinterStatusTextClass(
-                          projectPrinterSelection,
-                          projectPrinter
-                        )}`}>
-                          {projectPrinterStatus}
-                        </span>
-                      </div>
-                    </section>
-
                     {/* Configuration Details */}
                     <div className="space-y-4">
                       <div className="flex items-center gap-4 px-2">
@@ -2234,6 +2469,11 @@ export default function ProjectCard({
                                     </div>
                                   ) : null;
                                 })()}
+                                <ProjectDetailPrinterLines
+                                  printerEvaluation={projectPrintersAndPlates.plateEvaluations?.[idx]}
+                                  item={item}
+                                  project={project}
+                                />
                               </div>
                             </div>
                             <div className="shrink-0 text-right">
@@ -2542,7 +2782,7 @@ export default function ProjectCard({
               }`}
             >
               <Zap size={14} strokeWidth={3} />
-              <span className="truncate">Order Now</span>
+              <span className="truncate">{printerIssue ? 'Printer Issue' : 'Order Now'}</span>
             </button>
           </div>
         </>

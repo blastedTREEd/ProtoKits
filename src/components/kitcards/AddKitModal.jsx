@@ -109,6 +109,11 @@ const STOCK_CONDITIONS = [
 ];
 
 const MONTH_CODES = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+
+const getCurrentDeliveryMonth = () => {
+  const now = new Date();
+  return `${MONTH_CODES[now.getMonth()]} ${now.getFullYear()}`;
+};
 const MASTER_IMAGE_TYPES = ['BOX ART', 'PROMO IMAGE'];
 const STOCK_IMAGE_TYPES = ['BOX CONDITION', 'KIT CONDITION'];
 
@@ -1808,7 +1813,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
       const existingStock = editingStockKey ? (selectedExistingKit?.stocks?.[editingStockKey] || {}) : {};
       const deliveryMonth = stockForm.status === 'Onhand'
         ? ''
-        : (stockForm.deliveryMonth || getDeliveryMonthFromEta(stockForm.eta));
+        : (stockForm.deliveryMonth || getDeliveryMonthFromEta(stockForm.eta) || getCurrentDeliveryMonth());
       const calculatedEta = stockForm.status === 'Onhand'
         ? ''
         : (getEtaFromDeliveryMonth(deliveryMonth) || stockForm.eta.trim().toUpperCase());
@@ -3499,7 +3504,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                 value={stockForm.deliveryMonth}
                                                 onChange={(event) => handleDeliveryMonthChange(event.target.value)}
                                                 onBlur={handleDeliveryMonthBlur}
-                                                placeholder={stockForm.status === 'Onhand' ? 'AVAILABLE' : 'AUG 2026'}
+                                                placeholder={stockForm.status === 'Onhand' ? 'AVAILABLE' : getCurrentDeliveryMonth()}
                                                 className={inputClass}
                                                 disabled={stockForm.status === 'Onhand'}
                                                 />

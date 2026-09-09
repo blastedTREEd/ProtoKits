@@ -180,7 +180,12 @@ export default function ProjectPrepare({
 
   const activeModelId = internalActiveId || (prepareData?.[0]?.id || null);
   const activeModel = useMemo(() => prepareData?.find(m => m.id === activeModelId) || prepareData[0] || {}, [prepareData, activeModelId]);
-  const selectedPrinter = useMemo(() => printers.find((p) => p.id === activeModel?.printerId && isPrinterAvailableForCostEstimation(p)), [printers, activeModel]);
+  // Maintenance printers remain valid for estimation. Unavailable printers
+  // are not active selections, but remain visible in the picker.
+  const selectedPrinter = useMemo(() => printers.find((p) => (
+    String(p.id) === String(activeModel?.printerId)
+    && isPrinterAvailableForCostEstimation(p)
+  )), [printers, activeModel]);
   const compatibleFilamentTypes = useMemo(() => getPrinterCompatibleFilamentTypes(selectedPrinter), [selectedPrinter]);
 
   const changeModel = (id) => {
@@ -1106,13 +1111,19 @@ export default function ProjectPrepare({
               </div>
               {isSelectingPrinter && activeModel?.isManualPrinter && (
                 <div className="mt-1 border-t border-black/10 dark:border-white/10">
-                  {printers.filter((p) => String(p.id) !== String(activeModel?.printerId) && isPrinterAvailableForCostEstimation(p)).map((p, index) => {
+                  {printers.filter((p) => (
+                    String(p.id) !== String(activeModel?.printerId)
+                    || normalizePrinterStatus(p.status, p) === 'unavailable'
+                  )).map((p, index) => {
                     const printerStatus = normalizePrinterStatus(p.status, p);
+                    const isUnavailable = printerStatus === 'unavailable';
                     return (
                       <button
                         key={p.id}
                         type="button"
+                        disabled={isUnavailable}
                         onClick={(e) => {
+                          if (isUnavailable) return;
                           e.stopPropagation();
                           updateModelPrinter(p.id);
                           setIsSelectingPrinter(false);
@@ -1120,7 +1131,7 @@ export default function ProjectPrepare({
                         }}
                         className={`w-full py-4 flex items-center justify-between gap-4 text-left transition-colors ${
                           index > 0 ? 'border-t border-black/10 dark:border-white/10' : ''
-                        } hover:text-[var(--color-primary)]`}
+                        } ${isUnavailable ? 'cursor-not-allowed opacity-50' : 'hover:text-[var(--color-primary)]'}`}
                       >
                         <div className="min-w-0 flex flex-col gap-1">
                           <div className="flex flex-wrap items-baseline gap-2 min-w-0">
@@ -1135,9 +1146,9 @@ export default function ProjectPrepare({
                           </span>
                         </div>
                         <span className={`text-[13px] font-bold uppercase px-2.5 py-1 rounded-lg shrink-0 ${
-                          printerStatus === 'available' ? 'text-green-600' : 'text-amber-600'
+                          printerStatus === 'available' ? 'text-green-600' : printerStatus === 'maintenance' ? 'text-amber-600' : 'text-red-600'
                         }`}>
-                          {printerStatus}
+                          {isUnavailable ? 'unavailable · not selectable' : printerStatus}
                         </span>
                       </button>
                     );
