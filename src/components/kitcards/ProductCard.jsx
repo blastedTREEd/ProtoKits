@@ -176,6 +176,11 @@ function isPreOrderStock(stock) {
   return status.includes('pre') || status.includes('batch');
 }
 
+function isSupplierRefundPending(stock) {
+  return stock?.supplierRefundStatus === 'pending'
+    || stock?.reservationType === 'supplier-refund';
+}
+
 function hasValidatedFirstReceipt(order) {
   if (!order?.receipt) return false;
 
@@ -620,6 +625,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
 
   const publicReleasableStocks = useMemo(() => {
     return stockList.filter(s => {
+      if (isSupplierRefundPending(s)) return false;
       const isSold = hasOrderAssociation(s);
       const isReserved = !!(s.isReserved);
       const isOnShelf = (shelf || []).some(item => item.id === kitId && item.stockKey === s.key);
@@ -668,7 +674,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     : '';
 
   const hasReserved = useMemo(() => {
-    return stockList.some(s => s.isReserved && !hasOrderAssociation(s));
+    return stockList.some(s => s.isReserved && !hasOrderAssociation(s) && !isSupplierRefundPending(s));
   }, [stockList]);
 
   const visibleStocks = useMemo(() => {
@@ -738,12 +744,12 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       const prices = available.map(s => Number(s.sellPrice || 0)).filter(p => p > 0);
       if (prices.length > 0) base = Math.min(...prices); 
     } else if (stockList.length > 0) {
-      const allPrices = stockList.map(s => Number(s.sellPrice || 0)).filter(p => p > 0);
+      const allPrices = stockList.filter(s => !isSupplierRefundPending(s)).map(s => Number(s.sellPrice || 0)).filter(p => p > 0);
       if (allPrices.length > 0) base = Math.min(...allPrices); 
     } else {
       base = kit?.sellPrice || 0;
     }
-    return base;
+    return base || kit?.sellPrice || 0;
   }, [kit, visibleStocks, stockList]);
 
   const { displayPrice } = useMemo(() => {
@@ -794,7 +800,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   // True when all remaining unsold stocks are on the admin shelf (collection)
   const isCollectionOnly = useMemo(() => {
     if (availableCount > 0) return false;
-    const unsoldStocks = stockList.filter(s => !hasOrderAssociation(s));
+    const unsoldStocks = stockList.filter(s => !hasOrderAssociation(s) && !isSupplierRefundPending(s));
     if (unsoldStocks.length === 0) return false;
     return shelfCount > 0 && shelfCount >= unsoldStocks.length;
   }, [availableCount, stockList, shelfCount]);
@@ -803,7 +809,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   const collectionStocks = useMemo(() => {
     if (!isCollectionOnly && !(isAdmin && isAdminView)) return [];
     const shelfKeys = new Set((shelf || []).filter(item => item.id === kitId).map(item => item.stockKey));
-    return stockList.filter(s => shelfKeys.has(s.key) && !hasOrderAssociation(s));
+    return stockList.filter(s => shelfKeys.has(s.key) && !hasOrderAssociation(s) && !isSupplierRefundPending(s));
   }, [isCollectionOnly, isAdmin, isAdminView, shelf, kitId, stockList]);
 
   const collectionGroupedVariants = useMemo(() => {
@@ -1020,7 +1026,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   const adminDisplayInfo = useMemo(() => {
     if (!isAdminView) return null;
 
-    const unsoldStocks = stockList.filter(s => !hasOrderAssociation(s));
+    const unsoldStocks = stockList.filter(s => !hasOrderAssociation(s) && !isSupplierRefundPending(s));
     if (unsoldStocks.length === 0) return null;
 
     const shelfEntries = (shelf || []).filter(item => (
@@ -1770,7 +1776,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   } else if (availableCount <= 0 && isCollectionOnly) {
     let labelVal = 'Collection';
     if (!isAdminView) {
-      const reservedStocks = stockList.filter(s => s.isReserved && !hasOrderAssociation(s));
+      const reservedStocks = stockList.filter(s => s.isReserved && !hasOrderAssociation(s) && !isSupplierRefundPending(s));
       const onHandCount = reservedStocks.filter(isOnHandStock).length;
       const preOrderCount = reservedStocks.filter(isPreOrderStock).length;
       if (onHandCount > 0 && preOrderCount > 0) {
@@ -1785,10 +1791,10 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       label: labelVal,
       className: 'bg-red-500 text-white border-red-400 shadow-lg'
     });
-  } else if (availableCount <= 0 && stockList.some(s => s.isReserved)) {
+  } else if (availableCount <= 0 && stockList.some(s => s.isReserved && !isSupplierRefundPending(s))) {
     let labelVal = 'NOT FOR SALE';
     if (!isAdminView) {
-      const reservedStocks = stockList.filter(s => s.isReserved && !hasOrderAssociation(s));
+      const reservedStocks = stockList.filter(s => s.isReserved && !hasOrderAssociation(s) && !isSupplierRefundPending(s));
       const onHandCount = reservedStocks.filter(isOnHandStock).length;
       const preOrderCount = reservedStocks.filter(isPreOrderStock).length;
       if (onHandCount > 0 && preOrderCount > 0) {
@@ -1800,7 +1806,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       }
     }
     gridStatusBadges.push({
-      label: isAdminView ? `${stockList.filter(s => s.isReserved).length} Reserved` : labelVal,
+      label: isAdminView ? `${stockList.filter(s => s.isReserved && !isSupplierRefundPending(s)).length} Reserved` : labelVal,
       className: `${isAdminView ? 'bg-blue-500 text-white border-blue-400' : 'bg-red-500 text-white border-red-400'} shadow-lg`
     });
   } else if (availableCount <= 0) {
