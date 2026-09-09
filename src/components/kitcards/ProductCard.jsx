@@ -624,12 +624,15 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       const isReserved = !!(s.isReserved);
       const isOnShelf = (shelf || []).some(item => item.id === kitId && item.stockKey === s.key);
       
-      if (isAdmin && isAdminView) {
+      // Admins can inspect early-access and reserved inventory from the
+      // public catalog as well. Keep shelf-held stock out of availability so
+      // collection remains the source for those items in admin view.
+      if (isAdmin) {
         return !isSold && !isOnShelf;
       }
       return !isSold && !isReserved && !isOnShelf;
     });
-  }, [stockList, shelf, kitId, isAdmin, isAdminView]);
+  }, [stockList, shelf, kitId, isAdmin]);
 
   const pendingOrderReservationCount = useMemo(() => {
     if (!isAdmin || !isAdminView) return 0;
