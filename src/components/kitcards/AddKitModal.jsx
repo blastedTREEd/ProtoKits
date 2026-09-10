@@ -27,9 +27,6 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useStore } from '../../store/useStore';
-import { db } from '../../firebase/firebase';
-import { doc, updateDoc } from 'firebase/firestore';
-import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
 import {
   getEligibleStocksForSellPriceUpdate,
   adjustParticipatingDealsOnSellPriceChange
@@ -39,8 +36,7 @@ import {
   isStockInValidatedOrder,
   filterActiveKitStocks,
   isStockAvailableForPurchase,
-  isStockInAdminShelf,
-  hasOrderAssociation
+  isStockInAdminShelf
 } from '../../utils/stockOrderUtils';
 import {
   PRE_ORDER_BOX_CONDITION,
@@ -1884,8 +1880,6 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
     }
 
     let priceDiff = 0;
-    let shelfDocsToUpdate = [];
-
     if (
       isEligiblePriceChange
       && targetKitId
@@ -1902,29 +1896,9 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
         stocks: rawSelectedExistingKit?.stocks || {},
         kitId: targetKitId,
         validatedOrderStockData,
-        shelf,
         excludeStockKey: editingStockKey,
         newSellPrice
       });
-
-      shelfDocsToUpdate = [...eligibleResult.shelfDocsToUpdate];
-
-      // Also check if the stock being directly edited is in admin shelf
-      if (editingStockKey) {
-        const editedStockObj = rawSelectedExistingKit?.stocks?.[editingStockKey];
-        if (isStockInAdminShelf(editedStockObj, targetKitId, shelf, editingStockKey)) {
-          const matchingShelf = (shelf || []).find(item => (
-            String(item?.id) === String(targetKitId) && String(item?.stockKey) === String(editingStockKey)
-          ));
-          if (matchingShelf?.basketId && !shelfDocsToUpdate.some(doc => doc.basketId === matchingShelf.basketId)) {
-            shelfDocsToUpdate.push({
-              basketId: matchingShelf.basketId,
-              stockKey: editingStockKey,
-              sellPrice: newSellPrice
-            });
-          }
-        }
-      }
 
       if (Object.keys(eligibleResult.updates).length > 0) {
         payload.otherStockUpdates = eligibleResult.updates;
@@ -1952,27 +1926,6 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
           localStorage.setItem('sg_recent_kit_edits', JSON.stringify(next));
           return next;
         });
-      }
-
-      // Update matching admin shelf documents in Firestore 'shelf' collection
-      if (shelfDocsToUpdate.length > 0) {
-        const { handlingFee: hFee, installmentFee: iFee, transferFee: tFee } = getCheckoutPaymentFees({
-          garageInfo: { checkoutSettings: shippingSettings },
-          adminData: { paymentSettings: shippingSettings?.paymentSettings }
-        });
-        for (const shelfDoc of shelfDocsToUpdate) {
-          try {
-            await Promise.race([
-              updateDoc(doc(db, 'shelf', shelfDoc.basketId), {
-                sellPrice: shelfDoc.sellPrice,
-                price: shelfDoc.sellPrice + hFee + iFee + tFee
-              }),
-              new Promise((r) => setTimeout(r, 2500))
-            ]);
-          } catch (shelfErr) {
-            console.warn('SG LOG: Could not update shelf doc on sell price change:', shelfErr);
-          }
-        }
       }
 
       // Adjust participating deals (bundle deals, flexi-bundles, wild deals)

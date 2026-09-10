@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { X, Wallet, AlertCircle, Package, ExternalLink, ArrowRight, Loader2, Info, CheckSquare, CheckCircle2, Undo2 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
-import { getCanonicalAdminShelfDocId, useStore } from '../../store/useStore';
+import { useStore } from '../../store/useStore';
 
 function resolveImage(idOrUrl, imagesArray) {
   if (!idOrUrl) return '';
@@ -9,15 +9,13 @@ function resolveImage(idOrUrl, imagesArray) {
   const match = (imagesArray || []).find(img => img.id === idOrUrl);
   return match?.url || '';
 }
-import { collection, getDocs, getDoc, doc, updateDoc, deleteField, serverTimestamp, query, where, writeBatch } from 'firebase/firestore';
+import { collection, getDocs, getDoc, doc, updateDoc, deleteField, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { auth, db } from '../../firebase/firebase';
-import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
-import { getStockEta } from '../../utils/stockDates';
 import { hasOrderAssociation } from '../../utils/stockOrderUtils';
 
 export default function SupplierBalancesModal({ isOpen, onClose }) {
   const { isDarkMode } = useTheme();
-  const { kits: storeKits, deleteStock, deleteStocks, rebalanceAdminShelf, shippingSettings } = useStore();
+  const { kits: storeKits, deleteStock, deleteStocks, rebalanceAdminShelf } = useStore();
   const [allKits, setAllKits] = useState([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const onCloseRef = useRef(onClose);
@@ -331,24 +329,10 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
           : allKits.find(candidate => candidate.id === item.kitId) || storeKits.find(candidate => candidate.id === item.kitId);
         if (!kit?.stocks?.[item.key]) throw new Error('Stock item no longer exists.');
 
-        // A supplier-cancelled stock must not remain in the separate admin
-        // shelf collection while it is waiting for a refund. If it was the
-        // admin-held stock, promote the lowest-cost available replacement.
-        const shelfSnap = await getDocs(query(
-          collection(db, 'shelf'),
-          where('id', '==', item.kitId)
-        ));
-        const matchingShelfDocs = shelfSnap.docs.filter((shelfDoc) => (
-          shelfDoc.data()?.stockKey === item.key
-        ));
-
         const shelfStock = kit.stocks[item.key];
-        const wasAdminShelfStock = matchingShelfDocs.length > 0
-          || (
-            shelfStock?.isReserved === true
-            && shelfStock?.reservationType === 'admin'
-            && !hasOrderAssociation(shelfStock)
-          );
+        const wasAdminShelfStock = shelfStock?.isReserved === true
+          && shelfStock?.reservationType === 'admin'
+          && !hasOrderAssociation(shelfStock);
         const adminShelfCost = Number(shelfStock?.costPrice ?? item.cost);
         const replacementCandidates = wasAdminShelfStock
           ? Object.entries(kit.stocks || {})
@@ -366,13 +350,7 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
           Number.isFinite(adminShelfCost)
           && candidate.cost < adminShelfCost
         )) || null;
-        const replacementShelfDoc = replacement
-          ? shelfSnap.docs.find((shelfDoc) => shelfDoc.data()?.stockKey === replacement.key)
-          : null;
         const replacementKey = replacement?.key || null;
-        const replacementBasketId = replacement
-          ? getCanonicalAdminShelfDocId(item.kitId, replacement.key)
-          : null;
 
         const nextStocks = Object.fromEntries(
           Object.entries(kit.stocks || {}).map(([key, stock]) => [key, { ...stock }])
@@ -388,60 +366,14 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
           supplierRefundRequestedAt: serverTimestamp()
         };
 
-        let replacementShelfItem = null;
         if (replacement) {
           const replacementStock = nextStocks[replacement.key];
-          const { handlingFee, installmentFee, transferFee } = getCheckoutPaymentFees({
-            garageInfo: { checkoutSettings: shippingSettings },
-            adminData: { paymentSettings: shippingSettings?.paymentSettings }
-          });
-          const sellPrice = Number(replacementStock.sellPrice || 0);
-          const stockStatus = replacementStock.status || 'onhand';
-          const stockSource = String(stockStatus).toLowerCase().includes('pre')
-            || String(stockStatus).toLowerCase().includes('batch')
-            ? 'preorder'
-            : 'onhand';
-
           nextStocks[replacement.key] = {
             ...replacementStock,
             isReserved: true,
             reservationType: 'admin',
             reservedBy: auth.currentUser?.uid || 'admin',
             reservedAt: serverTimestamp()
-          };
-          replacementShelfItem = {
-            ...(replacementShelfDoc?.data() || {}),
-            id: item.kitId,
-            kitId: item.kitId,
-            name: String(kit.name || '').replace(/\s*\(Pre-Order\)\s*$/i, ''),
-            image: resolveImage(kit.image, kit.images),
-            brand: kit.brand || '',
-            specs: kit.specs || {},
-            price: sellPrice + handlingFee + installmentFee + transferFee,
-            costPrice: Number(replacementStock.costPrice || 0),
-            sellPrice,
-            status: stockStatus,
-            eta: getStockEta(replacementStock),
-            appliedHandlingFee: handlingFee,
-            appliedInstallmentFee: installmentFee,
-            appliedTransferFee: transferFee,
-            stockKey: replacement.key,
-            stockSource,
-            type: 'kit',
-            entryType: 'stock',
-            basketId: replacementBasketId,
-            minDownpayment: replacementStock.minDownpayment || 0,
-            isBundleItem: false,
-            isClearanceBundle: false,
-            clearanceKitIds: [],
-            bundleId: null,
-            bundleName: null,
-            bundleSize: null,
-            bundleFeeShare: 0,
-            bundleReferencePrice: 0,
-            allowShelfBundle: true,
-            appliedBundlePrice: null,
-            createdAt: replacementShelfDoc?.data()?.createdAt || new Date().toISOString()
           };
         }
 
@@ -470,16 +402,9 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
           cancellationUpdates[`stocks.${replacement.key}.reservationType`] = 'admin';
         }
 
-        const shelfBatch = writeBatch(db);
-        shelfBatch.update(kitRef, cancellationUpdates);
-        matchingShelfDocs.forEach((shelfDoc) => shelfBatch.delete(shelfDoc.ref));
-        if (replacementShelfDoc && replacementShelfDoc.id !== replacementBasketId) {
-          shelfBatch.delete(replacementShelfDoc.ref);
-        }
-        if (replacementShelfItem) {
-          shelfBatch.set(doc(db, 'shelf', replacementBasketId), replacementShelfItem);
-        }
-        await shelfBatch.commit();
+        const batch = writeBatch(db);
+        batch.update(kitRef, { stocks: nextStocks, hasAvailableStock, lastUpdated: serverTimestamp() });
+        await batch.commit();
 
         // Re-read the committed inventory and run the same authoritative
         // lowest-cost shelf rebalance used after adding stock. This covers
@@ -535,14 +460,7 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
         throw new Error('This stock is no longer awaiting a supplier refund.');
       }
 
-      const shelfSnap = await getDocs(query(
-        collection(db, 'shelf'),
-        where('id', '==', item.kitId)
-      ));
-      const currentShelfDocs = shelfSnap.docs.filter((shelfDoc) => (
-        shelfDoc.data()?.stockKey && shelfDoc.data()?.stockKey !== item.key
-      ));
-      const shouldRestoreAdminShelf = stock.supplierRefundWasAdminShelf === true && currentShelfDocs.length === 0;
+      const shouldRestoreAdminShelf = stock.supplierRefundWasAdminShelf === true;
       const updates = {
         [`stocks.${item.key}.isReserved`]: shouldRestoreAdminShelf,
         [`stocks.${item.key}.reservedBy`]: shouldRestoreAdminShelf ? (auth.currentUser?.uid || 'admin') : null,
@@ -563,53 +481,6 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
 
       const batch = writeBatch(db);
       batch.update(kitRef, updates);
-
-      if (shouldRestoreAdminShelf) {
-        const { handlingFee, installmentFee, transferFee } = getCheckoutPaymentFees({
-          garageInfo: { checkoutSettings: shippingSettings },
-          adminData: { paymentSettings: shippingSettings?.paymentSettings }
-        });
-        const sellPrice = Number(stock.sellPrice || 0);
-        const status = stock.status || 'onhand';
-        const stockSource = String(status).toLowerCase().includes('pre')
-          || String(status).toLowerCase().includes('batch')
-          ? 'preorder'
-          : 'onhand';
-        const shelfItem = {
-          id: item.kitId,
-          kitId: item.kitId,
-          name: String(kit.name || '').replace(/\s*\(Pre-Order\)\s*$/i, ''),
-          image: resolveImage(kit.image, kit.images),
-          brand: kit.brand || '',
-          specs: kit.specs || {},
-          price: sellPrice + handlingFee + installmentFee + transferFee,
-          costPrice: Number(stock.costPrice || 0),
-          sellPrice,
-          status,
-          eta: getStockEta(stock),
-          appliedHandlingFee: handlingFee,
-          appliedInstallmentFee: installmentFee,
-          appliedTransferFee: transferFee,
-          stockKey: item.key,
-          stockSource,
-          type: 'kit',
-          entryType: 'stock',
-          basketId: getCanonicalAdminShelfDocId(item.kitId, item.key),
-          minDownpayment: stock.minDownpayment || 0,
-          isBundleItem: false,
-          isClearanceBundle: false,
-          clearanceKitIds: [],
-          bundleId: null,
-          bundleName: null,
-          bundleSize: null,
-          bundleFeeShare: 0,
-          bundleReferencePrice: 0,
-          allowShelfBundle: true,
-          appliedBundlePrice: null,
-          createdAt: new Date().toISOString()
-        };
-        batch.set(doc(db, 'shelf', shelfItem.basketId), shelfItem);
-      }
 
       await batch.commit();
       alert(shouldRestoreAdminShelf

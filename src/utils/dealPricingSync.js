@@ -14,25 +14,22 @@ import {
  * @param {Object} params.stocks - Map of stocks { [stockKey]: stock }
  * @param {string} params.kitId - Parent kit ID
  * @param {Object} params.validatedOrderStockData - Output from getValidatedOrderStockSet(orders)
- * @param {Array} params.shelf - Shelf items array from store
  * @param {string} [params.excludeStockKey] - Optional stockKey of the stock currently being saved directly
  * @param {number} params.newSellPrice - New sell price to apply
- * @returns {{ updates: Object, shelfDocsToUpdate: Array }}
+ * @returns {{ updates: Object }}
  */
 export function getEligibleStocksForSellPriceUpdate({
   stocks = {},
   kitId,
   validatedOrderStockData = {},
-  shelf = [],
   excludeStockKey = '',
   newSellPrice
 }) {
   const updates = {};
-  const shelfDocsToUpdate = [];
   const normalizedNewSellPrice = Math.max(0, Number(newSellPrice) || 0);
 
   if (!stocks || typeof stocks !== 'object' || !normalizedNewSellPrice) {
-    return { updates, shelfDocsToUpdate };
+    return { updates };
   }
 
   for (const [key, stock] of Object.entries(stocks)) {
@@ -45,7 +42,7 @@ export function getEligibleStocksForSellPriceUpdate({
 
     // 2. Eligibility: Must be available for purchase OR in admin shelf
     const isAvail = isStockAvailableForPurchase(stock);
-    const isShelf = isStockInAdminShelf(stock, kitId, shelf, key);
+    const isShelf = isStockInAdminShelf(stock, kitId, [], key);
 
     if (!isAvail && !isShelf) {
       continue;
@@ -57,22 +54,9 @@ export function getEligibleStocksForSellPriceUpdate({
       sellPrice: normalizedNewSellPrice
     };
 
-    // If it is in the admin shelf, identify its shelf collection document
-    if (isShelf) {
-      const shelfItem = (shelf || []).find(item => (
-        String(item?.id) === String(kitId) && String(item?.stockKey) === String(key)
-      ));
-      if (shelfItem && shelfItem.basketId) {
-        shelfDocsToUpdate.push({
-          basketId: shelfItem.basketId,
-          stockKey: key,
-          sellPrice: normalizedNewSellPrice
-        });
-      }
-    }
   }
 
-  return { updates, shelfDocsToUpdate };
+  return { updates };
 }
 
 /**

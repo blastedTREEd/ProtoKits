@@ -39,11 +39,6 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    match /settings/shelf {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-
     match /methods/{id} {
       allow read: if true;
     }
@@ -165,10 +160,5 @@ service cloud.firestore {
       allow create, update, delete: if isAdmin();
     }
 
-    // --- SHELF ---
-    match /shelf/{itemId} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
   }
 }

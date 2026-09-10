@@ -15,8 +15,6 @@ import {
   lookupPhilippineZipCodeByCityAndProvince
 } from '../../utils/philippineAddress';
 import { useTheme } from '../../context/ThemeContext';
-import { db } from '../../firebase/firebase';
-import { doc, deleteDoc } from 'firebase/firestore';
 import L from 'leaflet';
 import DynamicShippingForm from './DynamicShippingForm';
 import PolicyModal from '../menu/PolicyModal';
@@ -1132,7 +1130,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   const { isDarkMode } = useTheme();
   const { 
     user, reserveStockForCheckout, releaseCheckoutReservation, createOrder, completeAcceptedOffer, isAdmin, isAdminView,
-    removeFromBasket, kits, deals, shelf, uploadReceipt, rates, updateUserProfile,
+    removeFromBasket, kits, deals, uploadReceipt, rates, updateUserProfile,
     adminsList, fetchAdmins, assignStockToOrder, adminData, garageInfo, orders,
     updateOrderDetails
   } = useStore();
@@ -2713,10 +2711,6 @@ const handleFinalizeOrder = async () => {
 
         if (result.usedAdminShelfStock || result.usedAcceptedOffer) {
           checkoutStage = `removing the temporary hold for ${item.name || 'an item'}`;
-          const shelfItem = (shelf || []).find(entry => (
-            entry.id === item.id && entry.stockKey === result.stockKey
-          ));
-          if (shelfItem?.basketId) await deleteDoc(doc(db, 'shelf', shelfItem.basketId));
         }
       }
       

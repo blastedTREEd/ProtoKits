@@ -63,7 +63,7 @@ const getSyncMessage = (syncStatus, pathname, { isAdminView = false } = {}) => {
   return getPageLoadingLabel(pathname, { isAdminView });
 };
 
-const getInitialLoadDatasetKeys = (pathname, { isAdmin = false } = {}) => {
+const getInitialLoadDatasetKeys = (pathname) => {
   const isHome = pathname === '/' || pathname === '';
   const isKitsPath = pathname.startsWith('/kits');
   const isPrintsPath = pathname === '/prints' || pathname.startsWith('/prints/');
@@ -77,7 +77,6 @@ const getInitialLoadDatasetKeys = (pathname, { isAdmin = false } = {}) => {
     ...(isHome || isKitsPath ? ['deals'] : []),
     ...(isOrdersPath ? ['orders'] : []),
     ...(isCartPath ? ['basket'] : []),
-    ...(isAdmin ? ['shelf'] : []),
     ...(isPrintsPath || pathname === '/blueprints' || isCartPath ? ['prints'] : [])
   ];
 };

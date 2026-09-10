@@ -721,7 +721,7 @@ export default function Cart() {
     // as a fallback for the short auth/listener startup window.
     const state = useStore.getState();
     const hasLiveListener = isAdmin && isAdminView
-      ? Boolean(state.unsubShelf || state._datasetListenerKeys?.shelf)
+      ? Boolean(state._datasetListenerKeys?.kits)
       : Boolean(state.unsubBasket);
     if (hasLiveListener) return;
 
