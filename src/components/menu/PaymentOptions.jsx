@@ -151,7 +151,16 @@ export default function PaymentOptions({
             <span className="text-[13px] font-bold opacity-40 uppercase">Put the garage/checkout under maintenance</span>
           </div>
           <button
-            onClick={() => updatePaymentData(null, 'maintenanceMode', !paymentSettings?.maintenanceMode)}
+            onClick={async () => {
+              const nextValue = !paymentSettings?.maintenanceMode;
+              updatePaymentData(null, 'maintenanceMode', nextValue);
+              const persisted = persistPaymentSetting
+                ? await persistPaymentSetting(null, 'maintenanceMode', nextValue)
+                : true;
+              if (persisted === false) {
+                updatePaymentData(null, 'maintenanceMode', !nextValue);
+              }
+            }}
             className={`w-14 h-7 rounded-full transition-all duration-300 flex items-center p-1 ${paymentSettings?.maintenanceMode ? 'bg-garage-blue shadow-lg shadow-blue-500/20' : 'bg-neutral-300 dark:bg-white/10'}`}
           >
             <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-300 ${paymentSettings?.maintenanceMode ? 'translate-x-7' : 'translate-x-0'}`} />
@@ -169,7 +178,16 @@ export default function PaymentOptions({
                   <button
                     key={id}
                     type="button"
-                    onClick={() => updatePaymentData('maintenanceInvalidTypes', id, !isActive)}
+                    onClick={async () => {
+                      const nextValue = !isActive;
+                      updatePaymentData('maintenanceInvalidTypes', id, nextValue);
+                      const persisted = persistPaymentSetting
+                        ? await persistPaymentSetting('maintenanceInvalidTypes', id, nextValue)
+                        : true;
+                      if (persisted === false) {
+                        updatePaymentData('maintenanceInvalidTypes', id, isActive);
+                      }
+                    }}
                     className={`flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-[13px] font-black uppercase tracking-widest transition-all border ${
                       isActive
                         ? 'bg-red-500/10 text-red-500 border-red-500/20 shadow-lg shadow-red-500/5'

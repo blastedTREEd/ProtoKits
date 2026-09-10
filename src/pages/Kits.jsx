@@ -281,6 +281,7 @@ export default function Kits({ isActive = true }) {
   const [isSortOpen, setIsSortOpen] = useState(false);
   const sortRef = useRef(null);
   const searchInputRef = useRef(null);
+  const loadMoreKitsSentinelRef = useRef(null);
   
   const [isAddKitModalOpen, setIsAddKitModalOpen] = useState(false); 
   const [isAddDealModalOpen, setIsAddDealModalOpen] = useState(false);
@@ -390,6 +391,42 @@ export default function Kits({ isActive = true }) {
   const isKitsDataLoading = kitsStatus === 'loading' || dealsStatus === 'loading';
   const [isContentHeaderHidden, setIsContentHeaderHidden] = useState(false);
   const contentHeaderScrollRef = useRef({ previousY: window.scrollY, frame: 0, hidden: false, direction: 0, distance: 0 });
+
+  // Public kits are fetched in bounded pages, but the user should not need to
+  // interact with a pagination button. Start the next page shortly before the
+  // current list ends so scrolling feels continuous while Firestore reads stay
+  // capped at PUBLIC_KIT_PAGE_SIZE per request.
+  useEffect(() => {
+    if (
+      !isActive
+      || isAdminView
+      || searchTerm
+      || !isPublicKitPagination
+      || !hasMoreKits
+      || isLoadingMoreKits
+    ) return undefined;
+
+    const sentinel = loadMoreKitsSentinelRef.current;
+    if (!sentinel || typeof IntersectionObserver === 'undefined') return undefined;
+
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      void getMoreKits().catch((error) => {
+        console.error('SG LOG: Loading more kits failed:', error);
+      });
+    }, { rootMargin: '600px 0px' });
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [
+    getMoreKits,
+    hasMoreKits,
+    isActive,
+    isAdminView,
+    isLoadingMoreKits,
+    isPublicKitPagination,
+    searchTerm
+  ]);
 
   useEffect(() => {
     const scrollState = contentHeaderScrollRef.current;
@@ -1818,14 +1855,13 @@ export default function Kits({ isActive = true }) {
                   {!searchTerm && !isAdminView && (
                     <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
                       {isPublicKitPagination && hasMoreKits && (
-                        <button
-                          type="button"
-                          onClick={() => void getMoreKits().catch((error) => console.error('SG LOG: Loading more kits failed:', error))}
-                          disabled={isLoadingMoreKits}
-                          className="rounded-full bg-blue-600 px-5 py-2 text-[11px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700 disabled:cursor-wait disabled:opacity-60"
+                        <div
+                          ref={loadMoreKitsSentinelRef}
+                          aria-live="polite"
+                          className="min-h-6 text-[11px] font-black uppercase tracking-widest text-neutral-400 dark:text-neutral-500"
                         >
-                          {isLoadingMoreKits ? 'Loading kits…' : 'Load more kits'}
-                        </button>
+                          {isLoadingMoreKits ? 'Loading more kits…' : ''}
+                        </div>
                       )}
                       <button
                         type="button"

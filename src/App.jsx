@@ -280,7 +280,6 @@ const InitialLoadOverlay = () => {
   const location = useLocation();
   const isLoading = useStore((state) => state.isLoading);
   const loadedDatasets = useStore((state) => state._loadedDatasets);
-  const isAdmin = useStore((state) => state.isAdmin);
   const shippingSettings = useStore((state) => state.shippingSettings);
   const hasCheckoutSettings = shippingSettings !== null;
 
@@ -289,7 +288,7 @@ const InitialLoadOverlay = () => {
   const isGarageOpening = isLoading || !hasCheckoutSettings;
   if (!isGarageOpening) return null;
 
-  const requiredKeys = getInitialLoadDatasetKeys(location.pathname, { isAdmin });
+  const requiredKeys = getInitialLoadDatasetKeys(location.pathname);
   const completedDatasetCount = requiredKeys.filter((key) => loadedDatasets?.[key]).length;
   const completedCount = completedDatasetCount + (hasCheckoutSettings ? 1 : 0);
   const totalCount = Math.max(requiredKeys.length + 1, 1);
@@ -304,7 +303,6 @@ const InitialLoadOverlay = () => {
       <LoadingState
         message={getPageLoadingLabel(location.pathname)}
         progress={progress}
-        progressLabel={`${completedCount} of ${totalCount} data sources`}
         className="py-0"
       />
     </Motion.div>

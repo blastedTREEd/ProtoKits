@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle2, Loader2 } from 'lucide-react';
 import UniversalImage from './UniversalImage';
+import { useTheme } from '../../context/ThemeContext';
 
 const LoadingChecklist = ({ steps }) => {
   const [visibleStepCount, setVisibleStepCount] = useState(steps.length > 0 ? 1 : 0);
@@ -44,42 +45,45 @@ export default function LoadingState({
   steps = [],
   fullPage = false,
   className = "py-20",
-  progress = null,
-  progressLabel = ''
+  progress = null
 }) {
+  const { isDarkMode } = useTheme();
   const stepLabelsKey = steps.map((step) => step.label).join('|');
   const hasProgress = Number.isFinite(Number(progress));
   const progressValue = hasProgress ? Math.min(100, Math.max(0, Number(progress))) : 0;
 
   const content = (
     <div className={`flex w-full max-w-sm flex-col items-center justify-center gap-4 px-5 ${className}`}>
-      <div className="relative flex h-16 w-16 items-center justify-center">
+      <div className="relative flex h-20 w-20 items-center justify-center">
         <UniversalImage
           src="/snorlaxgarage.png"
           alt=""
           aria-hidden="true"
-          className="h-12 w-12 object-contain opacity-80"
+          className="h-16 w-16 animate-pulse object-contain"
+          style={{ filter: 'brightness(0) saturate(100%) invert(38%) sepia(97%) saturate(2198%) hue-rotate(211deg) brightness(99%) contrast(101%)' }}
         />
-        {!hasProgress && <Loader2 className="absolute h-16 w-16 animate-spin text-blue-600/30 dark:text-blue-400/30" />}
+        {hasProgress ? (
+          <span className="absolute inset-0 flex items-center justify-center pt-2 text-[13px] font-black tracking-tight text-white">
+            {Math.round(progressValue)}%
+          </span>
+        ) : (
+          <Loader2 className="absolute h-20 w-20 animate-spin text-neutral-900/25 dark:text-white/30" />
+        )}
       </div>
 
       <div className="text-center">
-        <p className="text-[12px] font-black uppercase tracking-[0.3em] text-neutral-900/50 dark:text-white/50">
+        <p className={`text-[12px] font-black uppercase tracking-[0.3em] ${isDarkMode ? 'text-black' : 'text-white'}`}>
           {message}
         </p>
       </div>
 
       {hasProgress && (
-        <div className="w-full space-y-2" aria-live="polite">
+        <div className="w-full" aria-live="polite">
           <div className="h-2 w-full overflow-hidden rounded-full bg-blue-950/10 dark:bg-white/10" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(progressValue)}>
             <div
               className="h-full animate-pulse rounded-full bg-blue-600 transition-[width] duration-500 ease-out dark:bg-blue-400"
               style={{ width: `${progressValue}%` }}
             />
-          </div>
-          <div className="flex items-center justify-between gap-3 text-[10px] font-black uppercase tracking-[0.16em] text-neutral-500 dark:text-neutral-400">
-            <span>{progressLabel || 'Loading'}</span>
-            <span>{Math.round(progressValue)}%</span>
           </div>
         </div>
       )}
