@@ -85,12 +85,6 @@ service cloud.firestore {
       allow write: if signedIn() && !isAnonymous(); // Existing non-guest path remains pending server migration.
     }
 
-    // --- PUBLIC CATALOG SUMMARY ---
-    match /catalogPublic/{id} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-
     // --- BLUEPRINTS ---
     match /blueprints/{blueprintId} {
       allow read: if true;

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Package, Gift, Plus, Trash2, Box, ClockFading, Pencil, Search, Loader2, X, Wallet, AlertCircle, TrendingUp, Zap, Sparkles, RefreshCw, Layers, ArrowBigDownDash, ArrowBigUpDash, ArrowBigRightDash, ArrowBigLeftDash, ChevronDown, MoreHorizontal, Image as ImageIcon, Settings } from 'lucide-react';
+import { Package, Gift, Plus, Trash2, Box, ClockFading, Pencil, Search, X, Wallet, AlertCircle, TrendingUp, Zap, Sparkles, ArrowBigDownDash, ArrowBigUpDash, ArrowBigRightDash, ArrowBigLeftDash, ChevronDown, MoreHorizontal, Image as ImageIcon, Settings } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
@@ -259,9 +259,6 @@ export default function Kits({ isActive = true }) {
   const getMoreKits = useStore((state) => state.getMoreKits);
   const loadKitById = useStore((state) => state.loadKitById);
   const loadAllKits = useStore((state) => state.loadAllKits);
-  const syncPublicCatalog = useStore((state) => state.syncPublicCatalog);
-  const consolidateAdminShelf = useStore((state) => state.consolidateAdminShelf);
-  const setToastMessage = useStore((state) => state.setToastMessage);
   const deals = useStore((state) => state.deals);
   const addKit = useStore((state) => state.addKit);
   const user = useStore((state) => state.user);
@@ -297,9 +294,6 @@ export default function Kits({ isActive = true }) {
   const handleCloseSalesDashboard = useCallback(() => setIsSalesDashboardModalOpen(false), []);
   const handleCloseKitDataQuality = useCallback(() => setIsKitDataQualityModalOpen(false), []);
   const [isAdminToolsOpen, setIsAdminToolsOpen] = useState(false);
-  const [isSyncingPublicCatalog, setIsSyncingPublicCatalog] = useState(false);
-  const [isConsolidatingShelf, setIsConsolidatingShelf] = useState(false);
-  const [publicCatalogSyncStatus, setPublicCatalogSyncStatus] = useState('');
   const kitCardRefs = useRef(new Map());
   const pendingRestoreRef = useRef(null);
   const location = useLocation();
@@ -1248,60 +1242,6 @@ export default function Kits({ isActive = true }) {
     { id: 'balances', label: 'Balances', icon: Wallet, tone: 'border-amber-500/20 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20', onClick: () => setIsSupplierBalancesModalOpen(true) },
     { id: 'sales', label: 'Sales', icon: TrendingUp, tone: 'border-indigo-500/20 bg-indigo-500/10 text-indigo-600 hover:bg-indigo-500/20', onClick: () => setIsSalesDashboardModalOpen(true) },
     { id: 'kit-data-quality', label: 'Fix Missing Kit Data', icon: Sparkles, tone: 'border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-600 hover:bg-fuchsia-500/20', onClick: () => setIsKitDataQualityModalOpen(true) },
-    { id: 'consolidate-shelf', label: 'Consolidate Admin Shelf', icon: Layers, tone: 'border-violet-500/20 bg-violet-500/10 text-violet-600 hover:bg-violet-500/20', onClick: async () => {
-      if (isConsolidatingShelf) return;
-      setIsConsolidatingShelf(true);
-      try {
-        const preview = await consolidateAdminShelf();
-        const shouldApply = window.confirm(
-          `Shelf consolidation preview:\n\n`
-          + `Normal shelf rows: ${preview.normalShelfRows}\n`
-          + `Canonical rows to create: ${preview.canonicalRowsCreated}\n`
-          + `Duplicate rows to remove: ${preview.duplicateRowsRemoved}\n`
-          + `Legacy marker-only rows to create: ${preview.markerOnlyRowsCreated}\n`
-          + `Orphan rows left untouched: ${preview.orphanRows}\n`
-          + `Conflicting rows left untouched: ${preview.conflictingRows}\n\n`
-          + 'Apply this migration now?'
-        );
-        if (!shouldApply) {
-          setToastMessage('Shelf consolidation preview completed; no changes were made.');
-          return;
-        }
-        const result = await consolidateAdminShelf({ apply: true });
-        setToastMessage(
-          `Shelf consolidated: ${result.canonicalRowsCreated} canonical rows, `
-          + `${result.duplicateRowsRemoved} duplicates removed.`
-        );
-      } catch (error) {
-        console.error('SG LOG: Admin shelf consolidation failed:', error);
-        setToastMessage('Shelf consolidation failed. Check the console.');
-      } finally {
-        setIsConsolidatingShelf(false);
-      }
-    } },
-    { id: 'sync-public-catalog', label: 'Sync Public Catalog', icon: RefreshCw, tone: 'border-cyan-500/20 bg-cyan-500/10 text-cyan-600 hover:bg-cyan-500/20', onClick: async () => {
-      if (isSyncingPublicCatalog) return;
-      setIsSyncingPublicCatalog(true);
-      setPublicCatalogSyncStatus('Preparing sync…');
-      console.info('[Snorlax Garage] Public catalog sync started.');
-      setToastMessage('Preparing public catalog sync…');
-      try {
-        const result = await syncPublicCatalog((progress) => {
-          setPublicCatalogSyncStatus(progress.message || 'Syncing…');
-        });
-        console.info('[Snorlax Garage] Public catalog sync finished:', result);
-        setToastMessage(`Public catalog synced: ${result.synced} kits.`);
-      } catch (error) {
-        console.error('SG LOG: Public catalog sync failed:', error);
-        setPublicCatalogSyncStatus('Sync failed. Check the console.');
-        setToastMessage('Public catalog sync failed.');
-      } finally {
-        window.setTimeout(() => {
-          setIsSyncingPublicCatalog(false);
-          setPublicCatalogSyncStatus('');
-        }, 1200);
-      }
-    } },
   ];
 
   const renderAdminToolButtons = () => adminToolActions.map(({ id, label, icon, tone, onClick }) => (
@@ -1312,20 +1252,11 @@ export default function Kits({ isActive = true }) {
         setIsAdminToolsOpen(false);
         void onClick();
       }}
-      disabled={(id === 'sync-public-catalog' && isSyncingPublicCatalog) || (id === 'consolidate-shelf' && isConsolidatingShelf)}
-      className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border shadow-sm transition-all hover:scale-110 active:scale-95 disabled:cursor-wait disabled:opacity-60 disabled:hover:scale-100 ${tone}`}
+      className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border shadow-sm transition-all hover:scale-110 active:scale-95 ${tone}`}
       aria-label={label}
       title={label}
-      aria-busy={(id === 'sync-public-catalog' && isSyncingPublicCatalog) || (id === 'consolidate-shelf' && isConsolidatingShelf)}
     >
-      {React.createElement(
-        ((id === 'sync-public-catalog' && isSyncingPublicCatalog) || (id === 'consolidate-shelf' && isConsolidatingShelf)) ? Loader2 : icon,
-        {
-        size: 20,
-        strokeWidth: 2.5,
-        className: ((id === 'sync-public-catalog' && isSyncingPublicCatalog) || (id === 'consolidate-shelf' && isConsolidatingShelf)) ? 'animate-spin' : undefined
-      }
-      )}
+      {React.createElement(icon, { size: 20, strokeWidth: 2.5 })}
     </button>
   ));
 
@@ -1475,14 +1406,6 @@ export default function Kits({ isActive = true }) {
 
   return (
     <PageTemplate isDarkMode={isDarkMode}>
-      {isSyncingPublicCatalog && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-24 z-[999998] flex justify-center px-4">
-          <div className="flex max-w-[min(92vw,32rem)] items-center gap-3 rounded-2xl border border-cyan-400/30 bg-neutral-950/90 px-5 py-3 text-[11px] font-black uppercase tracking-widest text-white shadow-2xl backdrop-blur-xl">
-            <Loader2 size={16} className="shrink-0 animate-spin text-cyan-300" />
-            <span className="truncate">{publicCatalogSyncStatus || 'Syncing public catalog…'}</span>
-          </div>
-        </div>
-      )}
       <div className="min-h-screen w-full bg-neutral-50 dark:bg-[#0a0a0a] transition-colors duration-500 pb-20 font-sans text-left">
         <div className={`sticky top-[56px] sm:top-[60px] z-[100] h-[60px] overflow-visible bg-neutral-50 dark:bg-[#0a0a0a] backdrop-blur-md border-b border-black/5 dark:border-white/5 ${contentHeaderMotion} ${isContentHeaderHidden ? '-translate-y-full md:translate-y-0' : 'translate-y-0'}`}>
           <div className="h-full w-full px-4 md:px-8 flex items-center gap-4">

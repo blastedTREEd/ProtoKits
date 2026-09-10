@@ -1307,70 +1307,6 @@ const PRINT_METHOD_ORDER = {
 };
 
 const PUBLIC_KIT_PAGE_SIZE = 40;
-const PUBLIC_CATALOG_WRITE_CHUNK_SIZE = 100;
-
-const isPublicKitCatalogPath = (pathname = '') => (
-  pathname === '/kits' || pathname.startsWith('/kits/')
-);
-
-const PUBLIC_STOCK_FIELDS = [
-  'status',
-  'sellPrice',
-  'costPrice',
-  'publicReleaseDate',
-  'deliveryMonth',
-  'eta',
-  'boxCondition',
-  'kitCondition',
-  'issue',
-  'condition',
-  'isFreeShippingEligible',
-  'freeShippingUntil',
-  'freeShippingMethod',
-  'freeShippingSuboption',
-  'minDownpayment',
-  'timestamp',
-  'isReserved',
-  'reservationType',
-  'supplierRefundStatus',
-  'stockImages',
-  'kitImage'
-];
-
-const buildPublicKitSummary = (kit = {}) => {
-  const stocks = Object.entries(kit.stocks || {}).reduce((result, [stockKey, stock = {}]) => {
-    const publicStock = PUBLIC_STOCK_FIELDS.reduce((fields, field) => {
-      if (stock[field] !== undefined) fields[field] = stock[field];
-      return fields;
-    }, { key: stockKey });
-
-    // Public cards only need to know that a stock is linked to an order; the
-    // order ID and reservation owner must not be copied to a public read model.
-    if (stock.order) publicStock.order = { linked: true };
-    result[stockKey] = publicStock;
-    return result;
-  }, {});
-
-  return removeUndefinedValues({
-    id: kit.id,
-    name: kit.name || '',
-    brand: kit.brand || '',
-    specs: kit.specs || {},
-    series: kit.series || '',
-    image: kit.image || '',
-    images: Array.isArray(kit.images) ? kit.images : [],
-    searchName: kit.searchName || String(kit.name || '').toLowerCase(),
-    sellPrice: kit.sellPrice,
-    costPrice: kit.costPrice,
-    createdAt: kit.createdAt,
-    lastUpdated: kit.lastUpdated || kit.createdAt || 0,
-    lastRestockedAt: kit.lastRestockedAt,
-    lastAvailableAt: kit.lastAvailableAt,
-    hasAvailableStock: kit.hasAvailableStock,
-    stocks,
-    publicProjectionVersion: 1
-  });
-};
 
 const getRequirementValues = (requirements = {}) => (
   Object.entries(requirements)
@@ -1381,11 +1317,6 @@ const getRequirementValues = (requirements = {}) => (
     })
     .map(([, value]) => value)
 );
-
-// Keep the admin catalog rebuild single-flight across mounted components and
-// rapid repeated clicks. The button-level disabled state is not atomic before
-// React has rendered the next state.
-let publicCatalogSyncPromise = null;
 
 const sortPrintMethods = (methods = []) => (
   [...methods].sort((a, b) => {
@@ -1442,8 +1373,6 @@ export const useStore = create(
       isLoadingMoreKits: false,
       isPublicKitPagination: false,
       forceFullKitCatalog: false,
-      isPublicKitSummaryMode: false,
-      publicCatalogFallback: false,
       isLoading: true,
       initialLoadCacheStatus: 'unknown',
       initialLoadComplete: false,
@@ -1473,7 +1402,6 @@ export const useStore = create(
       unsubHomeKits: null,
       unsubHomeBlueprints: null,
       unsubKits: null,
-      unsubCatalogPublic: null,
       unsubShelfMetadata: null,
       unsubProjectVault: null,
       unsubOffers: null,
@@ -1677,8 +1605,8 @@ export const useStore = create(
         const req = get()._getPageRequirements(get()._activePath);
         const listenerKeys = get()._datasetListenerKeys || {};
         const activePath = get()._activePath;
-        const isPublicCatalog = req.kits
-          && isPublicKitCatalogPath(activePath)
+        const isPublicKitPage = req.kits
+          && (activePath === '/kits' || activePath.startsWith('/kits/'))
           && !(get().isAdmin && get().isAdminView)
           && !get().forceFullKitCatalog;
         const unsubs = [];
@@ -1687,13 +1615,6 @@ export const useStore = create(
             _datasetListenerKeys: { ...state._datasetListenerKeys, [key]: isActive }
           }));
         };
-        if (!isPublicCatalog && get().unsubCatalogPublic) {
-          get().unsubCatalogPublic();
-          set((state) => ({
-            unsubCatalogPublic: null,
-            _datasetListenerKeys: { ...state._datasetListenerKeys, catalogPublic: false }
-          }));
-        }
         if (!req.stories && get().unsubStories) {
           get().unsubStories();
           set((state) => ({
@@ -1757,21 +1678,17 @@ export const useStore = create(
           });
         };
 
-        // A role can resolve after the public listener has already started.
-        // Replace the bounded public listener with the full listener when an
-        // admin switches into the admin view, and do the reverse when leaving
-        // it. This keeps catalog reads scoped to the current workflow.
-        const desiredKitMode = isPublicCatalog
-          ? (get().isPublicKitSummaryMode ? 'public-summary' : 'public-page')
+        // Keep public catalog pages bounded while admin/cart/checkout workflows
+        // continue using the full live kits collection.
+        const desiredKitMode = isPublicKitPage
+          ? 'public-page'
           : (req.kits ? 'full' : null);
         const currentKitMode = listenerKeys.kitsMode || null;
         if (req.kits && currentKitMode && currentKitMode !== desiredKitMode) {
           if (get().unsubKits) get().unsubKits();
-          if (get().unsubCatalogPublic) get().unsubCatalogPublic();
           set((state) => ({
             unsubKits: null,
-            unsubCatalogPublic: null,
-            _datasetListenerKeys: { ...state._datasetListenerKeys, kits: false, catalogPublic: false, kitsMode: null },
+            _datasetListenerKeys: { ...state._datasetListenerKeys, kits: false, kitsMode: null },
             _loadedDatasets: { ...state._loadedDatasets, kits: false },
             _datasetStatus: { ...state._datasetStatus, kits: 'loading' },
             kits: [],
@@ -1779,9 +1696,7 @@ export const useStore = create(
             hasMoreKits: false,
             hasLoadedAllKits: false,
             isPublicKitPagination: false,
-            forceFullKitCatalog: false,
-            isPublicKitSummaryMode: false,
-            publicCatalogFallback: false
+            forceFullKitCatalog: false
           }));
         }
 
@@ -1848,77 +1763,14 @@ export const useStore = create(
           unsubs.push(unsub);
         }
 
-        // 4. Public catalog projection — when the one-time admin sync has
-        // populated catalogPublic, public browsing reads only this compact
-        // collection. Empty/error states fall back to the bounded kits query
-        // so existing installations remain usable before migration.
-        if (
-          isPublicCatalog
-          && !get().publicCatalogFallback
-          && !get()._loadedDatasets.kits
-          && !get()._datasetListenerKeys?.catalogPublic
-          && !get()._datasetListenerKeys?.kits
-        ) {
-          const publicCatalogQuery = query(
-            collection(db, 'catalogPublic'),
-            orderBy('lastUpdated', 'desc'),
-            limit(PUBLIC_KIT_PAGE_SIZE)
-          );
-          let unsubPublicCatalog = null;
-          unsubPublicCatalog = onSnapshot(publicCatalogQuery, (snap) => {
-            if (snap.empty) {
-              unsubPublicCatalog?.();
-              set((state) => ({
-                unsubCatalogPublic: null,
-                publicCatalogFallback: true,
-                isPublicKitSummaryMode: false,
-                _datasetListenerKeys: { ...state._datasetListenerKeys, catalogPublic: false },
-                _loadedDatasets: { ...state._loadedDatasets, kits: false }
-              }));
-              get().startBackgroundListeners();
-              return;
-            }
-
-            const summaryKits = snap.docs
-              .map((kitDoc) => ({ id: kitDoc.id, ...kitDoc.data() }))
-              .filter((kit) => kit.productType !== 'printed-project' && kit.isPrintedProject !== true);
-            set({
-              kits: sortKitsByAvailability(summaryKits),
-              lastVisibleKit: snap.docs[snap.docs.length - 1] || null,
-              hasMoreKits: snap.docs.length === PUBLIC_KIT_PAGE_SIZE,
-              hasLoadedAllKits: snap.docs.length < PUBLIC_KIT_PAGE_SIZE,
-              isPublicKitPagination: true,
-              isPublicKitSummaryMode: true
-            });
-            set((state) => ({
-              _datasetListenerKeys: { ...state._datasetListenerKeys, kitsMode: 'public-summary' }
-            }));
-            updateSnapshotDatasetStatus(get, 'kits', snap);
-          }, (error) => {
-            console.error('SG LOG: Public catalog projection subscription error:', error);
-            unsubPublicCatalog?.();
-            set((state) => ({
-              unsubCatalogPublic: null,
-              publicCatalogFallback: true,
-              isPublicKitSummaryMode: false,
-              _datasetListenerKeys: { ...state._datasetListenerKeys, catalogPublic: false },
-              _loadedDatasets: { ...state._loadedDatasets, kits: false }
-            }));
-            get().startBackgroundListeners();
-          });
-          set({ unsubCatalogPublic: unsubPublicCatalog });
-          markListener('catalogPublic');
-        }
-
-        // 5. Kits — public catalog pages are bounded; admin/cart/checkout use
+        // 4. Kits — public catalog pages are bounded; admin/cart/checkout use
         // the full live collection because they need complete stock state.
         if (
           req.kits
-          && (!isPublicCatalog || get().publicCatalogFallback)
           && !get()._loadedDatasets.kits
           && !get()._datasetListenerKeys?.kits
         ) {
-          const kitsQuery = isPublicCatalog
+          const kitsQuery = isPublicKitPage
             ? query(collection(db, 'kits'), orderBy('lastUpdated', 'desc'), limit(PUBLIC_KIT_PAGE_SIZE))
             : query(collection(db, 'kits'), orderBy('lastUpdated', 'desc'));
           const unsub = onSnapshot(kitsQuery, (snap) => {
@@ -1929,9 +1781,9 @@ export const useStore = create(
             const nextState = {
               kits: sortedKits,
               lastVisibleKit: snap.docs[snap.docs.length - 1] || null,
-              hasMoreKits: isPublicCatalog && snap.docs.length === PUBLIC_KIT_PAGE_SIZE,
-              hasLoadedAllKits: !isPublicCatalog || snap.docs.length < PUBLIC_KIT_PAGE_SIZE,
-              isPublicKitPagination: isPublicCatalog
+              hasMoreKits: isPublicKitPage && snap.docs.length === PUBLIC_KIT_PAGE_SIZE,
+              hasLoadedAllKits: !isPublicKitPage || snap.docs.length < PUBLIC_KIT_PAGE_SIZE,
+              isPublicKitPagination: isPublicKitPage
             };
 
             // A shelf snapshot can arrive before the kits snapshot that
@@ -2079,13 +1931,11 @@ export const useStore = create(
         const prevBgUnsubs = get()._bgUnsubs || [];
         prevBgUnsubs.forEach(unsub => unsub && unsub());
         if (get().unsubKits) get().unsubKits();
-        if (get().unsubCatalogPublic) get().unsubCatalogPublic();
 
         set({
           _prioUnsubs: [],
           _bgUnsubs: [],
           unsubKits: null,
-          unsubCatalogPublic: null,
           _datasetListenerKeys: {},
           _backgroundListenersStarted: false,
           _isInitialAuthChecked: false,
@@ -2093,8 +1943,6 @@ export const useStore = create(
           initialLoadCacheStatus: 'unknown',
           initialLoadComplete: false,
           forceFullKitCatalog: false,
-          isPublicKitSummaryMode: false,
-          publicCatalogFallback: false,
           _loadedDatasets: createInitialDatasetState(false),
           _datasetStatus: createInitialDatasetState('loading')
         });
@@ -2198,7 +2046,6 @@ export const useStore = create(
           unsubHomeKits: null,
           unsubHomeBlueprints: null,
           unsubKits: null,
-          unsubCatalogPublic: null,
           unsubShelfMetadata: null
           });
 
@@ -2234,9 +2081,8 @@ export const useStore = create(
 
         set({ isLoadingMoreKits: true });
         try {
-          const sourceCollection = get().isPublicKitSummaryMode ? 'catalogPublic' : 'kits';
           const snap = await getDocs(query(
-            collection(db, sourceCollection),
+            collection(db, 'kits'),
             orderBy('lastUpdated', 'desc'),
             startAfter(lastVisibleKit),
             limit(PUBLIC_KIT_PAGE_SIZE)
@@ -2268,8 +2114,7 @@ export const useStore = create(
         if (existing) return existing;
 
         try {
-          const sourceCollection = get().isPublicKitSummaryMode ? 'catalogPublic' : 'kits';
-          const snap = await getDoc(doc(db, sourceCollection, kitId));
+          const snap = await getDoc(doc(db, 'kits', kitId));
           if (!snap.exists()) return null;
           const kit = { id: snap.id, ...snap.data() };
           set((state) => {
@@ -2295,11 +2140,9 @@ export const useStore = create(
             .map(kitDoc => ({ id: kitDoc.id, ...kitDoc.data() }))
             .filter((kit) => kit.productType !== 'printed-project' && kit.isPrintedProject !== true));
           if (get().unsubKits) get().unsubKits();
-          if (get().unsubCatalogPublic) get().unsubCatalogPublic();
           set((state) => ({
             kits: allKits,
             unsubKits: null,
-            unsubCatalogPublic: null,
             lastVisibleKit: snap.docs[snap.docs.length - 1] || null,
             hasMoreKits: false,
             hasLoadedAllKits: true,
@@ -2316,77 +2159,6 @@ export const useStore = create(
           throw error;
         }
 
-      },
-
-      syncPublicCatalog: async (onProgress) => {
-        if (!get().isAdmin) throw new Error('Admin account is required to sync the public catalog.');
-
-        if (publicCatalogSyncPromise) return publicCatalogSyncPromise;
-
-        publicCatalogSyncPromise = (async () => {
-          const report = (progress) => {
-            console.info('[Snorlax Garage] Public catalog sync:', progress.message, progress);
-            if (typeof onProgress === 'function') onProgress(progress);
-          };
-
-          report({ phase: 'reading', message: 'Reading kit catalog…' });
-          const [kitSnap, publicSnap] = await Promise.all([
-            getDocs(collection(db, 'kits')),
-            getDocs(collection(db, 'catalogPublic'))
-          ]);
-          const publicKits = kitSnap.docs
-            .map((kitDoc) => ({ id: kitDoc.id, ...kitDoc.data() }))
-            .filter((kit) => kit.productType !== 'printed-project' && kit.isPrintedProject !== true);
-          const publicIds = new Set(publicKits.map((kit) => String(kit.id)));
-          const writes = publicKits.map((kit) => ({
-            ref: doc(db, 'catalogPublic', kit.id),
-            data: buildPublicKitSummary(kit)
-          }));
-
-          report({ phase: 'writing', message: `Writing ${writes.length} kit summaries…`, total: writes.length, completed: 0 });
-          for (let index = 0; index < writes.length; index += PUBLIC_CATALOG_WRITE_CHUNK_SIZE) {
-            const chunk = writes.slice(index, index + PUBLIC_CATALOG_WRITE_CHUNK_SIZE);
-            const batch = writeBatch(db);
-            chunk.forEach(({ ref, data }) => batch.set(ref, data, { merge: true }));
-            await batch.commit();
-            const completed = Math.min(index + chunk.length, writes.length);
-            report({ phase: 'writing', message: `Wrote ${completed} of ${writes.length} kit summaries.`, total: writes.length, completed });
-            // Yield between batches so React can repaint and the page remains
-            // scrollable while a larger catalog is being synchronized.
-            await new Promise((resolve) => setTimeout(resolve, 0));
-          }
-
-          const staleRefs = publicSnap.docs
-            .filter((catalogDoc) => !publicIds.has(String(catalogDoc.id)))
-            .map((catalogDoc) => catalogDoc.ref);
-          for (let index = 0; index < staleRefs.length; index += 450) {
-            const batch = writeBatch(db);
-            staleRefs.slice(index, index + 450).forEach((ref) => batch.delete(ref));
-            await batch.commit();
-            report({ phase: 'cleaning', message: `Removed stale summary rows through ${Math.min(index + 450, staleRefs.length)} of ${staleRefs.length}.`, total: staleRefs.length, completed: Math.min(index + 450, staleRefs.length) });
-          }
-
-          report({ phase: 'complete', message: `Completed: ${writes.length} kits synced.`, total: writes.length, completed: writes.length, removed: staleRefs.length });
-          return { synced: writes.length, removed: staleRefs.length };
-        })();
-
-        try {
-          return await publicCatalogSyncPromise;
-        } finally {
-          publicCatalogSyncPromise = null;
-        }
-      },
-
-      syncPublicKitSummary: async (kitId) => {
-        if (!kitId || !get().isAdmin) return;
-        const kitRef = doc(db, 'kits', kitId);
-        const kitSnap = await getDoc(kitRef);
-        const publicRef = doc(db, 'catalogPublic', kitId);
-        if (!kitSnap.exists() || kitSnap.data()?.productType === 'printed-project' || kitSnap.data()?.isPrintedProject === true) {
-          await deleteDoc(publicRef);
-          return;
-        }
-        await setDoc(publicRef, buildPublicKitSummary({ id: kitSnap.id, ...kitSnap.data() }), { merge: true });
       },
 
       loadAllDeals: async () => {
@@ -3580,15 +3352,6 @@ export const useStore = create(
               }
               : {})
           }));
-          try {
-            await withNetworkTimeout(
-              get().syncPublicKitSummary(targetKitId),
-              4000,
-              'syncPublicKitSummary'
-            );
-          } catch (syncErr) {
-            console.warn('SG LOG: Non-fatal public catalog sync error after addKit:', syncErr);
-          }
           console.log("SG DEBUG: addKit operation successful.");
           return { id: targetKitId };
         } catch (err) {
@@ -3603,11 +3366,6 @@ export const useStore = create(
           await withNetworkTimeout(deleteDoc(doc(db, 'kits', kitId)), 4000, 'deleteDoc kit');
         } catch (err) {
           console.warn('SG LOG: Non-fatal error deleting kit doc:', err);
-        }
-        try {
-          await get().syncPublicKitSummary(kitId);
-        } catch (syncErr) {
-          console.warn('SG LOG: Non-fatal public catalog sync error after deleteKit:', syncErr);
         }
       },
 
@@ -3722,11 +3480,6 @@ export const useStore = create(
           }));
         }
 
-        try {
-          await get().syncPublicKitSummary(kitId);
-        } catch (syncErr) {
-          console.warn('SG LOG: Non-fatal public catalog sync error after stock delete:', syncErr);
-        }
       },
 
       deleteStocks: async (kitId, stockKeys = []) => {
@@ -3801,11 +3554,6 @@ export const useStore = create(
           shelf: (state.shelf || []).filter((item) => !(item.id === kitId && stockKeySet.has(item.stockKey)))
         }));
 
-        try {
-          await get().syncPublicKitSummary(kitId);
-        } catch (syncErr) {
-          console.warn('SG LOG: Non-fatal public catalog sync error after batch stock delete:', syncErr);
-        }
       },
 
       addPrintedProject: async (projectData) => {
@@ -3847,7 +3595,6 @@ export const useStore = create(
 
       updateStockPrice: async (kitId, stockKey, newPrice) => {
         await updateDoc(doc(db, 'kits', kitId), { [`stocks.${stockKey}.sellPrice`]: Number(newPrice) });
-        await get().syncPublicKitSummary(kitId);
       },
 
       priceBuiltOnhandKits: async () => {
