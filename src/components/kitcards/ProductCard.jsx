@@ -569,7 +569,15 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   }, [paymentSettings]);
 
   const stockList = useMemo(() => {
-    return kit?.stocks ? Object.entries(kit.stocks).map(([key, val]) => ({ key, ...val })) : [];
+    // Supplier-cancelled/refund-pending stocks remain in Firestore so they
+    // can be settled or reversed from Supplier Balances, but they are not
+    // active catalog inventory and must never feed ProductCard pricing,
+    // availability, conditions, or cart fallbacks.
+    return kit?.stocks
+      ? Object.entries(kit.stocks)
+        .filter(([, val]) => !isSupplierRefundPending(val))
+        .map(([key, val]) => ({ key, ...val }))
+      : [];
   }, [kit]);
 
   useEffect(() => {
@@ -633,12 +641,12 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       // Admins can inspect early-access and reserved inventory from the
       // public catalog as well. Keep shelf-held stock out of availability so
       // collection remains the source for those items in admin view.
-      if (isAdmin) {
+      if (isAdmin && isAdminView) {
         return !isSold && !isOnShelf;
       }
       return !isSold && !isReserved && !isOnShelf;
     });
-  }, [stockList, shelf, kitId, isAdmin]);
+  }, [stockList, shelf, kitId, isAdmin, isAdminView]);
 
   const pendingOrderReservationCount = useMemo(() => {
     if (!isAdmin || !isAdminView) return 0;

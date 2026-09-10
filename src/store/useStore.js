@@ -287,7 +287,7 @@ const appendLegacyAdminShelfItems = (items = [], kitsById = new Map()) => {
         stockKey,
         stockSource: getStockSource(stock),
         type: 'kit',
-        basketId: `shelf_${kitId}_${stockKey}`,
+        basketId: getCanonicalAdminShelfDocId(kitId, stockKey),
         isLegacyAdminShelfItem: true,
         minDownpayment: stock.minDownpayment || 0,
         allowShelfBundle: true,
@@ -301,7 +301,11 @@ const appendLegacyAdminShelfItems = (items = [], kitsById = new Map()) => {
   return validItems;
 };
 
-const reconcileAdminShelfSnapshot = async (shelfSnap, knownKits = []) => {
+const reconcileAdminShelfSnapshot = async (
+  shelfSnap,
+  knownKits = [],
+  { includeLegacyReservations = true } = {}
+) => {
   // The kits listener already keeps the complete catalog in memory. Reusing it
   // avoids a full `kits` collection read every time the shelf changes. Only
   // fetch kit documents referenced by shelf rows that are not in that snapshot
@@ -367,7 +371,9 @@ const reconcileAdminShelfSnapshot = async (shelfSnap, knownKits = []) => {
     console.info(`SG LOG: Removed ${staleShelfDocs.length} orphaned admin shelf stock entr${staleShelfDocs.length === 1 ? 'y' : 'ies'}.`);
   }
 
-  return appendLegacyAdminShelfItems(validItems, kitsById);
+  return includeLegacyReservations
+    ? appendLegacyAdminShelfItems(validItems, kitsById)
+    : validItems;
 };
 
 const getStockCostPrice = (stock) => {
@@ -380,6 +386,22 @@ const getStockSource = (stock) => {
   return status.includes('pre') || status.includes('batch') ? 'preorder' : 'onhand';
 };
 
+// Normal admin shelf rows use a deterministic identity.  The stock key is
+// already generated from safe characters by AddKitModal, so retaining the
+// existing `shelf_<kitId>_<stockKey>` shape keeps compatibility with the
+// rebalancer while eliminating timestamp/random document IDs.
+export const getCanonicalAdminShelfDocId = (kitId, stockKey) => (
+  `shelf_${String(kitId || '').trim()}_${String(stockKey || '').trim()}`
+);
+
+const ADMIN_SHELF_SCHEMA_VERSION = 2;
+
+const isDealShelfEntry = (item = {}) => (
+  item.entryType === 'deal-hold'
+  || Boolean(item.reservedByDealId)
+  || String(item.basketId || '').startsWith('b_kit_me_')
+);
+
 const isPotentialAdminShelfStock = (stock) => {
   if (!stock || hasOrderAssociation(stock) || stock.supplierRefundStatus === 'pending') return false;
   const reservationType = String(stock.reservationType || '').trim().toLowerCase();
@@ -387,7 +409,13 @@ const isPotentialAdminShelfStock = (stock) => {
     || (stock.isReserved && !['customer', 'supplier-refund'].includes(reservationType));
 };
 
-const rebalanceAdminShelfFromFreshFirestore = async ({ kitId, masterInfo, userId, candidateStockKey }) => {
+const rebalanceAdminShelfFromFreshFirestore = async ({
+  kitId,
+  masterInfo,
+  userId,
+  candidateStockKey,
+  refillEmptyShelf = false
+}) => {
   if (!kitId) return false;
 
   const kitRef = doc(db, 'kits', kitId);
@@ -417,7 +445,10 @@ const rebalanceAdminShelfFromFreshFirestore = async ({ kitId, masterInfo, userId
       .filter(([, stock]) => isPotentialAdminShelfStock(stock))
       .map(([stockKey]) => stockKey)
   ]);
-  if (adminShelfKeys.size === 0) return false;
+  // A cancellation can remove the last shelf row. In that case there is no
+  // remaining admin marker to discover, but the caller can still ask this
+  // helper to refill the shelf from the lowest-cost available stock.
+  if (adminShelfKeys.size === 0 && !refillEmptyShelf) return false;
 
   const eligibleStocks = Object.entries(stocks)
     .filter(([stockKey, stock]) => (
@@ -440,15 +471,18 @@ const rebalanceAdminShelfFromFreshFirestore = async ({ kitId, masterInfo, userId
   const currentShelfStocks = eligibleStocks
     .filter((entry) => entry.isAdminShelfStock)
     .sort((a, b) => a.costPrice - b.costPrice || String(a.stockKey).localeCompare(String(b.stockKey)));
-  const currentShelfWinner = currentShelfStocks[0];
-  if (!currentShelfWinner) return false;
-
+  const currentShelfWinner = currentShelfStocks[0] || null;
+  const lowestAvailableStock = eligibleStocks.find((entry) => !entry.isAdminShelfStock) || null;
   const candidate = eligibleStocks.find((entry) => String(entry.stockKey) === String(candidateStockKey));
-  const winner = candidate
-    && !candidate.isAdminShelfStock
-    && candidate.costPrice < currentShelfWinner.costPrice
+  const lowestAvailableCandidate = candidate && !candidate.isAdminShelfStock
     ? candidate
-    : currentShelfWinner;
+    : lowestAvailableStock;
+  const winner = !currentShelfWinner
+    ? lowestAvailableCandidate
+    : lowestAvailableCandidate && lowestAvailableCandidate.costPrice < currentShelfWinner.costPrice
+      ? lowestAvailableCandidate
+      : currentShelfWinner;
+  if (!winner) return false;
 
   const nextStocks = Object.fromEntries(
     Object.entries(stocks).map(([stockKey, stock]) => [stockKey, { ...stock }])
@@ -480,10 +514,11 @@ const rebalanceAdminShelfFromFreshFirestore = async ({ kitId, masterInfo, userId
   });
   const winnerShelfEntry = shelfEntryByStockKey.get(String(winner.stockKey));
   const winnerStock = nextStocks[winner.stockKey];
-  const winnerBasketId = winnerShelfEntry?.basketId || `shelf_${kitId}_${winner.stockKey}`;
+  const winnerBasketId = getCanonicalAdminShelfDocId(kitId, winner.stockKey);
   const winnerShelfItem = {
     ...(winnerShelfEntry || {}),
     id: kitId,
+    kitId,
     name: String(masterInfo?.name || kit.name || '').replace(/\s*\(Pre-Order\)\s*$/i, ''),
     image: masterInfo?.image || kit.image || '',
     brand: masterInfo?.brand || kit.brand || '',
@@ -499,6 +534,7 @@ const rebalanceAdminShelfFromFreshFirestore = async ({ kitId, masterInfo, userId
     stockKey: winner.stockKey,
     stockSource: getStockSource(winnerStock),
     type: 'kit',
+    entryType: 'stock',
     basketId: winnerBasketId,
     minDownpayment: winnerStock.minDownpayment || 0,
     isBundleItem: false,
@@ -1296,6 +1332,7 @@ const PUBLIC_STOCK_FIELDS = [
   'timestamp',
   'isReserved',
   'reservationType',
+  'supplierRefundStatus',
   'stockImages',
   'kitImage'
 ];
@@ -1387,6 +1424,9 @@ export const useStore = create(
       adminsList: [],
       projectVault: JSON.parse(localStorage.getItem('sg_guest_project_vault') || '[]'),
       shelf: [],
+      // Version 1 keeps a compatibility fallback for old kit-level admin
+      // reservation markers. Version 2 requires a real shelf document.
+      adminShelfSchemaVersion: 1,
       shippingSettings: null, // New state
       loadedData: {},
       _loadedDatasets: createInitialDatasetState(false),
@@ -1434,6 +1474,7 @@ export const useStore = create(
       unsubHomeBlueprints: null,
       unsubKits: null,
       unsubCatalogPublic: null,
+      unsubShelfMetadata: null,
       unsubProjectVault: null,
       unsubOffers: null,
       _syncAllDealsPromise: null,
@@ -1899,7 +1940,9 @@ export const useStore = create(
             // cannot appear only in Kits > Collection.
             if (get().isAdmin && get().isAdminView && Array.isArray(get().shelf)) {
               const kitsById = new Map(sortedKits.map((kit) => [String(kit.id), kit]));
-              nextState.shelf = appendLegacyAdminShelfItems(get().shelf, kitsById)
+              nextState.shelf = (get().adminShelfSchemaVersion < ADMIN_SHELF_SCHEMA_VERSION
+                ? appendLegacyAdminShelfItems(get().shelf, kitsById)
+                : get().shelf)
                 .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
             }
             set({
@@ -1960,7 +2003,9 @@ export const useStore = create(
         if (req.shelf && !ds.shelf && get().isAdmin && !listenerKeys.shelf) {
           const unsub = onSnapshot(collection(db, "shelf"), async (snap) => {
             try {
-              const items = await reconcileAdminShelfSnapshot(snap, get().kits);
+              const items = await reconcileAdminShelfSnapshot(snap, get().kits, {
+                includeLegacyReservations: get().adminShelfSchemaVersion < ADMIN_SHELF_SCHEMA_VERSION
+              });
               set({ shelf: items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()) });
             } catch (error) {
               console.error("SG LOG: Shelf reconciliation failed:", error);
@@ -1976,6 +2021,24 @@ export const useStore = create(
           if (get().unsubShelf) get().unsubShelf();
           set({ unsubShelf: unsub });
           markListener('shelf');
+        }
+
+        // Keep the one-document migration marker in sync across admin tabs.
+        // This allows the UI to stop reconstructing legacy shelf rows after a
+        // successful consolidation without relying on browser-local state.
+        if (!get().unsubShelfMetadata) {
+          const unsubShelfMetadata = onSnapshot(doc(db, 'settings', 'shelf'), (snap) => {
+            const schemaVersion = Number(snap.data()?.schemaVersion || 1);
+            const resolvedSchemaVersion = Number.isFinite(schemaVersion) ? schemaVersion : 1;
+            set((state) => ({
+              adminShelfSchemaVersion: resolvedSchemaVersion,
+              shelf: resolvedSchemaVersion >= ADMIN_SHELF_SCHEMA_VERSION
+                ? (state.shelf || []).filter((item) => !item?.isLegacyAdminShelfItem)
+                : state.shelf
+            }));
+          }, () => set({ adminShelfSchemaVersion: 1 }));
+          set({ unsubShelfMetadata });
+          unsubs.push(unsubShelfMetadata);
         }
 
 
@@ -2135,7 +2198,8 @@ export const useStore = create(
           unsubHomeKits: null,
           unsubHomeBlueprints: null,
           unsubKits: null,
-          unsubCatalogPublic: null
+          unsubCatalogPublic: null,
+          unsubShelfMetadata: null
           });
 
           const bundleDealRestartTimer = get()._bundleDealRestartTimer;
@@ -2144,6 +2208,7 @@ export const useStore = create(
 
           if (get().unsubUser) get().unsubUser();
           if (get().unsubShelf) get().unsubShelf();
+          if (get().unsubShelfMetadata) get().unsubShelfMetadata();
           if (get().unsubAdmin) get().unsubAdmin();
           if (get().unsubBasket) get().unsubBasket();
           if (get().unsubProjectVault) get().unsubProjectVault();
@@ -2710,11 +2775,245 @@ export const useStore = create(
           : collection(db, 'users', user.uid, 'basket');
         const basketSnap = await getDocs(basketRef);
         const refreshedItems = isShelf
-          ? await reconcileAdminShelfSnapshot(basketSnap, get().kits)
+          ? await reconcileAdminShelfSnapshot(basketSnap, get().kits, {
+            includeLegacyReservations: get().adminShelfSchemaVersion < ADMIN_SHELF_SCHEMA_VERSION
+          })
           : basketSnap.docs.map((basketDoc) => ({ ...basketDoc.data(), basketId: basketDoc.id }));
         refreshedItems.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
 
         set(isShelf ? { shelf: refreshedItems } : { basket: refreshedItems });
+      },
+
+      // Consolidate legacy admin shelf rows into one deterministic Firestore
+      // document per kit/stock pair. The default is a dry run; callers must
+      // explicitly pass { apply: true } before any migration write occurs.
+      consolidateAdminShelf: async ({ apply = false } = {}) => {
+        if (!get().isAdmin) throw new Error('Admin account is required to consolidate the shelf.');
+
+        const [kitsSnap, shelfSnap] = await Promise.all([
+          getDocs(collection(db, 'kits')),
+          getDocs(collection(db, 'shelf'))
+        ]);
+        const kitsById = new Map(
+          kitsSnap.docs.map((kitDoc) => [String(kitDoc.id), { id: kitDoc.id, ...kitDoc.data() }])
+        );
+        const shelfDocs = shelfSnap.docs.map((shelfDoc) => ({
+          ref: shelfDoc.ref,
+          id: shelfDoc.id,
+          data: shelfDoc.data() || {}
+        }));
+        const report = {
+          dryRun: !apply,
+          totalShelfDocuments: shelfDocs.length,
+          normalShelfRows: 0,
+          canonicalRowsCreated: 0,
+          rowsRenamed: 0,
+          duplicateRowsRemoved: 0,
+          markerOnlyRowsCreated: 0,
+          orphanRows: 0,
+          conflictingRows: 0,
+          dealHoldRows: 0,
+          projectRows: 0,
+          affectedKits: 0,
+          publicProjectionRefreshRequired: 0
+        };
+
+        const groups = new Map();
+        const getGroup = (kitId, stockKey) => {
+          const groupKey = `${String(kitId)}::${String(stockKey)}`;
+          if (!groups.has(groupKey)) {
+            groups.set(groupKey, { kitId: String(kitId), stockKey: String(stockKey), docs: [] });
+          }
+          return groups.get(groupKey);
+        };
+
+        shelfDocs.forEach((shelfDoc) => {
+          const item = shelfDoc.data;
+          if (item.type === 'project' || !item.stockKey) {
+            report.projectRows += item.type === 'project' || !item.stockKey ? 1 : 0;
+            return;
+          }
+          if (isDealShelfEntry({ ...item, basketId: shelfDoc.id })) {
+            report.dealHoldRows += 1;
+            return;
+          }
+          if (!item.id) {
+            report.orphanRows += 1;
+            return;
+          }
+          report.normalShelfRows += 1;
+          getGroup(item.kitId || item.id, item.stockKey).docs.push(shelfDoc);
+        });
+
+        // Legacy reservations were written only to kits and therefore have no
+        // shelf document. They are included in the migration, but only when
+        // they are clearly admin-held and not order/refund/deal-held stocks.
+        kitsById.forEach((kit, kitId) => {
+          Object.entries(kit.stocks || {}).forEach(([stockKey, stock]) => {
+            const reservationType = String(stock?.reservationType || '').trim().toLowerCase();
+            const markerOnlyAdminReservation = Boolean(
+              stock?.isReserved
+              && !hasOrderAssociation(stock)
+              && stock?.supplierRefundStatus !== 'pending'
+              && !stock?.reservedByDealId
+              && !['customer', 'supplier-refund'].includes(reservationType)
+            );
+            if (!markerOnlyAdminReservation) return;
+            const group = getGroup(kitId, stockKey);
+            if (group.docs.length === 0) group.markerOnly = true;
+          });
+        });
+
+        const { handlingFee, installmentFee, transferFee } = getCheckoutPaymentFees(get().shippingSettings);
+        const userId = get().user?.uid || 'admin';
+        const plans = [];
+        const normalizedStocksByKit = new Map();
+
+        const timestampMs = (value) => {
+          if (typeof value?.toMillis === 'function') return value.toMillis();
+          if (typeof value?.seconds === 'number') return value.seconds * 1000;
+          const parsed = new Date(value || 0).getTime();
+          return Number.isFinite(parsed) ? parsed : 0;
+        };
+
+        groups.forEach((group) => {
+          const kit = kitsById.get(String(group.kitId));
+          const stock = kit?.stocks?.[group.stockKey];
+          if (!kit || !stock) {
+            report.orphanRows += group.docs.length || 1;
+            return;
+          }
+          if (hasOrderAssociation(stock) || stock.supplierRefundStatus === 'pending') {
+            report.conflictingRows += group.docs.length || 1;
+            return;
+          }
+
+          const canonicalId = getCanonicalAdminShelfDocId(group.kitId, group.stockKey);
+          const sourceDoc = [...group.docs]
+            .sort((a, b) => {
+              if (a.id === canonicalId) return -1;
+              if (b.id === canonicalId) return 1;
+              return timestampMs(b.data.createdAt) - timestampMs(a.data.createdAt);
+            })[0] || null;
+          const sourceData = sourceDoc?.data || {};
+          const sellPrice = Number(stock.sellPrice || sourceData.sellPrice || 0);
+          const shelfPayload = {
+            ...sourceData,
+            id: group.kitId,
+            kitId: group.kitId,
+            name: String(kit.name || sourceData.name || '').replace(/\s*\(Pre-Order\)\s*$/i, ''),
+            image: kit.image || sourceData.image || '',
+            images: kit.images || sourceData.images || [],
+            brand: kit.brand || sourceData.brand || '',
+            specs: kit.specs || sourceData.specs || {},
+            price: sellPrice + handlingFee + installmentFee + transferFee,
+            costPrice: Number(stock.costPrice || sourceData.costPrice || 0),
+            sellPrice,
+            status: stock.status || sourceData.status || 'onhand',
+            eta: getStockEta(stock),
+            appliedHandlingFee: handlingFee,
+            appliedInstallmentFee: installmentFee,
+            appliedTransferFee: transferFee,
+            stockKey: group.stockKey,
+            stockSource: getStockSource(stock),
+            type: 'kit',
+            entryType: 'stock',
+            basketId: canonicalId,
+            minDownpayment: stock.minDownpayment || sourceData.minDownpayment || 0,
+            allowShelfBundle: sourceData.allowShelfBundle !== false,
+            createdAt: sourceData.createdAt || new Date().toISOString()
+          };
+
+          if (!sourceDoc || sourceDoc.id !== canonicalId) {
+            report.canonicalRowsCreated += 1;
+            if (sourceDoc) report.rowsRenamed += 1;
+          }
+          report.duplicateRowsRemoved += Math.max(0, group.docs.length - 1);
+          if (group.markerOnly && group.docs.length === 0) report.markerOnlyRowsCreated += 1;
+
+          if (!normalizedStocksByKit.has(group.kitId)) {
+            normalizedStocksByKit.set(group.kitId, Object.fromEntries(
+              Object.entries(kit.stocks || {}).map(([key, value]) => [key, { ...value }])
+            ));
+          }
+          const normalizedStock = normalizedStocksByKit.get(group.kitId)[group.stockKey] || {};
+          normalizedStocksByKit.get(group.kitId)[group.stockKey] = {
+            ...normalizedStock,
+            isReserved: true,
+            reservationType: 'admin',
+            reservedBy: normalizedStock.reservedBy || userId,
+            reservedAt: normalizedStock.reservedAt || serverTimestamp()
+          };
+
+          plans.push({
+            kitId: group.kitId,
+            stockKey: group.stockKey,
+            canonicalId,
+            sourceDocId: sourceDoc?.id || null,
+            duplicateDocIds: group.docs.filter((docItem) => docItem.id !== canonicalId).map((docItem) => docItem.id),
+            data: shelfPayload
+          });
+        });
+
+        report.affectedKits = normalizedStocksByKit.size;
+        report.publicProjectionRefreshRequired = normalizedStocksByKit.size;
+
+        if (!apply) return report;
+
+        // Write shelf rows in bounded batches. The migration is intentionally
+        // idempotent: running it again produces no additional duplicate rows.
+        let shelfBatch = writeBatch(db);
+        let shelfOperationCount = 0;
+        const commitShelfBatch = async () => {
+          if (shelfOperationCount === 0) return;
+          await shelfBatch.commit();
+          shelfBatch = writeBatch(db);
+          shelfOperationCount = 0;
+        };
+        for (const plan of plans) {
+          shelfBatch.set(doc(db, 'shelf', plan.canonicalId), {
+            ...plan.data,
+            updatedAt: serverTimestamp()
+          }, { merge: true });
+          shelfOperationCount += 1;
+          for (const duplicateId of plan.duplicateDocIds) {
+            if (shelfOperationCount >= 400) await commitShelfBatch();
+            shelfBatch.delete(doc(db, 'shelf', duplicateId));
+            shelfOperationCount += 1;
+          }
+          if (shelfOperationCount >= 400) await commitShelfBatch();
+        }
+        await commitShelfBatch();
+
+        const kitUpdates = [...normalizedStocksByKit.entries()].map(([kitId, stocks]) => ({
+          kitId,
+          stocks,
+          hasAvailableStock: Object.values(stocks).some((stock) => (
+            !stock?.order?.orderId && !stock?.isReserved
+          ))
+        }));
+        for (let index = 0; index < kitUpdates.length; index += 400) {
+          const batch = writeBatch(db);
+          kitUpdates.slice(index, index + 400).forEach(({ kitId, stocks, hasAvailableStock }) => {
+            batch.update(doc(db, 'kits', kitId), {
+              stocks,
+              hasAvailableStock,
+              lastUpdated: serverTimestamp()
+            });
+          });
+          await batch.commit();
+        }
+
+        await setDoc(doc(db, 'settings', 'shelf'), {
+          schemaVersion: ADMIN_SHELF_SCHEMA_VERSION,
+          lastConsolidatedAt: serverTimestamp(),
+          lastConsolidatedBy: userId,
+          lastConsolidatedKitCount: normalizedStocksByKit.size,
+          lastConsolidatedRowCount: plans.length
+        }, { merge: true });
+        set({ adminShelfSchemaVersion: ADMIN_SHELF_SCHEMA_VERSION });
+        await get().refreshBasket();
+        return { ...report, dryRun: false };
       },
 
       fetchAdmins: () => {
@@ -2784,9 +3083,10 @@ export const useStore = create(
             const batch = writeBatch(db);
 
             chunk.forEach(({ kit, stock, key }) => {
-                const basketId = `b_kit_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+                const basketId = getCanonicalAdminShelfDocId(kit.id, key);
                 const clean = {
                     id: kit.id,
+                    kitId: kit.id,
                     name: (kit.name || '').replace(/\s*\(Pre-Order\)\s*$/i, ''),
                     image: kit.image || '',
                     brand: kit.brand || '',
@@ -2801,6 +3101,7 @@ export const useStore = create(
                     appliedTransferFee: transferFee,
                     stockKey: key,
                     type: 'kit',
+                    entryType: 'stock',
                     basketId,
                     minDownpayment: stock.minDownpayment || 0,
                     createdAt: now
@@ -2865,9 +3166,10 @@ export const useStore = create(
             const batch = writeBatch(db);
 
             chunk.forEach(({ kit, stock, key, hasAvailable }) => {
-                const basketId = `b_kit_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+                const basketId = getCanonicalAdminShelfDocId(kit.id, key);
                 const clean = {
                     id: kit.id,
+                    kitId: kit.id,
                     name: (kit.name || '').replace(/\s*\(Pre-Order\)\s*$/i, ''),
                     image: kit.image || '',
                     brand: kit.brand || '',
@@ -2882,6 +3184,7 @@ export const useStore = create(
                     appliedTransferFee: transferFee,
                     stockKey: key,
                     type: 'kit',
+                    entryType: 'stock',
                     basketId,
                     minDownpayment: stock.minDownpayment || 0,
                     createdAt: now
@@ -3132,11 +3435,12 @@ export const useStore = create(
                   adminData: { paymentSettings: get().shippingSettings?.paymentSettings }
                 });
                 const winnerShelfItem = shelfEntryByStockKey.get(String(winner.key));
-                const winnerBasketId = winnerShelfItem?.basketId || `shelf_${targetKitId}_${winner.key}`;
+                const winnerBasketId = getCanonicalAdminShelfDocId(targetKitId, winner.key);
                 const winnerSellPrice = Number(currentWinner.sellPrice || 0);
                 const shelfPayload = {
                   ...(winnerShelfItem || {}),
                   id: targetKitId,
+                  kitId: targetKitId,
                   name: (masterInfo.name || '').replace(/\s*\(Pre-Order\)\s*$/i, ''),
                   image: masterInfo.image || '',
                   brand: masterInfo.brand || '',
@@ -3152,6 +3456,7 @@ export const useStore = create(
                   stockKey: winner.key,
                   stockSource: getStockSource(currentWinner),
                   type: 'kit',
+                  entryType: 'stock',
                   basketId: winnerBasketId,
                   minDownpayment: currentWinner.minDownpayment || 0,
                   isBundleItem: false,
@@ -3306,6 +3611,17 @@ export const useStore = create(
         }
       },
 
+      rebalanceAdminShelf: async ({ kitId, masterInfo, userId, refillEmptyShelf = false } = {}) => {
+        if (!kitId) return false;
+        return rebalanceAdminShelfFromFreshFirestore({
+          kitId,
+          masterInfo,
+          userId: userId || get().user?.uid || auth.currentUser?.uid || 'admin',
+          candidateStockKey: '',
+          refillEmptyShelf
+        });
+      },
+
       deleteStock: async (kitId, stockKey) => {
         if (!kitId || !stockKey) return;
         const kitRef = doc(db, 'kits', kitId);
@@ -3335,6 +3651,9 @@ export const useStore = create(
           console.warn('SG LOG: Could not query shelf in deleteStock:', e);
         }
 
+        const deletedStock = kitData?.stocks?.[stockKey];
+        const wasAdminShelfStock = matchingShelfDocs.length > 0
+          || isPotentialAdminShelfStock(deletedStock);
         const batch = writeBatch(db);
         matchingShelfDocs.forEach((shelfDoc) => batch.delete(shelfDoc.ref));
 
@@ -3348,10 +3667,29 @@ export const useStore = create(
           });
         }
 
+        let deleteCommitResult = null;
         try {
-          await withNetworkTimeout(batch.commit(), 4000, 'deleteStock batch.commit');
+          deleteCommitResult = await withNetworkTimeout(batch.commit(), 4000, 'deleteStock batch.commit');
         } catch (batchErr) {
           console.warn('SG LOG: Non-fatal error committing batch in deleteStock:', batchErr);
+        }
+
+        // Deleting a shelf-held stock must refill the shelf from authoritative
+        // Firestore state. This also handles the last shelf item, where the
+        // deleted row is no longer available as an admin reservation marker.
+        let freshRebalance = null;
+        if (wasAdminShelfStock && deleteCommitResult !== null) {
+          try {
+            freshRebalance = await rebalanceAdminShelfFromFreshFirestore({
+              kitId,
+              masterInfo: kitData,
+              userId: get().user?.uid || auth.currentUser?.uid || 'admin',
+              candidateStockKey: '',
+              refillEmptyShelf: true
+            });
+          } catch (rebalanceError) {
+            console.warn('SG LOG: Admin shelf rebalance after stock deletion failed:', rebalanceError);
+          }
         }
 
         // Update local Zustand state immediately so UI updates in real-time
@@ -3369,6 +3707,20 @@ export const useStore = create(
           }),
           shelf: (state.shelf || []).filter((item) => !(item.id === kitId && item.stockKey === stockKey))
         }));
+
+        if (freshRebalance?.stocks && freshRebalance?.shelfItem) {
+          set((state) => ({
+            kits: (state.kits || []).map((kit) => (
+              kit.id === kitId
+                ? { ...kit, stocks: freshRebalance.stocks, hasAvailableStock: Object.values(freshRebalance.stocks).some(stock => !stock?.order?.orderId && !stock?.isReserved) }
+                : kit
+            )),
+            shelf: [
+              ...(state.shelf || []).filter((item) => item.id !== kitId),
+              freshRebalance.shelfItem
+            ]
+          }));
+        }
 
         try {
           await get().syncPublicKitSummary(kitId);
@@ -4563,9 +4915,7 @@ export const useStore = create(
             ...normalizedPatch
           }
         };
-        set((state) => ({
-          rates: nextRates
-        }));
+        set({ rates: nextRates });
         try {
           await setDoc(doc(db, 'rates', rateId), normalizedPatch, { merge: true });
 
@@ -4612,7 +4962,15 @@ export const useStore = create(
 
         if (!targetKey) return;
 
-        const basketId = `b_kit_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+        const useCanonicalShelfId = Boolean(
+          isAdminContext
+          && !itemData.isBundleItem
+          && !itemData.isClearanceBundle
+          && itemData.type !== 'project'
+        );
+        const basketId = useCanonicalShelfId
+          ? getCanonicalAdminShelfDocId(kit.id, targetKey)
+          : `b_kit_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
         const { handlingFee: hFee, installmentFee: iFee, transferFee: tFee } = getCheckoutPaymentFees({
           garageInfo: { checkoutSettings: get().shippingSettings },
           adminData: { paymentSettings: get().shippingSettings?.paymentSettings }
@@ -4627,8 +4985,9 @@ export const useStore = create(
         const itemHandlingFee = isBundleItem ? 0 : hFee;
         const itemInstallmentFee = isBundleItem ? 0 : iFee;
         const itemTransferFee = isBundleItem ? 0 : tFee;
-        const clean = { 
+        const clean = {
           id: kit.id, 
+          ...(isAdminContext ? { kitId: kit.id } : {}),
           name: (itemData.name || kit.name || '').replace(/\s*\(Pre-Order\)\s*$/i, ''), 
           image: itemData.image || kit.image || '',
           brand: itemData.brand || kit.brand || '',
@@ -4643,7 +5002,8 @@ export const useStore = create(
           appliedTransferFee: itemTransferFee,
           stockKey: targetKey, 
           stockSource: getStockSource(stock),
-          type: itemData.type || 'kit', 
+          type: itemData.type || 'kit',
+          ...(useCanonicalShelfId ? { entryType: 'stock' } : {}),
           basketId, 
           minDownpayment: stock.minDownpayment || 0,
           offerId: itemData.offerId || null,

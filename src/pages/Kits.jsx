@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Package, Gift, Plus, Trash2, Box, ClockFading, Pencil, Search, Loader2, X, Wallet, AlertCircle, TrendingUp, Zap, Sparkles, RefreshCw, ArrowBigDownDash, ArrowBigUpDash, ArrowBigRightDash, ArrowBigLeftDash, ChevronDown, MoreHorizontal, Image as ImageIcon, Settings } from 'lucide-react';
+import { Package, Gift, Plus, Trash2, Box, ClockFading, Pencil, Search, Loader2, X, Wallet, AlertCircle, TrendingUp, Zap, Sparkles, RefreshCw, Layers, ArrowBigDownDash, ArrowBigUpDash, ArrowBigRightDash, ArrowBigLeftDash, ChevronDown, MoreHorizontal, Image as ImageIcon, Settings } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
@@ -260,6 +260,7 @@ export default function Kits({ isActive = true }) {
   const loadKitById = useStore((state) => state.loadKitById);
   const loadAllKits = useStore((state) => state.loadAllKits);
   const syncPublicCatalog = useStore((state) => state.syncPublicCatalog);
+  const consolidateAdminShelf = useStore((state) => state.consolidateAdminShelf);
   const setToastMessage = useStore((state) => state.setToastMessage);
   const deals = useStore((state) => state.deals);
   const addKit = useStore((state) => state.addKit);
@@ -297,6 +298,7 @@ export default function Kits({ isActive = true }) {
   const handleCloseKitDataQuality = useCallback(() => setIsKitDataQualityModalOpen(false), []);
   const [isAdminToolsOpen, setIsAdminToolsOpen] = useState(false);
   const [isSyncingPublicCatalog, setIsSyncingPublicCatalog] = useState(false);
+  const [isConsolidatingShelf, setIsConsolidatingShelf] = useState(false);
   const [publicCatalogSyncStatus, setPublicCatalogSyncStatus] = useState('');
   const kitCardRefs = useRef(new Map());
   const pendingRestoreRef = useRef(null);
@@ -1246,6 +1248,37 @@ export default function Kits({ isActive = true }) {
     { id: 'balances', label: 'Balances', icon: Wallet, tone: 'border-amber-500/20 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20', onClick: () => setIsSupplierBalancesModalOpen(true) },
     { id: 'sales', label: 'Sales', icon: TrendingUp, tone: 'border-indigo-500/20 bg-indigo-500/10 text-indigo-600 hover:bg-indigo-500/20', onClick: () => setIsSalesDashboardModalOpen(true) },
     { id: 'kit-data-quality', label: 'Fix Missing Kit Data', icon: Sparkles, tone: 'border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-600 hover:bg-fuchsia-500/20', onClick: () => setIsKitDataQualityModalOpen(true) },
+    { id: 'consolidate-shelf', label: 'Consolidate Admin Shelf', icon: Layers, tone: 'border-violet-500/20 bg-violet-500/10 text-violet-600 hover:bg-violet-500/20', onClick: async () => {
+      if (isConsolidatingShelf) return;
+      setIsConsolidatingShelf(true);
+      try {
+        const preview = await consolidateAdminShelf();
+        const shouldApply = window.confirm(
+          `Shelf consolidation preview:\n\n`
+          + `Normal shelf rows: ${preview.normalShelfRows}\n`
+          + `Canonical rows to create: ${preview.canonicalRowsCreated}\n`
+          + `Duplicate rows to remove: ${preview.duplicateRowsRemoved}\n`
+          + `Legacy marker-only rows to create: ${preview.markerOnlyRowsCreated}\n`
+          + `Orphan rows left untouched: ${preview.orphanRows}\n`
+          + `Conflicting rows left untouched: ${preview.conflictingRows}\n\n`
+          + 'Apply this migration now?'
+        );
+        if (!shouldApply) {
+          setToastMessage('Shelf consolidation preview completed; no changes were made.');
+          return;
+        }
+        const result = await consolidateAdminShelf({ apply: true });
+        setToastMessage(
+          `Shelf consolidated: ${result.canonicalRowsCreated} canonical rows, `
+          + `${result.duplicateRowsRemoved} duplicates removed.`
+        );
+      } catch (error) {
+        console.error('SG LOG: Admin shelf consolidation failed:', error);
+        setToastMessage('Shelf consolidation failed. Check the console.');
+      } finally {
+        setIsConsolidatingShelf(false);
+      }
+    } },
     { id: 'sync-public-catalog', label: 'Sync Public Catalog', icon: RefreshCw, tone: 'border-cyan-500/20 bg-cyan-500/10 text-cyan-600 hover:bg-cyan-500/20', onClick: async () => {
       if (isSyncingPublicCatalog) return;
       setIsSyncingPublicCatalog(true);
@@ -1279,17 +1312,20 @@ export default function Kits({ isActive = true }) {
         setIsAdminToolsOpen(false);
         void onClick();
       }}
-      disabled={id === 'sync-public-catalog' && isSyncingPublicCatalog}
+      disabled={(id === 'sync-public-catalog' && isSyncingPublicCatalog) || (id === 'consolidate-shelf' && isConsolidatingShelf)}
       className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border shadow-sm transition-all hover:scale-110 active:scale-95 disabled:cursor-wait disabled:opacity-60 disabled:hover:scale-100 ${tone}`}
       aria-label={label}
       title={label}
-      aria-busy={id === 'sync-public-catalog' && isSyncingPublicCatalog}
+      aria-busy={(id === 'sync-public-catalog' && isSyncingPublicCatalog) || (id === 'consolidate-shelf' && isConsolidatingShelf)}
     >
-      {React.createElement(id === 'sync-public-catalog' && isSyncingPublicCatalog ? Loader2 : icon, {
+      {React.createElement(
+        ((id === 'sync-public-catalog' && isSyncingPublicCatalog) || (id === 'consolidate-shelf' && isConsolidatingShelf)) ? Loader2 : icon,
+        {
         size: 20,
         strokeWidth: 2.5,
-        className: id === 'sync-public-catalog' && isSyncingPublicCatalog ? 'animate-spin' : undefined
-      })}
+        className: ((id === 'sync-public-catalog' && isSyncingPublicCatalog) || (id === 'consolidate-shelf' && isConsolidatingShelf)) ? 'animate-spin' : undefined
+      }
+      )}
     </button>
   ));
 

@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { X, Wallet, AlertCircle, Package, ExternalLink, ArrowRight, Loader2, Info, CheckSquare, CheckCircle2, Undo2 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
-import { useStore } from '../../store/useStore';
+import { getCanonicalAdminShelfDocId, useStore } from '../../store/useStore';
 
 function resolveImage(idOrUrl, imagesArray) {
   if (!idOrUrl) return '';
@@ -17,7 +17,7 @@ import { hasOrderAssociation } from '../../utils/stockOrderUtils';
 
 export default function SupplierBalancesModal({ isOpen, onClose }) {
   const { isDarkMode } = useTheme();
-  const { kits: storeKits, deleteStock, deleteStocks, shippingSettings } = useStore();
+  const { kits: storeKits, deleteStock, deleteStocks, rebalanceAdminShelf, shippingSettings } = useStore();
   const [allKits, setAllKits] = useState([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const onCloseRef = useRef(onClose);
@@ -371,7 +371,7 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
           : null;
         const replacementKey = replacement?.key || null;
         const replacementBasketId = replacement
-          ? replacementShelfDoc?.id || `shelf_${item.kitId}_${replacement.key}`
+          ? getCanonicalAdminShelfDocId(item.kitId, replacement.key)
           : null;
 
         const nextStocks = Object.fromEntries(
@@ -412,6 +412,7 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
           replacementShelfItem = {
             ...(replacementShelfDoc?.data() || {}),
             id: item.kitId,
+            kitId: item.kitId,
             name: String(kit.name || '').replace(/\s*\(Pre-Order\)\s*$/i, ''),
             image: resolveImage(kit.image, kit.images),
             brand: kit.brand || '',
@@ -427,6 +428,7 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
             stockKey: replacement.key,
             stockSource,
             type: 'kit',
+            entryType: 'stock',
             basketId: replacementBasketId,
             minDownpayment: replacementStock.minDownpayment || 0,
             isBundleItem: false,
@@ -471,10 +473,29 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
         const shelfBatch = writeBatch(db);
         shelfBatch.update(kitRef, cancellationUpdates);
         matchingShelfDocs.forEach((shelfDoc) => shelfBatch.delete(shelfDoc.ref));
+        if (replacementShelfDoc && replacementShelfDoc.id !== replacementBasketId) {
+          shelfBatch.delete(replacementShelfDoc.ref);
+        }
         if (replacementShelfItem) {
           shelfBatch.set(doc(db, 'shelf', replacementBasketId), replacementShelfItem);
         }
         await shelfBatch.commit();
+
+        // Re-read the committed inventory and run the same authoritative
+        // lowest-cost shelf rebalance used after adding stock. This covers
+        // stale shelf markers and promotes another available stock even when
+        // the cancelled stock was the last item on the shelf.
+        if (wasAdminShelfStock) {
+          try {
+            await rebalanceAdminShelf({
+              kitId: item.kitId,
+              masterInfo: kit,
+              refillEmptyShelf: true
+            });
+          } catch (rebalanceError) {
+            console.warn('Supplier cancellation shelf rebalance failed:', rebalanceError);
+          }
+        }
 
         alert(replacement
           ? "Stock cancelled and retained as refund pending. A replacement stock was moved to the admin shelf."
@@ -556,6 +577,7 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
           : 'onhand';
         const shelfItem = {
           id: item.kitId,
+          kitId: item.kitId,
           name: String(kit.name || '').replace(/\s*\(Pre-Order\)\s*$/i, ''),
           image: resolveImage(kit.image, kit.images),
           brand: kit.brand || '',
@@ -571,7 +593,8 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
           stockKey: item.key,
           stockSource,
           type: 'kit',
-          basketId: `shelf_${item.kitId}_${item.key}`,
+          entryType: 'stock',
+          basketId: getCanonicalAdminShelfDocId(item.kitId, item.key),
           minDownpayment: stock.minDownpayment || 0,
           isBundleItem: false,
           isClearanceBundle: false,
