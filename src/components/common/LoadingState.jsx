@@ -59,7 +59,7 @@ export default function LoadingState({
           src="/snorlaxgarage.png"
           alt=""
           aria-hidden="true"
-          className="h-16 w-16 animate-pulse object-contain"
+          className="h-16 w-16 object-contain"
           style={{ filter: 'brightness(0) saturate(100%) invert(38%) sepia(97%) saturate(2198%) hue-rotate(211deg) brightness(99%) contrast(101%)' }}
         />
         {hasProgress ? (
@@ -72,7 +72,7 @@ export default function LoadingState({
       </div>
 
       <div className="text-center">
-        <p className={`text-[12px] font-black uppercase tracking-[0.3em] ${isDarkMode ? 'text-black' : 'text-white'}`}>
+        <p className={`text-[12px] font-black uppercase tracking-[0.3em] ${isDarkMode ? 'text-white' : 'text-black'}`}>
           {message}
         </p>
       </div>

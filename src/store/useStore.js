@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { db, auth } from '../firebase/firebase';
 import { 
-  collection, onSnapshot, doc, query, orderBy, where, limit, startAfter, documentId, getDocs, getDoc, setDoc, updateDoc, deleteDoc, deleteField, serverTimestamp, addDoc, writeBatch, runTransaction
+  collection, onSnapshot, doc, query, orderBy, where, limit, documentId, getDocs, getDoc, setDoc, updateDoc, deleteDoc, deleteField, serverTimestamp, addDoc, writeBatch, runTransaction
 } from 'firebase/firestore';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
 import {
@@ -1112,8 +1112,6 @@ const PRINT_METHOD_ORDER = {
   '3mf': 1
 };
 
-const PUBLIC_KIT_PAGE_SIZE = 40;
-
 const getRequirementValues = (requirements = {}) => (
   Object.entries(requirements)
     .sort(([keyA], [keyB]) => {
@@ -1175,15 +1173,9 @@ export const useStore = create(
       _datasetListenerKeys: {},
       _prioUnsubs: [],
       _bgUnsubs: [],
-      lastVisibleKit: null,
-      hasMoreKits: false,
-      isLoadingMoreKits: false,
-      isPublicKitPagination: false,
-      forceFullKitCatalog: false,
       isLoading: true,
       initialLoadCacheStatus: 'unknown',
       initialLoadComplete: false,
-      hasLoadedAllKits: false,
       isAdmin: false,
       isBanned: false,
       isAnonymousUser: false,
@@ -1403,11 +1395,6 @@ export const useStore = create(
         const ds = get()._loadedDatasets;
         const req = get()._getPageRequirements(get()._activePath);
         const listenerKeys = get()._datasetListenerKeys || {};
-        const activePath = get()._activePath;
-        const isPublicKitPage = req.kits
-          && (activePath === '/kits' || activePath.startsWith('/kits/'))
-          && !(get().isAdmin && get().isAdminView)
-          && !get().forceFullKitCatalog;
         const unsubs = [];
         const markListener = (key, isActive = true) => {
           set((state) => ({
@@ -1477,11 +1464,9 @@ export const useStore = create(
           });
         };
 
-        // Keep public catalog pages bounded while admin/cart/checkout workflows
-        // continue using the full live kits collection.
-        const desiredKitMode = isPublicKitPage
-          ? 'public-page'
-          : (req.kits ? 'full' : null);
+        // The Kits page uses the complete live collection so availability
+        // sorting happens once and cards do not reshuffle between batches.
+        const desiredKitMode = req.kits ? 'full' : null;
         const currentKitMode = listenerKeys.kitsMode || null;
         if (req.kits && currentKitMode && currentKitMode !== desiredKitMode) {
           if (get().unsubKits) get().unsubKits();
@@ -1493,11 +1478,6 @@ export const useStore = create(
             kits: [],
             adminShelfSourceKits: [],
             shelf: [],
-            lastVisibleKit: null,
-            hasMoreKits: false,
-            hasLoadedAllKits: false,
-            isPublicKitPagination: false,
-            forceFullKitCatalog: false
           }));
         }
 
@@ -1564,16 +1544,13 @@ export const useStore = create(
           unsubs.push(unsub);
         }
 
-        // 4. Kits — public catalog pages are bounded; admin/cart/checkout use
-        // the full live collection because they need complete stock state.
+        // 4. Kits — all catalog routes use the complete live collection.
         if (
           req.kits
           && !get()._loadedDatasets.kits
           && !get()._datasetListenerKeys?.kits
         ) {
-          const kitsQuery = isPublicKitPage
-            ? query(collection(db, 'kits'), orderBy('lastUpdated', 'desc'), limit(PUBLIC_KIT_PAGE_SIZE))
-            : query(collection(db, 'kits'), orderBy('lastUpdated', 'desc'));
+          const kitsQuery = query(collection(db, 'kits'), orderBy('lastUpdated', 'desc'));
           const unsub = onSnapshot(kitsQuery, (snap) => {
             const sourceKits = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             const allKits = sourceKits
@@ -1585,11 +1562,7 @@ export const useStore = create(
             const sortedKits = sortKitsByAvailability(allKits);
             const nextState = {
               kits: sortedKits,
-              adminShelfSourceKits: sourceKits,
-              lastVisibleKit: snap.docs[snap.docs.length - 1] || null,
-              hasMoreKits: isPublicKitPage && snap.docs.length === PUBLIC_KIT_PAGE_SIZE,
-              hasLoadedAllKits: !isPublicKitPage || snap.docs.length < PUBLIC_KIT_PAGE_SIZE,
-              isPublicKitPagination: isPublicKitPage
+              adminShelfSourceKits: sourceKits
             };
 
             // The admin collection is a derived view of kits. This keeps the
@@ -1700,7 +1673,6 @@ export const useStore = create(
           isLoading: true,
           initialLoadCacheStatus: 'unknown',
           initialLoadComplete: false,
-          forceFullKitCatalog: false,
           _loadedDatasets: createInitialDatasetState(false),
           _datasetStatus: createInitialDatasetState('loading')
         });
@@ -1833,41 +1805,6 @@ export const useStore = create(
         };
       },
 
-      getMoreKits: async () => {
-        const { isPublicKitPagination, hasMoreKits, lastVisibleKit, isLoadingMoreKits } = get();
-        if (!isPublicKitPagination || !hasMoreKits || !lastVisibleKit || isLoadingMoreKits) {
-          return get().kits || [];
-        }
-
-        set({ isLoadingMoreKits: true });
-        try {
-          const snap = await getDocs(query(
-            collection(db, 'kits'),
-            orderBy('lastUpdated', 'desc'),
-            startAfter(lastVisibleKit),
-            limit(PUBLIC_KIT_PAGE_SIZE)
-          ));
-          const nextKits = snap.docs
-            .map((kitDoc) => ({ id: kitDoc.id, ...kitDoc.data() }))
-            .filter((kit) => kit.productType !== 'printed-project' && kit.isPrintedProject !== true);
-          const currentById = new Map((get().kits || []).map((kit) => [String(kit.id), kit]));
-          nextKits.forEach((kit) => currentById.set(String(kit.id), kit));
-          const hasMore = snap.docs.length === PUBLIC_KIT_PAGE_SIZE;
-          set({
-            kits: sortKitsByAvailability([...currentById.values()]),
-            lastVisibleKit: snap.docs[snap.docs.length - 1] || lastVisibleKit,
-            hasMoreKits: hasMore,
-            hasLoadedAllKits: !hasMore,
-            isLoadingMoreKits: false
-          });
-          return get().kits || [];
-        } catch (error) {
-          set({ isLoadingMoreKits: false });
-          console.error('SG LOG: Loading more public kits failed:', error);
-          throw error;
-        }
-      },
-
       loadKitById: async (kitId) => {
         if (!kitId) return null;
         const existing = (get().kits || []).find((kit) => String(kit.id) === String(kitId));
@@ -1891,7 +1828,7 @@ export const useStore = create(
 
       loadAllKits: async () => {
         const currentKits = get().kits || [];
-        if (currentKits.length > 0 && get()._loadedDatasets.kits && !get().isPublicKitPagination) return currentKits;
+        if (currentKits.length > 0 && get()._loadedDatasets.kits) return currentKits;
 
         get().setDatasetStatus('kits', 'loading');
         try {
@@ -1903,11 +1840,6 @@ export const useStore = create(
           set((state) => ({
             kits: allKits,
             unsubKits: null,
-            lastVisibleKit: snap.docs[snap.docs.length - 1] || null,
-            hasMoreKits: false,
-            hasLoadedAllKits: true,
-            isPublicKitPagination: false,
-            forceFullKitCatalog: true,
             _datasetListenerKeys: { ...state._datasetListenerKeys, kits: false, kitsMode: null },
             _loadedDatasets: { ...state._loadedDatasets, kits: false },
             _datasetStatus: { ...state._datasetStatus, kits: 'loading' }

@@ -87,6 +87,27 @@
   }
 }
 
+/* Checkout forms use high-contrast text outside their blue totals panels.
+ * Keep these overrides scoped so totals retain their designed color system. */
+.checkout-readable {
+  --checkout-readable-text: #050505;
+}
+
+.dark .checkout-readable {
+  --checkout-readable-text: #ffffff;
+}
+
+.checkout-readable [class*="opacity-"] {
+  opacity: 1 !important;
+}
+
+.checkout-readable [class*="text-blue-"],
+.checkout-readable .text-garage-blue,
+.checkout-readable [class*="text-neutral-"],
+.checkout-readable [class*="text-white/"] {
+  color: var(--checkout-readable-text) !important;
+}
+
 @keyframes scroll {
   0% { transform: translateX(0); }
   100% { transform: translateX(-33.333333%); }

@@ -253,12 +253,7 @@ export default function Kits({ isActive = true }) {
   const isAdminView = useStore((state) => state.isAdminView);
   const shelf = useStore((state) => state.shelf);
   const storeKits = useStore((state) => state.kits);
-  const isPublicKitPagination = useStore((state) => state.isPublicKitPagination);
-  const hasMoreKits = useStore((state) => state.hasMoreKits);
-  const isLoadingMoreKits = useStore((state) => state.isLoadingMoreKits);
-  const getMoreKits = useStore((state) => state.getMoreKits);
   const loadKitById = useStore((state) => state.loadKitById);
-  const loadAllKits = useStore((state) => state.loadAllKits);
   const deals = useStore((state) => state.deals);
   const addKit = useStore((state) => state.addKit);
   const user = useStore((state) => state.user);
@@ -281,7 +276,6 @@ export default function Kits({ isActive = true }) {
   const [isSortOpen, setIsSortOpen] = useState(false);
   const sortRef = useRef(null);
   const searchInputRef = useRef(null);
-  const loadMoreKitsSentinelRef = useRef(null);
   
   const [isAddKitModalOpen, setIsAddKitModalOpen] = useState(false); 
   const [isAddDealModalOpen, setIsAddDealModalOpen] = useState(false);
@@ -385,48 +379,12 @@ export default function Kits({ isActive = true }) {
     return () => window.removeEventListener('scroll', closeFloatingControlsOnScroll);
   }, []);
 
-  // Infinite Scroll States
+  // Catalog loading state
   const kitsStatus = useStore((state) => state._datasetStatus?.kits || 'loading');
   const dealsStatus = useStore((state) => state._datasetStatus?.deals || 'loading');
   const isKitsDataLoading = kitsStatus === 'loading' || dealsStatus === 'loading';
   const [isContentHeaderHidden, setIsContentHeaderHidden] = useState(false);
   const contentHeaderScrollRef = useRef({ previousY: window.scrollY, frame: 0, hidden: false, direction: 0, distance: 0 });
-
-  // Public kits are fetched in bounded pages, but the user should not need to
-  // interact with a pagination button. Start the next page shortly before the
-  // current list ends so scrolling feels continuous while Firestore reads stay
-  // capped at PUBLIC_KIT_PAGE_SIZE per request.
-  useEffect(() => {
-    if (
-      !isActive
-      || isAdminView
-      || searchTerm
-      || !isPublicKitPagination
-      || !hasMoreKits
-      || isLoadingMoreKits
-    ) return undefined;
-
-    const sentinel = loadMoreKitsSentinelRef.current;
-    if (!sentinel || typeof IntersectionObserver === 'undefined') return undefined;
-
-    const observer = new IntersectionObserver((entries) => {
-      if (!entries.some((entry) => entry.isIntersecting)) return;
-      void getMoreKits().catch((error) => {
-        console.error('SG LOG: Loading more kits failed:', error);
-      });
-    }, { rootMargin: '600px 0px' });
-
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [
-    getMoreKits,
-    hasMoreKits,
-    isActive,
-    isAdminView,
-    isLoadingMoreKits,
-    isPublicKitPagination,
-    searchTerm
-  ]);
 
   useEffect(() => {
     const scrollState = contentHeaderScrollRef.current;
@@ -1426,21 +1384,6 @@ export default function Kits({ isActive = true }) {
     || activeOfferKits.length > 0
     || kitGroups.clearance.length > 0;
 
-  useEffect(() => {
-    // Keep the initial public catalog bounded. Search remains catalog-wide by
-    // promoting the public page to the full listener only when the user asks
-    // for a search, so normal browsing does not pay for the complete catalog.
-    if (!searchTerm.trim() || !isPublicKitPagination || isAdminView) return undefined;
-
-    const timer = window.setTimeout(() => {
-      void loadAllKits().catch((error) => {
-        console.error('SG LOG: Public catalog search hydration failed:', error);
-      });
-    }, 250);
-
-    return () => window.clearTimeout(timer);
-  }, [isAdminView, isPublicKitPagination, loadAllKits, searchTerm]);
-
   return (
     <PageTemplate isDarkMode={isDarkMode}>
       <div className="min-h-screen w-full bg-neutral-50 dark:bg-[#0a0a0a] transition-colors duration-500 pb-20 font-sans text-left">
@@ -1854,15 +1797,6 @@ export default function Kits({ isActive = true }) {
                   </p>
                   {!searchTerm && !isAdminView && (
                     <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
-                      {isPublicKitPagination && hasMoreKits && (
-                        <div
-                          ref={loadMoreKitsSentinelRef}
-                          aria-live="polite"
-                          className="min-h-6 text-[11px] font-black uppercase tracking-widest text-neutral-400 dark:text-neutral-500"
-                        >
-                          {isLoadingMoreKits ? 'Loading more kits…' : ''}
-                        </div>
-                      )}
                       <button
                         type="button"
                         onClick={focusKitsSearch}

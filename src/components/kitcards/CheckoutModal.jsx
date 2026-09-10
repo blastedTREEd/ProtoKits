@@ -814,22 +814,38 @@ const appendStreetSuffix = (address, street, formattedStreet) => {
   return `${address.slice(0, startIndex)}${formattedStreet}${address.slice(startIndex + street.length)}`;
 };
 
-const formatPlaceAddress = (place = {}) => {
+const getPlaceAddressParts = (place = {}, { includeHouseNo = true } = {}) => {
   const street = ensureStreetSuffix(place.houseDetails || place.street);
-  if (place.address) return appendStreetSuffix(place.address, place.houseDetails || place.street, street);
-  const streetLine = [place.houseNo, street].filter(Boolean).join(' ').trim();
+  const city = place.city || place.town || place.municipality;
+  const zipCode = place.zipCode || place.zip;
+  const streetLine = [
+    includeHouseNo ? place.houseNo : '',
+    street
+  ].filter(Boolean).join(' ').trim();
+
   return [
-    place.address || place.vagueAddress,
     streetLine,
     place.subdivision,
     place.barangay,
-    place.city,
+    city,
     place.province,
-    place.zipCode
-  ].filter(Boolean).join(', ');
+    zipCode
+  ].filter(Boolean);
+};
+
+const formatPlaceAddress = (place = {}) => {
+  const structuredParts = getPlaceAddressParts(place);
+  if (structuredParts.length > 0) return structuredParts.join(', ');
+
+  const street = ensureStreetSuffix(place.houseDetails || place.street);
+  if (place.address) return appendStreetSuffix(place.address, place.houseDetails || place.street, street);
+  return place.vagueAddress || '';
 };
 
 const formatPlaceAddressWithoutHouseNo = (place = {}) => {
+  const structuredParts = getPlaceAddressParts(place, { includeHouseNo: false });
+  if (structuredParts.length > 0) return structuredParts.join(', ');
+
   const street = ensureStreetSuffix(place.houseDetails || place.street);
   if (place.publicAddress) return appendStreetSuffix(place.publicAddress, place.houseDetails || place.street, street);
   let savedAddress = place.address || place.vagueAddress || '';
@@ -837,15 +853,7 @@ const formatPlaceAddressWithoutHouseNo = (place = {}) => {
   if (houseNo && savedAddress.toLowerCase().startsWith(houseNo.toLowerCase())) {
     savedAddress = savedAddress.slice(houseNo.length).replace(/^[,\s]+/, '');
   }
-  return [
-    savedAddress,
-    street,
-    place.subdivision,
-    place.barangay,
-    place.city,
-    place.province,
-    place.zipCode
-  ].filter(Boolean).join(', ');
+  return savedAddress;
 };
 
 
@@ -1662,10 +1670,6 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   const fixedPaymentMethodDiscount = useMemo(() => {
     return 0;
   }, []);
-
-  const paymentMethodDiscount = useMemo(() => {
-    return Math.max(transferFeeDiscount, fixedPaymentMethodDiscount);
-  }, [fixedPaymentMethodDiscount, transferFeeDiscount]);
 
   // Handling fees are controlled by the selected shipping method now. They are
   // never converted into a checkout discount or shown with a strikethrough.
@@ -3500,7 +3504,7 @@ const handleFinalizeOrder = async () => {
     return (
       <div className="space-y-8 pb-24 pt-7 lg:pt-0">
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(360px,420px)]">
-          <div className="space-y-6">
+          <div className="checkout-readable space-y-6">
             <section className="text-left">
               <h2 className="mb-4 text-[12px] font-black uppercase tracking-widest opacity-45">Shipping Method</h2>
               <div className={`grid grid-cols-1 gap-3 ${shippingGridClass}`}>
@@ -3599,7 +3603,7 @@ const handleFinalizeOrder = async () => {
                         <p className="text-[12px] font-black uppercase tracking-widest opacity-40">{usesMeetupLocation ? 'Meetup Location' : 'Pickup Pin'}</p>
                       </div>
                       <p className="mt-1 text-[13px] font-black uppercase text-blue-600">
-                        {getCheckoutPlaceLabel(selectedLocalPlaceDetails, usesMeetupLocation ? 'Meetup Place' : 'Pickup Point')}
+                        {selectedLocalPlaceDetails?.landmark || (usesMeetupLocation ? 'Meetup Place' : 'Pickup Point')}
                       </p>
                       {getCheckoutPlaceAddress(selectedLocalPlaceDetails) && (
                         <p className="mt-1 text-[13px] font-bold uppercase opacity-55">{getCheckoutPlaceAddress(selectedLocalPlaceDetails)}</p>
@@ -3726,7 +3730,7 @@ const handleFinalizeOrder = async () => {
           <aside className="space-y-5 lg:sticky lg:top-24 lg:self-start">
             <section className="rounded-[2rem] bg-blue-600 p-5 text-left text-white shadow-2xl lg:max-h-[calc(100dvh-7rem)] lg:overflow-y-auto">
               <div className="mb-4 flex items-center justify-between gap-3">
-                <h2 className="text-[14px] font-black uppercase tracking-widest opacity-70">Totals</h2>
+                <h2 className="text-[14px] font-black uppercase tracking-widest">Totals</h2>
                 <button
                   type="button"
                   onClick={handleCloseModal}
@@ -3909,7 +3913,7 @@ const handleFinalizeOrder = async () => {
         )}
         {checkoutStep === 1 && (isPage ? renderPageCheckoutStep() : (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 md:gap-6">
-              <div className="lg:col-span-4 space-y-4 text-left">
+              <div className="checkout-readable lg:col-span-4 space-y-4 text-left">
                 <h4 className="text-[11px] font-black uppercase tracking-widest opacity-40 mb-3">Shipping Method</h4>
                 <div className="grid grid-cols-1 gap-2">
                   {!isAdminCheckoutConfigReady ? (
@@ -4108,7 +4112,7 @@ const handleFinalizeOrder = async () => {
                               <h5 className="text-[11px] font-black uppercase opacity-40">Pickup Pin</h5>
                             </div>
                             <div className="grid grid-cols-1 gap-1">
-                              {selectablePickupPoints.map((place, idx) => {
+                              {selectablePickupPoints.map((place) => {
                                 const originalIdx = pickupPoints.indexOf(place);
                                 const fallbackLabel = `Pickup Point ${originalIdx + 1}`;
                                 const placeLabel = getCheckoutPlaceLabel(place, fallbackLabel);
@@ -4228,7 +4232,7 @@ const handleFinalizeOrder = async () => {
                 </div>
               </div>
 
-              <div className="lg:col-span-4 space-y-5">
+              <div className="checkout-readable lg:col-span-4 space-y-5">
                     {checkoutData.shippingMethod ? (
                       <div className="animate-in fade-in slide-in-from-right duration-500 space-y-5">
                         <h4 className="text-[11px] font-black uppercase tracking-widest opacity-40">
@@ -4252,6 +4256,11 @@ const handleFinalizeOrder = async () => {
                                     <MapPinCheckInside size={16} className="text-blue-600" />
                                     <p className="text-sm font-black uppercase italic text-blue-600">{selectedPickupDetails?.landmark || 'Pickup Point'}</p>
                                   </div>
+                                  {getCheckoutPlaceAddress(selectedPickupDetails) && (
+                                    <p className="text-[11px] font-black uppercase text-neutral-500 dark:text-neutral-300 leading-tight ml-6">
+                                      {getCheckoutPlaceAddress(selectedPickupDetails)}
+                                    </p>
+                                  )}
                                 </div>
                                 <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 space-y-2">
                                   <div className="flex items-center gap-2 text-amber-600"><Info size={14} /><p className="text-[11px] font-black uppercase italic">Self-Booking Instructions</p></div>
@@ -4268,12 +4277,17 @@ const handleFinalizeOrder = async () => {
                                   <div className="flex items-center gap-2">
                                     <MapPinCheckInside size={16} className="text-blue-600" />
                                     <p className="text-sm font-black uppercase italic text-blue-600">
-                                      {getCheckoutPlaceAddress(selectedPickupDetails) || 'Pickup Point'}
-                                    </p>
-                                    <p className="text-[9px] font-black uppercase text-amber-600 dark:text-amber-500 leading-tight ml-6 mt-1 animate-in fade-in duration-300">
-                                      * Actual pin and complete address will be available once payment is validated and the order is ready for pickup.
+                                      {selectedPickupDetails?.landmark || 'Pickup Point'}
                                     </p>
                                   </div>
+                                  {getCheckoutPlaceAddress(selectedPickupDetails) && (
+                                    <p className="text-[11px] font-black uppercase text-neutral-500 dark:text-neutral-300 leading-tight ml-6">
+                                      {getCheckoutPlaceAddress(selectedPickupDetails)}
+                                    </p>
+                                  )}
+                                  <p className="text-[9px] font-black uppercase text-amber-600 dark:text-amber-500 leading-tight ml-6 mt-1 animate-in fade-in duration-300">
+                                      * Actual pin and complete address will be available once payment is validated and the order is ready for pickup.
+                                  </p>
                                 </div>
                                 <div className="p-4 rounded-2xl bg-blue-600/5 border border-blue-600/10 space-y-2">
                                   <div className="flex items-center gap-2 text-blue-600"><Info size={14} /><p className="text-[9px] font-black uppercase italic">Self-Pickup Instructions</p></div>
@@ -4300,7 +4314,7 @@ const handleFinalizeOrder = async () => {
                                   <div className="flex items-center gap-2">
                                     <MapPinCheckInside size={16} className="text-blue-600" />
                                     <p className="text-sm font-black uppercase italic text-blue-600">
-                                      {getCheckoutPlaceLabel(selectedPickupDetails, 'Pickup Point')}
+                                      {selectedPickupDetails?.landmark || 'Pickup Point'}
                                     </p>
                                   </div>
                                   {getCheckoutPlaceAddress(selectedPickupDetails) && (
@@ -4328,7 +4342,7 @@ const handleFinalizeOrder = async () => {
                                   <div className="flex items-center gap-2">
                                     <MapPinCheckInside size={16} className="text-blue-600" />
                                     <p className="text-sm font-black uppercase italic text-blue-600">
-                                      {getCheckoutPlaceLabel(selectedMeetupDetails, 'Meetup Place')}
+                                      {selectedMeetupDetails?.landmark || 'Meetup Place'}
                                     </p>
                                   </div>
                                   {getCheckoutPlaceAddress(selectedMeetupDetails) && (
@@ -4404,8 +4418,7 @@ const handleFinalizeOrder = async () => {
                                       <div className="flex items-center gap-2">
                                         <MapPinCheckInside size={16} className="text-blue-600" />
                                         <p className="text-sm font-black uppercase italic text-blue-600">
-                                          {getCheckoutPlaceLabel(
-                                            selectedLocalPlaceDetails,
+                                          {selectedLocalPlaceDetails?.landmark || (
                                             checkoutData.shippingMethod === 'Seller Meetup' ? 'Meetup Place' : 'Pickup Point'
                                           )}
                                         </p>

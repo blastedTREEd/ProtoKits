@@ -344,10 +344,6 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
   }, [formData, selectedCategory, shippingSettings, onChangesChange]);
 
   const handleSave = async ({ skipSavingsConfirmation = false } = {}) => {
-    if (selectedCategory === 'pickup-point' && !String(formData?.houseNo || '').trim()) {
-      return false;
-    }
-
     if (!skipSavingsConfirmation && hasShippingSavingsChange() && !window.confirm('This will change shipping savings available to customers. Do you want to continue?')) {
       return false;
     }
@@ -571,10 +567,6 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
   };
 
   const handleSavePlace = async (type) => {
-    if (type === 'pickup-point' && !String(formData?.houseNo || '').trim()) {
-      return;
-    }
-
     const saved = await handleSave();
     if (!saved) return;
 
@@ -601,7 +593,7 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
     const isMeetup = type === 'meetup';
     const activeIndex = isMeetup ? formData.activeMeetupIndex : formData.activePickupIndex;
     const title = isMeetup ? 'Meetup Place' : 'Pickup Point';
-    const canSavePlace = isMeetup || Boolean(String(formData.houseNo || '').trim());
+    const canSavePlace = true;
     const mapZoom = isMeetup ? 16 : MAP_MAX_PIN_ZOOM;
     const mapMaxZoom = isMeetup ? 18 : MAP_MAX_PIN_ZOOM;
 
@@ -631,7 +623,7 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
           <div className="relative text-left"><Hash className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="Zip Code" inputMode="numeric" pattern="[0-9]{4}" maxLength={4} value={formData.zipCode} onChange={(e) => handleAddressChange({ zipCode: e.target.value.replace(/\D/g, '').slice(0, 4) })} className={inputClass} /></div>
         </div>
         {!isMeetup && (
-          <div className="relative text-left"><Home className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input required placeholder="House No. (Required)" value={formData.houseNo} onChange={(e) => handleAddressChange({ houseNo: e.target.value })} onBlur={(e) => handleBlur('houseNo', e.target.value)} className={inputClass} /></div>
+          <div className="relative text-left"><Home className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="House No. (Optional)" value={formData.houseNo} onChange={(e) => handleAddressChange({ houseNo: e.target.value })} onBlur={(e) => handleBlur('houseNo', e.target.value)} className={inputClass} /></div>
         )}
         <div className="relative text-left"><Building2 className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder={isMeetup ? 'Street (Optional)' : 'Street'} value={formData.houseDetails} onChange={(e) => handleAddressChange({ houseDetails: e.target.value })} onBlur={(e) => handleBlur('houseDetails', e.target.value)} className={inputClass} /></div>
         <div className="relative text-left"><Map className="absolute left-4 top-3.5 text-garage-blue" size={18} /><input placeholder="Subdivision (Optional)" value={formData.subdivision} onChange={(e) => handleAddressChange({ subdivision: e.target.value })} onBlur={(e) => handleBlur('subdivision', e.target.value)} className={inputClass} /></div>
