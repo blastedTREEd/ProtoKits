@@ -996,6 +996,8 @@ const releaseStockTarget = async (kitId, stockKey, orderDocId, order = {}) => {
 
   const matchesOrder = stock.order?.orderDocId === orderDocId || (order.orderId && stock.order?.orderId === order.orderId);
   if (!matchesOrder) return false;
+  const wasAdminShelfStock = isPotentialAdminShelfStock(stock) || stock.adminShelfOrigin === true;
+  const hadAdminShelf = wasAdminShelfStock || Object.values(stocks).some((candidate) => isPotentialAdminShelfStock(candidate));
 
   // Supplier-cancelled, fully paid pre-orders remain reserved until the
   // supplier refund is confirmed. If the linked customer order is deleted
@@ -1014,6 +1016,7 @@ const releaseStockTarget = async (kitId, stockKey, orderDocId, order = {}) => {
     };
     delete nextStocks[stockKey].order;
     delete nextStocks[stockKey].reservedByDealId;
+    delete nextStocks[stockKey].adminShelfOrigin;
 
     const hasAvailable = Object.values(nextStocks).some((candidate) => !candidate.order?.orderId && !candidate.isReserved);
     await updateDoc(kitRef, {
@@ -1023,10 +1026,11 @@ const releaseStockTarget = async (kitId, stockKey, orderDocId, order = {}) => {
       [`stocks.${stockKey}.reservationType`]: 'supplier-refund',
       [`stocks.${stockKey}.reservedByDealId`]: deleteField(),
       [`stocks.${stockKey}.order`]: deleteField(),
+      [`stocks.${stockKey}.adminShelfOrigin`]: deleteField(),
       hasAvailableStock: hasAvailable,
       lastUpdated: serverTimestamp()
     });
-    return true;
+    return { released: true, hadAdminShelf, wasAdminShelfStock };
   }
 
   const nextStocks = {
@@ -1039,6 +1043,7 @@ const releaseStockTarget = async (kitId, stockKey, orderDocId, order = {}) => {
   delete nextStocks[stockKey].order;
   delete nextStocks[stockKey].reservationType;
   delete nextStocks[stockKey].reservedByDealId;
+  delete nextStocks[stockKey].adminShelfOrigin;
   nextStocks[stockKey].reservedBy = null;
   nextStocks[stockKey].reservedAt = null;
 
@@ -1051,20 +1056,24 @@ const releaseStockTarget = async (kitId, stockKey, orderDocId, order = {}) => {
     [`stocks.${stockKey}.reservationType`]: deleteField(),
     [`stocks.${stockKey}.reservedByDealId`]: deleteField(),
     [`stocks.${stockKey}.order`]: deleteField(),
+    [`stocks.${stockKey}.adminShelfOrigin`]: deleteField(),
     hasAvailableStock: hasAvailable,
     lastAvailableAt: serverTimestamp(),
     lastUpdated: serverTimestamp()
   });
-  return true;
+  return { released: true, hadAdminShelf, wasAdminShelfStock };
 };
 
 const releaseOrderStocks = async (orderDocId, order = {}, fallbackKits = []) => {
   const released = new Set();
+  const kitsToRebalance = new Set();
 
   for (const target of buildOrderStockTargets(order)) {
-    if (await releaseStockTarget(target.kitId, target.stockKey, orderDocId, order)) {
+    const result = await releaseStockTarget(target.kitId, target.stockKey, orderDocId, order);
+    if (result?.released || result === true) {
       released.add(target.targetKey);
     }
+    if (result?.hadAdminShelf) kitsToRebalance.add(target.kitId);
   }
 
   let kitsToScan = fallbackKits;
@@ -1078,11 +1087,28 @@ const releaseOrderStocks = async (orderDocId, order = {}, fallbackKits = []) => 
       const matchesOrder = stock.order?.orderDocId === orderDocId || (order.orderId && stock.order?.orderId === order.orderId);
       const targetKey = `${kit.id}:${key}`;
       if (matchesOrder && !released.has(targetKey)) {
-        await releaseStockTarget(kit.id, key, orderDocId, order);
+        const result = await releaseStockTarget(kit.id, key, orderDocId, order);
         released.add(targetKey);
+        if (result?.hadAdminShelf) kitsToRebalance.add(kit.id);
       }
     }
   }
+
+  // Releasing a transaction can remove the stock that represented the admin
+  // shelf. Rebuild that derived reservation from fresh Firestore state so the
+  // lowest-cost eligible stock remains on the shelf after a reversal.
+  await Promise.all([...kitsToRebalance].map(async (kitId) => {
+    try {
+      await rebalanceAdminShelfFromFreshFirestore({
+        kitId,
+        userId: auth.currentUser?.uid || 'admin',
+        candidateStockKey: '',
+        refillEmptyShelf: true
+      });
+    } catch (error) {
+      console.warn(`Admin shelf rebalance after releasing order stock failed for ${kitId}:`, error);
+    }
+  }));
 
   return released.size;
 };
@@ -1329,12 +1355,12 @@ export const useStore = create(
       _getPageRequirements: (pathname) => {
         return {
           stories: pathname === '/' || pathname === '',
-          // Landing highlights use bounded public slices so the home route does
-          // not need the complete catalog or blueprint collections.
+          // Landing highlights use bounded public slices plus sellable printed
+          // projects so the home route does not need the complete catalog.
           homeKits: pathname === '/' || pathname === '',
           homeBlueprints: pathname === '/' || pathname === '',
           kits: pathname.startsWith('/kits') || pathname === '/cart' || pathname === '/basket' || pathname === '/shelf',
-          printedProjects: pathname === '/prints' || pathname.startsWith('/prints/'),
+          printedProjects: pathname === '/' || pathname === '' || pathname === '/prints' || pathname.startsWith('/prints/'),
           deals: pathname === '/' || pathname === '' || pathname.startsWith('/kits'),
           orders: pathname === '/orders' || pathname.startsWith('/orders/'),
           basket: pathname === '/cart' || pathname === '/basket' || pathname === '/shelf',
@@ -1611,8 +1637,9 @@ export const useStore = create(
           unsubs.push(unsub);
         }
 
-        // Printed projects use the kit stock schema for checkout/reservation,
-        // but are loaded separately so /prints does not download every kit.
+        // Printed projects use the kit stock schema for checkout/reservation.
+        // They are also needed by the landing highlights, but remain separate
+        // so neither / nor /prints downloads the complete regular kit catalog.
         if (req.printedProjects && !ds.printedProjects && !listenerKeys.printedProjects) {
           const printedProjectsQuery = query(
             collection(db, 'kits'),
@@ -4770,6 +4797,9 @@ export const useStore = create(
             ...((canUseAcceptedOffer || usedAdminShelfStock)
               ? { [`stocks.${allocatedStockKey}.reservationType`]: deleteField() }
               : {}),
+            ...(usedAdminShelfStock
+              ? { [`stocks.${allocatedStockKey}.adminShelfOrigin`]: true }
+              : { [`stocks.${allocatedStockKey}.adminShelfOrigin`]: deleteField() }),
             ...(mutuallyExclusiveLockKitIds.size > 0
               ? { mutuallyExclusiveLockAt: serverTimestamp() }
               : {}),

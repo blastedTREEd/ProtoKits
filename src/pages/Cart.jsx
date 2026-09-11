@@ -1986,21 +1986,37 @@ export default function Cart() {
                     rates
                   })
                   : null;
-                const projectIssue = item.type === 'project'
-                  ? item.basketIds
-                    .map((basketId) => liveProjectIssueByBasketId.get(basketId))
-                    .find(Boolean)
-                  : null;
-
-                const displayName = (item.name || '').replace(/\s*\(Pre-Order\)\s*$/i, '');
                 const stock = kit?.stocks?.[item.stockKey];
-                const canIncreaseQuantity = canIncreaseKitQuantity(item);
-
+                const isPrintedProjectItem = Boolean(
+                  item.printedProject
+                  || kit?.isPrintedProject
+                  || kit?.productType === 'printed-project'
+                );
+                const projectName = String(
+                  item.projectData?.projectName
+                    || item.projectData?.name
+                    || item.name
+                    || 'Project'
+                ).replace(/^Custom Print:\s*/i, '').replace(/\s*\(w\/.*\)\s*$/i, '').trim();
+                const projectMethod = item.projectData?.method?.name
+                  || (typeof item.projectData?.method === 'string' ? item.projectData.method : '')
+                  || item.projectData?.printMethod
+                  || 'Project';
                 const brand = kit?.brand || item.brand;
                 const line = kit?.specs?.line || item.specs?.line;
                 const scale = kit?.specs?.scale || item.specs?.scale;
+                const displayName = isPrintedProjectItem
+                  ? getPrintedProjectModelName(item, kit).toUpperCase()
+                  : item.type === 'project'
+                    ? projectName.toUpperCase()
+                    : (item.name || '').replace(/\s*\(Pre-Order\)\s*$/i, '');
+                const displaySubline = isPrintedProjectItem
+                  ? '3D PRINTED'
+                  : item.type === 'project'
+                    ? String(projectMethod).toUpperCase()
+                    : [brand, line, scale].filter(Boolean).join(' • ');
+                const canIncreaseQuantity = canIncreaseKitQuantity(item);
                 
-                const itemStatusLabel = String(stock?.status || item.status || '');
                 const isPreOrder = isPreOrderStock(stock || item);
                 const hasSelectedBundlePrice = item.basketIds.some((basketId) => (
                   selectedBundlePriceByBasketId.has(basketId)
@@ -2151,13 +2167,10 @@ export default function Cart() {
                       <div className="flex flex-col justify-center">
                         <p className="font-bold text-sm leading-tight line-clamp-1 md:line-clamp-2">{displayName}</p>
                         <p className="text-[12px] uppercase font-black tracking-widest leading-tight mt-0.5">
-                            {[brand, line, scale].filter(Boolean).join(' • ')}
+                            {displaySubline}
                         </p>
                         {itemError && !(isAdmin && isAdminView) && (
                           <p className="text-red-500 text-[10px] font-black mt-0.5 uppercase tracking-widest">{itemError.message}</p>
-                        )}
-                        {projectIssue && !(isAdmin && isAdminView) && (
-                          <p className="text-red-500 text-[10px] font-black mt-0.5 uppercase tracking-widest">{projectIssue}</p>
                         )}
                       </div>
                       <div className="flex items-center gap-2">

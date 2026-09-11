@@ -1999,6 +1999,10 @@ export default function ProjectCard({
     && fileLinkIsValid
     && licenseAcknowledged
   );
+  const vaultReadyForCart = isVault
+    && canAddToBasket
+    && vaultReadyForBasket
+    && projectPrintersAndPlates.allBuildPlatesCanBePrinted;
 
   const getActionProjectData = () => {
     const recomputedDetails = details.map((detail, index) => {
@@ -2328,7 +2332,9 @@ export default function ProjectCard({
                         {typeof homeZapAction === 'function' ? (
                         <Zap size={15} strokeWidth={2.5} fill="currentColor" />
                         ) : isVault ? (
-                        <PencilSparkles size={15} strokeWidth={2.5} />
+                        vaultReadyForCart
+                          ? <Plus size={16} strokeWidth={3} />
+                          : <PencilSparkles size={15} strokeWidth={2.5} />
                         ) : !canAddToBasket && canModifyProject ? (
                         <PencilSparkles size={15} strokeWidth={2.5} />
                         ) : !canAddToBasket ? (

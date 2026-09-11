@@ -8,6 +8,7 @@ import ProductCard from '../kitcards/ProductCard';
 import ProjectCard from '../calculator/ProjectCard';
 import { getDealGrabLabel } from '../../utils/dealSavings';
 import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
+import { getPrintedProjectModelName } from '../../utils/printedProjectName';
 import UniversalImage from '../common/UniversalImage';
 import { isFlexiBundleDeal, isPerKitClearanceDeal, getActiveClearanceKitIds, getClearanceDisplayLabel } from '../../utils/dealTypes';
 import { getBundleDisplayTotals } from '../../utils/bundleDisplayPricing';
@@ -191,8 +192,10 @@ export default function BundleHighlights() {
       ? (state.homeBlueprints || [])
       : (state.blueprints || [])
   ));
+  const printedProjects = useStore((state) => state.printedProjects || []);
   const isAdmin = useStore((state) => state.isAdmin);
   const isAdminView = useStore((state) => state.isAdminView);
+  const addToBasket = useStore((state) => state.addToBasket);
   const addProjectToBasket = useStore((state) => state.addProjectToBasket);
   const setToastMessage = useStore((state) => state.setToastMessage);
   const shippingSettings = useStore((state) => state.shippingSettings);
@@ -345,15 +348,43 @@ export default function BundleHighlights() {
         cards.push({ type: 'project', id: `project:${project.id}`, project, label: '3D PROJECT' });
       });
 
+    // Priority 6: printed projects that are actively sellable and have a
+    // publicly released on-hand stock item available to allocate.
+    (printedProjects || [])
+      .map((project) => ({ project, stock: getMatchingStock(project, 'onhand') }))
+      .filter(({ project, stock }) => (
+        project?.canAddToBasket !== false
+        && project?.id
+        && stock
+      ))
+      .sort((a, b) => getTimestamp(
+        b.project?.lastUpdated || b.project?.createdAt
+      ) - getTimestamp(
+        a.project?.lastUpdated || a.project?.createdAt
+      ))
+      .forEach(({ project, stock }) => {
+        const printedProjectKey = `printed:${project.id}`;
+        if (usedProjectIds.has(printedProjectKey)) return;
+        usedProjectIds.add(printedProjectKey);
+        cards.push({
+          type: 'project',
+          projectType: 'printed',
+          id: `printed-project:${project.id}`,
+          project,
+          stock,
+          label: '3D PRINTED'
+        });
+      });
+
     return cards;
-  }, [activeBundles, blueprints, deals, kits, now]);
+  }, [activeBundles, blueprints, deals, kits, now, printedProjects]);
 
   const displayCards = useMemo(() => {
     // Keep priority selection, then randomize the presentation while using
     // kit/other cards as separators between project cards.
     return randomizeFeedCards(fillerCards, 10);
   }, [fillerCards]);
-  const bundleDataLoading = ['homeKits', 'homeBlueprints', 'deals'].some((key) => (
+  const bundleDataLoading = ['homeKits', 'homeBlueprints', 'printedProjects', 'deals'].some((key) => (
     (_datasetStatus?.[key] || 'loading') === 'loading'
   ));
   const bundleDataReady = !bundleDataLoading;
@@ -503,6 +534,34 @@ export default function BundleHighlights() {
     }
   };
 
+  const getPrintedProjectStock = (project) => Object.entries(project?.stocks || {})
+    .map(([key, stock]) => ({ key, ...(stock || {}) }))
+    .find((stock) => {
+      if (!isPurchasableStock(stock, 'onhand')) return false;
+      const releaseTime = getTimestamp(stock.publicReleaseDate);
+      return !releaseTime || releaseTime <= now;
+    });
+
+  const handlePrintedProjectBasketAction = async (event, project) => {
+    event?.stopPropagation();
+    const stock = getPrintedProjectStock(project);
+    if (!project?.id || !stock || project?.canAddToBasket === false) return;
+
+    try {
+      await addToBasket({
+        id: project.id,
+        stockKey: stock.key,
+        type: 'kit',
+        name: getPrintedProjectModelName(project)
+      });
+      setToastMessage(isAdmin && isAdminView ? 'Added to shelf!' : 'Added to cart!');
+    } catch (error) {
+      console.error('Failed to add highlighted printed project to basket:', error);
+      alert(error?.message || 'Unable to add printed project to basket.');
+      throw error;
+    }
+  };
+
   const buildCheckoutProjectItem = (project) => {
     const { handlingFee, installmentFee, transferFee } = getCheckoutPaymentFees({ shippingSettings });
     const grandTotal = parseFloat(String(project?.totals?.total || project?.sellPrice || project?.price || 0).replace(/,/g, '')) || 0;
@@ -543,21 +602,70 @@ export default function BundleHighlights() {
     }
   };
 
+  const buildPrintedProjectItem = (project, stock) => {
+    const { handlingFee, installmentFee, transferFee } = getCheckoutPaymentFees({ shippingSettings });
+    const sellPrice = Number(stock?.sellPrice || project?.sellPrice || 0);
+    return {
+      id: project.id,
+      basketId: `checkout_printed_${project.id}_${stock?.key || 'stock'}`,
+      type: 'kit',
+      quantity: 1,
+      name: getPrintedProjectModelName(project),
+      image: project.image || '',
+      brand: project.brand || 'SNORLAXGARAGE',
+      specs: { printedProject: true, ...(project.specifications || {}) },
+      price: sellPrice + handlingFee + installmentFee + transferFee,
+      sellPrice,
+      costPrice: Number(stock?.costPrice || project?.costPrice || 0),
+      stockKey: stock?.key,
+      stockSource: 'onhand',
+      status: 'Onhand',
+      minDownpayment: 0,
+      appliedHandlingFee: handlingFee,
+      appliedInstallmentFee: installmentFee,
+      appliedTransferFee: transferFee,
+      printedProject: true,
+      dimensions: project.dimensions || {},
+      materials: project.materials || [project.material].filter(Boolean),
+      createdAt: new Date().toISOString()
+    };
+  };
+
+  const handlePrintedProjectOrderNow = (project) => {
+    const stock = getPrintedProjectStock(project);
+    if (!stock) return;
+    if (isAdmin && isAdminView) {
+      void handlePrintedProjectBasketAction(null, project);
+      return;
+    }
+    navigate('/checkout', {
+      state: {
+        items: [buildPrintedProjectItem(project, stock)],
+        isGuestPreview: !user || isAnonymousUser
+      }
+    });
+  };
+
   const renderFillerCard = (card, visibilityClass) => {
     const isProject = card.type === 'project';
     const item = isProject ? card.project : card.kit;
     const previewKit = item;
-    const itemName = isProject ? (item?.projectName || 'Garage Project') : (item?.name || 'Untitled Kit');
+    const isPrintedProject = isProject && card.projectType === 'printed';
+    const itemName = isPrintedProject
+      ? getPrintedProjectModelName(item)
+      : isProject
+        ? (item?.projectName || 'Garage Project')
+        : (item?.name || 'Untitled Kit');
 
     return (
       <div key={card.id} className={`${visibilityClass} relative w-full`}>
         {isProject ? (
           <ProjectCard
             project={item}
-            type="blueprint"
+            type={isPrintedProject ? 'printed' : 'blueprint'}
             showManagementActions={false}
-            onBasketAction={handleProjectBasketAction}
-            onOrderNow={handleProjectOrderNow}
+            onBasketAction={isPrintedProject ? handlePrintedProjectBasketAction : handleProjectBasketAction}
+            onOrderNow={isPrintedProject ? handlePrintedProjectOrderNow : handleProjectOrderNow}
             homeZapAction={handleHomeProjectZap}
             homePreview
           />
