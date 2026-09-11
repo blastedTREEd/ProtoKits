@@ -875,9 +875,12 @@ const GarageProjectSummary = ({
       || project?.deliveryMonth
       || project?.collectionDate
   );
+  const isPrintedProjectItem = project?.isPrintedProject || project?.productType === 'printed-project';
+  const rawGrade = project?.grade || methodLabel;
+  const gradeLabel = isPrintedProjectItem ? '3D PRINTED' : rawGrade;
   const metadata = [
     project?.brand || project?.manufacturer,
-    project?.grade || methodLabel,
+    gradeLabel,
     project?.scale,
     project?.series || project?.line
   ].filter(Boolean);
@@ -961,6 +964,22 @@ const GarageProjectSummary = ({
                   <div className="min-w-0 text-left">
                     <div className="text-[14px] font-black uppercase italic leading-none truncate">{getProjectDetailItemLabel(project, methodLabel, item, index)}</div>
                     {(() => {
+                      if (isPrintedProjectItem) {
+                        const itemMat = item?.material || item?.materials?.[0] || project?.material || (project?.materials && project.materials[0]);
+                        const matParts = itemMat && typeof itemMat === 'object'
+                          ? [itemMat.brand, itemMat.type, itemMat.colorName || itemMat.color || itemMat.name].filter(Boolean)
+                          : [];
+                        const formattedMat = matParts.length > 0 ? matParts.join(' • ') : null;
+                        const materialEntries = getProjectMaterialEntries(item, filamentInventory);
+                        const matText = formattedMat || materialEntries[0]?.label || getProjectMaterialLabel(item, filamentInventory);
+
+                        return (
+                          <div className="mt-1 flex min-w-0 items-center gap-2 text-[14px] font-bold uppercase text-[var(--color-text-muted)]">
+                            <span className="truncate">{matText}</span>
+                          </div>
+                        );
+                      }
+
                       const materialEntries = getProjectMaterialEntries(item, filamentInventory);
                       const totalWeight = item?.normalizedWeight || item?.sliced?.weight || 0;
                       if (isSTLProject || materialEntries.length > 1) {
@@ -999,7 +1018,21 @@ const GarageProjectSummary = ({
                     />
                   </div>
                 </div>
-                {isSTLProject ? (
+                {isPrintedProjectItem ? (() => {
+                  const dim = item?.dimensions || (details.length === 1 ? project?.dimensions : null) || {};
+                  const l = dim.l ?? dim.length ?? 0;
+                  const w = dim.w ?? dim.width ?? 0;
+                  const h = dim.h ?? dim.height ?? 0;
+                  const unit = (dim.unit || 'MM').toUpperCase();
+                  const hasDim = l > 0 || w > 0 || h > 0;
+                  const dimText = hasDim ? `${l} × ${w} × ${h} ${unit}` : null;
+
+                  return dimText ? (
+                    <div className="max-w-[180px] shrink-0 text-right text-[13px] sm:text-[14px] font-black uppercase leading-tight text-blue-600">
+                      {dimText}
+                    </div>
+                  ) : null;
+                })() : isSTLProject ? (
                   <div className="max-w-[150px] shrink-0 text-right text-[13px] font-black uppercase leading-tight text-blue-600 sm:max-w-none sm:text-[14px]">
                     {getStlDimensionsLabel(item)}
                   </div>
@@ -1282,7 +1315,8 @@ export default function ProjectCard({
     }
   };
 
-  const isBlueprint = type === 'blueprint';
+  const isPrintedProject = type === 'printed' || project?.isPrintedProject || project?.productType === 'printed-project';
+  const isBlueprint = type === 'blueprint' || isPrintedProject;
   const canRenameBlueprint = isBlueprint && isAdmin && isAdminView && showManagementActions;
   const isProductionEnabled = project?.canAddToBasket !== false;
   
@@ -1420,8 +1454,9 @@ export default function ProjectCard({
     };
   }, [automaticPricing, handlingFee, installmentFee, transferFee, serviceCost, project]);
 
-  const methodLabel = isBlueprint ? (project.method?.name || 'Blueprint') : project.method?.name;
-  const fileTypeLabel = is3MF ? '3MF' : isSTL ? 'STL' : (methodLabel || 'FILE').toUpperCase();
+  const isPrinted = type === 'printed' || project?.isPrintedProject || project?.productType === 'printed-project';
+  const methodLabel = isPrinted ? '3D PRINTED' : (is3MF ? '3MF' : (isBlueprint ? (project.method?.name || 'Blueprint') : project.method?.name));
+  const fileTypeLabel = isPrinted ? '3D PRINTED' : (is3MF ? '3MF' : isSTL ? 'STL' : (methodLabel || 'FILE').toUpperCase());
   const costLabel = is3MF ? 'Project Cost' : isSTL ? 'Estimated Cost' : 'Project Cost';
   const showDisclaimer = !project.isFinalized && isSTL;
 

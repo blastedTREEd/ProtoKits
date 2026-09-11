@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Check, ChevronRight, Layers, PackagePlus, X } from 'lucide-react';
+import { Check, ChevronRight, Layers, PackagePlus, Plus, Trash2, X } from 'lucide-react';
 import UniversalImage from '../common/UniversalImage';
 
 const numberValue = (value) => Number.parseFloat(String(value ?? '').replace(/,/g, '')) || 0;
@@ -54,6 +54,9 @@ export default function PrintedProjectModal({ isOpen, onClose, estimations = [],
   const [form, setForm] = useState({
     name: '', description: '', length: '', width: '', height: '', stockNumber: '', costPrice: '', sellPrice: ''
   });
+  const [models, setModels] = useState([
+    { id: 'model-1', name: '', length: '', width: '', height: '', materialId: '' }
+  ]);
   const [isSaving, setIsSaving] = useState(false);
 
   const sources = useMemo(() => (
@@ -68,6 +71,7 @@ export default function PrintedProjectModal({ isOpen, onClose, estimations = [],
     if (!isOpen) {
       setSelectedId('');
       setForm({ name: '', description: '', length: '', width: '', height: '', stockNumber: '', costPrice: '', sellPrice: '' });
+      setModels([{ id: 'model-1', name: '', length: '', width: '', height: '', materialId: '' }]);
       setIsSaving(false);
       return;
     }
@@ -86,23 +90,72 @@ export default function PrintedProjectModal({ isOpen, onClose, estimations = [],
   useEffect(() => {
     if (!selectedSource) return;
     const cost = getPerPieceCost(selectedSource);
+    const firstMatId = importedMaterials[0]?.id || importedMaterials[0]?.materialId || '';
+    const sourceDetails = selectedSource.projectDetails || [];
+    
+    const initialModels = sourceDetails.length > 0 ? sourceDetails.map((detail, index) => ({
+      id: `model-${index + 1}`,
+      name: detail.name || detail.itemName || selectedSource.projectName || `Model #${index + 1}`,
+      length: String(detail.dimensions?.l || detail.dimensions?.length || selectedSource.dimensions?.l || selectedSource.dimensions?.length || ''),
+      width: String(detail.dimensions?.w || detail.dimensions?.width || selectedSource.dimensions?.w || selectedSource.dimensions?.width || ''),
+      height: String(detail.dimensions?.h || detail.dimensions?.height || selectedSource.dimensions?.h || selectedSource.dimensions?.height || ''),
+      materialId: String(detail.materialId || detail.material?.id || firstMatId)
+    })) : [
+      {
+        id: 'model-1',
+        name: selectedSource.projectName || '',
+        length: String(selectedSource.dimensions?.l || selectedSource.dimensions?.length || ''),
+        width: String(selectedSource.dimensions?.w || selectedSource.dimensions?.width || ''),
+        height: String(selectedSource.dimensions?.h || selectedSource.dimensions?.height || ''),
+        materialId: String(firstMatId)
+      }
+    ];
+
     setForm((previous) => ({
       ...previous,
       name: previous.name || selectedSource.projectName || '',
       costPrice: String(cost),
       sellPrice: previous.sellPrice || String(cost)
     }));
-  }, [selectedSource]);
+    setModels(initialModels);
+  }, [selectedSource, importedMaterials]);
 
   if (!isOpen) return null;
 
   const update = (field, value) => setForm((previous) => ({ ...previous, [field]: value }));
 
+  const updateModel = (index, field, value) => {
+    setModels((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], [field]: value };
+      return next;
+    });
+  };
+
+  const addModel = () => {
+    const firstMatId = importedMaterials[0]?.id || importedMaterials[0]?.materialId || '';
+    setModels((prev) => [
+      ...prev,
+      {
+        id: `model-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        name: '',
+        length: '',
+        width: '',
+        height: '',
+        materialId: String(firstMatId)
+      }
+    ]);
+  };
+
+  const removeModel = (index) => {
+    if (models.length <= 1) return;
+    setModels((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const handleSave = async (event) => {
     event.preventDefault();
     if (!selectedSource) return alert('Select a saved 3MF estimation first.');
     if (!form.name.trim() || !form.stockNumber.trim()) return alert('Project name and stock no. are required.');
-    if (![form.length, form.width, form.height].every((value) => numberValue(value) > 0)) return alert('Enter all dimensions in millimeters.');
     if (numberValue(form.sellPrice) <= 0) return alert('Enter a sell price greater than zero.');
 
     const materialRecords = importedMaterials.map((material) => ({
@@ -118,6 +171,31 @@ export default function PrintedProjectModal({ isOpen, onClose, estimations = [],
     const costPrice = numberValue(form.costPrice);
     const image = getImageUrl(selectedSource);
 
+    // Build project details from model list
+    const projectDetails = models.map((model, idx) => {
+      const selectedMat = importedMaterials.find((m) => String(m.id || m.materialId) === String(model.materialId)) || importedMaterials[0] || {};
+      return {
+        itemName: model.name.trim() || `Model #${idx + 1}`,
+        name: model.name.trim() || `Model #${idx + 1}`,
+        dimensions: {
+          l: numberValue(model.length),
+          w: numberValue(model.width),
+          h: numberValue(model.height),
+          unit: 'mm'
+        },
+        material: {
+          brand: selectedMat.brand || primaryMaterial.brand || '',
+          type: selectedMat.type || primaryMaterial.type || '',
+          color: selectedMat.color || primaryMaterial.color || '',
+          colorName: selectedMat.colorName || selectedMat.name || primaryMaterial.colorName || primaryMaterial.name || ''
+        }
+      };
+    });
+
+    const maxL = Math.max(...models.map(m => numberValue(m.length)), numberValue(form.length));
+    const maxW = Math.max(...models.map(m => numberValue(m.width)), numberValue(form.width));
+    const maxH = Math.max(...models.map(m => numberValue(m.height)), numberValue(form.height));
+
     setIsSaving(true);
     try {
       await onSave({
@@ -128,10 +206,11 @@ export default function PrintedProjectModal({ isOpen, onClose, estimations = [],
         images: image ? [{ id: 'cover', url: image, type: 'PROJECT IMAGE', isGridImage: true }] : [],
         material: primaryMaterial,
         materials: materialRecords,
-        dimensions: { l: numberValue(form.length), w: numberValue(form.width), h: numberValue(form.height), unit: 'mm' },
+        projectDetails,
+        dimensions: { l: maxL, w: maxW, h: maxH, unit: 'mm' },
         specifications: {
           material: materialRecords,
-          dimensions: { length: numberValue(form.length), width: numberValue(form.width), height: numberValue(form.height), unit: 'mm' }
+          dimensions: { length: maxL, width: maxW, height: maxH, unit: 'mm' }
         },
         costPrice,
         sellPrice,
@@ -190,13 +269,57 @@ export default function PrintedProjectModal({ isOpen, onClose, estimations = [],
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="sm:col-span-2"><span className="mb-1.5 block text-[10px] font-black uppercase tracking-widest opacity-50">Project name</span><input className={fieldClass} value={form.name} onChange={(event) => update('name', event.target.value)} placeholder="Printed project name" /></label>
               <label className="sm:col-span-2"><span className="mb-1.5 block text-[10px] font-black uppercase tracking-widest opacity-50">Description (optional)</span><textarea className={`${fieldClass} min-h-20 resize-y`} value={form.description} onChange={(event) => update('description', event.target.value)} placeholder="Short public description" /></label>
-              <div className="sm:col-span-2"><span className="mb-1.5 block text-[10px] font-black uppercase tracking-widest opacity-50">Imported material</span><div className="flex min-h-12 flex-wrap items-center gap-2 rounded-2xl border border-[var(--color-border)] bg-black/[.03] p-3 dark:bg-white/[.03]">{importedMaterials.length ? importedMaterials.map((material) => <span key={material.id} className="rounded-full bg-blue-600/10 px-3 py-1.5 text-[10px] font-black uppercase text-blue-600">{[material.brand, material.type, material.colorName || material.name].filter(Boolean).join(' · ')}</span>) : <span className="text-[11px] font-bold uppercase opacity-50">No material metadata found</span>}</div></div>
-              <label><span className="mb-1.5 block text-[10px] font-black uppercase tracking-widest opacity-50">Length (mm)</span><input className={numberFieldClass} type="number" min="0" value={form.length} onChange={(event) => update('length', event.target.value)} placeholder="0" /></label>
-              <label><span className="mb-1.5 block text-[10px] font-black uppercase tracking-widest opacity-50">Width (mm)</span><input className={numberFieldClass} type="number" min="0" value={form.width} onChange={(event) => update('width', event.target.value)} placeholder="0" /></label>
-              <label><span className="mb-1.5 block text-[10px] font-black uppercase tracking-widest opacity-50">Height (mm)</span><input className={numberFieldClass} type="number" min="0" value={form.height} onChange={(event) => update('height', event.target.value)} placeholder="0" /></label>
+              
+              <div className="sm:col-span-2"><span className="mb-1.5 block text-[10px] font-black uppercase tracking-widest opacity-50">Imported materials</span><div className="flex min-h-12 flex-wrap items-center gap-2 rounded-2xl border border-[var(--color-border)] bg-black/[.03] p-3 dark:bg-white/[.03]">{importedMaterials.length ? importedMaterials.map((material) => <span key={material.id || material.materialId} className="rounded-full bg-blue-600/10 px-3 py-1.5 text-[10px] font-black uppercase text-blue-600">{[material.brand, material.type, material.colorName || material.name].filter(Boolean).join(' · ')}</span>) : <span className="text-[11px] font-bold uppercase opacity-50">No material metadata found</span>}</div></div>
+
+              {/* Models List Section */}
+              <div className="sm:col-span-2 space-y-3 pt-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-black uppercase tracking-[0.2em] text-blue-600">Model list & specs</span>
+                </div>
+
+                {models.map((model, idx) => (
+                  <div key={model.id || idx} className="rounded-2xl border border-[var(--color-border)] bg-black/[.02] p-4 dark:bg-white/[.02] space-y-3 relative">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-blue-600">Model #{idx + 1}</span>
+                      {models.length > 1 && (
+                        <button type="button" onClick={() => removeModel(idx)} className="text-red-500 hover:text-red-700 transition-colors p-1" title="Remove model">
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
+                    <label className="block">
+                      <span className="mb-1 block text-[10px] font-black uppercase tracking-widest opacity-50">Model Name</span>
+                      <input className={fieldClass} value={model.name} onChange={(e) => updateModel(idx, 'name', e.target.value)} placeholder={`Model #${idx + 1} Name`} />
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <label><span className="mb-1 block text-[9px] font-black uppercase tracking-widest opacity-50">Length (mm)</span><input className={numberFieldClass} type="number" min="0" value={model.length} onChange={(e) => updateModel(idx, 'length', e.target.value)} placeholder="0" /></label>
+                      <label><span className="mb-1 block text-[9px] font-black uppercase tracking-widest opacity-50">Width (mm)</span><input className={numberFieldClass} type="number" min="0" value={model.width} onChange={(e) => updateModel(idx, 'width', e.target.value)} placeholder="0" /></label>
+                      <label><span className="mb-1 block text-[9px] font-black uppercase tracking-widest opacity-50">Height (mm)</span><input className={numberFieldClass} type="number" min="0" value={model.height} onChange={(e) => updateModel(idx, 'height', e.target.value)} placeholder="0" /></label>
+                    </div>
+                    {importedMaterials.length > 0 && (
+                      <label className="block">
+                        <span className="mb-1 block text-[10px] font-black uppercase tracking-widest opacity-50">Material</span>
+                        <select className={fieldClass} value={model.materialId} onChange={(e) => updateModel(idx, 'materialId', e.target.value)}>
+                          {importedMaterials.map((mat) => (
+                            <option key={mat.id || mat.materialId} value={mat.id || mat.materialId}>
+                              {[mat.brand, mat.type, mat.colorName || mat.name].filter(Boolean).join(' · ')}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                  </div>
+                ))}
+
+                <button type="button" onClick={addModel} className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-blue-500/40 p-3 text-[11px] font-black uppercase tracking-widest text-blue-600 hover:bg-blue-600/10 transition-all">
+                  <Plus size={16} /> Add Model
+                </button>
+              </div>
+
               <label><span className="mb-1.5 block text-[10px] font-black uppercase tracking-widest opacity-50">Stock no.</span><input className={fieldClass} value={form.stockNumber} onChange={(event) => update('stockNumber', event.target.value)} placeholder="PRINT-0001" /></label>
               <label><span className="mb-1.5 block text-[10px] font-black uppercase tracking-widest opacity-50">Cost price / pc</span><input className={numberFieldClass} type="number" min="0" value={form.costPrice} onChange={(event) => update('costPrice', event.target.value)} /></label>
-              <label><span className="mb-1.5 block text-[10px] font-black uppercase tracking-widest opacity-50">Sell price / pc</span><input className={numberFieldClass} type="number" min="0" value={form.sellPrice} onChange={(event) => update('sellPrice', event.target.value)} /></label>
+              <label className="sm:col-span-2"><span className="mb-1.5 block text-[10px] font-black uppercase tracking-widest opacity-50">Sell price / pc</span><input className={numberFieldClass} type="number" min="0" value={form.sellPrice} onChange={(event) => update('sellPrice', event.target.value)} /></label>
             </div>
           </section>
         </div>

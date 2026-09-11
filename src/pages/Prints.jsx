@@ -717,12 +717,17 @@ export default function Prints() {
               {isPrintedProjectsLoading
                 ? Array.from({ length: 5 }).map((_, index) => <ProductCardSkeleton key={`printed-project-skeleton-${index}`} />)
                 : sortedPrintedProjects.map((project) => (
-                  <PrintedProjectCard
+                  <ProjectCard
                     key={project.id}
                     project={project}
-                    isAdminView={isAdmin && isAdminView}
-                    onBuyNow={handlePrintedBuyNow}
-                    onAddToBasket={handlePrintedAddToBasket}
+                    type="printed"
+                    fallbackTitle={project.name || project.projectName}
+                    onOrderNow={(item) => handlePrintedBuyNow(item || project)}
+                    onBasketAction={async (e, item) => {
+                      const target = item || project;
+                      await handlePrintedAddToBasket(target);
+                    }}
+                    showManagementActions={isAdmin && isAdminView}
                     onDelete={(item) => {
                       if (window.confirm(`Delete printed project "${item.name || item.projectName}"?`)) {
                         deletePrintedProject(item.id).catch((error) => alert(error?.message || 'Unable to delete printed project.'));
