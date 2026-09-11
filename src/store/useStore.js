@@ -1341,6 +1341,7 @@ export const useStore = create(
         if (req.homeKits && !ds.homeKits) { set({ isLoading: true }); return; }
         if (req.homeBlueprints && !ds.homeBlueprints) { set({ isLoading: true }); return; }
         if (req.kits && !ds.kits) { set({ isLoading: true }); return; }
+        if (req.printedProjects && !ds.printedProjects) { set({ isLoading: true }); return; }
         if (req.deals && !ds.deals) { set({ isLoading: true }); return; }
         if (req.orders && !ds.orders) { set({ isLoading: true }); return; }
         if (req.basket && !ds.basket) { set({ isLoading: true }); return; }
@@ -1378,6 +1379,7 @@ export const useStore = create(
           (!req.homeKits || updated.homeKits) &&
           (!req.homeBlueprints || updated.homeBlueprints) &&
           (!req.kits || updated.kits) &&
+          (!req.printedProjects || updated.printedProjects) &&
           (!req.deals || updated.deals) &&
           (!req.orders || updated.orders) &&
           (!req.basket || updated.basket) &&
@@ -1505,7 +1507,7 @@ export const useStore = create(
             orderBy('lastUpdated', 'desc'),
             limit(40)
           );
-          const unsub = onSnapshot(homeKitsQuery, (snap) => {
+          const unsub = onSnapshot(homeKitsQuery, { includeMetadataChanges: true }, (snap) => {
             const boundedKits = snap.docs
               .map((kitDoc) => ({ id: kitDoc.id, ...kitDoc.data() }))
               .filter((kit) => kit.productType !== 'printed-project' && kit.isPrintedProject !== true);
@@ -1531,7 +1533,7 @@ export const useStore = create(
         // downloading the complete blueprints collection.
         if (req.homeBlueprints && !ds.homeBlueprints && !listenerKeys.homeBlueprints) {
           const homeBlueprintsQuery = query(collection(db, 'blueprints'), limit(12));
-          const unsub = onSnapshot(homeBlueprintsQuery, (snap) => {
+          const unsub = onSnapshot(homeBlueprintsQuery, { includeMetadataChanges: true }, (snap) => {
             set({ homeBlueprints: docsToArray(snap) });
             updateSnapshotDatasetStatus(get, 'homeBlueprints', snap);
           }, (err) => {
@@ -1551,7 +1553,7 @@ export const useStore = create(
           && !get()._datasetListenerKeys?.kits
         ) {
           const kitsQuery = query(collection(db, 'kits'), orderBy('lastUpdated', 'desc'));
-          const unsub = onSnapshot(kitsQuery, (snap) => {
+          const unsub = onSnapshot(kitsQuery, { includeMetadataChanges: true }, (snap) => {
             const sourceKits = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             const allKits = sourceKits
               .filter((kit) => (
@@ -1597,7 +1599,7 @@ export const useStore = create(
             collection(db, 'kits'),
             where('productType', '==', 'printed-project')
           );
-          const unsub = onSnapshot(printedProjectsQuery, (snap) => {
+          const unsub = onSnapshot(printedProjectsQuery, { includeMetadataChanges: true }, (snap) => {
             set({ printedProjects: docsToArray(snap) });
             updateSnapshotDatasetStatus(get, 'printedProjects', snap);
           }, (err) => {
@@ -1611,7 +1613,7 @@ export const useStore = create(
 
         // 3. Blueprints (if not already prioritized)
         if (req.prints && !ds.prints && !listenerKeys.prints) {
-          const unsub = onSnapshot(collection(db, "blueprints"), (snap) => {
+          const unsub = onSnapshot(collection(db, "blueprints"), { includeMetadataChanges: true }, (snap) => {
             set({ 
               blueprints: docsToArray(snap),
               loadedData: { ...get().loadedData, blueprints: true }
@@ -1628,7 +1630,7 @@ export const useStore = create(
 
         // 6. Deals (if not already prioritized)
         if (req.deals && !ds.deals && !listenerKeys.deals) {
-          const unsubDeals = onSnapshot(collection(db, "deals"), (snap) => {
+          const unsubDeals = onSnapshot(collection(db, "deals"), { includeMetadataChanges: true }, (snap) => {
             const deals = docsToArray(snap);
             set({ deals });
             updateSnapshotDatasetStatus(get, 'deals', snap);
@@ -1685,7 +1687,7 @@ export const useStore = create(
             // A cold session must stay gated until its listener really settles.
             if (!get()._loadedDatasets[key] && get().initialLoadCacheStatus === 'cached') {
               console.warn(`SG LOG: ${key} listener is slow; rendering page while Firestore reconnects.`);
-              get().markLoaded(key, { status: 'loading' });
+              get().markLoaded(key, { status: 'timeout' });
             }
           }, 8000);
           priorityLoadTimeouts.push(timeoutId);
