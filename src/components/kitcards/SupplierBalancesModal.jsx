@@ -277,6 +277,12 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
   const markArrived = async (item) => {
     if (!window.confirm("Mark as arrived? Status changes to On-Hand & Free Shipping promo will be cleared, but Balance will remain.")) return;
 
+    const wasAdminShelfStock = item.isPreOrder
+      && item.isPaidInFull
+      && item.isReserved === true
+      && item.reservationType === 'admin'
+      && !hasOrderAssociation(item);
+
     try {
       await updateDoc(doc(db, 'kits', item.kitId), {
         [`stocks.${item.key}.status`]: 'onhand',
@@ -287,6 +293,21 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
         [`stocks.${item.key}.freeShippingMethod`]: 'All',
         [`stocks.${item.key}.freeShippingSuboption`]: 'All'
       });
+
+      // Arrival is the safe point to recalculate the admin shelf: supplier
+      // payment is already settled, the stock is now physically on hand, and
+      // the original shelf marker can be compared against cheaper inventory.
+      if (wasAdminShelfStock) {
+        try {
+          await rebalanceAdminShelf({
+            kitId: item.kitId,
+            refillEmptyShelf: true
+          });
+        } catch (rebalanceError) {
+          console.warn('Admin shelf rebalance after paid pre-order arrival failed:', rebalanceError);
+        }
+      }
+
       alert("Stock marked as arrived!");
       await refreshKits();
     } catch (e) {

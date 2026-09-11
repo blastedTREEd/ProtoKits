@@ -750,6 +750,18 @@ const hasValidatedFirstReceipt = (order) => {
     || Number(order.buyerPaid || 0) > 0;
 };
 
+// Legacy/manual orders may not have a receipt, but their status still controls
+// whether inventory reassignment is safe. Once a legacy order is Completed it
+// is a historical sale and must not be classified as auto-rebalancing eligible.
+const isRebalancingEligibleOrder = (order) => {
+  if (!order) return false;
+  const status = String(order.status || '').trim().toLowerCase();
+  if (['cancelled', 'canceled'].includes(status)) return false;
+  if (status === 'completed') return false;
+  if (order.receiptValidated || hasValidatedFirstReceipt(order)) return false;
+  return true;
+};
+
 export default function Orders() {
   const { isDarkMode } = useTheme();
   const location = useLocation();
@@ -2321,9 +2333,12 @@ export default function Orders() {
     const validOrders = [];
     const invalidOrders = [];
     const legacyOrders = [];
+    const rebalancingEligibleOrders = [];
 
     visibleOrders.forEach((order) => {
-      if (isLegacyOrderRecord(order)) {
+      if (activeTab === 'completed' && isRebalancingEligibleOrder(order)) {
+        rebalancingEligibleOrders.push(order);
+      } else if (isLegacyOrderRecord(order)) {
         legacyOrders.push(order);
       } else if (order.isMaintenanceOrder) {
         invalidOrders.push(order);
@@ -2335,6 +2350,8 @@ export default function Orders() {
     const showSeparators = isAdminMode || invalidOrders.length > 0;
 
     return [
+      ...(isAdminMode && rebalancingEligibleOrders.length > 0 ? [{ type: 'separator', key: 'rebalancing-eligible', label: 'Rebalancing Eligible' }] : []),
+      ...rebalancingEligibleOrders.map((order) => ({ type: 'order', key: order.id, order })),
       ...(showSeparators && validOrders.length > 0 ? [{ type: 'separator', key: 'valid', label: 'Valid Orders' }] : []),
       ...validOrders.map((order) => ({ type: 'order', key: order.id, order })),
       ...(showSeparators && invalidOrders.length > 0 ? [{ type: 'separator', key: 'invalid', label: 'Invalid Orders' }] : []),

@@ -51,13 +51,29 @@ When an administrator validates and confirms a payment receipt in `Orders.jsx` (
    - Targets are extracted via `buildOrderStockTargets(order)`.
    - Each stock is updated with `stocks.${target.stockKey}.order.receiptValidated = true` and `stocks.${target.stockKey}.receiptValidated = true`.
 3. **Legacy Order Stock Sealing:**
-   - Legacy orders (identified via `isLegacyOrderRecord()` by `#LG-` order ID prefix, `isLegacyOrder: true`, or `legacyOrder: true`) are likewise permanently sealed.
+   - Legacy orders (identified via `isLegacyOrderRecord()` by `#LG-` order ID prefix, `isLegacyOrder: true`, or `legacyOrder: true`) are excluded from normal public stock selection.
+   - This storefront exclusion is separate from rebalancing eligibility. A legacy order that is still pending, or whose completed-order reversal countdown is active or paused with time remaining, is still reviewable for controlled inventory rebalancing. Once its reversal window expires, it is treated as a permanent historical sale.
 4. **Dynamic Storefront Exclusion:**
    - `ProductCard.jsx` and `AddKitModal.jsx` use `stockOrderUtils.js` (`filterActiveKitStocks`) to dynamically hide any stock associated with a validated-receipt order or legacy order from storefront stock lists, bundle deals, and modal selectors, preventing committed inventory from appearing in active shopping or restock workflows.
 
 ---
 
-## 5. Customer Order Notifications
+## 5. Shelf Rebalancing Eligibility
+
+Automatic shelf rebalancing is deliberately narrower than ordinary stock reservation:
+
+- It is triggered when a fully paid pre-order that is already held on the admin shelf is confirmed as arrived and changed to `onhand`.
+- The arriving stock can then be compared with eligible inventory without changing supplier balances, stored stock costs, customer selling prices, or order payment history.
+- Non-cancelled orders without a validated receipt may remain eligible for controlled reassignment review, including legacy orders that have not reached `Completed`.
+- A legacy order with `status: "Completed"` is not automatically eligible merely because it has no receipt. It is eligible only while its reversal countdown is still active or paused with remaining time; an expired/permanent record is immutable for automatic rebalancing.
+- A completed order with a validated receipt is never an automatic rebalancing candidate. It must use the reversal or audited correction flow.
+- Rebalancing changes inventory shelf markers only. It must not rewrite the order's historical stock key, cost snapshot, payment record, or supplier balance.
+
+The admin Orders view may group qualifying records under **REBALANCING ELIGIBLE** for review. The label is not applied to every legacy order and does not override completed-order finalization.
+
+---
+
+## 6. Customer Order Notifications
 
 The navbar notification system is backed directly by the signed-in customer's live Firestore `orders` query. It renders one notification per order, sorted by the most recent `lastUpdated` timestamp with `createdAt` as fallback. When an order document is deleted, its notification disappears automatically.
 

@@ -123,6 +123,20 @@ When a new stock variant is added to an existing kit (`addKit` with `isRestock`)
    - If cost prices are not comparable, the existing shelf stock is released by default.
 3. **Atomic State & Document Sync:** Both Firestore collections (`kits` and `shelf`) and client store states (`state.kits` and `state.shelf`) are updated concurrently, ensuring immediate UI reactivity and preventing phantom shelf holds.
 
+### Arrival-triggered rebalancing
+
+- A fully paid pre-order already held on the admin shelf is not rebalanced when it is merely added or paid. Rebalancing is deferred until the stock is physically confirmed as arrived and changed to `onhand`.
+- After arrival is committed, the shelf is re-evaluated against eligible sold-history references and available inventory. Order-linked inventory remains protected unless it satisfies the separate order-rebalancing policy.
+- Supplier payment state and each stock variant's stored `costPrice` remain unchanged. The operation only changes the admin shelf reservation marker.
+
+### Admin cost comparison display
+
+In `AddKitModal`, an admin-shelf stock is visually compared with the lowest `costPrice` among sold and currently available stocks:
+
+- If the shelf stock is already the lowest, its stored cost is shown normally.
+- If a lower comparison cost exists, the shelf stock's stored cost is shown with a strikethrough and the lower reference cost is shown beside it.
+- This is display-only and does not change supplier balances, order snapshots, or stock records.
+
 ## 9. Inventory lifecycle
 
 The normal lifecycle is:
@@ -131,7 +145,7 @@ The normal lifecycle is:
 2. Add one or more physical stock variants with pricing, status, ETA, and conditions.
 3. Track supplier balances until the shipment arrives.
 4. Apply or verify arrival conditions and move stock into the appropriate on-hand/public/shelf state.
-5. If restocked, evaluate admin shelf holdings for lowest-cost retention and auto-release.
+5. If restocked or a paid admin-shelf pre-order arrives, evaluate admin shelf holdings for lowest-cost retention and auto-release.
 6. Reserve an exact stock variant during checkout.
 7. Mark the order outcome; release the variant if the order is cancelled or declined, or retain its order linkage and exclude from active selection once payment is validated or recorded as a legacy order.
 

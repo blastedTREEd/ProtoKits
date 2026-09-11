@@ -34,9 +34,10 @@ import {
 import {
   getValidatedOrderStockSet,
   isStockInValidatedOrder,
-  filterActiveKitStocks,
   isStockAvailableForPurchase,
-  isStockInAdminShelf
+  isStockInAdminShelf,
+  hasOrderAssociation,
+  isLegacyOrderRecord
 } from '../../utils/stockOrderUtils';
 import {
   PRE_ORDER_BOX_CONDITION,
@@ -109,6 +110,36 @@ const MONTH_CODES = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SE
 const getCurrentDeliveryMonth = () => {
   const now = new Date();
   return `${MONTH_CODES[now.getMonth()]} ${now.getFullYear()}`;
+};
+
+const getStockOrderPresentation = (stock, kitId, stockKey, orders, validatedOrderStockData) => {
+  const orderReference = stock?.order && typeof stock.order === 'object' ? stock.order : {};
+  const referenceIds = [orderReference.orderDocId, orderReference.orderId, orderReference.id]
+    .filter(Boolean)
+    .map(String);
+  const linkedOrder = (orders || []).find((order) => (
+    referenceIds.includes(String(order?.id || ''))
+      || referenceIds.includes(String(order?.orderId || ''))
+      || referenceIds.includes(String(order?.orderDocId || ''))
+  ));
+  const orderStatus = String(linkedOrder?.status || orderReference.status || orderReference.orderStatus || '').trim().toLowerCase();
+  const isLegacyOrder = Boolean(
+    isLegacyOrderRecord(linkedOrder)
+      || orderReference.isLegacyOrder
+      || orderReference.legacyOrder
+      || String(orderReference.orderId || '').toUpperCase().startsWith('#LG-')
+      || String(orderReference.orderId || '').toUpperCase().startsWith('LG-')
+  );
+  const isOrderAttached = hasOrderAssociation(stock);
+  const isVerifiedSale = isStockInValidatedOrder(stock, kitId, validatedOrderStockData, stockKey);
+  const isCompletedSale = isVerifiedSale && (orderStatus === 'completed' || isLegacyOrder);
+
+  return {
+    isOrderAttached,
+    isVerifiedSale,
+    isCompletedSale,
+    lifecycleLabel: isCompletedSale ? 'COMPLETED' : 'RESERVED'
+  };
 };
 const MASTER_IMAGE_TYPES = ['BOX ART', 'PROMO IMAGE'];
 const STOCK_IMAGE_TYPES = ['BOX CONDITION', 'KIT CONDITION'];
@@ -972,12 +1003,12 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
 
   const selectedExistingKit = useMemo(() => {
     if (!rawSelectedExistingKit) return null;
-    if (!rawSelectedExistingKit.stocks) return rawSelectedExistingKit;
-    return {
-      ...rawSelectedExistingKit,
-      stocks: filterActiveKitStocks(rawSelectedExistingKit.stocks, rawSelectedExistingKit.id, validatedOrderStockData)
-    };
-  }, [rawSelectedExistingKit, validatedOrderStockData]);
+    // Keep validated and legacy-order stocks visible in the admin variant
+    // history. They are hidden from public inventory elsewhere, but removing
+    // them here makes it impossible to distinguish sold inventory from an
+    // available or supplier-held stock row.
+    return rawSelectedExistingKit;
+  }, [rawSelectedExistingKit]);
 
   const filteredKits = useMemo(() => {
     const query = (masterForm.name || '').trim().toLowerCase();
@@ -1011,8 +1042,24 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
   const stockHistory = useMemo(() => {
     const stocks = selectedExistingKit?.stocks || {};
     return Object.entries(stocks)
-      .map(([key, value]) => ({ key, ...value }))
+      .map(([key, value]) => ({
+        key,
+        ...value,
+        orderPresentation: getStockOrderPresentation(
+          value,
+          selectedExistingKit?.id,
+          key,
+          orders,
+          validatedOrderStockData
+        )
+      }))
       .sort((a, b) => {
+        // Completed sales are historical records and should remain visible,
+        // but always appear after current inventory and pending reservations.
+        if (a.orderPresentation.isCompletedSale !== b.orderPresentation.isCompletedSale) {
+          return a.orderPresentation.isCompletedSale ? 1 : -1;
+        }
+
         const aOnhand = a.status?.toLowerCase() === 'onhand';
         const bOnhand = b.status?.toLowerCase() === 'onhand';
 
@@ -1024,7 +1071,19 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
 
         return Number(b.timestamp || 0) - Number(a.timestamp || 0);
       });
-  }, [selectedExistingKit]);
+  }, [selectedExistingKit, orders, validatedOrderStockData]);
+
+  const lowestShelfComparisonCost = useMemo(() => {
+    const comparableCosts = stockHistory
+      .filter((stock) => (
+        stock?.orderPresentation?.isVerifiedSale
+        || isStockAvailableForPurchase(stock)
+      ))
+      .map((stock) => Number(stock.costPrice || 0))
+      .filter((cost) => cost > 0);
+
+    return comparableCosts.length > 0 ? Math.min(...comparableCosts) : null;
+  }, [stockHistory]);
 
   const { box: boxConditionSuggestions, kit: kitConditionSuggestions } = useMemo(() => {
     const boxValues = new Set();
@@ -1453,6 +1512,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
   };
 
   const handleEditStock = (stockItem) => {
+    if (stockItem?.orderPresentation?.isOrderAttached || stockItem?.orderPresentation?.isVerifiedSale || hasOrderAssociation(stockItem)) return;
     const normalizedStatus = normalizeStockStatus(stockItem.status);
     const legacyConditions = extractLegacyConditions(stockItem);
     setEditingStockKey(stockItem.key || '');
@@ -1495,6 +1555,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
   };
 
   const handleDuplicateStock = (stockItem) => {
+    if (stockItem?.orderPresentation?.isOrderAttached || stockItem?.orderPresentation?.isVerifiedSale || hasOrderAssociation(stockItem)) return;
     const normalizedStatus = normalizeStockStatus(stockItem.status);
     const legacyConditions = extractLegacyConditions(stockItem);
     setEditingStockKey('');
@@ -1527,6 +1588,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
 
   const onDeleteStock = async (stockItem) => {
     if (!selectedKitId || !stockItem.key) return;
+    if (stockItem?.orderPresentation?.isOrderAttached || stockItem?.orderPresentation?.isVerifiedSale || hasOrderAssociation(stockItem)) return;
     if (window.confirm(`Delete this stock entry (${stockItem.status} ${stockItem.eta || ''})?`)) {
       const initialStockCount = stockHistory.length;
       setDeletingStockKeys((prev) => [...prev, stockItem.key]);
@@ -1549,15 +1611,21 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
   };
 
   const handleToggleSelectAllStocks = () => {
-    if (selectedStockKeys.length === stockHistory.length) {
+    const selectableStockKeys = stockHistory
+      .filter((stock) => !stock?.orderPresentation?.isOrderAttached && !stock?.orderPresentation?.isVerifiedSale && !hasOrderAssociation(stock))
+      .map((stock) => stock.key)
+      .filter(Boolean);
+    if (selectedStockKeys.length === selectableStockKeys.length) {
       setSelectedStockKeys([]);
     } else {
-      setSelectedStockKeys(stockHistory.map((s) => s.key).filter(Boolean));
+      setSelectedStockKeys(selectableStockKeys);
     }
   };
 
   const handleToggleSelectStock = (key) => {
     if (!key) return;
+    const stock = stockHistory.find((entry) => entry.key === key);
+    if (stock?.orderPresentation?.isOrderAttached || stock?.orderPresentation?.isVerifiedSale || hasOrderAssociation(stock)) return;
     setSelectedStockKeys((prev) => (
       prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
     ));
@@ -1568,7 +1636,11 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
     if (!window.confirm(`Permanently delete ${selectedStockKeys.length} selected stock variants? This cannot be undone.`)) return;
 
     const initialStockCount = stockHistory.length;
-    const keysToDelete = [...selectedStockKeys];
+    const keysToDelete = selectedStockKeys.filter((key) => {
+      const stock = stockHistory.find((entry) => entry.key === key);
+      return !stock?.orderPresentation?.isOrderAttached && !stock?.orderPresentation?.isVerifiedSale && !hasOrderAssociation(stock);
+    });
+    if (keysToDelete.length === 0) return;
     const remainingStockCount = initialStockCount - keysToDelete.length;
     setIsBatchDeletingStocks(true);
     setDeletingStockKeys((prev) => [...prev, ...keysToDelete]);
@@ -3187,7 +3259,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                     Variant Details
                                                 </h3>
                                                 <p className="mt-1 text-[11px] opacity-60">
-                                                    Onhand variants are listed first, followed by ETA batch.
+                                                    Onhand variants are listed first. Sold stocks remain visible, with completed sales last.
                                                 </p>
                                             </div>
                                         </div>
@@ -3232,14 +3304,14 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                 >
                                                     <input
                                                         type="checkbox"
-                                                        checked={selectedStockKeys.length > 0 && selectedStockKeys.length === stockHistory.length}
+                                                        checked={selectedStockKeys.length > 0 && selectedStockKeys.length === stockHistory.filter((stock) => !stock?.orderPresentation?.isOrderAttached && !stock?.orderPresentation?.isVerifiedSale && !hasOrderAssociation(stock)).length}
                                                         onChange={handleToggleSelectAllStocks}
                                                         className="h-3.5 w-3.5 rounded border-amber-500 text-amber-500 focus:ring-0"
                                                     />
-                                                    <span>{selectedStockKeys.length === stockHistory.length ? 'Deselect All' : 'Select All'}</span>
+                                                    <span>{selectedStockKeys.length === stockHistory.filter((stock) => !stock?.orderPresentation?.isOrderAttached && !stock?.orderPresentation?.isVerifiedSale && !hasOrderAssociation(stock)).length ? 'Deselect All' : 'Select All'}</span>
                                                 </button>
                                                 <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">
-                                                    ({selectedStockKeys.length} of {stockHistory.length} selected)
+                                                    ({selectedStockKeys.length} of {stockHistory.filter((stock) => !stock?.orderPresentation?.isOrderAttached && !stock?.orderPresentation?.isVerifiedSale && !hasOrderAssociation(stock)).length} selectable)
                                                 </span>
                                             </div>
                                             {selectedStockKeys.length > 0 && (
@@ -3268,6 +3340,22 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                 const isActive = editingStockKey === stockItem.key;
                                                 const isSelected = selectedStockKeys.includes(stockItem.key);
                                                 const isDeleting = deletingStockKeys.includes(stockItem.key);
+                                                const orderPresentation = stockItem.orderPresentation;
+                                                const isOrderAttached = orderPresentation?.isOrderAttached || hasOrderAssociation(stockItem);
+                                                const isVerifiedSale = orderPresentation?.isVerifiedSale;
+                                                const isProtectedSale = isOrderAttached || isVerifiedSale;
+                                                const isAdminShelfStock = isStockInAdminShelf(
+                                                    stockItem,
+                                                    selectedExistingKit?.id,
+                                                    shelf,
+                                                    stockItem.key
+                                                );
+                                                const stockCostPrice = Number(stockItem.costPrice || 0);
+                                                const shouldShowLowerShelfCost = Boolean(
+                                                    isAdminShelfStock
+                                                    && lowestShelfComparisonCost !== null
+                                                    && stockCostPrice > lowestShelfComparisonCost
+                                                );
 
                                                 return (
                                                     <article
@@ -3293,23 +3381,28 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                                     <input
                                                                         type="checkbox"
                                                                         checked={isSelected}
+                                                                        disabled={isProtectedSale}
                                                                         onChange={() => handleToggleSelectStock(stockItem.key)}
                                                                         onClick={(e) => e.stopPropagation()}
-                                                                        className="h-4 w-4 rounded border-red-500 text-red-500 focus:ring-0"
+                                                                        className="h-4 w-4 rounded border-red-500 text-red-500 focus:ring-0 disabled:cursor-not-allowed disabled:opacity-30"
                                                                     />
                                                                 )}
                                                                 <span
                                                                     className={`shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest ${
-                                                                        normalizedStatus === 'Onhand'
-                                                                            ? 'bg-blue-600 text-white'
-                                                                            : 'bg-emerald-600 text-white'
+                                                                        isVerifiedSale
+                                                                            ? 'bg-red-600 text-white'
+                                                                            : normalizedStatus === 'Onhand'
+                                                                                ? 'bg-blue-600 text-white'
+                                                                                : 'bg-emerald-600 text-white'
                                                                     }`}
                                                                 >
-                                                                    {normalizedStatus}
+                                                                    {isVerifiedSale ? 'SOLD' : normalizedStatus}
                                                                 </span>
                                                                 <span className="shrink-0 text-[9px] font-black uppercase tracking-[0.14em] opacity-55">
-                                                                    {stockItem.isReserved || stockItem.order?.orderId
-                                                                        ? 'Reserved'
+                                                                    {isVerifiedSale
+                                                                        ? (orderPresentation?.lifecycleLabel || 'RESERVED')
+                                                                        : stockItem.isReserved || stockItem.order?.orderId
+                                                                            ? 'Reserved'
                                                                         : (normalizedStatus === 'Onhand' ? 'Available' : stockItem.eta || 'TBA')}
                                                                 </span>
                                                             </div>
@@ -3320,8 +3413,9 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                                         e.stopPropagation();
                                                                         handleEditStock(stockItem);
                                                                     }}
-                                                                    className="rounded-xl border border-white/10 p-2 opacity-70 transition-all hover:border-amber-500 hover:text-amber-500 hover:opacity-100"
-                                                                    title="Edit variant"
+                                                                    disabled={isProtectedSale}
+                                                                    className="rounded-xl border border-white/10 p-2 opacity-70 transition-all hover:border-amber-500 hover:text-amber-500 hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-25"
+                                                                    title={isProtectedSale ? 'Sold or order-attached stock cannot be edited' : 'Edit variant'}
                                                                 >
                                                                     <Tag size={14} />
                                                                 </button>
@@ -3331,8 +3425,9 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                                         e.stopPropagation();
                                                                         handleDuplicateStock(stockItem);
                                                                     }}
-                                                                    className="rounded-xl border border-white/10 p-2 opacity-70 transition-all hover:border-blue-500 hover:text-blue-500 hover:opacity-100"
-                                                                    title="Duplicate variant"
+                                                                    disabled={isProtectedSale}
+                                                                    className="rounded-xl border border-white/10 p-2 opacity-70 transition-all hover:border-blue-500 hover:text-blue-500 hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-25"
+                                                                    title={isProtectedSale ? 'Sold or order-attached stock cannot be duplicated' : 'Duplicate variant'}
                                                                 >
                                                                     <Copy size={14} />
                                                                 </button>
@@ -3342,8 +3437,9 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                                         e.stopPropagation();
                                                                         onDeleteStock(stockItem);
                                                                     }}
-                                                                    className="rounded-xl border border-white/10 p-2 opacity-70 transition-all hover:border-red-500 hover:text-red-500 hover:opacity-100"
-                                                                    title="Delete variant"
+                                                                    disabled={isProtectedSale}
+                                                                    className="rounded-xl border border-white/10 p-2 opacity-70 transition-all hover:border-red-500 hover:text-red-500 hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-25"
+                                                                    title={isProtectedSale ? 'Sold or order-attached stock cannot be deleted' : 'Delete variant'}
                                                                 >
                                                                     <Trash2 size={14} />
                                                                 </button>
@@ -3351,7 +3447,21 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
                                                         </div>
 
                                                         <div className="grid grid-cols-2 gap-2 text-left text-[10px] font-bold uppercase tracking-widest opacity-65">
-                                                            <p className="min-w-0 truncate">Cost: PHP {Number(stockItem.costPrice || 0).toLocaleString()}</p>
+                                                            <p className="min-w-0 truncate">
+                                                                Cost:{' '}
+                                                                {shouldShowLowerShelfCost ? (
+                                                                    <>
+                                                                        <span className="line-through decoration-red-500 decoration-2">
+                                                                            PHP {stockCostPrice.toLocaleString()}
+                                                                        </span>{' '}
+                                                                        <span className="font-black text-blue-600" title="Lowest cost among sold and available stocks">
+                                                                            PHP {lowestShelfComparisonCost.toLocaleString()}
+                                                                        </span>
+                                                                    </>
+                                                                ) : (
+                                                                    `PHP ${stockCostPrice.toLocaleString()}`
+                                                                )}
+                                                            </p>
                                                             <p className="min-w-0 truncate">DP: PHP {Number(stockItem.minDownpayment || 0).toLocaleString()}</p>
                                                         </div>
 
