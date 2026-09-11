@@ -30,6 +30,7 @@ import {
 } from '../../utils/bundlePricing';
 import { isFlexiBundleDeal, isPerKitClearanceDeal, isWildSaleDeal, getActiveClearanceKitIds } from '../../utils/dealTypes';
 import { getStockEta } from '../../utils/stockDates';
+import { getPrintedProjectModelName } from '../../utils/printedProjectName';
 import {
   formatAvailabilityDate,
   getNextAvailableDate,
@@ -99,6 +100,13 @@ const isProjectCheckoutItem = (item) => (
   item?.type === 'project' ||
   Boolean(item?.projectData) ||
   String(item?.basketId || '').startsWith('checkout_project_')
+);
+
+const isPrintedProjectItem = (item, kit) => Boolean(
+  item?.printedProject
+  || item?.isPrintedProject
+  || kit?.isPrintedProject
+  || kit?.productType === 'printed-project'
 );
 
 const getCheckoutItemBasePrice = (item, kit, fees = {}) => {
@@ -1475,6 +1483,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
         ...(stockKey ? { stockKey } : {})
       };
       const kit = findCheckoutKit(kits, itemWithIdentity);
+      const printedProject = isPrintedProjectItem(itemWithIdentity, kit);
       const isDealItem = isBundleOrClearanceItem(item);
       const appliedHandlingFee = !isDealItem && handlingEnabled
         ? (Number(item.appliedHandlingFee) > 0 ? Number(item.appliedHandlingFee) : handlingFee)
@@ -1499,6 +1508,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       
       return {
         ...itemWithIdentity,
+        ...(printedProject ? { name: getPrintedProjectModelName(itemWithIdentity, kit) } : {}),
         quantity,
         price: basePrice, // Unit price (base)
         sellPrice: basePrice,
@@ -2752,7 +2762,9 @@ const handleFinalizeOrder = async () => {
 
           return ({
           id: item.id,
-          name: `${item.brand || ''} ${item.specs?.line || ''} ${item.name}`.trim(),
+          name: isPrintedProjectItem(item, checkoutKit)
+            ? getPrintedProjectModelName(item, checkoutKit)
+            : `${item.brand || ''} ${item.specs?.line || ''} ${item.name}`.trim(),
           price: item.price || 0,
           sellPrice: isBundleOrClearanceItem(item) ? (item.price || 0) : (item.sellPrice || item.price || 0),
           originalSellPrice: isProjectCheckoutItem(item)

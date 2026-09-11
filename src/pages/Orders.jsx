@@ -17,6 +17,7 @@ import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import LoadingState from '../components/common/LoadingState';
 import { getStandaloneUnitPrice } from '../utils/standalonePricing';
 import { getStockEta } from '../utils/stockDates';
+import { getPrintedProjectModelName } from '../utils/printedProjectName';
 import { shouldChargeHandlingFee } from '../utils/paymentSettings';
 import {
   lookupPhilippineAddressByZipCode,
@@ -2839,8 +2840,14 @@ export default function Orders() {
 
               const displayGrade = item.grade || item.specs?.line || kitMeta.specs?.line || kit?.specs?.line || 'LINE';
               const displayBrand = item.brand || kitMeta.brand || kit?.brand || '';
-              
-              const rawName = (item.name || item.item || '').replace(/\s*\(Pre-Order\)\s*$/i, '');
+              const isPrintedProject = Boolean(
+                item.printedProject
+                || kit?.isPrintedProject
+                || kit?.productType === 'printed-project'
+              );
+              const rawName = (isPrintedProject
+                ? getPrintedProjectModelName(item, kit)
+                : (item.name || item.item || '')).replace(/\s*\(Pre-Order\)\s*$/i, '');
               let cleanName = rawName;
               if (displayBrand && displayBrand.trim()) {
                 const brandRegex = new RegExp(`^${displayBrand.trim()}\\s+`, 'i');
@@ -2851,7 +2858,9 @@ export default function Orders() {
                 cleanName = cleanName.replace(gradeRegex, '');
               }
               cleanName = cleanName.trim() || rawName;
-              const displayTitle = [displayBrand, cleanName].filter(Boolean).join(' ').trim() || cleanName;
+              const displayTitle = isPrintedProject
+                ? cleanName
+                : ([displayBrand, cleanName].filter(Boolean).join(' ').trim() || cleanName);
 
               const sellPrice = Number(item.sellPrice || item.price || 0);
               const installmentFee = Number(item.appliedInstallmentFee || 0);
@@ -3636,8 +3645,15 @@ export default function Orders() {
                   const grade = item.specs?.line || kit?.specs?.line || '';
                   const stock = kit?.stocks?.[item.stockKey];
                   const status = String(item.status || stock?.status || '').toLowerCase().includes('pre') ? 'PRE-ORDER' : 'ONHAND';
-                  const rawName = item.name || kit?.name || o.item || `Kit ${index + 1}`;
-                  const name = grade && rawName.toLowerCase().startsWith(grade.toLowerCase())
+                  const isPrintedProject = Boolean(
+                    item.printedProject
+                    || kit?.isPrintedProject
+                    || kit?.productType === 'printed-project'
+                  );
+                  const rawName = isPrintedProject
+                    ? getPrintedProjectModelName(item, kit)
+                    : (item.name || kit?.name || o.item || `Kit ${index + 1}`);
+                  const name = !isPrintedProject && grade && rawName.toLowerCase().startsWith(grade.toLowerCase())
                     ? rawName.slice(grade.length).trim() || rawName
                     : rawName;
                   return {

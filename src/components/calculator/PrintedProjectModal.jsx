@@ -3,6 +3,11 @@ import { Check, ChevronRight, Layers, PackagePlus, Plus, Trash2, X } from 'lucid
 import UniversalImage from '../common/UniversalImage';
 
 const numberValue = (value) => Number.parseFloat(String(value ?? '').replace(/,/g, '')) || 0;
+const isOccupiedStock = (stock) => Boolean(
+  stock?.isReserved
+  || stock?.order?.orderId
+  || stock?.order?.orderDocId
+);
 
 const getImageUrl = (project) => {
   const image = project?.image;
@@ -49,10 +54,10 @@ const getPerPieceCost = (source) => {
 const fieldClass = 'w-full rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg)] px-4 py-3 text-[13px] font-black outline-none transition-colors focus:border-blue-500';
 const numberFieldClass = `${fieldClass} appearance-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`;
 
-export default function PrintedProjectModal({ isOpen, onClose, estimations = [], filamentInventory = [], onSave }) {
+export default function PrintedProjectModal({ isOpen, onClose, estimations = [], filamentInventory = [], onSave, initialProject = null }) {
   const [selectedId, setSelectedId] = useState('');
   const [form, setForm] = useState({
-    name: '', description: '', length: '', width: '', height: '', stockNumber: '', costPrice: '', sellPrice: ''
+    name: '', description: '', length: '', width: '', height: '', quantity: '1', costPrice: '', sellPrice: ''
   });
   const [models, setModels] = useState([
     { id: 'model-1', name: '', length: '', width: '', height: '', materialId: '' }
@@ -65,27 +70,47 @@ export default function PrintedProjectModal({ isOpen, onClose, estimations = [],
       .sort((a, b) => String(a?.projectName || '').localeCompare(String(b?.projectName || '')))
   ), [estimations]);
   const selectedSource = sources.find((source) => String(source.id) === String(selectedId)) || null;
-  const importedMaterials = useMemo(() => getSourceMaterials(selectedSource, filamentInventory), [selectedSource, filamentInventory]);
+  const importedMaterials = useMemo(() => {
+    const sourceMaterials = getSourceMaterials(selectedSource, filamentInventory);
+    if (sourceMaterials.length > 0) return sourceMaterials;
+    if (Array.isArray(initialProject?.materials) && initialProject.materials.length > 0) return initialProject.materials;
+    return initialProject?.material ? [initialProject.material] : [];
+  }, [initialProject, selectedSource, filamentInventory]);
 
   useEffect(() => {
     if (!isOpen) {
       setSelectedId('');
-      setForm({ name: '', description: '', length: '', width: '', height: '', stockNumber: '', costPrice: '', sellPrice: '' });
+      setForm({ name: '', description: '', length: '', width: '', height: '', quantity: '1', costPrice: '', sellPrice: '' });
       setModels([{ id: 'model-1', name: '', length: '', width: '', height: '', materialId: '' }]);
       setIsSaving(false);
       return;
     }
     const firstSource = sources[0];
-    if (!firstSource) return;
-    setSelectedId(String(firstSource.id));
-    setForm((previous) => ({
-      ...previous,
-      name: firstSource.projectName || '',
-      costPrice: String(getPerPieceCost(firstSource)),
-      sellPrice: String(getPerPieceCost(firstSource)),
-      stockNumber: previous.stockNumber || `PRINT-${Date.now().toString().slice(-6)}`
-    }));
-  }, [isOpen, sources]);
+    const editingProject = initialProject?.id ? initialProject : null;
+    const editSource = editingProject
+      ? sources.find((source) => String(source.id) === String(editingProject.sourceEstimationId))
+        || sources.find((source) => String(source.projectName || '').trim() === String(editingProject.sourceEstimationName || '').trim())
+      : null;
+    const source = editSource || firstSource;
+    if (!source && !editingProject) return;
+
+    const stockEntries = Object.entries(editingProject?.stocks || {});
+    const availableStocks = stockEntries.filter(([, stock]) => !isOccupiedStock(stock));
+    const firstStock = availableStocks[0]?.[1] || stockEntries[0]?.[1] || {};
+    const dimensions = editingProject?.dimensions || editingProject?.specifications?.dimensions || {};
+
+    setSelectedId(source ? String(source.id) : '');
+    setForm({
+      name: editingProject?.name || editingProject?.projectName || source?.projectName || '',
+      description: editingProject?.description || '',
+      length: String(dimensions.l ?? dimensions.length ?? ''),
+      width: String(dimensions.w ?? dimensions.width ?? ''),
+      height: String(dimensions.h ?? dimensions.height ?? ''),
+      quantity: String(availableStocks.length || editingProject?.quantity || 1),
+      costPrice: String(firstStock.costPrice ?? editingProject?.costPrice ?? (source ? getPerPieceCost(source) : 0)),
+      sellPrice: String(firstStock.sellPrice ?? editingProject?.sellPrice ?? (source ? getPerPieceCost(source) : 0))
+    });
+  }, [initialProject, isOpen, sources]);
 
   useEffect(() => {
     if (!selectedSource) return;
@@ -93,7 +118,13 @@ export default function PrintedProjectModal({ isOpen, onClose, estimations = [],
     const firstMatId = importedMaterials[0]?.id || importedMaterials[0]?.materialId || '';
     const sourceDetails = selectedSource.projectDetails || [];
     
-    const initialModels = sourceDetails.length > 0 ? sourceDetails.map((detail, index) => ({
+    const projectDetails = initialProject?.sourceEstimationId
+      && String(initialProject.sourceEstimationId) === String(selectedSource.id)
+      && Array.isArray(initialProject.projectDetails)
+      && initialProject.projectDetails.length > 0
+      ? initialProject.projectDetails
+      : sourceDetails;
+    const initialModels = projectDetails.length > 0 ? projectDetails.map((detail, index) => ({
       id: `model-${index + 1}`,
       name: detail.name || detail.itemName || selectedSource.projectName || `Model #${index + 1}`,
       length: String(detail.dimensions?.l || detail.dimensions?.length || selectedSource.dimensions?.l || selectedSource.dimensions?.length || ''),
@@ -114,11 +145,14 @@ export default function PrintedProjectModal({ isOpen, onClose, estimations = [],
     setForm((previous) => ({
       ...previous,
       name: previous.name || selectedSource.projectName || '',
-      costPrice: String(cost),
-      sellPrice: previous.sellPrice || String(cost)
+      costPrice: previous.costPrice || String(cost),
+      sellPrice: previous.sellPrice || String(cost),
+      length: previous.length || String(selectedSource.dimensions?.l || selectedSource.dimensions?.length || ''),
+      width: previous.width || String(selectedSource.dimensions?.w || selectedSource.dimensions?.width || ''),
+      height: previous.height || String(selectedSource.dimensions?.h || selectedSource.dimensions?.height || '')
     }));
     setModels(initialModels);
-  }, [selectedSource, importedMaterials]);
+  }, [initialProject, selectedSource, importedMaterials]);
 
   if (!isOpen) return null;
 
@@ -155,7 +189,8 @@ export default function PrintedProjectModal({ isOpen, onClose, estimations = [],
   const handleSave = async (event) => {
     event.preventDefault();
     if (!selectedSource) return alert('Select a saved 3MF estimation first.');
-    if (!form.name.trim() || !form.stockNumber.trim()) return alert('Project name and stock no. are required.');
+    if (!form.name.trim()) return alert('Project name is required.');
+    const quantity = Math.max(1, Math.floor(numberValue(form.quantity)));
     if (numberValue(form.sellPrice) <= 0) return alert('Enter a sell price greater than zero.');
 
     const materialRecords = importedMaterials.map((material) => ({
@@ -166,7 +201,6 @@ export default function PrintedProjectModal({ isOpen, onClose, estimations = [],
       colorName: material.colorName || material.name || ''
     }));
     const primaryMaterial = materialRecords[0] || {};
-    const stockKey = `printed_stock_${Date.now()}`;
     const sellPrice = numberValue(form.sellPrice);
     const costPrice = numberValue(form.costPrice);
     const image = getImageUrl(selectedSource);
@@ -195,6 +229,29 @@ export default function PrintedProjectModal({ isOpen, onClose, estimations = [],
     const maxL = Math.max(...models.map(m => numberValue(m.length)), numberValue(form.length));
     const maxW = Math.max(...models.map(m => numberValue(m.width)), numberValue(form.width));
     const maxH = Math.max(...models.map(m => numberValue(m.height)), numberValue(form.height));
+    const existingStockEntries = Object.entries(initialProject?.stocks || {});
+    const protectedStocks = existingStockEntries.filter(([, stock]) => isOccupiedStock(stock));
+    if (quantity < protectedStocks.length) {
+      return alert(`Quantity cannot be lower than the ${protectedStocks.length} reserved or sold unit${protectedStocks.length === 1 ? '' : 's'} already recorded.`);
+    }
+
+    const retainedAvailableStocks = existingStockEntries
+      .filter(([, stock]) => !isOccupiedStock(stock))
+      .slice(0, quantity)
+      .map(([stockKey, stock]) => [stockKey, { ...stock, key: stockKey, costPrice, sellPrice }]);
+    const stockBatchId = Date.now();
+    const newStocks = Array.from({ length: Math.max(0, quantity - retainedAvailableStocks.length) }, (_, index) => {
+      const stockKey = `printed_stock_${stockBatchId}_${index + 1}`;
+      return [stockKey, {
+        key: stockKey,
+        status: 'Onhand',
+        costPrice,
+        sellPrice,
+        minDownpayment: 0,
+        publicReleaseDate: ''
+      }];
+    });
+    const stocks = Object.fromEntries([...protectedStocks, ...retainedAvailableStocks, ...newStocks]);
 
     setIsSaving(true);
     try {
@@ -212,23 +269,12 @@ export default function PrintedProjectModal({ isOpen, onClose, estimations = [],
           material: materialRecords,
           dimensions: { length: maxL, width: maxW, height: maxH, unit: 'mm' }
         },
+        quantity,
         costPrice,
         sellPrice,
-        stockNo: form.stockNumber.trim(),
-        stocks: {
-          [stockKey]: {
-            key: stockKey,
-            stockNo: form.stockNumber.trim(),
-            status: 'Onhand',
-            costPrice,
-            sellPrice,
-            minDownpayment: 0,
-            publicReleaseDate: ''
-          }
-        },
+        stocks,
         sourceEstimationId: selectedSource.id,
         sourceEstimationName: selectedSource.projectName || selectedSource.id,
-        canAddToBasket: true,
         hasAvailableStock: true
       });
       onClose();
@@ -245,7 +291,7 @@ export default function PrintedProjectModal({ isOpen, onClose, estimations = [],
         <div className="flex items-center justify-between border-b border-[var(--color-border)] px-5 py-4 sm:px-7">
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.25em] text-blue-600">Printed inventory</p>
-            <h2 className="text-xl font-black italic uppercase tracking-tight">Add printed project</h2>
+            <h2 className="text-xl font-black italic uppercase tracking-tight">{initialProject?.id ? 'Edit printed project' : 'Add printed project'}</h2>
           </div>
           <button type="button" onClick={onClose} className="rounded-full p-2 transition-colors hover:bg-black/10 dark:hover:bg-white/10" aria-label="Close"><X size={20} /></button>
         </div>
@@ -317,14 +363,14 @@ export default function PrintedProjectModal({ isOpen, onClose, estimations = [],
                 </button>
               </div>
 
-              <label><span className="mb-1.5 block text-[10px] font-black uppercase tracking-widest opacity-50">Stock no.</span><input className={fieldClass} value={form.stockNumber} onChange={(event) => update('stockNumber', event.target.value)} placeholder="PRINT-0001" /></label>
+              <label><span className="mb-1.5 block text-[10px] font-black uppercase tracking-widest opacity-50">Quantity available</span><input className={numberFieldClass} type="number" min="1" step="1" value={form.quantity} onChange={(event) => update('quantity', event.target.value)} /></label>
               <label><span className="mb-1.5 block text-[10px] font-black uppercase tracking-widest opacity-50">Cost price / pc</span><input className={numberFieldClass} type="number" min="0" value={form.costPrice} onChange={(event) => update('costPrice', event.target.value)} /></label>
               <label className="sm:col-span-2"><span className="mb-1.5 block text-[10px] font-black uppercase tracking-widest opacity-50">Sell price / pc</span><input className={numberFieldClass} type="number" min="0" value={form.sellPrice} onChange={(event) => update('sellPrice', event.target.value)} /></label>
             </div>
           </section>
         </div>
 
-        <div className="flex items-center justify-end gap-3 border-t border-[var(--color-border)] px-5 py-4 sm:px-7"><button type="button" onClick={onClose} className="rounded-2xl px-4 py-3 text-[11px] font-black uppercase tracking-widest opacity-60 hover:opacity-100">Cancel</button><button type="submit" disabled={isSaving || sources.length === 0} className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-[11px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/25 disabled:cursor-not-allowed disabled:opacity-40"><PackagePlus size={16} />{isSaving ? 'Saving...' : 'Create printed project'}</button></div>
+        <div className="flex items-center justify-end gap-3 border-t border-[var(--color-border)] px-5 py-4 sm:px-7"><button type="button" onClick={onClose} className="rounded-2xl px-4 py-3 text-[11px] font-black uppercase tracking-widest opacity-60 hover:opacity-100">Cancel</button><button type="submit" disabled={isSaving || sources.length === 0} className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-[11px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/25 disabled:cursor-not-allowed disabled:opacity-40"><PackagePlus size={16} />{isSaving ? 'Saving...' : initialProject?.id ? 'Save changes' : 'Create printed project'}</button></div>
       </form>
     </div>
   );

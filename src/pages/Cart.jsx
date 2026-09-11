@@ -19,6 +19,7 @@ import {
 } from '../utils/bundlePricing';
 import { getUnavailableDateSet, getUnavailableWeekdaySet, toDateKey } from '../utils/availabilitySchedule';
 import { getStockEta } from '../utils/stockDates';
+import { getPrintedProjectModelName } from '../utils/printedProjectName';
 import { isFlexiBundleDeal, isPerKitClearanceDeal, isWildSaleDeal, getActiveClearanceKitIds } from '../utils/dealTypes';
 import UniversalImage from '../components/common/UniversalImage';
 import {
@@ -312,7 +313,7 @@ export default function Cart() {
   const location = useLocation();
   const isCartPath = location.pathname === '/cart' || location.pathname === '/basket';
   const { 
-    user, isAnonymousUser, basket, shelf, isAdmin, isAdminView, removeFromBasket, kits, userOffers, userOffersLoaded, addToBasket, addProjectToBasket, decrementProjectQuantity,
+    user, isAnonymousUser, basket, shelf, isAdmin, isAdminView, removeFromBasket, kits: loadedKits, printedProjects, userOffers, userOffersLoaded, addToBasket, addProjectToBasket, decrementProjectQuantity,
     guestBasket, isLoading, shippingSettings, loadMissingKits, refreshBasket, keepOneOfEachToShelf, deals, loadBlueprintProductionStatuses,
     orders, printers, feeders, filamentInventory, rates, projectVault, blueprints
   } = useStore();
@@ -335,6 +336,17 @@ export default function Cart() {
   const storedActiveBasket = user && !isAnonymousUser
     ? ((isAdmin && isAdminView) ? shelf : basket)
     : guestBasket;
+
+  // Printed projects live in the kits collection but use a separate listener
+  // because the regular kits listener intentionally excludes them. The cart
+  // still needs both datasets when resolving a stock-backed basket row.
+  const kits = useMemo(() => {
+    const byId = new Map();
+    [...(loadedKits || []), ...(printedProjects || [])].forEach((kit) => {
+      if (kit?.id) byId.set(String(kit.id), kit);
+    });
+    return [...byId.values()];
+  }, [loadedKits, printedProjects]);
 
   // Cart rows are persisted snapshots, but the source kit/project records can
   // change after an item was added. Overlay the latest source data so names,
@@ -364,13 +376,20 @@ export default function Cart() {
 
       const kit = (kits || []).find((candidate) => String(candidate.id) === String(item.id));
       const stock = kit?.stocks?.[item.stockKey];
+      const isPrintedProjectItem = Boolean(
+        item.printedProject
+        || kit?.isPrintedProject
+        || kit?.productType === 'printed-project'
+      );
       const isDealItem = isBundleOrClearanceItem(item);
       const liveSellPrice = Number(stock?.sellPrice);
       const shouldRefreshStandalonePrice = !isDealItem && !item.offerId && liveSellPrice > 0;
 
       return {
         ...item,
-        ...(kit?.name ? { name: kit.name } : {}),
+        ...(isPrintedProjectItem
+          ? { name: getPrintedProjectModelName(item, kit) }
+          : (kit?.name ? { name: kit.name } : {})),
         ...(kit?.image ? { image: kit.image } : {}),
         ...(kit?.images ? { images: kit.images } : {}),
         ...(kit?.brand ? { brand: kit.brand } : {}),

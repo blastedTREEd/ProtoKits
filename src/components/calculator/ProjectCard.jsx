@@ -23,6 +23,7 @@ import {
 } from '../../utils/printerCompatibility';
 import CostBreakdown from './CostBreakdown';
 import { LiaGoogleDrive } from 'react-icons/lia';
+import { FaQuestion } from 'react-icons/fa';
 import { TbHexagon3D } from 'react-icons/tb';
 import { LuRotate3D } from 'react-icons/lu';
 import UniversalImage from '../common/UniversalImage';
@@ -193,6 +194,13 @@ const getSpectralGradient = (id) => {
 };
 
 const parsePrice = (value) => parseFloat(String(value || '0').replace(/,/g, '')) || 0;
+
+const getPrintedProjectPrice = (project = {}) => {
+  const stock = Object.values(project?.stocks || {})
+    .find((candidate) => !candidate?.order?.orderId && !candidate?.isReserved)
+    || Object.values(project?.stocks || {})[0];
+  return Number(stock?.sellPrice ?? project?.sellPrice ?? project?.price ?? 0) || 0;
+};
 
 const toProjectMillimeters = (value, unit = 'mm') => {
   const numericValue = Number(value);
@@ -438,6 +446,8 @@ const getProjectPrinterLabel = (printer) => (
 );
 
 const ProjectDetailPrinterLines = ({ printerEvaluation, item = {}, project = {} }) => {
+  if (project?.isPrintedProject || project?.productType === 'printed-project') return null;
+
   const configuredPrinters = printerEvaluation?.configuredPrinters?.length > 0
     ? printerEvaluation.configuredPrinters
     : [{
@@ -458,7 +468,7 @@ const ProjectDetailPrinterLines = ({ printerEvaluation, item = {}, project = {} 
   };
 
   return (
-    <div className="mt-1 space-y-0.5 text-[14px] font-bold uppercase leading-tight">
+    <div className="mt-1 w-full min-w-0 max-w-full space-y-0.5 text-[14px] font-bold uppercase leading-tight">
       {configuredPrinters.filter((printer) => printer?.name).map((printer, index) => (
         <div key={`${printer.name}-${index}`} className={`truncate ${getStatusClass(printer.printer)}`}>
           {printer.name}
@@ -536,6 +546,19 @@ const getProjectMaterialEntries = (item = {}, filamentInventory = []) => {
       weight: entry?.shareWeight ?? entry?.weight ?? null
     };
   }).filter(Boolean);
+};
+
+const getProjectMaterialWeightLabel = (item = {}, filamentInventory = []) => {
+  const materialEntries = getProjectMaterialEntries(item, filamentInventory);
+  const entryWeights = materialEntries
+    .map((entry) => entry.weight)
+    .filter((weight) => weight !== null && weight !== undefined && Number(weight) > 0)
+    .map((weight) => `${weight}g`);
+
+  if (entryWeights.length > 0) return entryWeights.join(' • ');
+
+  const totalWeight = Number(item.normalizedWeight ?? item.sliced?.weight ?? item.weight ?? 0) || 0;
+  return totalWeight > 0 ? `${totalWeight}g` : '';
 };
 
 const getProjectDetailsTimeLabel = (item = {}) => {
@@ -954,46 +977,37 @@ const GarageProjectSummary = ({
           </div>
           <div className="grid grid-cols-1 gap-2">
             {details.map((item, index) => (
-              <div key={`${item?.itemName || 'item'}-${index}`} className={`${isDarkMode ? 'bg-white/5' : 'bg-black/5'} rounded-2xl border border-[var(--color-border)] px-5 py-5 flex items-center justify-between gap-4`}>
-                <div className="flex min-w-0 items-center gap-4">
+              <div key={`${item?.itemName || 'item'}-${index}`} className={`${isDarkMode ? 'bg-white/5' : 'bg-black/5'} rounded-2xl border border-[var(--color-border)] px-5 py-5 flex flex-col items-stretch gap-3`}>
+                <div className="flex w-full min-w-0 items-center gap-4">
                   <div className="w-12 h-12 rounded-xl bg-blue-600/10 flex items-center justify-center text-blue-600 shrink-0">
                     {String(project?.method?.name || methodLabel || '').toUpperCase() === 'STL'
                       ? <Box size={18} strokeWidth={3} />
                       : <Layers size={18} strokeWidth={3} />}
                   </div>
-                  <div className="min-w-0 text-left">
+                  <div className="flex-1 min-w-0 text-left">
                     <div className="text-[14px] font-black uppercase italic leading-none truncate">{getProjectDetailItemLabel(project, methodLabel, item, index)}</div>
                     {(() => {
                       if (isPrintedProjectItem) {
                         const itemMat = item?.material || item?.materials?.[0] || project?.material || (project?.materials && project.materials[0]);
-                        const matParts = itemMat && typeof itemMat === 'object'
-                          ? [itemMat.brand, itemMat.type, itemMat.colorName || itemMat.color || itemMat.name].filter(Boolean)
-                          : [];
-                        const formattedMat = matParts.length > 0 ? matParts.join(' • ') : null;
                         const materialEntries = getProjectMaterialEntries(item, filamentInventory);
-                        const matText = formattedMat || materialEntries[0]?.label || getProjectMaterialLabel(item, filamentInventory);
+                        const matText = itemMat && typeof itemMat === 'object'
+                          ? getProjectMaterialLabel({ ...item, material: itemMat, normalizedMaterial: itemMat }, filamentInventory)
+                          : materialEntries[0]?.label || getProjectMaterialLabel(item, filamentInventory);
 
                         return (
-                          <div className="mt-1 flex min-w-0 items-center gap-2 text-[14px] font-bold uppercase text-[var(--color-text-muted)]">
-                            <span className="truncate">{matText}</span>
+                          <div className="mt-1 flex w-full min-w-0 max-w-full items-center gap-2 text-[14px] font-bold uppercase text-[var(--color-text-muted)]">
+                            <span className="block max-w-full truncate">{matText}</span>
                           </div>
                         );
                       }
 
                       const materialEntries = getProjectMaterialEntries(item, filamentInventory);
-                      const totalWeight = item?.normalizedWeight || item?.sliced?.weight || 0;
                       if (isSTLProject || materialEntries.length > 1) {
                         return (
                           <div className="mt-1 space-y-0.5 text-[14px] font-bold uppercase text-[var(--color-text-muted)]">
                             {materialEntries.map((entry, materialIndex) => (
                               <div key={`${entry.label}-${materialIndex}`} className="flex min-w-0 items-center gap-2">
-                                <span className="truncate">{entry.label}</span>
-                                {!isSTLProject && entry.weight !== null && entry.weight !== undefined && (
-                                  <>
-                                    <span className="h-1 w-1 shrink-0 rounded-full bg-current" />
-                                    <span className="shrink-0">{entry.weight}g</span>
-                                  </>
-                                )}
+                                <span className="block max-w-full truncate">{entry.label}</span>
                               </div>
                             ))}
                           </div>
@@ -1001,13 +1015,11 @@ const GarageProjectSummary = ({
                       }
                       return isSTLProject ? (
                         <div className="mt-1 text-[14px] font-bold uppercase text-[var(--color-text-muted)]">
-                          <span className="truncate">{materialEntries[0]?.label || getProjectMaterialLabel(item, filamentInventory)}</span>
+                          <span className="block max-w-full truncate">{materialEntries[0]?.label || getProjectMaterialLabel(item, filamentInventory)}</span>
                         </div>
                       ) : (
-                        <div className="mt-1 flex min-w-0 items-center gap-2 text-[14px] font-bold uppercase text-[var(--color-text-muted)]">
-                          <span className="truncate">{materialEntries[0]?.label || getProjectMaterialLabel(item, filamentInventory)}</span>
-                          <span className="h-1 w-1 shrink-0 rounded-full bg-current" />
-                          <span className="shrink-0">{totalWeight}g</span>
+                        <div className="mt-1 text-[14px] font-bold uppercase text-[var(--color-text-muted)]">
+                          <span className="block max-w-full truncate">{materialEntries[0]?.label || getProjectMaterialLabel(item, filamentInventory)}</span>
                         </div>
                       );
                     })()}
@@ -1017,6 +1029,12 @@ const GarageProjectSummary = ({
                       project={project}
                     />
                   </div>
+                </div>
+                <div className="flex w-full shrink-0 items-center justify-between gap-3 border-t border-[var(--color-border)] pt-3">
+                <div className="min-w-0 text-left text-[13px] font-black uppercase leading-tight text-[var(--color-text-muted)] sm:text-[14px]">
+                  {getProjectMaterialWeightLabel(item, filamentInventory) && (
+                    <span>{getProjectMaterialWeightLabel(item, filamentInventory)}</span>
+                  )}
                 </div>
                 {isPrintedProjectItem ? (() => {
                   const dim = item?.dimensions || (details.length === 1 ? project?.dimensions : null) || {};
@@ -1028,20 +1046,21 @@ const GarageProjectSummary = ({
                   const dimText = hasDim ? `${l} × ${w} × ${h} ${unit}` : null;
 
                   return dimText ? (
-                    <div className="max-w-[180px] shrink-0 text-right text-[13px] sm:text-[14px] font-black uppercase leading-tight text-blue-600">
+                    <div className="text-right text-[13px] sm:text-[14px] font-black uppercase leading-tight text-blue-600">
                       {dimText}
                     </div>
                   ) : null;
                 })() : isSTLProject ? (
-                  <div className="max-w-[150px] shrink-0 text-right text-[13px] font-black uppercase leading-tight text-blue-600 sm:max-w-none sm:text-[14px]">
+                  <div className="text-right text-[13px] font-black uppercase leading-tight text-blue-600 sm:text-[14px]">
                     {getStlDimensionsLabel(item)}
                   </div>
                 ) : (
-                  <div className="flex shrink-0 items-center gap-1.5 text-right text-[14px] font-black italic text-blue-600">
+                  <div className="flex items-center gap-1.5 text-right text-[14px] font-black italic text-blue-600">
                     <Clock size={18} strokeWidth={3} />
                     {getProjectDetailsTimeLabel(item)}
                   </div>
                 )}
+                </div>
               </div>
             ))}
           </div>
@@ -1068,7 +1087,7 @@ export default function ProjectCard({
   reopenRequestToken = null
 }) {
   const { isDarkMode, isSpectralMode } = useTheme();
-  const { shippingSettings, shelf, orders, printers, feeders, filamentInventory, isAdmin, isAdminView, updateBlueprint, updateProjectInVault, rates: storeRates } = useStore();
+  const { shippingSettings, shelf, orders, printers, feeders, filamentInventory, isAdmin, isAdminView, updateBlueprint, updatePrintedProject, updateProjectInVault, rates: storeRates } = useStore();
   const navigate = useNavigate();
   const projectId = project?.id || null;
   const projectPath = projectId ? `/prints/${encodeURIComponent(projectId)}` : '/prints';
@@ -1319,12 +1338,17 @@ export default function ProjectCard({
   const isBlueprint = type === 'blueprint' || isPrintedProject;
   const canRenameBlueprint = isBlueprint && isAdmin && isAdminView && showManagementActions;
   const isProductionEnabled = project?.canAddToBasket !== false;
+  const printedProjectHasStock = !isPrintedProject || Object.values(project?.stocks || {}).some((stock) => (
+    !stock?.isReserved && !stock?.order?.orderId
+  ));
   
   const handleToggleProduction = async (e) => {
     e.stopPropagation();
     const newStatus = !isProductionEnabled;
     try {
-      if (isBlueprint) {
+      if (isPrintedProject) {
+        await updatePrintedProject(project.id, { canAddToBasket: newStatus });
+      } else if (isBlueprint) {
         await updateBlueprint(project.id, { canAddToBasket: newStatus });
       } else if (project.vaultId) {
         await updateProjectInVault(project.vaultId, { canAddToBasket: newStatus });
@@ -1337,7 +1361,14 @@ export default function ProjectCard({
   const displayImage = isBlueprint
     ? (baseGalleryImages.find((image) => image.isGridImage)?.url || getProjectImageUrl(project.image, project.images))
     : null;
-  const displayProjectName = isVault || canRenameBlueprint ? projectNameLocal : project.projectName;
+  const printedProjectModelName = isPrintedProject
+    ? (project?.projectDetails || [])
+      .map((detail) => detail?.itemName || detail?.name)
+      .find((name) => String(name || '').trim())
+    : '';
+  const displayProjectName = isPrintedProject
+    ? (printedProjectModelName || project?.name || project?.projectName)
+    : (isVault || canRenameBlueprint ? projectNameLocal : project.projectName);
   const displayProjectTitle = isUnnamedProjectName(displayProjectName)
     ? (fallbackTitle || 'PROJECT #')
     : displayProjectName;
@@ -1436,13 +1467,20 @@ export default function ProjectCard({
   }, [is3MF, effectiveSelectedDesignService, availableDesignServices]);
 
   const { displayPrice, lowestPrice, downpayment } = useMemo(() => {
-    const storedGrandTotal = project?.totals?.total || project?.sellPrice || project?.price;
-    const storedBasePrice = project?.totals?.basePrice;
+    const printedProjectPrice = isPrintedProject ? getPrintedProjectPrice(project) : 0;
+    const storedGrandTotal = isPrintedProject
+      ? printedProjectPrice
+      : project?.totals?.total || project?.sellPrice || project?.price;
+    const storedBasePrice = isPrintedProject ? printedProjectPrice : project?.totals?.basePrice;
     const storedDownpayment = project?.totals?.dp || project?.minDownpayment;
     const recalculatedGrandTotal = parsePrice(automaticPricing?.total);
     const recalculatedBasePrice = parsePrice(automaticPricing?.basePrice);
-    const grandTotal = recalculatedGrandTotal > 0 ? recalculatedGrandTotal : parsePrice(storedGrandTotal);
-    const estimatedBase = recalculatedBasePrice > 0 ? recalculatedBasePrice : parsePrice(storedBasePrice);
+    const grandTotal = isPrintedProject
+      ? printedProjectPrice
+      : recalculatedGrandTotal > 0 ? recalculatedGrandTotal : parsePrice(storedGrandTotal);
+    const estimatedBase = isPrintedProject
+      ? printedProjectPrice
+      : recalculatedBasePrice > 0 ? recalculatedBasePrice : parsePrice(storedBasePrice);
     const fallbackBase = Math.max(0, grandTotal - handlingFee - installmentFee - transferFee);
     const recalculatedDownpayment = parsePrice(automaticPricing?.dp);
     const baseDp = recalculatedDownpayment > 0 ? recalculatedDownpayment : parsePrice(storedDownpayment);
@@ -1452,12 +1490,12 @@ export default function ProjectCard({
       lowestPrice: (estimatedBase > 0 ? estimatedBase : fallbackBase) + serviceCost,
       downpayment: baseDp + serviceCost
     };
-  }, [automaticPricing, handlingFee, installmentFee, transferFee, serviceCost, project]);
+  }, [automaticPricing, handlingFee, installmentFee, transferFee, serviceCost, project, isPrintedProject]);
 
   const isPrinted = type === 'printed' || project?.isPrintedProject || project?.productType === 'printed-project';
   const methodLabel = isPrinted ? '3D PRINTED' : (is3MF ? '3MF' : (isBlueprint ? (project.method?.name || 'Blueprint') : project.method?.name));
   const fileTypeLabel = isPrinted ? '3D PRINTED' : (is3MF ? '3MF' : isSTL ? 'STL' : (methodLabel || 'FILE').toUpperCase());
-  const costLabel = is3MF ? 'Project Cost' : isSTL ? 'Estimated Cost' : 'Project Cost';
+  const costLabel = isPrintedProject ? 'Sell price' : is3MF ? 'Project Cost' : isSTL ? 'Estimated Cost' : 'Project Cost';
   const showDisclaimer = !project.isFinalized && isSTL;
 
   const shelfItem = useMemo(() => (shelf || []).find(item => item.id === (project.id || project.vaultId)), [shelf, project.id, project.vaultId]);
@@ -1560,8 +1598,10 @@ export default function ProjectCard({
 
   // If any build plate cannot be printed due to printer availability
   // or replacement compatibility issue, the project cannot be ordered or added to basket.
-  const printerCanProcessProject = projectCostPrinterSelection.isCompatible
-    && projectPrintersAndPlates.allBuildPlatesCanBePrinted;
+  const printerCanProcessProject = isPrintedProject || (
+    projectCostPrinterSelection.isCompatible
+    && projectPrintersAndPlates.allBuildPlatesCanBePrinted
+  );
 
   // If the assigned printer becomes unavailable, resolve another cost-capable
   // printer and recalculate from the existing project inputs. This intentionally
@@ -1730,7 +1770,7 @@ export default function ProjectCard({
       updatedAt: new Date().toISOString()
     };
 
-    const persist = isBlueprint && project?.id
+    const persist = isBlueprint && !isPrintedProject && project?.id
       ? updateBlueprint(project.id, patch)
       : isVault && project?.vaultId
         ? updateProjectInVault(project.vaultId, patch)
@@ -1740,7 +1780,7 @@ export default function ProjectCard({
       automaticRepricePersistedKeyRef.current = '';
       console.error('SG LOG: Failed to automatically reprice project for replacement printer:', error);
     });
-  }, [automaticRepriceData, automaticRepriceKey, isBlueprint, isVault, project, updateBlueprint, updateProjectInVault]);
+  }, [automaticRepriceData, automaticRepriceKey, isBlueprint, isPrintedProject, isVault, project, updateBlueprint, updateProjectInVault]);
 
   const projectPrinter = projectPrinterSelection.printer;
   const materialStatus = useMemo(() => {
@@ -1788,7 +1828,9 @@ export default function ProjectCard({
   // blocked by today's calendar slot; checkout/scheduling can assign the next
   // available production date. Personal projects still require a valid file
   // link or selected design service.
-  const canUseProject = isBlueprint
+  const canUseProject = isPrintedProject
+    ? isProductionEnabled && printedProjectHasStock
+    : isBlueprint
     ? isProductionEnabled
       && printerCanProcessProject
       && materialStatus.available
@@ -1796,19 +1838,32 @@ export default function ProjectCard({
       && materialStatus.available
       && (Boolean(effectiveSelectedDesignService) || fileLinkIsValid);
   const canAddToBasket = canUseProject;
+  const printedProjectUnavailable = isPrintedProject && !canAddToBasket;
+  const printedProjectStatusBadge = isPrintedProject
+    ? !printedProjectHasStock
+      ? 'OUT OF STOCK'
+      : !isProductionEnabled
+        ? 'NOT FOR SALE'
+        : ''
+    : '';
   const printerIssue = !printerCanProcessProject;
   const canModifyProject = isVault && !canUseProject;
-  const productionStatusTitle = isProductionEnabled
-    ? (isBlueprint && !canUseProject
-      ? printerIssue
+  const productionStatusTitle = isPrintedProject && !printedProjectHasStock
+    ? 'Out of stock'
+    : isProductionEnabled
+      ? (isBlueprint && !canUseProject
+        ? printerIssue
         ? 'Production blocked: printer issue'
         : 'Production blocked: material or schedule unavailable'
       : 'Stop Production')
-    : 'Allow Production';
+      : 'Allow Production';
+  const availabilityStatusTitle = isPrintedProject
+    ? (isProductionEnabled ? 'Stop Selling' : 'Allow Selling')
+    : productionStatusTitle;
 
   // Gallery management is intentionally limited to published Garage Projects.
   // Personal user-project cards keep their existing calendar-only behavior.
-  const canManageGallery = isAdmin && isAdminView && isBlueprint;
+  const canManageGallery = isAdmin && isAdminView && isBlueprint && !isPrintedProject;
   const showCalendarMode = isVault || (canManageGallery && isCalendarMode);
   const saveProjectGallery = async (nextImages, requestedGridImageId = '') => {
     const normalizedImages = nextImages
@@ -1993,7 +2048,7 @@ export default function ProjectCard({
 
   const handleAddProjectToBasket = async (e, { closeModal = false } = {}) => {
     e.stopPropagation();
-    if (!canAddToBasket || !vaultReadyForBasket || !onBasketAction || !projectPrintersAndPlates.allBuildPlatesCanBePrinted) return;
+    if (!canAddToBasket || !vaultReadyForBasket || !onBasketAction || (!isPrintedProject && !projectPrintersAndPlates.allBuildPlatesCanBePrinted)) return;
     try {
       await onBasketAction(e, getActionProjectData());
     } catch {
@@ -2004,7 +2059,7 @@ export default function ProjectCard({
 
   const handleOrderProjectNow = (e) => {
     e.stopPropagation();
-    if (!canAddToBasket || !vaultReadyForOrder || !onOrderNow || !projectPrintersAndPlates.allBuildPlatesCanBePrinted) return;
+    if (!canAddToBasket || !vaultReadyForOrder || !onOrderNow || (!isPrintedProject && !projectPrintersAndPlates.allBuildPlatesCanBePrinted)) return;
     onOrderNow(getActionProjectData());
     closeProjectModal();
   };
@@ -2041,7 +2096,9 @@ export default function ProjectCard({
     closeProjectModal();
   };
 
-  const isAdminBlueprintView = isBlueprint && isAdmin && isAdminView && showManagementActions;
+  // Printed projects are already on hand, so they keep purchase actions in
+  // admin view as well; the admin add-to-basket action targets the shelf.
+  const isAdminBlueprintView = isBlueprint && !isPrintedProject && isAdmin && isAdminView && showManagementActions;
   const isPublicVaultView = isVault && !(isAdmin && isAdminView);
   const vaultNeedsProjectName = isPublicVaultView && projectNameNeedsUpdate;
   const vaultNeedsFileLink = isPublicVaultView
@@ -2090,8 +2147,13 @@ export default function ProjectCard({
           : `relative rounded-[2.1rem] flex flex-col h-full overflow-hidden ${isDarkMode ? 'bg-[var(--color-surface)]' : 'bg-white'}`
         }>
           {/* Status Badges Container */}
-          {!homePreview && <div className="absolute top-4 left-0 z-50 flex flex-col items-start px-2">
-              {isReserved && (
+          {!homePreview && <div className="absolute top-4 left-0 z-50 flex flex-col items-start">
+              {printedProjectStatusBadge && (
+                  <div className={`px-1.5 py-0.5 font-bold uppercase tracking-tigther text-[13px] shadow-lg ${printedProjectStatusBadge === 'OUT OF STOCK' ? 'bg-gray-500 text-white border-gray-400' : 'bg-red-500 text-white border-red-400'}`}>
+                      {printedProjectStatusBadge}
+                  </div>
+              )}
+              {!isPrintedProject && isReserved && (
                   <div className={`px-1.5 py-0.5 font-bold uppercase tracking-tigther text-[13px] ${isAdminView ? 'bg-blue-500 text-white' : 'bg-red-500 text-white'} shadow-lg`}>
                       {isAdminView ? 'Reserved' : 'NOT FOR SALE'}
                   </div>
@@ -2123,6 +2185,20 @@ export default function ProjectCard({
                 <div className="w-full h-full flex items-center justify-center bg-blue-600/10 dark:bg-blue-600/20">
                   <img src="/snorlaxgarage.png" alt="Garage placeholder" className="w-1/2 h-1/2 object-contain opacity-45" />
                 </div>
+              )}
+
+              {isPrintedProject && !homePreview && isAdmin && isAdminView && onModify && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onModify(project);
+                  }}
+                  className="absolute top-2 right-2 z-20 rounded-full border border-white/20 bg-gradient-to-br from-amber-500 to-amber-600 px-2 py-1 text-[12px] font-bold uppercase tracking-widest text-white shadow-lg transition-all hover:scale-110"
+                  title="Edit printed project"
+                >
+                  EDIT
+                </button>
               )}
               
               {showManagementActions && isAdmin && isAdminView && !isBlueprint && (
@@ -2175,9 +2251,18 @@ export default function ProjectCard({
                       {methodLabel}
                     </div>
                     <div className="flex flex-row items-baseline gap-1.5">
-                        <span className="text-[15px] font-bold italic tracking-tighter text-blue-600 leading-none">
-                          ₱{lowestPrice.toLocaleString()}
-                        </span>
+                        {printedProjectUnavailable ? (
+                          <span className="inline-flex items-center text-[15px] font-bold leading-none text-red-600">
+                            <span className="mr-[1px]">₱</span>
+                            <FaQuestion size={9} />
+                            <FaQuestion size={9} />
+                            <FaQuestion size={9} />
+                          </span>
+                        ) : (
+                          <span className="text-[15px] font-bold italic tracking-tighter text-blue-600 leading-none">
+                            ₱{lowestPrice.toLocaleString()}
+                          </span>
+                        )}
                     </div>
                   </div>
 
@@ -2189,7 +2274,7 @@ export default function ProjectCard({
                             ? 'bg-gradient-to-br from-red-500 to-red-600 shadow-red-500/40 text-white'
                             : 'bg-gradient-to-br from-blue-500 to-blue-600 shadow-blue-500/40 text-white'
                         }`}
-                        title={productionStatusTitle}
+                        title={availabilityStatusTitle}
                       >
                         {isProductionEnabled ? <Pause size={14} fill="white" /> : <Play size={14} fill="white" />}
                       </button>
@@ -2235,7 +2320,7 @@ export default function ProjectCard({
                         title={typeof homeZapAction === 'function' ? 'Open project' : printerIssue
                           ? 'Printer issue'
                           : !canAddToBasket
-                            ? (canModifyProject ? 'Modify project' : 'Public view only')
+                            ? (canModifyProject ? 'Modify project' : (isPrintedProject ? 'Out of stock' : 'Public view only'))
                             : isVault && !vaultReadyForBasket
                               ? (projectNameNeedsUpdate ? 'Custom project name required' : 'File link or 3D service required')
                               : 'Add to Cart'}
@@ -2467,40 +2552,31 @@ export default function ProjectCard({
 
                       <div className="grid grid-cols-1 gap-3">
                         {details.map((item, idx) => (
-                          <div key={idx} className="bg-black/5 dark:bg-white/5 p-5 rounded-2xl border border-[var(--color-border)] flex items-center justify-between gap-4 group hover:border-blue-500/30 transition-colors">
-                            <div className="flex min-w-0 items-center gap-4">
+                          <div key={idx} className="bg-black/5 dark:bg-white/5 p-5 rounded-2xl border border-[var(--color-border)] flex flex-col items-stretch gap-3 group hover:border-blue-500/30 transition-colors">
+                            <div className="flex w-full min-w-0 items-center gap-4">
                               <div className="w-12 h-12 rounded-xl bg-blue-600/10 flex items-center justify-center text-blue-600 group-hover:scale-110 transition-transform">
                                 {String(project?.method?.name || methodLabel || '').toUpperCase() === 'STL'
                                   ? <Box size={18} strokeWidth={3} />
                                   : <Layers size={18} strokeWidth={3} />}
                               </div>
-                              <div className="min-w-0 text-left">
-                                <h4 className="text-[14px] font-black uppercase italic leading-none">{getProjectDetailItemLabel(project, methodLabel, item, idx)}</h4>
+                              <div className="flex-1 min-w-0 text-left">
+                                <h4 className="min-w-0 truncate text-[14px] font-black uppercase italic leading-none">{getProjectDetailItemLabel(project, methodLabel, item, idx)}</h4>
                                 {(() => {
                                   const materialEntries = getProjectMaterialEntries(item, filamentInventory);
-                                  const totalWeight = item.normalizedWeight || item.sliced?.weight || 0;
                                   if (isSTL || materialEntries.length > 1 || is3MF) {
                                     return (
                                       <div className="mt-1 space-y-0.5 text-[14px] font-bold uppercase leading-tight">
                                         {materialEntries.map((entry, materialIndex) => (
                                           <div key={`${entry.label}-${materialIndex}`} className="flex min-w-0 items-center gap-2">
-                                            <span className="truncate">{entry.label}</span>
-                                            {!isSTL && ((entry.weight !== null && entry.weight !== undefined) || (is3MF && materialEntries.length === 1 && totalWeight)) ? (
-                                              <>
-                                                <span className="h-1 w-1 shrink-0 rounded-full bg-current" />
-                                                <span className="shrink-0">{entry.weight ?? totalWeight}g</span>
-                                              </>
-                                            ) : null}
+                                            <span className="block max-w-full truncate">{entry.label}</span>
                                           </div>
                                         ))}
                                       </div>
                                     );
                                   }
                                   return !isSTL ? (
-                                    <div className="mt-1 flex min-w-0 items-center gap-2 text-[14px] font-bold uppercase leading-tight">
-                                      <span className="truncate">{materialEntries[0]?.label || getProjectMaterialLabel(item, filamentInventory)}</span>
-                                      <span className="h-1 w-1 shrink-0 rounded-full bg-current" />
-                                      <span className="shrink-0">{totalWeight}g</span>
+                                    <div className="mt-1 text-[14px] font-bold uppercase leading-tight">
+                                      <span className="block max-w-full truncate">{materialEntries[0]?.label || getProjectMaterialLabel(item, filamentInventory)}</span>
                                     </div>
                                   ) : null;
                                 })()}
@@ -2511,7 +2587,13 @@ export default function ProjectCard({
                                 />
                               </div>
                             </div>
-                            <div className="shrink-0 text-right">
+                            <div className="flex w-full shrink-0 items-center justify-between gap-3 border-t border-[var(--color-border)] pt-3">
+                              <div className="min-w-0 text-left text-[14px] font-black uppercase leading-tight text-[var(--color-text-muted)]">
+                                {getProjectMaterialWeightLabel(item, filamentInventory) && (
+                                  <span>{getProjectMaterialWeightLabel(item, filamentInventory)}</span>
+                                )}
+                              </div>
+                              <div className="text-right">
                               {isSTL ? (
                                 <div className="max-w-[150px] text-[13px] font-black uppercase leading-tight text-blue-600 sm:max-w-none sm:text-[14px]">
                                   {getStlDimensionsLabel(item)}
@@ -2522,6 +2604,7 @@ export default function ProjectCard({
                                   {Math.floor((item.normalizedTime || item.sliced?.time || 0) / 60)}h {(item.normalizedTime || item.sliced?.time || 0) % 60}m
                                 </div>
                               )}
+                              </div>
                             </div>
                           </div>
                         ))}
@@ -2817,7 +2900,7 @@ export default function ProjectCard({
               }`}
             >
               <Zap size={14} strokeWidth={3} />
-              <span className="truncate">{printerIssue ? 'Printer Issue' : 'Order Now'}</span>
+              <span className="truncate">{printerIssue ? 'Printer Issue' : (isPrintedProject ? 'Buy Now' : 'Order Now')}</span>
             </button>
           </div>
         </>

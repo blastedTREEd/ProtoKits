@@ -13,6 +13,7 @@ import PrinterManagerModal from '../components/calculator/PrinterManagerModal';
 import RatesManagerModal from '../components/calculator/RatesManagerModal';
 import ProductCardSkeleton from '../components/common/ProductCardSkeleton';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
+import { getPrintedProjectModelName } from '../utils/printedProjectName';
 
 const isPrintListing = (project) => (
   project?.source === 'admin-print'
@@ -38,7 +39,21 @@ const getProjectSortPrice = (project) => (
   Number.parseFloat(String(project?.totals?.total || project?.sellPrice || project?.price || 0).replace(/,/g, '')) || 0
 );
 
-const getProjectSortStock = (project) => Number(project?.canAddToBasket !== false);
+const getProjectSortName = (project) => (
+  project?.isPrintedProject || project?.productType === 'printed-project'
+    ? getPrintedProjectModelName(project)
+    : (project?.projectName || project?.name || '')
+);
+
+const getProjectSortStock = (project) => {
+  if (project?.isPrintedProject || project?.productType === 'printed-project') {
+    const hasAvailableStock = Object.values(project?.stocks || {}).some((stock) => (
+      !stock?.isReserved && !stock?.order?.orderId
+    ));
+    return Number(project?.canAddToBasket !== false && hasAvailableStock);
+  }
+  return Number(project?.canAddToBasket !== false);
+};
 
 const sortPrintProjects = (projects, sortType) => [...projects].sort((a, b) => {
   switch (sortType) {
@@ -47,9 +62,9 @@ const sortPrintProjects = (projects, sortType) => [...projects].sort((a, b) => {
     case 'price-desc':
       return getProjectSortPrice(b) - getProjectSortPrice(a);
     case 'alpha-asc':
-      return String(a?.projectName || '').localeCompare(String(b?.projectName || ''));
+      return getProjectSortName(a).localeCompare(getProjectSortName(b));
     case 'alpha-desc':
-      return String(b?.projectName || '').localeCompare(String(a?.projectName || ''));
+      return getProjectSortName(b).localeCompare(getProjectSortName(a));
     case 'avail-asc':
       return getProjectSortStock(a) - getProjectSortStock(b);
     case 'avail-desc':
@@ -112,6 +127,7 @@ export default function Prints() {
   const { projectId: routeProjectId } = useParams();
   const [viewMode, setViewMode] = useState('idle');
   const [modifyingProject, setModifyingProject] = useState(null);
+  const [editingPrintedProject, setEditingPrintedProject] = useState(null);
   const [reopenProjectRequest, setReopenProjectRequest] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [sortType, setSortType] = useState('latest');
@@ -218,6 +234,7 @@ export default function Prints() {
   const addProjectToBasket = useStore((state) => state.addProjectToBasket);
   const deleteBlueprint = useStore((state) => state.deleteBlueprint);
   const addPrintedProject = useStore((state) => state.addPrintedProject);
+  const updatePrintedProject = useStore((state) => state.updatePrintedProject);
   const deletePrintedProject = useStore((state) => state.deletePrintedProject);
   const addToBasket = useStore((state) => state.addToBasket);
   const printsStatus = useStore((state) => state._datasetStatus?.prints || 'loading');
@@ -405,7 +422,7 @@ export default function Prints() {
       basketId: `checkout_printed_${project.id}_${stock?.key || 'stock'}`,
       type: 'kit',
       quantity: 1,
-      name: project.name || project.projectName || 'Printed project',
+      name: getPrintedProjectModelName(project),
       image: project.image || '',
       brand: project.brand || 'SNORLAXGARAGE',
       specs: { printedProject: true, ...(project.specifications || {}) },
@@ -427,14 +444,18 @@ export default function Prints() {
   };
 
   const handlePrintedBuyNow = (project, stock) => {
-    if (isAdmin && isAdminView) return;
-    const item = buildPrintedProjectItem(project, stock || getPrintedStock(project));
+    const selectedStock = stock || getPrintedStock(project);
+    if (isAdmin && isAdminView) {
+      handlePrintedAddToBasket(project, selectedStock);
+      return;
+    }
+    const item = buildPrintedProjectItem(project, selectedStock);
     openCheckoutPage([item], !user || isAnonymousUser);
   };
 
   const handlePrintedAddToBasket = async (project, stock) => {
     try {
-      await addToBasket({ id: project.id, stockKey: stock?.key, type: 'kit', name: project.name || project.projectName });
+      await addToBasket({ id: project.id, stockKey: stock?.key, type: 'kit', name: getPrintedProjectModelName(project) });
       setToastMessage(isAdmin && isAdminView ? 'Added to shelf!' : 'Added to cart!');
     } catch (error) {
       alert(error?.message || 'Unable to add printed project to basket.');
@@ -442,8 +463,19 @@ export default function Prints() {
   };
 
   const handleSavePrintedProject = async (payload) => {
-    await addPrintedProject(payload);
-    setToastMessage('Printed project added!');
+    if (editingPrintedProject?.id) {
+      await updatePrintedProject(editingPrintedProject.id, payload);
+      setToastMessage('Printed project updated!');
+    } else {
+      await addPrintedProject(payload);
+      setToastMessage('Printed project added!');
+    }
+    setEditingPrintedProject(null);
+  };
+
+  const handleEditPrintedProject = (project) => {
+    setEditingPrintedProject(project);
+    setViewMode('printed-project');
   };
 
   const handleEstimateUpdate = (payload) => {
@@ -529,7 +561,7 @@ export default function Prints() {
         { id: 'printers', label: 'Printers', icon: Printer, tone: 'border-blue-500/20 bg-blue-500/10 text-blue-600 hover:bg-blue-500/20', onClick: () => setShowPrinterModal(true) },
         { id: 'inventory', label: 'Inventory', icon: Droplet, tone: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20', onClick: () => setShowFilamentModal(true) },
         { id: 'printing-rates', label: 'Printing Rates', icon: HandCoins, tone: 'border-rose-500/20 bg-rose-500/10 text-rose-600 hover:bg-rose-500/20', onClick: () => setShowRatesModal(true) },
-        { id: 'printed-project', label: 'Add Printed Project', icon: PackagePlus, tone: 'border-violet-500/20 bg-violet-500/10 text-violet-600 hover:bg-violet-500/20', onClick: () => setViewMode('printed-project') }
+        { id: 'printed-project', label: 'Add Printed Project', icon: PackagePlus, tone: 'border-violet-500/20 bg-violet-500/10 text-violet-600 hover:bg-violet-500/20', onClick: () => { setEditingPrintedProject(null); setViewMode('printed-project'); } }
       ]
     : [];
 
@@ -705,37 +737,6 @@ export default function Prints() {
                 );
               })}
 
-              {/* --- Section Divider: Printed Projects --- */}
-              {sortedPrintedProjects.length > 0 && (
-                <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[90] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50 px-4 py-2 backdrop-blur-md dark:bg-[#0a0a0a] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderMotion} ${sectionHeaderPosition}`}>
-                  <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
-                  <span className="text-[13px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Printed Projects</span>
-                  <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
-                </div>
-              )}
-
-              {isPrintedProjectsLoading
-                ? Array.from({ length: 5 }).map((_, index) => <ProductCardSkeleton key={`printed-project-skeleton-${index}`} />)
-                : sortedPrintedProjects.map((project) => (
-                  <ProjectCard
-                    key={project.id}
-                    project={project}
-                    type="printed"
-                    fallbackTitle={project.name || project.projectName}
-                    onOrderNow={(item) => handlePrintedBuyNow(item || project)}
-                    onBasketAction={async (e, item) => {
-                      const target = item || project;
-                      await handlePrintedAddToBasket(target);
-                    }}
-                    showManagementActions={isAdmin && isAdminView}
-                    onDelete={(item) => {
-                      if (window.confirm(`Delete printed project "${item.name || item.projectName}"?`)) {
-                        deletePrintedProject(item.id).catch((error) => alert(error?.message || 'Unable to delete printed project.'));
-                      }
-                    }}
-                  />
-                ))}
-
               {/* --- Section Divider: Garage Projects --- */}
               {((isAdmin && isAdminView) || garageProjects.length > 0) && (
                 <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[90] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50 px-4 py-2 backdrop-blur-md dark:bg-[#0a0a0a] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderMotion} ${sectionHeaderPosition}`}>
@@ -767,6 +768,38 @@ export default function Prints() {
                 );
               })}
 
+              {/* --- Section Divider: Printed Projects --- */}
+              {sortedPrintedProjects.length > 0 && (
+                <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[90] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50 px-4 py-2 backdrop-blur-md dark:bg-[#0a0a0a] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderMotion} ${sectionHeaderPosition}`}>
+                  <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
+                  <span className="text-[13px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Printed Projects</span>
+                  <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
+                </div>
+              )}
+
+              {isPrintedProjectsLoading
+                ? Array.from({ length: 5 }).map((_, index) => <ProductCardSkeleton key={`printed-project-skeleton-${index}`} />)
+                : sortedPrintedProjects.map((project) => (
+                  <ProjectCard
+                    key={project.id}
+                    project={project}
+                    type="printed"
+                    fallbackTitle={project.name || project.projectName}
+                    onOrderNow={(item) => handlePrintedBuyNow(item || project)}
+                    onBasketAction={async (e, item) => {
+                      const target = item || project;
+                      await handlePrintedAddToBasket(target);
+                    }}
+                    onModify={isAdmin && isAdminView ? handleEditPrintedProject : undefined}
+                    showManagementActions={isAdmin && isAdminView}
+                    onDelete={(item) => {
+                      if (window.confirm(`Delete printed project "${item.name || item.projectName}"?`)) {
+                        deletePrintedProject(item.id).catch((error) => alert(error?.message || 'Unable to delete printed project.'));
+                      }
+                    }}
+                  />
+                ))}
+
             </div>
           )}
 
@@ -796,7 +829,8 @@ export default function Prints() {
         {viewMode === 'printed-project' && (
           <PrintedProjectModal
             isOpen
-            onClose={() => setViewMode('idle')}
+            initialProject={editingPrintedProject}
+            onClose={() => { setEditingPrintedProject(null); setViewMode('idle'); }}
             estimations={blueprints}
             filamentInventory={filamentInventory}
             onSave={handleSavePrintedProject}

@@ -13,6 +13,7 @@ import {
 import { normalizeFeederRecord, normalizePrinterRecord, normalizePrinterStatus, resolveProjectPrinterAssignments } from '../utils/printerCompatibility';
 import { computeProjectCosts } from '../utils/calculationEngine';
 import { getStockEta } from '../utils/stockDates';
+import { getPrintedProjectModelName } from '../utils/printedProjectName';
 import { compactOrderPayload, getPayloadByteSize } from '../utils/orderPayload';
 import { isFlexiBundleDeal, isPerKitClearanceDeal } from '../utils/dealTypes';
 
@@ -1285,11 +1286,29 @@ export const useStore = create(
       })),
       toggleSpectralMode: () => set((state) => ({ isSpectralMode: !state.isSpectralMode })),
       refreshKitOrder: () => set((state) => ({ kits: sortKitsByAvailability(state.kits) })),
+      refreshAdminShelf: () => {
+        const state = get();
+        if (!state.isAdmin || !state.isAdminView) return;
+
+        const shelfItems = buildAdminShelfItemsFromKits(
+          state.adminShelfSourceKits || [],
+          state.shippingSettings
+        ).sort((a, b) => (
+          new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+        ));
+        set({ shelf: shelfItems });
+      },
       setAdminView: (isEnabled) => {
         console.log("SG LOG: setAdminView called with:", isEnabled, "Current:", get().isAdminView);
         if (get().isAdminView === isEnabled) return;
         set({ isAdminView: isEnabled });
-        queueMicrotask(() => get().startBackgroundListeners());
+        queueMicrotask(() => {
+          // Kits can finish loading before the admin toggle is enabled. In
+          // that case the derived shelf will not receive another kits snapshot
+          // to rebuild it, leaving Collection visible but /shelf empty.
+          get().refreshAdminShelf();
+          get().startBackgroundListeners();
+        });
       },
       setLoginModalOpen: (isOpen) => set({ isLoginModalOpen: isOpen }),
       setPendingBasketItem: (item) => set({ pendingBasketItem: item }),
@@ -2195,9 +2214,12 @@ export const useStore = create(
 
       loadMissingKits: async (ids = []) => {
         if (!ids.length) return;
-        const { kits } = get();
-        const currentIds = new Set(kits.map(k => k.id));
-        const missingIds = ids.filter(id => !currentIds.has(id));
+        const { kits, printedProjects } = get();
+        const currentIds = new Set([
+          ...(kits || []).map((kit) => String(kit.id)),
+          ...(printedProjects || []).map((project) => String(project.id))
+        ]);
+        const missingIds = ids.filter((id) => !currentIds.has(String(id)));
         
         if (!missingIds.length) return;
         
@@ -2808,6 +2830,42 @@ export const useStore = create(
         return { id: ref.id };
       },
 
+      updatePrintedProject: async (projectId, projectData) => {
+        if (!projectId) throw new Error('Missing printed project id.');
+
+        const cleanProject = removeUndefinedValues(projectData || {});
+        const update = {
+          ...cleanProject,
+          productType: 'printed-project',
+          isPrintedProject: true,
+          listingType: 'printed-project',
+          source: 'admin-printed-project',
+          isPublished: true,
+          lastUpdated: serverTimestamp()
+        };
+
+        await updateDoc(doc(db, 'kits', projectId), update);
+        set((state) => {
+          const nextSourceKits = (state.adminShelfSourceKits || []).map((kit) => (
+            kit.id === projectId ? { ...kit, ...cleanProject } : kit
+          ));
+          const hasSourceKit = nextSourceKits.some((kit) => kit.id === projectId);
+
+          return {
+            printedProjects: (state.printedProjects || []).map((project) => (
+              project.id === projectId ? { ...project, ...cleanProject } : project
+            )),
+            kits: (state.kits || []).map((kit) => (
+              kit.id === projectId ? { ...kit, ...cleanProject } : kit
+            )),
+            ...(hasSourceKit ? {
+              adminShelfSourceKits: nextSourceKits,
+              shelf: buildAdminShelfItemsFromKits(nextSourceKits, state.shippingSettings)
+            } : {})
+          };
+        });
+      },
+
       deletePrintedProject: async (projectId) => {
         if (!projectId) return;
         await deleteDoc(doc(db, 'kits', projectId));
@@ -3362,6 +3420,11 @@ export const useStore = create(
           isProfileIncomplete: !isAnonymousUser && !initialUser.userDetails?.welcomeSeen,
           syncStatus: 'Ready'
         });
+        // The full kits listener may have emitted before auth established the
+        // admin role. Rebuild the derived shelf when that race occurs.
+        if (isActuallyAdmin && get().isAdminView) {
+          get().refreshAdminShelf();
+        }
         get().markLoaded('userProfile');
         if (onSyncComplete) onSyncComplete();
 
@@ -3943,6 +4006,11 @@ export const useStore = create(
         });
 
         const stock = kit.stocks[targetKey];
+        const isPrintedProject = Boolean(
+          itemData.printedProject
+          || kit.isPrintedProject
+          || kit.productType === 'printed-project'
+        );
         const offerPrice = Number(itemData.offerPrice);
         const basePrice = Number.isFinite(offerPrice) && offerPrice > 0
           ? offerPrice
@@ -3954,7 +4022,10 @@ export const useStore = create(
         const clean = {
           id: kit.id, 
           ...(isAdminContext ? { kitId: kit.id } : {}),
-          name: (itemData.name || kit.name || '').replace(/\s*\(Pre-Order\)\s*$/i, ''), 
+          name: (isPrintedProject
+            ? getPrintedProjectModelName(itemData, kit)
+            : (itemData.name || kit.name || '')).replace(/\s*\(Pre-Order\)\s*$/i, ''),
+          ...(isPrintedProject ? { printedProject: true } : {}),
           image: itemData.image || kit.image || '',
           brand: itemData.brand || kit.brand || '',
           specs: itemData.specs || kit.specs || {},
