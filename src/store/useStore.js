@@ -300,6 +300,41 @@ const getAdminShelfItemFromStock = (kit, stockKey, stock, shippingSettings) => {
   };
 };
 
+const mergeCheckoutSettings = (current = {}, patch = {}) => ({
+  ...current,
+  ...patch,
+  paymentSettings: patch.paymentSettings
+    ? {
+        ...(current.paymentSettings || {}),
+        ...patch.paymentSettings,
+        plans: patch.paymentSettings.plans
+          ? { ...(current.paymentSettings?.plans || {}), ...patch.paymentSettings.plans }
+          : current.paymentSettings?.plans,
+        methods: patch.paymentSettings.methods
+          ? { ...(current.paymentSettings?.methods || {}), ...patch.paymentSettings.methods }
+          : current.paymentSettings?.methods
+      }
+    : current.paymentSettings,
+  pickupDetails: patch.pickupDetails
+    ? {
+        ...(current.pickupDetails || {}),
+        ...patch.pickupDetails,
+        'pickup-point': patch.pickupDetails['pickup-point']
+          ? {
+              ...(current.pickupDetails?.['pickup-point'] || {}),
+              ...patch.pickupDetails['pickup-point']
+            }
+          : current.pickupDetails?.['pickup-point'],
+        meetup: patch.pickupDetails.meetup
+          ? {
+              ...(current.pickupDetails?.meetup || {}),
+              ...patch.pickupDetails.meetup
+            }
+          : current.pickupDetails?.meetup
+      }
+    : current.pickupDetails
+});
+
 // The admin collection is a derived view of kits. Reservation markers on the
 // stock object are the only persisted source of truth; this array is rebuilt
 // from the live kits snapshot and never written to a second Firestore
@@ -3024,12 +3059,36 @@ export const useStore = create(
         }
         
         await setDoc(docRef, data, { merge: true });
+        set((state) => ({
+          shippingSettings: mergeCheckoutSettings(state.shippingSettings || {}, data)
+        }));
       },
 
       updatePaymentSetting: async (path, value) => {
         if (!path) return;
         await updateDoc(doc(db, 'settings', 'checkout'), {
           [`paymentSettings.${path}`]: value
+        });
+        set((state) => {
+          const nextPaymentSettings = {
+            ...(state.shippingSettings?.paymentSettings || {})
+          };
+          const pathParts = String(path).split('.');
+          let target = nextPaymentSettings;
+          pathParts.forEach((part, index) => {
+            if (index === pathParts.length - 1) {
+              target[part] = value;
+              return;
+            }
+            target[part] = { ...(target[part] || {}) };
+            target = target[part];
+          });
+          return {
+            shippingSettings: {
+              ...(state.shippingSettings || {}),
+              paymentSettings: nextPaymentSettings
+            }
+          };
         });
       },
 
@@ -3051,6 +3110,26 @@ export const useStore = create(
         });
         console.log('SG DEBUG: Deleting payment method keys from Firestore:', Object.keys(deletions));
         await updateDoc(docRef, deletions);
+        set((state) => {
+          const methods = { ...(state.shippingSettings?.paymentSettings?.methods || {}) };
+          deletedMethods.forEach((method) => {
+            delete methods[method];
+            delete methods[`${method}Qr`];
+            delete methods[`${method}TransferDiscount`];
+            delete methods[`${method}DiscountAmount`];
+            delete methods[`${method}CashTransferFee`];
+            delete methods[`${method}TransferFee`];
+          });
+          return {
+            shippingSettings: {
+              ...(state.shippingSettings || {}),
+              paymentSettings: {
+                ...(state.shippingSettings?.paymentSettings || {}),
+                methods
+              }
+            }
+          };
+        });
       },
 
       publishCheckoutSettings: async (partialSettings = {}) => {
@@ -3059,6 +3138,9 @@ export const useStore = create(
         // Gamitin ang merge: true para sa partial update
         // Ipadala lang ang mga field na binago
         await setDoc(doc(db, 'settings', 'checkout'), partialSettings, { merge: true });
+        set((state) => ({
+          shippingSettings: mergeCheckoutSettings(state.shippingSettings || {}, partialSettings)
+        }));
       },
 
       toggleStockReservation: async (kitId, stockKey, isReserved) => {

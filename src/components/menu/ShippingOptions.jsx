@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Settings, ChevronDown, ChevronUp, Plus, Trash2, Check } from 'lucide-react';
 import ShippingFieldsConfig from './ShippingFieldsConfig';
 
@@ -17,6 +17,7 @@ export default function ShippingOptions({
   handleSave,
   setShippingMethods, // Direkta mula sa FulfillmentModal para sa mas simpleng state updates
   persistShippingMethods = null,
+  onShippingMethodsChange = null,
   showSave = true,
   hasChanges = false
 }) {
@@ -45,8 +46,27 @@ export default function ShippingOptions({
     return methodObj.suboptions?.[subKey] || { active: true };
   };
 
+  const commitShippingMethods = useCallback((nextMethods) => {
+    if (onShippingMethodsChange) {
+      return Promise.resolve(onShippingMethodsChange(nextMethods)).catch((error) => {
+        console.error('Failed to persist shipping settings:', error);
+        alert('Failed to update shipping settings.');
+        return false;
+      });
+    }
+
+    setShippingMethods(nextMethods);
+    if (persistShippingMethods) {
+      return Promise.resolve(persistShippingMethods(nextMethods)).catch((error) => {
+        console.error('Failed to persist shipping settings:', error);
+        alert('Failed to update shipping settings.');
+      });
+    }
+    return Promise.resolve(true);
+  }, [onShippingMethodsChange, persistShippingMethods, setShippingMethods]);
+
   // I-update ang suboption config — laging nasa .suboptions[subKey]
-  const updateSuboptionConfig = (m, subKey, patch, persist = false) => {
+  const updateSuboptionConfig = (m, subKey, patch, persist = true) => {
     const methodObj = getMethodConfig(m);
     const suboptions = methodObj.suboptions || {};
     const subObj = suboptions[subKey] || { active: true };
@@ -60,25 +80,23 @@ export default function ShippingOptions({
         }
       }
     };
-    setShippingMethods(nextMethods);
-    if (persist && persistShippingMethods) {
-      Promise.resolve(persistShippingMethods(nextMethods)).catch((error) => {
+    if (persist) {
+      commitShippingMethods(nextMethods).catch((error) => {
         console.error('Failed to persist shipping toggle:', error);
         alert('Failed to update shipping settings.');
       });
     }
   };
 
-  const updateMethodConfig = (m, patch, persist = false) => {
+  const updateMethodConfig = (m, patch, persist = true) => {
     const methodObj = getMethodConfig(m);
     const nextMethods = {
       ...shippingMethods,
       [m]: { ...methodObj, ...patch }
     };
-    setShippingMethods(nextMethods);
-    if (persist && persistShippingMethods) {
-      Promise.resolve(persistShippingMethods(nextMethods)).catch((error) => {
-        console.error('Failed to persist shipping toggle:', error);
+    if (persist) {
+      commitShippingMethods(nextMethods).catch((error) => {
+        console.error('Failed to persist shipping setting:', error);
         alert('Failed to update shipping settings.');
       });
     }
@@ -128,7 +146,7 @@ export default function ShippingOptions({
         }
       }
     };
-    setShippingMethods(updated);
+    commitShippingMethods(updated);
     setNewMethodName('');
     setIsAddingMethod(false);
   };
@@ -137,7 +155,7 @@ export default function ShippingOptions({
     if (!window.confirm(`Are you sure you want to delete "${m}"?`)) return;
     const updated = { ...shippingMethods };
     delete updated[m];
-    setShippingMethods(updated);
+    commitShippingMethods(updated);
   };
 
   const handleAddSuboption = (m) => {
@@ -170,7 +188,7 @@ export default function ShippingOptions({
         }
       }
     };
-    setShippingMethods(updated);
+    commitShippingMethods(updated);
     setNewSubOptionLabels(prev => ({ ...prev, [m]: '' }));
   };
 
@@ -180,7 +198,7 @@ export default function ShippingOptions({
     const methodObj = getMethodConfig(m);
     const suboptions = { ...(methodObj.suboptions || {}) };
     delete suboptions[subKey];
-    setShippingMethods({
+    commitShippingMethods({
       ...shippingMethods,
       [m]: { ...methodObj, suboptions }
     });
@@ -279,14 +297,11 @@ export default function ShippingOptions({
     });
 
     if (hasChanges) {
-      setShippingMethods(nextMethods);
-      if (persistShippingMethods) {
-        Promise.resolve(persistShippingMethods(nextMethods)).catch((error) => {
-          console.error('Failed to persist default shipping fields:', error);
-        });
-      }
+      commitShippingMethods(nextMethods).catch((error) => {
+        console.error('Failed to persist default shipping fields:', error);
+      });
     }
-  }, [persistShippingMethods, setShippingMethods, shippingMethods]);
+  }, [commitShippingMethods, setShippingMethods, shippingMethods]);
 
   // --- Handling Fee Toggle ---
   const HandlingFeeToggle = ({ method, methodVal, subKey = null }) => {
@@ -544,12 +559,12 @@ export default function ShippingOptions({
                             onClick={(event) => {
                               const interactiveTarget = event.target.closest('button, a, input, textarea, select, label, [role="button"], [role="switch"]');
                               if (interactiveTarget && interactiveTarget !== event.currentTarget) return;
-                              updateSuboptionConfig(m, sub.key, { active: !isSubActive });
+                              updateSuboptionConfig(m, sub.key, { active: !isSubActive }, true);
                             }}
                             onKeyDown={(event) => {
                               if ((event.key === 'Enter' || event.key === ' ') && event.target === event.currentTarget) {
                                 event.preventDefault();
-                                updateSuboptionConfig(m, sub.key, { active: !isSubActive });
+                                updateSuboptionConfig(m, sub.key, { active: !isSubActive }, true);
                               }
                             }}
                             className={`cursor-pointer space-y-3 rounded-2xl border p-3.5 transition-all ${isSubActive

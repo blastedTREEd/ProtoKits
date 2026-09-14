@@ -2641,8 +2641,8 @@ export default function Orders() {
 
         {/* Content Body Container */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-8 py-8 space-y-8 pb-24">
-        <div className={isFinalizedOrder ? 'grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(360px,420px)] gap-x-8 gap-y-6 items-start' : ''}>
-          <div className={isFinalizedOrder ? 'lg:col-start-1 lg:row-start-1' : ''}>
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(360px,420px)] gap-x-8 gap-y-6 items-start">
+          <div className="lg:col-span-2 lg:row-start-1">
           {/* Shipping Details & Map */}
         <div className={`grid grid-cols-1 ${isFinalizedOrder ? '' : 'lg:grid-cols-2 gap-8 mb-8 pb-8 border-b border-black/5 dark:border-white/5'}`}>
           {/* Left Column: Shipping Info */}
@@ -2686,7 +2686,7 @@ export default function Orders() {
                 </span>
               </div>
               <span className="text-[14px] font-bold uppercase leading-relaxed text-blue-600">
-                {!isFinalizedOrder && !isSelectedLegacyOrder && selectedShippingFlags.usesPickupPoint && !selectedShippingFlags.isSelfPickup && selectedLogistics.landmark && (
+                {!isFinalizedOrder && !isSelectedLegacyOrder && selectedShippingFlags.usesPickupPoint && selectedLogistics.landmark && (
                   <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <span>{selectedLogistics.landmark}</span>
                     <span className={`inline-flex align-middle px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${detailShowExact
@@ -2699,7 +2699,7 @@ export default function Orders() {
                 )}
                 <span className="block">
                   {isFinalizedOrder ? (completedAddress || 'No address details') : selectedLogistics.display}
-                  {!isFinalizedOrder && !isSelectedLegacyOrder && selectedShippingFlags.usesPickupPoint && !selectedShippingFlags.isSelfPickup && !selectedLogistics.landmark && (
+                  {!isFinalizedOrder && !isSelectedLegacyOrder && selectedShippingFlags.usesPickupPoint && !selectedLogistics.landmark && (
                     <span className={`inline-flex align-middle ml-2 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${detailShowExact
                       ? 'bg-blue-600/15 text-blue-600 dark:text-blue-400'
                       : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
@@ -2843,7 +2843,7 @@ export default function Orders() {
           </div>
 
          {/* Second Section: Items Breakdown */}
-        <div className={isFinalizedOrder ? 'lg:col-start-1 lg:row-start-2' : ''}>
+        <div className="lg:col-start-1 lg:row-start-2">
         <div className={isFinalizedOrder ? '' : 'mb-8 pb-8 border-b border-black/5 dark:border-white/5'}>
           <h3 className="text-[13px] font-black uppercase tracking-widest mb-4 text-left">Items Breakdown</h3>
           <div className="space-y-4">
@@ -2999,11 +2999,11 @@ export default function Orders() {
         </div>
 
         {/* Totals & Payments side-by-side */}
-        <div className={isFinalizedOrder ? 'contents' : ''}>
-        <div className={isFinalizedOrder ? 'contents' : `grid grid-cols-1 ${isAdminMode ? 'lg:grid-cols-2' : ''} gap-8 items-start mb-8 pb-8`}>
+        <div className="contents">
+        <div className="contents">
           {/* Left Side: Payments (QR, Receipt, Balance Receipt) */}
           {isAdminMode && (
-          <div className={`space-y-4 text-left ${isFinalizedOrder ? 'lg:col-start-1 lg:row-start-3' : 'order-2 lg:order-1'}`}>
+          <div className="order-2 space-y-4 text-left lg:order-none lg:col-start-1 lg:row-start-3">
             <h3 className="text-[13px] font-black uppercase tracking-widest mb-2">Payment Details</h3>
             
             {isSelectedLegacyOrder ? (
@@ -3223,7 +3223,7 @@ export default function Orders() {
           )}
 
           {/* Right Side: Totals */}
-          <div className={`space-y-3 bg-black/[0.01] dark:bg-white/[0.01] p-6 rounded-3xl border border-black/5 dark:border-white/5 text-left ${isFinalizedOrder ? `lg:col-start-2 lg:row-start-1 ${isAdminMode ? 'lg:row-span-3' : 'lg:row-span-2'}` : (isAdminMode ? 'order-1 lg:order-2' : '')}`}>
+          <div className={`order-1 space-y-3 bg-black/[0.01] dark:bg-white/[0.01] p-6 rounded-3xl border border-black/5 dark:border-white/5 text-left lg:order-none lg:col-start-2 lg:row-start-2 ${isAdminMode ? 'lg:row-span-2' : ''}`}>
             <h3 className="text-[13px] font-black uppercase tracking-widest mb-2">Order Totals</h3>
             
             {/* First row: Items Total */}

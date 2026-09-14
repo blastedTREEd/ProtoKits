@@ -84,7 +84,11 @@ export default function PaymentOptions({
   };
 
   const handleFeeBlur = (field) => {
-    if (paymentSettings?.[field] === '') updatePaymentData(null, field, 0);
+    const nextValue = paymentSettings?.[field] === ''
+      ? 0
+      : Math.max(0, Number(paymentSettings?.[field] || 0));
+    updatePaymentData(null, field, nextValue);
+    persistPaymentSetting?.(null, field, nextValue);
   };
 
   const renderFeeInput = (field, title, description) => (
@@ -129,7 +133,11 @@ export default function PaymentOptions({
             updatePaymentData(null, field, val === '' ? '' : Number(val));
           }}
           onBlur={() => {
-            if (paymentSettings?.[field] === '' || paymentSettings?.[field] === undefined) updatePaymentData(null, field, 10);
+            const nextValue = paymentSettings?.[field] === '' || paymentSettings?.[field] === undefined
+              ? 10
+              : Math.max(1, Number(paymentSettings?.[field] || 10));
+            updatePaymentData(null, field, nextValue);
+            persistPaymentSetting?.(null, field, nextValue);
           }}
             className="w-full pl-4 pr-16 py-3 bg-white/70 dark:bg-black/20 rounded-xl text-[13px] font-black outline-none focus:ring-2 focus:ring-garage-blue/30"
         />
@@ -209,10 +217,11 @@ export default function PaymentOptions({
                 type="button"
                 aria-label="Toggle viewport orientation tag"
                 aria-pressed={paymentSettings?.showViewportTag !== false}
-                onClick={() => {
+                onClick={async () => {
                   const nextValue = paymentSettings?.showViewportTag === false;
                   updatePaymentData(null, 'showViewportTag', nextValue);
-                  persistPaymentSetting?.(null, 'showViewportTag', nextValue);
+                  const persisted = await persistPaymentSetting?.(null, 'showViewportTag', nextValue);
+                  if (persisted === false) updatePaymentData(null, 'showViewportTag', !nextValue);
                 }}
                 className={`w-14 h-7 rounded-full transition-all duration-300 flex items-center p-1 shrink-0 ${paymentSettings?.showViewportTag !== false ? 'bg-garage-blue shadow-lg shadow-blue-500/20' : 'bg-neutral-300 dark:bg-white/10'}`}
               >

@@ -92,6 +92,11 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
   const [isScrolled, setIsScrolled] = useState(false);
   const [expandedSection, setExpandedSection] = useState('pickup-point');
   const [isAddingShippingMethod, setIsAddingShippingMethod] = useState(false);
+  const wasOpenRef = useRef(false);
+  const shippingMethodsRef = useRef({});
+  const shippingMethodsWriteQueueRef = useRef(Promise.resolve());
+  const pickupDetailsRef = useRef({});
+  const pickupDetailsWriteQueueRef = useRef(Promise.resolve());
   const areShippingMethodsExpanded = expandedSection === 'methods';
   const canDrag = !isOverMap && !isScrolled;
 
@@ -123,8 +128,26 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
   }, [shippingSettings]);
 
   useEffect(() => {
-    setFormData(initialFormData);
-  }, [initialFormData]);
+    if (!isOpen) {
+      wasOpenRef.current = false;
+      return;
+    }
+    if (!shippingSettings) return;
+    if (!wasOpenRef.current || !formData) {
+      setFormData(initialFormData);
+    }
+    wasOpenRef.current = true;
+  }, [formData, initialFormData, isOpen, shippingSettings]);
+
+  useEffect(() => {
+    shippingMethodsRef.current = formData?.shippingMethods || {};
+  }, [formData?.shippingMethods]);
+
+  useEffect(() => {
+    if (shippingSettings?.pickupDetails) {
+      pickupDetailsRef.current = shippingSettings.pickupDetails;
+    }
+  }, [shippingSettings?.pickupDetails]);
 
   useEffect(() => {
     if (isOpen && !embedded) {
@@ -208,60 +231,73 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
     };
   };
 
+  const persistPlaceList = async (type, places) => {
+    const currentPickupDetails = pickupDetailsRef.current || {};
+    const nextPickupDetails = {
+      ...currentPickupDetails,
+      [type]: {
+        ...currentPickupDetails[type],
+        places: [...places]
+      }
+    };
+    pickupDetailsRef.current = nextPickupDetails;
+
+    const write = pickupDetailsWriteQueueRef.current
+      .catch(() => undefined)
+      .then(() => updateShippingSettings(user.uid, { pickupDetails: nextPickupDetails }));
+    pickupDetailsWriteQueueRef.current = write.catch(() => undefined);
+
+    return write.catch((error) => {
+      if (pickupDetailsRef.current === nextPickupDetails) {
+        pickupDetailsRef.current = currentPickupDetails;
+      }
+      throw error;
+    });
+  };
+
   const handleDeletePlace = async (type, index = null) => {
     if (!window.confirm("Are you sure you want to delete this place?")) return;
 
     const listKey = type === 'meetup' ? 'meetupPlaces' : 'pickupPlaces';
-    const updatedPlaces = formData[listKey].filter((_, i) => i !== index);
-    if (embedded) {
-      setFormData(prev => ({
-        ...prev,
-        [listKey]: updatedPlaces,
-        [type === 'meetup' ? 'activeMeetupIndex' : 'activePickupIndex']: null
-      }));
-      return;
-    }
+    const previousPlaces = [...(formData?.[listKey] || [])];
+    const updatedPlaces = previousPlaces.filter((_, i) => i !== index);
+    setFormData(prev => ({
+      ...prev,
+      [listKey]: updatedPlaces,
+      [type === 'meetup' ? 'activeMeetupIndex' : 'activePickupIndex']: null
+    }));
 
     try {
-      await updateShippingSettings(user.uid, {
-        pickupDetails: {
-          ...shippingSettings?.pickupDetails,
-          [type]: {
-            ...shippingSettings?.pickupDetails?.[type],
-            places: updatedPlaces
-          }
-        }
-      });
-    } catch (err) { console.error(err); alert("Failed to delete place."); }
+      await persistPlaceList(type, updatedPlaces);
+    } catch (err) {
+      console.error(err);
+      setFormData(prev => ({ ...prev, [listKey]: previousPlaces }));
+      alert("Failed to delete place.");
+    }
   };
 
   const handleTogglePlaceAvailability = async (type, index = null) => {
     const listKey = type === 'meetup' ? 'meetupPlaces' : 'pickupPlaces';
-    const updatedPlaces = [...formData[listKey]];
+    const previousPlaces = [...(formData?.[listKey] || [])];
+    const updatedPlaces = [...previousPlaces];
     updatedPlaces[index] = {
       ...updatedPlaces[index],
       isActive: updatedPlaces[index].isActive === false ? true : false
     };
-    if (embedded) {
-      setFormData(prev => ({ ...prev, [listKey]: updatedPlaces }));
-      return;
-    }
+    setFormData(prev => ({ ...prev, [listKey]: updatedPlaces }));
 
     try {
-      await updateShippingSettings(user.uid, {
-        pickupDetails: {
-          ...shippingSettings?.pickupDetails,
-          [type]: {
-            ...shippingSettings?.pickupDetails?.[type],
-            places: updatedPlaces
-          }
-        }
-      });
-    } catch (err) { console.error(err); alert("Failed to toggle availability."); }
+      await persistPlaceList(type, updatedPlaces);
+    } catch (err) {
+      console.error(err);
+      setFormData(prev => ({ ...prev, [listKey]: previousPlaces }));
+      alert("Failed to toggle availability.");
+    }
   };
 
   const handleTogglePickupAddressMode = async (index) => {
-    const updatedPlaces = [...(formData?.pickupPlaces || [])];
+    const previousPlaces = [...(formData?.pickupPlaces || [])];
+    const updatedPlaces = [...previousPlaces];
     const currentPlace = updatedPlaces[index];
     if (!currentPlace) return;
 
@@ -270,23 +306,13 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
       pickupAddressMode: currentPlace.pickupAddressMode === 'actual-pin' ? 'rate-checking' : 'actual-pin'
     };
 
-    if (embedded) {
-      setFormData(prev => ({ ...prev, pickupPlaces: updatedPlaces }));
-      return;
-    }
+    setFormData(prev => ({ ...prev, pickupPlaces: updatedPlaces }));
 
     try {
-      await updateShippingSettings(user.uid, {
-        pickupDetails: {
-          ...shippingSettings?.pickupDetails,
-          'pickup-point': {
-            ...shippingSettings?.pickupDetails?.['pickup-point'],
-            places: updatedPlaces
-          }
-        }
-      });
+      await persistPlaceList('pickup-point', updatedPlaces);
     } catch (err) {
       console.error(err);
+      setFormData(prev => ({ ...prev, pickupPlaces: previousPlaces }));
       alert("Failed to update pickup address mode.");
     }
   };
@@ -355,6 +381,29 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
     } catch (err) { console.error(err); alert("Failed to update."); }
   };
 
+  const commitShippingMethods = useCallback((nextMethods) => {
+    const previousMethods = shippingMethodsRef.current;
+    shippingMethodsRef.current = nextMethods;
+    setFormData(prev => ({ ...prev, shippingMethods: nextMethods }));
+
+    // Serialize writes so a suboption toggle followed immediately by a
+    // method/Self-Pickup toggle cannot overwrite the previous write with a
+    // stale Firestore snapshot.
+    const write = shippingMethodsWriteQueueRef.current
+      .catch(() => undefined)
+      .then(() => updateShippingSettings(user.uid, { shippingMethods: nextMethods }));
+    shippingMethodsWriteQueueRef.current = write.catch(() => undefined);
+
+    return write.catch((error) => {
+      // Do not roll back a newer edit that has already replaced this payload.
+      if (shippingMethodsRef.current === nextMethods) {
+        shippingMethodsRef.current = previousMethods;
+        setFormData(prev => ({ ...prev, shippingMethods: previousMethods }));
+      }
+      throw error;
+    });
+  }, [updateShippingSettings, user?.uid]);
+
   useImperativeHandle(ref, () => ({
     save: handleSave,
     hasChanges: hasShippingChange,
@@ -362,44 +411,46 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
   }));
 
   const handleToggleMethod = (m, subKey = null) => {
-    setFormData(p => {
-      const currentMethodValue = p.shippingMethods[m];
-      const methodObj = typeof currentMethodValue === 'object' ? currentMethodValue : { active: !!currentMethodValue };
+    const currentMethods = shippingMethodsRef.current || {};
+    const currentMethodValue = currentMethods[m];
+    const methodObj = typeof currentMethodValue === 'object' && currentMethodValue !== null
+      ? currentMethodValue
+      : { active: !!currentMethodValue };
+    let nextMethods;
 
-      if (subKey) {
-        // Lahat ng suboptions ay naka-store na sa .suboptions[subKey] — unified format
-        const suboptions = methodObj.suboptions || {};
-        const subVal = suboptions[subKey];
-        const isSubActive = subVal === undefined ? true
-          : typeof subVal === 'object' && subVal !== null ? subVal.active !== false
-          : subVal !== false;
-        return {
-          ...p,
-          shippingMethods: {
-            ...p.shippingMethods,
-            [m]: {
-              ...methodObj,
-              suboptions: {
-                ...suboptions,
-                [subKey]: { ...(typeof subVal === 'object' ? subVal : {}), active: !isSubActive }
-              }
-            }
+    if (subKey) {
+      // Lahat ng suboptions ay naka-store na sa .suboptions[subKey] — unified format
+      const suboptions = methodObj.suboptions || {};
+      const subVal = suboptions[subKey];
+      const isSubActive = subVal === undefined ? true
+        : typeof subVal === 'object' && subVal !== null ? subVal.active !== false
+        : subVal !== false;
+      nextMethods = {
+        ...currentMethods,
+        [m]: {
+          ...methodObj,
+          suboptions: {
+            ...suboptions,
+            [subKey]: { ...(typeof subVal === 'object' ? subVal : {}), active: !isSubActive }
           }
-        };
-      }
-
-      // Method-level toggle
-      const isCurrentlyActive = typeof currentMethodValue === 'object' ? currentMethodValue.active !== false : !!currentMethodValue;
-      if (typeof currentMethodValue === 'object') {
-        return {
-          ...p,
-          shippingMethods: { ...p.shippingMethods, [m]: { ...currentMethodValue, active: !isCurrentlyActive } }
-        };
-      }
-      return {
-        ...p,
-        shippingMethods: { ...p.shippingMethods, [m]: !isCurrentlyActive }
+        }
       };
+    } else {
+      // Method-level toggle
+      const isCurrentlyActive = typeof currentMethodValue === 'object'
+        ? currentMethodValue.active !== false
+        : !!currentMethodValue;
+      nextMethods = {
+        ...currentMethods,
+        [m]: typeof currentMethodValue === 'object'
+          ? { ...currentMethodValue, active: !isCurrentlyActive }
+          : !isCurrentlyActive
+      };
+    }
+
+    commitShippingMethods(nextMethods).catch((error) => {
+      console.error('Failed to persist shipping toggle:', error);
+      alert('Failed to update shipping settings.');
     });
   };
 
@@ -891,7 +942,7 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
                       showSave={!embedded}
                       hasChanges={hasShippingChange()}
                       setShippingMethods={(newMethods) => setFormData(p => ({ ...p, shippingMethods: newMethods }))}
-                      persistShippingMethods={(newMethods) => updateShippingSettings(user.uid, { shippingMethods: newMethods })}
+                      onShippingMethodsChange={commitShippingMethods}
                     />
                   )}
                 </section>

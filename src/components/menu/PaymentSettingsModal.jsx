@@ -83,36 +83,66 @@ const PaymentSettingsModal = forwardRef(function PaymentSettingsModal({ isOpen, 
     setCanDrag(e.target.scrollTop <= 0);
   };
 
-  const handleToggleSetting = (category, option) => {
-    setPaymentSettings(prev => ({
-      ...prev,
-      [category]: {
-        ...prev[category],
-        [option]: !prev[category]?.[option]
-      }
-    }));
+  const handleToggleSetting = async (category, option) => {
+    const currentValue = paymentSettings?.[category]?.[option] !== false;
+    const nextValue = !currentValue;
+    updatePaymentData(category, option, nextValue);
+
+    const persisted = await persistPaymentSetting(category, option, nextValue);
+    if (persisted === false) {
+      updatePaymentData(category, option, currentValue);
+    }
   };
 
-  const updatePaymentData = (category, option, value) => {
+  const updatePaymentData = (category, option, value, persist = false) => {
+    const previousValue = category
+      ? paymentSettings?.[category]?.[option]
+      : paymentSettings?.[option];
     if (!category) {
+      setPaymentSettings(prev => ({ ...prev, [option]: value }));
+    } else {
       setPaymentSettings(prev => ({
         ...prev,
-        [option]: value
+        [category]: {
+          ...prev[category],
+          [option]: value
+        }
       }));
-      return;
     }
 
-    setPaymentSettings(prev => ({
-        ...prev,
-        [category]: {
-            ...prev[category],
-            [option]: value
-        }
-    }));
+    if (category === 'methods') {
+      setDeletedMethods(prev => prev.filter(method => method !== option));
+    }
+
+    if (!persist) return Promise.resolve(true);
+
+    return persistPaymentSetting(category, option, value).then((persisted) => {
+      if (persisted === false) {
+        setPaymentSettings(prev => {
+          const restored = {
+            ...prev,
+            ...(category
+              ? { [category]: { ...prev[category] } }
+              : {})
+          };
+          if (category) {
+            if (previousValue === undefined) delete restored[category][option];
+            else restored[category][option] = previousValue;
+          } else if (previousValue === undefined) {
+            delete restored[option];
+          } else {
+            restored[option] = previousValue;
+          }
+          return restored;
+        });
+      }
+      return persisted;
+    });
   };
 
   // I-delete ang payment method kasama ang lahat ng related keys (QR, TransferDiscount, DiscountAmount)
-  const deleteMethod = (method) => {
+  const deleteMethod = async (method) => {
+    const previousMethods = paymentSettings?.methods || {};
     setPaymentSettings(prev => {
       const updatedMethods = { ...prev.methods };
       delete updatedMethods[method];
@@ -123,7 +153,16 @@ const PaymentSettingsModal = forwardRef(function PaymentSettingsModal({ isOpen, 
       delete updatedMethods[`${method}TransferFee`];
       return { ...prev, methods: updatedMethods };
     });
-    setDeletedMethods(prev => [...prev, method]);
+    setDeletedMethods(prev => [...new Set([...prev, method])]);
+
+    try {
+      await deletePaymentMethods([method]);
+    } catch (error) {
+      console.error('SG LOG: Payment method delete failed:', error);
+      setPaymentSettings(prev => ({ ...prev, methods: previousMethods }));
+      setDeletedMethods(prev => prev.filter(deletedMethod => deletedMethod !== method));
+      alert('Failed to delete payment method.');
+    }
   };
 
   const getPaymentSavingsState = (settings = {}) => {

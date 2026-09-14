@@ -740,6 +740,12 @@ const isMethodEnabled = (methodConfig) => {
   return methodConfig !== false;
 };
 
+const isShippingSuboptionEnabled = (subConfig) => {
+  if (subConfig === undefined || subConfig === null || subConfig === false) return false;
+  if (typeof subConfig === 'object') return subConfig.active !== false;
+  return subConfig !== false;
+};
+
 const isSubMethodEnabled = (methodConfig, subKey) => {
   if (!isMethodEnabled(methodConfig)) return false;
   if (typeof methodConfig !== 'object' || methodConfig === null) return true;
@@ -747,9 +753,7 @@ const isSubMethodEnabled = (methodConfig, subKey) => {
   const subVal = methodConfig.suboptions?.[rk] ?? methodConfig[rk];
   // Suboption can be stored as a boolean, an object with .active, or undefined (defaults to enabled)
   if (subVal === undefined) return true;
-  if (subVal === false) return false;
-  if (typeof subVal === 'object' && subVal !== null) return subVal.active !== false;
-  return subVal !== false;
+  return isShippingSuboptionEnabled(subVal);
 };
 
 // Keep CheckoutModal and legacy-order fee detection on the same rules.
@@ -822,42 +826,56 @@ const appendStreetSuffix = (address, street, formattedStreet) => {
   return `${address.slice(0, startIndex)}${formattedStreet}${address.slice(startIndex + street.length)}`;
 };
 
+const normalizePlace = (place) => (
+  place && typeof place === 'object' ? place : {}
+);
+
 const getPlaceAddressParts = (place = {}, { includeHouseNo = true } = {}) => {
-  const street = ensureStreetSuffix(place.houseDetails || place.street);
-  const city = place.city || place.town || place.municipality;
-  const zipCode = place.zipCode || place.zip;
+  const safePlace = normalizePlace(place);
+  const street = ensureStreetSuffix(safePlace.houseDetails || safePlace.street);
+  const city = safePlace.city || safePlace.town || safePlace.municipality;
+  const zipCode = safePlace.zipCode || safePlace.zip;
   const streetLine = [
-    includeHouseNo ? place.houseNo : '',
+    includeHouseNo ? safePlace.houseNo : '',
     street
   ].filter(Boolean).join(' ').trim();
 
   return [
     streetLine,
-    place.subdivision,
-    place.barangay,
+    safePlace.subdivision,
+    safePlace.barangay,
     city,
-    place.province,
+    safePlace.province,
     zipCode
   ].filter(Boolean);
 };
 
 const formatPlaceAddress = (place = {}) => {
+  const safePlace = normalizePlace(place);
   const structuredParts = getPlaceAddressParts(place);
   if (structuredParts.length > 0) return structuredParts.join(', ');
 
-  const street = ensureStreetSuffix(place.houseDetails || place.street);
-  if (place.address) return appendStreetSuffix(place.address, place.houseDetails || place.street, street);
-  return place.vagueAddress || '';
+  const street = ensureStreetSuffix(safePlace.houseDetails || safePlace.street);
+  if (safePlace.address) return appendStreetSuffix(safePlace.address, safePlace.houseDetails || safePlace.street, street);
+  return safePlace.vagueAddress || '';
 };
 
 const formatPlaceAddressWithoutHouseNo = (place = {}) => {
-  const structuredParts = getPlaceAddressParts(place, { includeHouseNo: false });
+  const safePlace = normalizePlace(place);
+  const street = ensureStreetSuffix(safePlace.houseDetails || safePlace.street);
+  const structuredParts = getPlaceAddressParts(safePlace, { includeHouseNo: false });
   if (structuredParts.length > 0) return structuredParts.join(', ');
 
-  const street = ensureStreetSuffix(place.houseDetails || place.street);
-  if (place.publicAddress) return appendStreetSuffix(place.publicAddress, place.houseDetails || place.street, street);
-  let savedAddress = place.address || place.vagueAddress || '';
-  const houseNo = String(place.houseNo || '').trim();
+  if (safePlace.publicAddress) {
+    return appendStreetSuffix(
+      safePlace.publicAddress,
+      safePlace.houseDetails || safePlace.street,
+      street
+    );
+  }
+
+  let savedAddress = safePlace.address || safePlace.vagueAddress || '';
+  const houseNo = String(safePlace.houseNo || '').trim();
   if (houseNo && savedAddress.toLowerCase().startsWith(houseNo.toLowerCase())) {
     savedAddress = savedAddress.slice(houseNo.length).replace(/^[,\s]+/, '');
   }
@@ -866,7 +884,8 @@ const formatPlaceAddressWithoutHouseNo = (place = {}) => {
 
 
 const getPlaceLabel = (place = {}, fallback = 'Snorlax Garage') => {
-  return place.landmark || formatPlaceAddress(place) || fallback;
+  const safePlace = normalizePlace(place);
+  return safePlace.landmark || formatPlaceAddress(safePlace) || fallback;
 };
 
 const cleanAddressLandmark = (addressStr, landmark) => {
@@ -878,13 +897,17 @@ const cleanAddressLandmark = (addressStr, landmark) => {
   return clean;
 };
 
-const getCheckoutPlaceLabel = (place = {}, fallback = 'Pickup Point') => (
-  place.landmark || formatPlaceAddressWithoutHouseNo(place) || formatPlaceAddress(place) || fallback
-).replace(/^\d+\s+/, '');
+const getCheckoutPlaceLabel = (place = {}, fallback = 'Pickup Point') => {
+  const safePlace = normalizePlace(place);
+  return (
+    safePlace.landmark || formatPlaceAddressWithoutHouseNo(safePlace) || formatPlaceAddress(safePlace) || fallback
+  ).replace(/^\d+\s+/, '');
+};
 
 const getCheckoutPlaceAddress = (place = {}, { includeHouseNo = false } = {}) => {
-  const addr = (includeHouseNo ? formatPlaceAddress(place) : formatPlaceAddressWithoutHouseNo(place)).replace(/^\d+\s+/, '');
-  return cleanAddressLandmark(addr, place.landmark);
+  const safePlace = normalizePlace(place);
+  const addr = (includeHouseNo ? formatPlaceAddress(safePlace) : formatPlaceAddressWithoutHouseNo(safePlace)).replace(/^\d+\s+/, '');
+  return cleanAddressLandmark(addr, safePlace.landmark);
 };
 
 // The admin pickup-point tag supplies the public rate-checking location.
@@ -2025,9 +2048,9 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
           const suboptions = methodConfig.suboptions || {};
           return Object.values(suboptions).some(sub => {
             const effectiveSub = sub; // free shipping override already applied above
-            if (effectiveSub.active === false) return false;
+            if (!isShippingSuboptionEnabled(effectiveSub)) return false;
             // If isSelfBooking: needs pickup points available
-            if (effectiveSub.isSelfBooking && selfPickupPoints.length === 0) return false;
+            if (effectiveSub?.isSelfBooking && selfPickupPoints.length === 0) return false;
             return true;
           });
         }
@@ -2063,7 +2086,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
           if (hasSuboptions && config.suboptions) {
             isFree = isFree || Object.keys(config.suboptions).some(subKey => {
               const sub = config.suboptions[subKey];
-              if (sub.active === false) return false;
+              if (!isShippingSuboptionEnabled(sub)) return false;
               return isMethodFreeShipping(methodName, subKey);
             });
           } else if (['SPX Express', 'LBC', 'Lalamove'].includes(methodName)) {
@@ -2085,7 +2108,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
           if (hasSuboptions && config.suboptions) {
             hasDiscount = hasDiscount || Object.keys(config.suboptions).some(subKey => {
               const sub = config.suboptions[subKey];
-              if (sub.active === false) return false;
+              if (!isShippingSuboptionEnabled(sub)) return false;
               return getHandlingDiscountSetting(storeAdmin?.shippingMethods, methodName, subKey);
             });
           } else if (['SPX Express', 'LBC', 'Lalamove'].includes(methodName)) {
@@ -2115,8 +2138,8 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       const hasFreePromo = checkoutItems.some(item =>
         itemHasFreeShippingForSubKey(item, method, subKey, storeAdmin?.shippingMethods)
       );
-      if (subVal.active === false && !hasFreePromo) return false;
-      if (subVal.isSelfBooking && selfPickupPoints.length === 0) return false;
+      if (!isShippingSuboptionEnabled(subVal) && !hasFreePromo) return false;
+      if (subVal?.isSelfBooking && selfPickupPoints.length === 0) return false;
       return true;
     });
 
@@ -2295,10 +2318,13 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
 
     let pickupLocation = '';
     let pickupLocationIndex = null;
-    if (hasPickup && pickupPoints.length > 0) {
+    if (hasPickup && pickupPoints.length > 0 && rateCheckingPickupIndex !== null) {
       const targetIdx = rateCheckingPickupIndex;
-      pickupLocation = getCheckoutPlaceLabel(pickupPoints[targetIdx], `Pickup Point ${targetIdx + 1}`);
-      pickupLocationIndex = targetIdx;
+      const targetPlace = pickupPoints[targetIdx];
+      if (targetPlace) {
+        pickupLocation = getCheckoutPlaceLabel(targetPlace, `Pickup Point ${targetIdx + 1}`);
+        pickupLocationIndex = targetIdx;
+      }
     }
 
     let meetupLocation = '';
@@ -2509,6 +2535,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   }, [usesMeetupLocation, usesPickupPoint, selectedMeetupDetails, selectedPickupDetails]);
 
   const selectedLocalPlaceCoord = useMemo(() => {
+    if (!selectedLocalPlaceDetails) return null;
     if (selectedLocalPlaceDetails?.lat && selectedLocalPlaceDetails?.lng) {
       return [selectedLocalPlaceDetails.lat, selectedLocalPlaceDetails.lng];
     }
@@ -2516,6 +2543,10 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     if (usesPickupPoint && selectedPickupDetails?.lat && selectedPickupDetails?.lng) return [selectedPickupDetails.lat, selectedPickupDetails.lng];
     return [14.2965, 121.1118];
   }, [selectedLocalPlaceDetails, usesMeetupLocation, meetupCoord, usesPickupPoint, selectedPickupDetails]);
+
+  const selectedLocalPlaceAddress = useMemo(() => (
+    selectedLocalPlaceDetails ? getCheckoutPlaceAddress(selectedLocalPlaceDetails) : ''
+  ), [selectedLocalPlaceDetails]);
 
   const isDetailsFormValid = useMemo(() => {
     if (requiredFields.includes(1) && !`${deliveryData.receiverName || ''}`.trim()) return false;
@@ -3078,6 +3109,17 @@ const handleFinalizeOrder = async () => {
     }).map(key => key.toLowerCase() === 'cash' ? 'Cash' : key);
   }, [storeAdmin, checkoutData.shippingMethod, hasPreOrders, hasProjects, checkoutData.paymentPlan]);
 
+  const preferredPaymentMethod = useMemo(() => {
+    const methods = storeAdmin?.paymentSettings?.methods || {};
+
+    return availablePaymentMethods.reduce((best, method) => {
+      const fee = getPaymentMethodConfig(methods, method).cashTransferFee;
+      if (!best || fee < best.fee) return { method, fee };
+      // Keep the configured method order when two methods have the same fee.
+      return best;
+    }, null)?.method || '';
+  }, [availablePaymentMethods, storeAdmin?.paymentSettings?.methods]);
+
   const paymentPreviewUrl = useMemo(() => {
     if (checkoutStep !== 2) return '';
     if (checkoutData.paymentMethod === 'Cash' && !isOrderInvalidForMaintenance) return '';
@@ -3118,9 +3160,8 @@ const handleFinalizeOrder = async () => {
           }));
         }
         if (availablePaymentMethods.length > 0) {
-          // Select the first available method once the checkout context is
-          // known. Cash-transfer fees are charges, not customer savings, so
-          // checkout must never auto-select a method based on fee amount.
+          // Prefer a zero-fee payment method; otherwise use the enabled method
+          // with the lowest configured cash-transfer charge.
           if (!checkoutData.shippingMethod) return;
 
           // Gamitin ang case-insensitive comparison para hindi ma-reset ang user selection
@@ -3130,14 +3171,17 @@ const handleFinalizeOrder = async () => {
             m => m.toLowerCase() === currentMethod.toLowerCase()
           );
           if (!hasPreselectedRef.current || !isCurrentValid) {
-            updateCheckoutData(prev => ({ ...prev, paymentMethod: availablePaymentMethods[0] }));
+            updateCheckoutData(prev => ({
+              ...prev,
+              paymentMethod: preferredPaymentMethod || availablePaymentMethods[0]
+            }));
             hasPreselectedRef.current = true;
           }
         }
       }, 0);
       return () => clearTimeout(timer);
     }
-  }, [isOpen, shippingOptions, preferredShippingMethod, availablePaymentPlans, availablePaymentMethods, checkoutData.shippingMethod, checkoutData.paymentPlan, checkoutData.paymentMethod, requiredInitialPayment, handleShippingChange, updateCheckoutData, checkoutItems, enabledShippingMethods, storeAdmin, pickupPoints, isMethodFreeShipping]);
+  }, [isOpen, shippingOptions, preferredShippingMethod, preferredPaymentMethod, availablePaymentPlans, availablePaymentMethods, checkoutData.shippingMethod, checkoutData.paymentPlan, checkoutData.paymentMethod, requiredInitialPayment, handleShippingChange, updateCheckoutData, checkoutItems, enabledShippingMethods, storeAdmin, pickupPoints, isMethodFreeShipping]);
 
 
 
@@ -3321,7 +3365,7 @@ const handleFinalizeOrder = async () => {
       ? Object.entries(activeMethodConfig.suboptions)
           .filter(([subKey, subVal]) => {
             const hasFreePromo = checkoutItems.some(item => itemHasFreeShippingForSubKey(item, checkoutData.shippingMethod, subKey, storeAdmin?.shippingMethods));
-            return subVal.active !== false || hasFreePromo;
+            return isShippingSuboptionEnabled(subVal) || hasFreePromo;
           })
           .sort(([subKeyA], [subKeyB]) => {
             const getPriority = (subKey) => {
@@ -3352,7 +3396,7 @@ const handleFinalizeOrder = async () => {
     }));
     const suboptionDropdownOptions = methodSuboptions.map(([subKey, subVal]) => ({
       value: subKey,
-      label: subVal.label || subKey,
+      label: subVal?.label || subKey,
       badge: getShippingDiscountLabel(checkoutData.shippingMethod, subKey)
     }));
     const locationDropdownOptions = locationOptions.map((place, idx) => {
@@ -3392,7 +3436,10 @@ const handleFinalizeOrder = async () => {
       const hasPickup = checkUsesPickupPoint(checkoutData.shippingMethod, activeMethodConfig, subKey);
       const hasMeetup = checkUsesMeetupLocation(checkoutData.shippingMethod, activeMethodConfig, subKey);
       const targetIdx = rateCheckingPickupIndex;
-      const pickupLoc = hasPickup && pickupPoints.length > 0 ? getCheckoutPlaceLabel(pickupPoints[targetIdx], `Pickup Point ${targetIdx + 1}`) : '';
+      const pickupPlace = hasPickup && targetIdx !== null ? pickupPoints[targetIdx] : null;
+      const pickupLoc = pickupPlace
+        ? getCheckoutPlaceLabel(pickupPlace, `Pickup Point ${targetIdx + 1}`)
+        : '';
       const meetupPlaces = (storeAdmin?.pickupDetails?.meetup?.places || []).filter(p => p.isActive !== false);
       const meetupLoc = hasMeetup && meetupPlaces.length > 0 ? getCheckoutPlaceLabel(meetupPlaces[0], 'Meetup Place 1') : '';
 
@@ -3401,7 +3448,7 @@ const handleFinalizeOrder = async () => {
         selectedSuboption: subKey,
         customSuboption: subKey,
         pickupLocation: pickupLoc,
-        pickupLocationIndex: hasPickup && pickupPoints.length > 0 ? targetIdx : null,
+        pickupLocationIndex: pickupPlace ? targetIdx : null,
         meetupLocation: meetupLoc,
         meetupLocationIndex: hasMeetup && meetupPlaces.length > 0 ? 0 : null
       }));
@@ -3617,8 +3664,8 @@ const handleFinalizeOrder = async () => {
                       <p className="mt-1 text-[13px] font-black uppercase text-blue-600">
                         {selectedLocalPlaceDetails?.landmark || (usesMeetupLocation ? 'Meetup Place' : 'Pickup Point')}
                       </p>
-                      {getCheckoutPlaceAddress(selectedLocalPlaceDetails) && (
-                        <p className="mt-1 text-[13px] font-bold uppercase opacity-55">{getCheckoutPlaceAddress(selectedLocalPlaceDetails)}</p>
+                      {selectedLocalPlaceAddress && (
+                        <p className="mt-1 text-[13px] font-bold uppercase opacity-55">{selectedLocalPlaceAddress}</p>
                       )}
                       {!usesMeetupLocation && (
                         <p className="text-[13px] font-bold uppercase text-amber-600 dark:text-amber-500 leading-tight mt-1">
@@ -3980,7 +4027,7 @@ const handleFinalizeOrder = async () => {
                                 const hasFreePromo = checkoutItems.some(item => itemHasFreeShippingForSubKey(item, m, subKey, storeAdmin?.shippingMethods));
                                 // Kung disabled ang method, ipakita lang ang label ng promo suboption
                                 if (customWasDisabled && !hasFreePromo) continue;
-                                if (subVal.active !== false || hasFreePromo) {
+                                if (isShippingSuboptionEnabled(subVal) || hasFreePromo) {
                                   const label = getShippingDiscountLabel(m, subKey);
                                   if (!discountLabel && label) discountLabel = label;
                                   if (label === 'FREE SHIPPING') discountLabel = label;
@@ -4047,7 +4094,7 @@ const handleFinalizeOrder = async () => {
                             {Object.entries(enabledShippingMethods?.[checkoutData.shippingMethod]?.suboptions || {})
                               .filter(([subKey, subVal]) => {
                                 const hasFreePromo = checkoutItems.some(item => itemHasFreeShippingForSubKey(item, checkoutData.shippingMethod, subKey, storeAdmin?.shippingMethods));
-                                return subVal.active !== false || hasFreePromo;
+                                return isShippingSuboptionEnabled(subVal) || hasFreePromo;
                               })
                               .sort(([subKeyA], [subKeyB]) => {
                                 const getPriority = (subKey) => {
@@ -4099,13 +4146,13 @@ const handleFinalizeOrder = async () => {
                                           meetupLocationIndex: meetupLocIndex
                                         };
                                       });
-                                      const isNoAddr = subVal.isPickupRequired || subVal.isSelfBooking || subVal.requiredFields?.includes(14) || subVal.requiredFields?.includes(15);
+                                      const isNoAddr = subVal?.isPickupRequired || subVal?.isSelfBooking || subVal?.requiredFields?.includes(14) || subVal?.requiredFields?.includes(15);
                                       setAddressStatus(prev => ({...prev, isEditingAddress: !isNoAddr}));
                                     }}
                                     className={`p-3 rounded-xl border-[2px] text-[11px] font-black uppercase transition-all text-left flex flex-col ${isSubSelected ? 'bg-white/5 dark:bg-white/5 text-blue-600 dark:text-white border-blue-600 shadow-lg' : 'bg-black/5 dark:bg-white/5 border-transparent'}`}
                                   >
                                     <div className="flex items-center justify-between w-full">
-                                      <span>{subVal.label || subKey}</span>
+                                      <span>{subVal?.label || subKey}</span>
                                       <div className="flex items-center gap-1.5">
                                         {discountLabel && <span className={`text-[11px] font-black text-emerald-500`}>{discountLabel}</span>}
                                         {isSubSelected && <CheckCircle2 size={14} className="text-blue-500 dark:text-white shrink-0" />}
@@ -4370,7 +4417,7 @@ const handleFinalizeOrder = async () => {
                               </>
                             )}
                             {/* Map — shown for local-place type methods unconditionally */}
-                            {isLocalPlaceMethod && (
+                            {isLocalPlaceMethod && selectedLocalPlaceCoord && (
                               <div className="space-y-2">
                                 <p className="text-[8px] font-black uppercase opacity-30 tracking-[0.2em]">{usesMeetupLocation ? 'Meetup Map Pin' : 'Pickup Map'}</p>
                                 <div className="relative z-0 isolate h-64 w-full overflow-hidden rounded-2xl border border-black/5 bg-black/[0.03] dark:border-white/5 dark:bg-white/[0.04]">
@@ -4435,9 +4482,9 @@ const handleFinalizeOrder = async () => {
                                           )}
                                         </p>
                                       </div>
-                                      {getCheckoutPlaceAddress(selectedLocalPlaceDetails) && (
+                                      {selectedLocalPlaceAddress && (
                                         <p className="text-[11px] font-black uppercase text-neutral-500 dark:text-neutral-300 leading-tight ml-6">
-                                          {getCheckoutPlaceAddress(selectedLocalPlaceDetails)}
+                                          {selectedLocalPlaceAddress}
                                         </p>
                                       )}
                                       {checkoutData.shippingMethod !== 'Seller Meetup' && (
@@ -4449,7 +4496,7 @@ const handleFinalizeOrder = async () => {
                                   </div>
                                 )}
 
-                                {isLocalPlaceMethod && (
+                                {isLocalPlaceMethod && selectedLocalPlaceCoord && (
                                   <div className="space-y-2">
                                     <p className="text-[8px] font-black uppercase opacity-30 tracking-[0.2em]">
                                       {checkoutData.shippingMethod === 'Seller Meetup' ? 'Meetup Map Pin' : 'Pickup Map'}
@@ -5084,3 +5131,4 @@ const handleFinalizeOrder = async () => {
     </div>
   );
 }
+
