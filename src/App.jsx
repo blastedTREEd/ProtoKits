@@ -6,7 +6,6 @@ import { ThemeProvider } from './context/ThemeContext';
 import Navbar from './components/menu/Navbar';
 import Footer from './components/menu/Footer';
 import ScrollManager from './components/menu/ScrollManager';
-import Auth from './components/Auth';
 import LoadingState from './components/common/LoadingState';
 import Toast from './components/common/Toast';
 import { useStore } from './store/useStore';

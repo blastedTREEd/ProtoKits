@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useRef, Suspense, lazy } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion as Motion, useDragControls, useMotionValue } from 'framer-motion';
@@ -10,15 +10,14 @@ import {
 import { FcGoogle } from 'react-icons/fc';
 import { FaFacebook } from 'react-icons/fa';
 
+
+
 import { useTheme } from '../../context/ThemeContext';
 import { useStore } from '../../store/useStore';
 import { preloadKits } from '../../routePreloads';
 import { signOut, signInWithPopup, signInWithRedirect } from 'firebase/auth'; 
 import { getReadableAuthErrorMessage } from '../../utils/authUtils';
 import { auth, fbProvider, googleProvider } from '../../firebase/firebase';
-import AccountSettingsModal from './AccountSettingsModal';
-import OperationsModal from './OperationsModal';
-import WelcomeModal from './WelcomeModal';
 import NotificationModal from './NotificationModal';
 import {
   buildCommerceNotifications,
@@ -31,7 +30,11 @@ import {
   isLegacyOrderRecord,
   isCompletedOrderNotification
 } from './notificationUtils';
-import StoryEditorModal from './StoryEditorModal';
+
+const AccountSettingsModal = lazy(() => import('./AccountSettingsModal'));
+const OperationsModal = lazy(() => import('./OperationsModal'));
+const WelcomeModal = lazy(() => import('./WelcomeModal'));
+const StoryEditorModal = lazy(() => import('./StoryEditorModal'));
 
 const notificationStateStorageKey = (stateType, userId) => `snorlaxgarage:notification-${stateType}:${userId}`;
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -1460,43 +1463,44 @@ return (
       anchorTop={notificationAnchorTop}
     />
 
-    <WelcomeModal 
-      isOpen={Boolean(user && isProfileIncomplete)} 
-      onClose={() => {}} 
-      onSetup={() => { setIsSettingsModalOpen(true); }}
-    />
+    <Suspense fallback={null}>
+      {Boolean(user && isProfileIncomplete) && (
+        <WelcomeModal 
+          isOpen={Boolean(user && isProfileIncomplete)} 
+          onClose={() => {}} 
+          onSetup={() => { setIsSettingsModalOpen(true); }} 
+        />
+      )}
 
-    <AccountSettingsModal 
-      isOpen={isSettingsModalOpen} 
-      onClose={() => setIsSettingsModalOpen(false)} 
-    />
+      {isSettingsModalOpen && (
+        <AccountSettingsModal 
+          isOpen={isSettingsModalOpen} 
+          onClose={() => setIsSettingsModalOpen(false)} 
+        />
+      )}
 
-    <OperationsModal
-      isOpen={isOperationsOpen}
-      initialTab={operationsTab}
-      onClose={() => setIsOperationsOpen(false)}
-    />
+      {isOperationsOpen && (
+        <OperationsModal
+          isOpen={isOperationsOpen}
+          initialTab={operationsTab}
+          onClose={() => setIsOperationsOpen(false)}
+        />
+      )}
 
-    <AccountSettingsModal 
-      isOpen={isLoginModalOpen} 
-      onClose={() => setLoginModalOpen(false)} 
-    />
+      {isLoginModalOpen && (
+        <AccountSettingsModal 
+          isOpen={isLoginModalOpen} 
+          onClose={() => setLoginModalOpen(false)} 
+        />
+      )}
 
-    <StoryEditorModal
-      isOpen={isStoriesManagerOpen}
-      onClose={() => setIsStoriesManagerOpen(false)}
-    />
+      {isStoriesManagerOpen && (
+        <StoryEditorModal
+          isOpen={isStoriesManagerOpen}
+          onClose={() => setIsStoriesManagerOpen(false)}
+        />
+      )}
+    </Suspense>
   </>
 );
-
 }
-
-
-
-  
-
-  
-
-
-
-       
