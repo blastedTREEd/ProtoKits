@@ -30,6 +30,7 @@ import {
 } from '../utils/orderPayload';
 import PhilippineAddressSuggestions from '../components/common/PhilippineAddressSuggestions';
 import { getProjectScheduleDates } from '../components/calculator/GarageCalendar';
+import { isOrderFreeShipping } from '../utils/shippingUtils';
 
 let DefaultIcon = L.icon({ iconUrl: markerIcon, shadowUrl: markerShadow, iconSize: [25, 41], iconAnchor: [12, 41] });
 L.Marker.prototype.options.icon = DefaultIcon;
@@ -614,7 +615,7 @@ const compressImage = (base64Str, maxWidth = 1024, maxHeight = 1024, quality = 0
   });
 };
 
-const getShippingFlags = (order) => {
+const getShippingFlags = (order, shippingSettings = null) => {
   const method = String(order?.shippingMethod || '').toUpperCase();
   const isLbc = method.includes('LBC');
   const isLalamoveSeller = method.includes('LALAMOVE (SELLER-BOOKING)');
@@ -626,6 +627,7 @@ const getShippingFlags = (order) => {
   const hasPickupPoint = Boolean(order?.pickupLocation || order?.pickupDetails);
   const usesPickupPoint = hasPickupPoint && !isMeetup;
   const isPickupPointCourier = usesPickupPoint && !isSelfPickup && !isLalamoveSelf;
+  const isFreeShipping = isOrderFreeShipping(order, shippingSettings?.shippingMethods);
   return {
     isLbc,
     isLalamoveSeller,
@@ -636,7 +638,8 @@ const getShippingFlags = (order) => {
     usesPickupPoint,
     usesMeetupLocation: isMeetup,
     isPickupPointCourier,
-    needsAdminShipping: isLbc || isLalamoveSeller || isSpx,
+    isFreeShipping,
+    needsAdminShipping: (isLbc || isLalamoveSeller || isSpx) && !isFreeShipping,
     needsTracking: (isLbc || isLalamoveSeller || isSpx) && !usesPickupPoint && !isMeetup
   };
 };
@@ -1186,7 +1189,7 @@ export default function Orders() {
 
   const calculateBalance = useCallback((order) => {
     if (!order) return 0;
-    const flags = getShippingFlags(order);
+    const flags = getShippingFlags(order, shippingSettings);
     const sFee = flags.needsAdminShipping ? (Number(order.shippingFee) || 0) : 0;
     const paid = Number(order.buyerPaid) || 0;
 
@@ -1200,7 +1203,7 @@ export default function Orders() {
     const discount = Number(order.discount) || 0;
     
     return Math.max(0, priceToUse + sFee + hFee + tFee - discount - paid);
-  }, []);
+  }, [shippingSettings]);
 
   const getTargetTabForOrder = useCallback((order, patch = {}) => {
     if (!order) return null;
@@ -1511,7 +1514,7 @@ export default function Orders() {
       trackingNo: trackingRef,
       trackingNoConfirmed: true,
       claimantBalance: claimantBalance,
-      shippingFee: Number(shippingFeeInput) || 0,
+      shippingFee: selectedShippingFlags.isFreeShipping ? 0 : (Number(shippingFeeInput) || 0),
       dispatchedAt: new Date().toISOString()
     };
     await updateOrderDetails(selectedOrder.id, patch);
@@ -2275,7 +2278,7 @@ export default function Orders() {
   };
 
   const getOrderTotals = (order) => {
-    const flags = getShippingFlags(order);
+    const flags = getShippingFlags(order, shippingSettings);
     const itemTotal = Number(order?.totalPrice || order?.price || 0);
     const shippingFee = flags.needsAdminShipping ? (Number(order?.shippingFee) || 0) : 0;
     const handlingFee = Number(order?.handlingFee) || 0;
@@ -2392,7 +2395,7 @@ export default function Orders() {
       ...legacyOrders.map((order) => ({ type: 'order', key: order.id, order }))
     ];
   })();
-  const selectedShippingFlags = selectedOrder ? getShippingFlags(selectedOrder) : {};
+  const selectedShippingFlags = selectedOrder ? getShippingFlags(selectedOrder, shippingSettings) : {};
   const selectedIsSelfBooking = isOrderSelfBooking(selectedOrder, shippingSettings);
   const selectedPaymentFullyValidated = Boolean(
     selectedOrder && hasValidatedFirstReceipt(selectedOrder) && calculateBalance(selectedOrder) <= 0
@@ -2757,9 +2760,16 @@ export default function Orders() {
             {/* Selected shipping method and suboption */}
             <div className="flex flex-col">
               <span className="text-[13px] font-black uppercase mb-1 tracking-wider">Shipping Method</span>
-              <span className="text-[14px] font-bold uppercase text-blue-600">
-                {selectedShippingMethodDisplay}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-[14px] font-bold uppercase text-blue-600">
+                  {selectedShippingMethodDisplay}
+                </span>
+                {selectedShippingFlags.isFreeShipping && (
+                  <span className="inline-flex whitespace-nowrap text-[11px] font-black px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+                    FREE SHIPPING
+                  </span>
+                )}
+              </div>
             </div>
 
             {/* Seller meetup: customer/admin can confirm a 15-minute waiting window. */}
@@ -2811,6 +2821,12 @@ export default function Orders() {
                   <div className="space-y-3">
                     <input className="w-full rounded-xl border border-black/10 bg-white p-3 text-xs font-black uppercase dark:border-white/10 dark:bg-[#121212]" value={trackingRef} onChange={(event) => setTrackingRef(event.target.value.toUpperCase())} placeholder={selectedShippingFlags.isLbc ? 'LBC TRACKING NO.' : 'TRACKING NO. / COURIER URL'} />
                     {selectedShippingFlags.needsAdminShipping && <input type="number" className="w-full rounded-xl border border-black/10 bg-white p-3 text-xs font-black dark:border-white/10 dark:bg-[#121212]" value={shippingFeeInput} onChange={(event) => setShippingFeeInput(event.target.value)} placeholder="SHIPPING FEE" />}
+                    {selectedShippingFlags.isFreeShipping && (
+                      <div className="flex items-center justify-between rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2.5 text-xs font-black uppercase text-emerald-600 dark:text-emerald-400">
+                        <span>Shipping Fee</span>
+                        <span>FREE SHIPPING (₱0)</span>
+                      </div>
+                    )}
                     {selectedShippingFlags.isLbc && <input className="w-full rounded-xl border border-black/10 bg-white p-3 text-xs font-black dark:border-white/10 dark:bg-[#121212]" value={claimantBalance} onChange={(event) => setClaimantBalance(event.target.value)} placeholder="CLAIMANT BALANCE" />}
                     <button type="button" onClick={handleSaveShippingDetails} className="w-full rounded-xl bg-blue-600 py-3 text-[12px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/20 transition-all active:scale-95">Confirm Tracking Details &amp; Mark In Transit</button>
                   </div>
@@ -2833,7 +2849,11 @@ export default function Orders() {
                       )}
                       {canCopyOrOpenTracking && !isTrackingUrl(selectedTracking.value) && <button type="button" onClick={() => handleCopyTrackingValue(selectedTracking.value)} className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-blue-600/20 px-2.5 py-2 text-[10px] font-black uppercase tracking-widest text-blue-600 transition hover:bg-blue-600/10"><Copy size={13} /> Copy</button>}
                     </div>
-                    {selectedShippingFlags.needsAdminShipping && <p className="text-[14px] font-bold">Shipping Fee: {selectedTotals.shippingFee === 0 ? <span className="font-black uppercase text-amber-600 dark:text-amber-500">Not Included</span> : `₱${selectedTotals.shippingFee.toLocaleString()}`}</p>}
+                    {selectedShippingFlags.isFreeShipping ? (
+                      <p className="text-[14px] font-bold">Shipping Fee: <span className="font-black uppercase text-emerald-600 dark:text-emerald-500">FREE SHIPPING</span></p>
+                    ) : selectedShippingFlags.needsAdminShipping ? (
+                      <p className="text-[14px] font-bold">Shipping Fee: {selectedTotals.shippingFee === 0 ? <span className="font-black uppercase text-amber-600 dark:text-amber-500">Not Included</span> : `₱${selectedTotals.shippingFee.toLocaleString()}`}</p>
+                    ) : null}
                     {selectedOrder.claimantBalance && <p className="text-[14px] font-bold">Claimant Balance: ₱{Number(selectedOrder.claimantBalance || 0).toLocaleString()}</p>}
                   </div>
                 ) : (
@@ -3267,16 +3287,20 @@ export default function Orders() {
             </div>
 
             {/* Second row: Garage Discount */}
-            <div className="flex justify-between items-center text-[14px] font-bold text-emerald-600 dark:text-emerald-500">
-              <span>Garage Discount</span>
-              <span>-₱{selectedTotals.discount.toLocaleString()}</span>
-            </div>
+            {selectedTotals.discount > 0 && (
+              <div className="flex justify-between items-center text-[14px] font-bold text-emerald-600 dark:text-emerald-500">
+                <span>Garage Discount</span>
+                <span>-₱{selectedTotals.discount.toLocaleString()}</span>
+              </div>
+            )}
 
             {/* Second row: Shipping Fee */}
             <div className="flex justify-between items-center text-[14px] font-bold">
               <span>Shipping Fee</span>
               <span>
-                {selectedShippingFlags.needsAdminShipping && selectedTotals.shippingFee === 0 ? (
+                {selectedShippingFlags.isFreeShipping ? (
+                  <span className="text-emerald-600 dark:text-emerald-500 uppercase font-black">FREE SHIPPING</span>
+                ) : selectedShippingFlags.needsAdminShipping && selectedTotals.shippingFee === 0 ? (
                   <span className="text-amber-600 dark:text-amber-500 uppercase font-black">Not Included</span>
                 ) : (
                   `₱${selectedTotals.shippingFee.toLocaleString()}`
@@ -3827,6 +3851,11 @@ export default function Orders() {
                         <span className="inline-flex whitespace-nowrap text-[12px] font-black px-2 py-0.5 rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400 uppercase tracking-wider">
                           {shippingMethodLabel}
                         </span>
+                        {getShippingFlags(o, shippingSettings).isFreeShipping && (
+                          <span className="inline-flex whitespace-nowrap text-[12px] font-black px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+                            FREE SHIPPING
+                          </span>
+                        )}
                         {isAdminMode && !isLegacyOrder && (o.paymentPlan && o.paymentPlan !== 'full' ? (
                           <span className="inline-flex whitespace-nowrap text-[12px] font-black px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-500 uppercase tracking-wider">
                             {o.paymentPlan === 'partial' ? 'Partial' : o.paymentPlan === 'reservation' ? 'Reservation' : 'Installment'}

@@ -1945,9 +1945,9 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       }
     });
 
-    // Kapag may kahit anong suboption na may free shipping, i-force-enable din ang standard-delivery
+    // Kapag may kahit anong suboption na may free shipping, i-force-enable din ang standard-delivery (kung hindi disabled ang method)
     const anyCustomSubHasFree = Object.keys(freeShippingSubOverrides).length > 0;
-    if (anyCustomSubHasFree && suboptions['standard-delivery']) {
+    if (!wasMethodDisabled && anyCustomSubHasFree && suboptions['standard-delivery']) {
       freeShippingSubOverrides['standard-delivery'] = { 
         ...suboptions['standard-delivery'], 
         active: true, 
@@ -1992,8 +1992,8 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       }
     });
     // Kapag may kahit anong free shipping promo ang courier, i-force-enable din
-    // ang standard delivery suboption kahit wala itong sariling promo
-    if (anySubHasFree && standardSubKey && !topLevelOverrides[standardSubKey]) {
+    // ang standard delivery suboption kahit wala itong sariling promo kung hindi disabled ang courier
+    if (!wasMethodDisabled && anySubHasFree && standardSubKey && !topLevelOverrides[standardSubKey]) {
       topLevelOverrides[standardSubKey] = true;
     }
 
@@ -2134,10 +2134,12 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
 
   const getRankedSuboptions = useCallback((method, methodConfig = null) => {
     const config = methodConfig || enabledShippingMethods?.[method] || storeAdmin?.shippingMethods?.[method];
+    const wasDisabled = config?._wasDisabled;
     const suboptions = Object.entries(config?.suboptions || {}).filter(([subKey, subVal]) => {
       const hasFreePromo = checkoutItems.some(item =>
         itemHasFreeShippingForSubKey(item, method, subKey, storeAdmin?.shippingMethods)
       );
+      if (wasDisabled && !hasFreePromo) return false;
       if (!isShippingSuboptionEnabled(subVal) && !hasFreePromo) return false;
       if (subVal?.isSelfBooking && selfPickupPoints.length === 0) return false;
       return true;
@@ -2289,12 +2291,14 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
         : m === 'Lalamove' ? ['self', 'seller']
         : ['delivery', 'cod'];
 
+      const wasDisabled = methodConfig?._wasDisabled;
       const rated = subKeys
         .filter(subKey => {
           if (m === 'Lalamove' && subKey === 'self' && selfPickupPoints.length === 0) return false;
           const hasFreePromo = checkoutItems.some(item => 
             itemHasFreeShippingForSubKey(item, m, subKey, storeAdmin?.shippingMethods)
           );
+          if (wasDisabled && !hasFreePromo) return false;
           return isSubMethodEnabled(methodConfig, subKey) || hasFreePromo;
         })
         .map(subKey => {
@@ -2855,6 +2859,9 @@ const handleFinalizeOrder = async () => {
           : requiredFields.includes(13) && checkoutData.lbcBranch
             ? `${checkoutData.shippingMethod}: ${checkoutData.lbcBranch}`
             : (checkoutData.shippingMethod || 'Standard'),
+        isFreeShipping: Boolean(isFreeShippingApplied),
+        isFreeShippingApplied: Boolean(isFreeShippingApplied),
+        shippingFee: isFreeShippingApplied ? 0 : 0,
         meetupLocation: usesMeetupLocation ? (checkoutData.meetupLocation || null) : null,
         pickupLocation: usesPickupPoint ? (checkoutData.pickupLocation || null) : null,
         pickupDetails: selectedLocalPlaceDetails ? (() => {
@@ -3365,6 +3372,7 @@ const handleFinalizeOrder = async () => {
       ? Object.entries(activeMethodConfig.suboptions)
           .filter(([subKey, subVal]) => {
             const hasFreePromo = checkoutItems.some(item => itemHasFreeShippingForSubKey(item, checkoutData.shippingMethod, subKey, storeAdmin?.shippingMethods));
+            if (activeMethodConfig?._wasDisabled) return hasFreePromo;
             return isShippingSuboptionEnabled(subVal) || hasFreePromo;
           })
           .sort(([subKeyA], [subKeyB]) => {
@@ -3835,7 +3843,7 @@ const handleFinalizeOrder = async () => {
                   </div>
                 )}
                 {!isShippingNotApplicable && (
-                  <div className={`flex justify-between ${isFreeShippingApplied ? 'text-emerald-200' : ''}`}><span>Shipping Fee</span><span>{isFreeShippingApplied ? 'Free Shipping' : 'Not Included'}</span></div>
+                  <div className={`flex justify-between ${isFreeShippingApplied ? 'text-emerald-200' : ''}`}><span>Shipping Fee</span><span>{isFreeShippingApplied ? 'FREE SHIPPING' : 'Not Included'}</span></div>
                 )}
                 <div className="flex justify-between border-t border-white/15 pt-4 text-xl font-black italic"><span>Total</span><span>₱{totalToSettle.toLocaleString()}</span></div>
                 {isInstallmentPlan && (
@@ -4093,7 +4101,9 @@ const handleFinalizeOrder = async () => {
                           <div className="grid grid-cols-1 gap-1">
                             {Object.entries(enabledShippingMethods?.[checkoutData.shippingMethod]?.suboptions || {})
                               .filter(([subKey, subVal]) => {
+                                const methodConfig = enabledShippingMethods?.[checkoutData.shippingMethod];
                                 const hasFreePromo = checkoutItems.some(item => itemHasFreeShippingForSubKey(item, checkoutData.shippingMethod, subKey, storeAdmin?.shippingMethods));
+                                if (methodConfig?._wasDisabled) return hasFreePromo;
                                 return isShippingSuboptionEnabled(subVal) || hasFreePromo;
                               })
                               .sort(([subKeyA], [subKeyB]) => {
