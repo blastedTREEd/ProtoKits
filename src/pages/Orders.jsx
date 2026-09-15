@@ -3002,7 +3002,8 @@ export default function Orders() {
         <div className="contents">
         <div className="contents">
           {/* Left Side: Payments (QR, Receipt, Balance Receipt) */}
-          {isAdminMode && (
+
+
           <div className="order-2 space-y-4 text-left lg:order-none lg:col-start-1 lg:row-start-3">
             <h3 className="text-[13px] font-black uppercase tracking-widest mb-2">Payment Details</h3>
             
@@ -3220,7 +3221,8 @@ export default function Orders() {
               </>
             )}
           </div>
-          )}
+
+
 
           {/* Right Side: Totals */}
           <div className={`order-1 space-y-3 bg-black/[0.01] dark:bg-white/[0.01] p-6 rounded-3xl border border-black/5 dark:border-white/5 text-left lg:order-none lg:col-start-2 lg:row-start-2 ${isAdminMode ? 'lg:row-span-2' : ''}`}>
