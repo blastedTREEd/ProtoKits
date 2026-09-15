@@ -2764,7 +2764,7 @@ const handleFinalizeOrder = async () => {
         !isProjectCheckoutItem(item) && isPreOrderStock(item, item.status)
       ));
       const hasProjects = allocatedCheckoutItems.some(isProjectCheckoutItem);
-      const initialStatus = isPreOrder ? 'Waiting' : 'Reserved';
+      const initialStatus = 'Reserved';
       const balanceDueDeadline = isPreOrder
         ? new Date(Date.now() + (14 * 24 * 60 * 60 * 1000)).toISOString()
         : null;

@@ -750,6 +750,28 @@ const hasValidatedFirstReceipt = (order) => {
     || Number(order.buyerPaid || 0) > 0;
 };
 
+const isOrderInitialPaymentValidated = (order) => {
+  if (!order) return false;
+  if (order.paymentMethod === 'Cash') return true;
+  if (order.isLegacyOrder || order.legacyOrder) return true;
+  if (order.receiptValidated) return true;
+  if (hasValidatedFirstReceipt(order)) return true;
+  if (Number(order.buyerPaid || 0) > 0) return true;
+  if (Boolean(order.downpaymentConfirmedAt)) return true;
+  if (order.paymentReview?.decision === 'approved' || order.paymentReview?.decision === 'balance_requested') return true;
+  return false;
+};
+
+const isSecondPaymentPending = (order) => {
+  if (!order) return false;
+  const hasStlWithDesign = order.items?.some(item => 
+    item.type === 'project' && 
+    item.projectData?.method?.name?.toUpperCase() === 'STL' && 
+    item.projectData?.selectedDesignService
+  );
+  return Boolean(hasStlWithDesign && order.designFinalized && !order.printDownpaymentPaid && (Number(order.buyerPaid || 0) < Number(order.minDownpayment || 0)));
+};
+
 // Legacy/manual orders may not have a receipt, but their status still controls
 // whether inventory reassignment is safe. Once a legacy order is Completed it
 // is a historical sale and must not be classified as auto-rebalancing eligible.
@@ -1191,6 +1213,8 @@ export default function Orders() {
 
     if (status === 'Cancelled') return 'cancelled';
     if (status === 'Completed') return 'completed';
+    if (isSecondPaymentPending(nextOrder)) return isAdminMode ? 'to_validate' : 'to_pay';
+    if (!isOrderInitialPaymentValidated(nextOrder)) return isAdminMode ? 'to_validate' : 'to_pay';
     if (status === 'Waiting') return 'to_follow';
     if (['Shipped', 'Dispatched', 'In Transit'].includes(status)) return 'to_receive';
     
@@ -1898,6 +1922,8 @@ export default function Orders() {
       } else if (isPartialPlan && isFirstPayment && (isPreOrder || isProjectOrder)) {
         // Partial plan pre-order/project: after downpayment → Waiting (no countdown yet)
         newStatus = 'Waiting';
+      } else if (isPreOrder) {
+        newStatus = 'Waiting';
       } else {
         newStatus = order.shippingMethod?.toUpperCase().includes('LBC') ? 'To Ship' : 'Preparing';
       }
@@ -1963,6 +1989,8 @@ export default function Orders() {
       if (isReservationPlan) {
         newStatus = isPreOrder ? 'Waiting' : 'Reserved';
       } else if (isPartialPlan && (isPreOrder || isProjectOrder)) {
+        newStatus = 'Waiting';
+      } else if (isPreOrder) {
         newStatus = 'Waiting';
       } else {
         // Full payment plan — partial payment received, status becomes Preparing
@@ -2272,8 +2300,9 @@ export default function Orders() {
   const tabData = useMemo(() => {
     const isLBC = (o) => o.shippingMethod?.toUpperCase().includes('LBC');
     const baseTabs = (isAdminMode ? [
-      { id: 'to_validate', label: 'To Validate', filter: (o) => o.status === 'Validating' || (!isLBC(o) && calculateBalance(o) > 0 && o.status === 'Arrived') || (calculateBalance(o) > 0 && o.status === 'Reserved') || (o.balanceRequested && calculateBalance(o) > 0 && !o.balanceReceipt && o.status === 'Preparing') },
+      { id: 'to_validate', label: 'To Validate', filter: (o) => (!['Cancelled', 'Completed'].includes(o.status) && (!isOrderInitialPaymentValidated(o) || isSecondPaymentPending(o))) || o.status === 'Validating' || (!isLBC(o) && calculateBalance(o) > 0 && o.status === 'Arrived') || (calculateBalance(o) > 0 && o.status === 'Reserved') || (o.balanceRequested && calculateBalance(o) > 0 && !o.balanceReceipt && o.status === 'Preparing') },
       { id: 'to_follow', label: 'In Progress', filter: (o) => {
+        if (!isOrderInitialPaymentValidated(o) || isSecondPaymentPending(o)) return false;
         if (o.status === 'Waiting') return true;
         // Project na may balance at nasa process/queue (Preparing/Ready/etc)
         const isProject = o.type === 'project' || o.items?.some(i => i.type === 'project');
@@ -2283,6 +2312,7 @@ export default function Orders() {
         return false;
       }},
       { id: 'to_ship', label: 'To Ship', filter: (o) => {
+        if (!isOrderInitialPaymentValidated(o) || isSecondPaymentPending(o)) return false;
         if (['Preparing', 'Ready for Pickup', 'Ready for Meetup', 'To Ship'].includes(o.status)) {
           // Fully paid, LBC (courier collects), o partial payment plan sa kits (non-projects)
           const isProject = o.type === 'project' || o.items?.some(i => i.type === 'project');
@@ -2296,8 +2326,9 @@ export default function Orders() {
       { id: 'completed', label: 'Completed', filter: (o) => o.status === 'Completed' },
       { id: 'cancelled', label: 'Cancelled', filter: (o) => o.status === 'Cancelled' }
     ] : [
-      { id: 'to_pay', label: 'To Pay', filter: (o) => o.status === 'Reserved' || o.status === 'Validating' || (!isLBC(o) && calculateBalance(o) > 0 && o.status === 'Arrived') || (o.balanceRequested && calculateBalance(o) > 0 && !o.balanceReceipt && o.status === 'Preparing') },
+      { id: 'to_pay', label: 'To Pay', filter: (o) => (!['Cancelled', 'Completed'].includes(o.status) && (!isOrderInitialPaymentValidated(o) || isSecondPaymentPending(o))) || o.status === 'Reserved' || o.status === 'Validating' || (!isLBC(o) && calculateBalance(o) > 0 && o.status === 'Arrived') || (o.balanceRequested && calculateBalance(o) > 0 && !o.balanceReceipt && o.status === 'Preparing') },
       { id: 'to_follow', label: 'In Progress', filter: (o) => {
+        if (!isOrderInitialPaymentValidated(o) || isSecondPaymentPending(o)) return false;
         if (o.status === 'Waiting') return true;
         const isProject = o.type === 'project' || o.items?.some(i => i.type === 'project');
         if (isProject && ['Preparing', 'Ready for Pickup', 'Ready for Meetup', 'To Ship'].includes(o.status)) {
@@ -2306,6 +2337,7 @@ export default function Orders() {
         return false;
       }},
       { id: 'to_ship', label: 'To Ship', filter: (o) => {
+        if (!isOrderInitialPaymentValidated(o) || isSecondPaymentPending(o)) return false;
         if (['Preparing', 'Ready for Pickup', 'Ready for Meetup', 'To Ship'].includes(o.status)) {
           const isProject = o.type === 'project' || o.items?.some(i => i.type === 'project');
           return isLBC(o) || calculateBalance(o) <= 0 || (o.paymentPlan === 'partial' && !isProject);
@@ -3397,10 +3429,10 @@ export default function Orders() {
             </button>
           )}
 
-          {isAdminMode && selectedOrder.isPreOrder && selectedOrder.status === 'Reserved' && (
+          {isAdminMode && (selectedOrder.isPreOrder || selectedOrder.items?.some(i => i.isPreOrder)) && ['Waiting', 'Reserved'].includes(selectedOrder.status) && (
             <button 
               onClick={() => handleRequestBalance(selectedOrder.id)}
-              className="px-5 py-2.5 bg-amber-50 hover:bg-amber-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 shadow-md"
+              className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 shadow-md"
             >
               Request Balance
             </button>
