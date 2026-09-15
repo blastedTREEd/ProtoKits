@@ -60,10 +60,10 @@ export default function LoadingState({
           alt=""
           aria-hidden="true"
           className="h-16 w-16 object-contain"
-          style={{ filter: 'brightness(0) saturate(100%) invert(38%) sepia(97%) saturate(2198%) hue-rotate(211deg) brightness(99%) contrast(101%)' }}
+          style={{ filter: isDarkMode ? 'brightness(0) invert(1)' : 'brightness(0)' }}
         />
         {hasProgress ? (
-          <span className="absolute inset-0 flex items-center justify-center pt-2 text-[13px] font-black tracking-tight text-white">
+          <span className={`absolute inset-0 flex items-center justify-center pt-2 text-[13px] font-black tracking-tight ${isDarkMode ? "text-black" : "text-white"}`}>
             {Math.round(progressValue)}%
           </span>
         ) : (

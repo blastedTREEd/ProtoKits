@@ -15,7 +15,7 @@ import { FaFacebook } from 'react-icons/fa';
 import { useTheme } from '../../context/ThemeContext';
 import { useStore } from '../../store/useStore';
 import { preloadRoute } from '../../routePreloads';
-import { signOut, signInWithPopup, signInWithRedirect } from 'firebase/auth'; 
+import { signOut, signInWithPopup } from 'firebase/auth'; 
 import { getReadableAuthErrorMessage } from '../../utils/authUtils';
 import { auth, fbProvider, googleProvider } from '../../firebase/firebase';
 import NotificationModal from './NotificationModal';
@@ -783,16 +783,6 @@ useEffect(() => {
     }
   };
 
-  const handleRedirectLogin = async (provider = googleProvider) => {
-    try {
-      setAuthError(null);
-      await signInWithRedirect(auth, provider);
-    } catch (err) {
-      console.error('SG AUTH REDIRECT ERROR:', err?.code, err?.message, err);
-      setAuthError(getReadableAuthErrorMessage(err));
-    }
-  };
-
 
   const handleLogout = async () => {
   const actionLabel = originalAdminUser ? 'exit admin mode' : 'log out';
@@ -883,10 +873,10 @@ const getPageTitle = () => {
   switch (location.pathname) {
     case '/kits': return { line1: 'GARAGE', line2: 'KITS' };
     case '/prints': return { line1: 'PRINTS', line2: 'HUB' };
-    case '/orders': return { line1: 'MY', line2: 'ORDERS' };
+    case '/orders': return { line1: 'YOUR', line2: 'ORDERS' };
     case '/cart':
     case '/basket': return isAdminView ? { line1: 'ADMIN', line2: 'SHELF' } : { line1: 'YOUR', line2: 'CART' };
-    case '/notify-list': return { line1: 'MY', line2: 'OFFERS' };
+    case '/notify-list': return { line1: 'YOUR', line2: 'OFFERS' };
     default: return { line1: 'SNORLAX', line2: 'GARAGE' };
   }
 };

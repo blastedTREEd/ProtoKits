@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Welcome.md",
+                "file": "Cost Estimation Engine.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "Welcome"
+              "title": "Cost Estimation Engine"
             }
           }
         ]
@@ -190,14 +190,14 @@
   },
   "active": "c0486095255b06ff",
   "lastOpenFiles": [
+    "Authentication & Authorization.md",
+    "Admin Operations & Fulfillment.md",
+    "Welcome.md",
     "Projects & 3D Printing.md",
     "Order Management.md",
     "Kits & Inventory Management.md",
     "Data & Store Architecture.md",
     "Customer Feature Flows.md",
-    "Cost Estimation Engine.md",
-    "Authentication & Authorization.md",
-    "Admin Operations & Fulfillment.md",
-    "Welcome.md"
+    "Cost Estimation Engine.md"
   ]
 }
