@@ -1667,7 +1667,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       const reservationFee = Number(item.reservationFee ?? item.appliedInstallmentFee ?? 0);
       return sum + Math.max(0, reservationFee) * (Number(item.quantity) || 1);
     }, 0)
-  ), [checkoutItems, isPreOrderKitCheckoutItem]);
+  ), [checkoutItems]);
 
   const totalAppliedInstallmentFee = isReservationPlan ? totalReservationFee : 0;
 
@@ -1800,7 +1800,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       transfer: transferShares[index] || 0,
       total: (handlingShares[index] || 0) + (transferShares[index] || 0)
     }));
-  }, [checkoutItems, kits, remainingHandlingFee, remainingCashTransferFee]);
+  }, [checkoutItems, isReservationPlan, kits, remainingHandlingFee, remainingCashTransferFee]);
 
   // The strike-through comparison represents the selected set bought
   // independently. Handling and transfer are order-level fees, so distribute
@@ -2130,7 +2130,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
 
         return getPriority(a) - getPriority(b);
       });
-  }, [isAdminCheckoutConfigReady, enabledShippingMethods, pickupPoints, selfPickupPoints, storeAdmin, checkoutItems, isMethodFreeShipping]);
+  }, [isAdminCheckoutConfigReady, enabledShippingMethods, selfPickupPoints, storeAdmin, checkoutItems, isMethodFreeShipping]);
 
   const getRankedSuboptions = useCallback((method, methodConfig = null) => {
     const config = methodConfig || enabledShippingMethods?.[method] || storeAdmin?.shippingMethods?.[method];
@@ -2155,7 +2155,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
         return { subKey, subVal, isFree, hasDiscount, priority };
       })
       .sort((a, b) => a.priority - b.priority);
-  }, [checkoutItems, enabledShippingMethods, isMethodFreeShipping, pickupPoints.length, selfPickupPoints.length, storeAdmin?.shippingMethods]);
+  }, [checkoutItems, enabledShippingMethods, isMethodFreeShipping, selfPickupPoints.length, storeAdmin?.shippingMethods]);
 
   const getBestSuboptionKey = useCallback((method, methodConfig = null) => {
     return getRankedSuboptions(method, methodConfig)[0]?.subKey || '';
@@ -2192,7 +2192,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
 
     if (shippingOptions.includes('Self-Pickup')) return 'Self-Pickup';
     return shippingOptions[0] || '';
-  }, [checkoutItems, getRankedSuboptions, hasPreOrders, isMethodFreeShipping, isPreOrderKitCheckoutItem, orders, shippingOptions, user?.uid]);
+  }, [checkoutItems, isPreOrderKitCheckoutItem, orders, shippingOptions, user?.uid]);
 
   const getCourierShippingBadge = useCallback((method) => {
     if (isMethodFreeShipping(method)) return 'FREE SHIPPING';
@@ -2240,7 +2240,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     }
 
     return '';
-  }, [checkoutItems, enabledShippingMethods, getRankedSuboptions, isMethodFreeShipping, pickupPoints.length, selfPickupPoints.length, storeAdmin?.shippingMethods, totalAppliedHandlingFee]);
+  }, [checkoutItems, enabledShippingMethods, getRankedSuboptions, isMethodFreeShipping, selfPickupPoints.length, storeAdmin?.shippingMethods, totalAppliedHandlingFee]);
 
   const buildShippingData = useCallback((m, sourceData) => {
     const methodConfig = enabledShippingMethods?.[m] || storeAdmin?.shippingMethods?.[m];
