@@ -15,6 +15,7 @@ export default function UniversalImage({
   style,
   onLoad,
   onError,
+  loading = 'lazy',
   ...props
 }) {
   const normalizedSrc = typeof src === 'string' ? src.trim() : '';
@@ -28,6 +29,7 @@ export default function UniversalImage({
 
   return (
     <img
+      loading={loading}
       {...props}
       src={displaySrc}
       alt={alt}

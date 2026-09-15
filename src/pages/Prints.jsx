@@ -1,16 +1,16 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, Suspense, lazy } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import PageTemplate from './PageTemplate';
-import PrintsCalculator from '../components/calculator/PrintsCalculator';
+const PrintsCalculator = lazy(() => import('../components/calculator/PrintsCalculator'));
 import ProjectCard from '../components/calculator/ProjectCard';
 import PrintedProjectCard from '../components/calculator/PrintedProjectCard';
-import PrintedProjectModal from '../components/calculator/PrintedProjectModal';
+const PrintedProjectModal = lazy(() => import('../components/calculator/PrintedProjectModal'));
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
 import { Droplet, Calculator, Search, Box, Layers, X, HandCoins, MoreHorizontal, Printer, ClockFading, ArrowBigDownDash, ArrowBigUpDash, ArrowBigRightDash, ArrowBigLeftDash, ChevronDown, PackagePlus } from 'lucide-react';
-import FilamentManagerModal from '../components/calculator/FilamentManagerModal';
-import PrinterManagerModal from '../components/calculator/PrinterManagerModal';
-import RatesManagerModal from '../components/calculator/RatesManagerModal';
+const FilamentManagerModal = lazy(() => import('../components/calculator/FilamentManagerModal'));
+const PrinterManagerModal = lazy(() => import('../components/calculator/PrinterManagerModal'));
+const RatesManagerModal = lazy(() => import('../components/calculator/RatesManagerModal'));
 import ProductCardSkeleton from '../components/common/ProductCardSkeleton';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
 import { getPrintedProjectModelName } from '../utils/printedProjectName';
@@ -811,6 +811,7 @@ export default function Prints() {
           )}
         </main>
         
+        <Suspense fallback={null}>
         {viewMode === 'estimating' && (
            <div className="fixed inset-0 z-[200] flex items-stretch justify-center lg:items-center lg:p-4 backdrop-blur-sm bg-black/40 animate-in fade-in duration-200">
                <div className={`relative w-full h-full lg:h-[90dvh] lg:max-w-2xl rounded-none lg:rounded-[2rem] border-0 lg:border shadow-2xl overflow-hidden bg-[var(--color-surface)] border-[var(--color-border)] ${shadow}`}>
@@ -836,12 +837,15 @@ export default function Prints() {
             onSave={handleSavePrintedProject}
           />
         )}
+        </Suspense>
       </div>
 
       {/* MODALS */}
-      {showFilamentModal && <FilamentManagerModal onClose={() => setShowFilamentModal(false)} />}
+      <Suspense fallback={null}>
+        {showFilamentModal && <FilamentManagerModal onClose={() => setShowFilamentModal(false)} />}
       {showPrinterModal && <PrinterManagerModal onClose={() => setShowPrinterModal(false)} />}
       {showRatesModal && <RatesManagerModal onClose={() => setShowRatesModal(false)} />}
+      </Suspense>
     </PageTemplate>
   );
 }

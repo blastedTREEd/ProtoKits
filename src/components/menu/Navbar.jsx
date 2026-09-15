@@ -14,7 +14,7 @@ import { FaFacebook } from 'react-icons/fa';
 
 import { useTheme } from '../../context/ThemeContext';
 import { useStore } from '../../store/useStore';
-import { preloadKits } from '../../routePreloads';
+import { preloadRoute } from '../../routePreloads';
 import { signOut, signInWithPopup, signInWithRedirect } from 'firebase/auth'; 
 import { getReadableAuthErrorMessage } from '../../utils/authUtils';
 import { auth, fbProvider, googleProvider } from '../../firebase/firebase';
@@ -546,7 +546,9 @@ useEffect(() => {
     return subscribeNotifyList({ isAdminMode: true });
   }, [isAdminNotificationView, subscribeNotifyList]);
 
-  const handleNavClick = (path) => {
+  const handleNavClick = (path, e) => {
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+    preloadRoute(path);
     policyScrollCleanupRef.current?.();
     policyScrollCleanupRef.current = null;
     setIsProfileOpen(false);
@@ -981,7 +983,7 @@ return (
             </div>
           </div>
         ) : (
-          <Link to="/" onClick={(e) => handleNavClick('/', e)} className="flex items-center h-full z-[120] shrink-0 relative">
+          <Link to="/" onPointerEnter={() => preloadRoute('/')} onPointerDown={() => preloadRoute('/')} onTouchStart={() => preloadRoute('/')} onClick={(e) => handleNavClick('/', e)} className="flex items-center h-full z-[120] shrink-0 relative">
             <div 
               style={{ width: specs.logoSize, height: specs.logoSize, top: '50%', transform: 'translateY(-50%)', padding: specs.ringPadding }} 
               className="absolute rounded-full flex items-center justify-center bg-gradient-to-br from-[#0866FF] to-[#00CFFF] shadow-xl transition-all duration-500"
@@ -1011,7 +1013,7 @@ return (
         )}
 
         <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 hidden sm:flex items-center gap-6 lg:gap-8">
-          <Link to="/" onClick={(e) => handleNavClick('/', e)} className="relative flex flex-col md:flex-row items-center justify-center gap-1 font-bold transition-colors group">
+          <Link to="/" onPointerEnter={() => preloadRoute('/')} onPointerDown={() => preloadRoute('/')} onTouchStart={() => preloadRoute('/')} onClick={(e) => handleNavClick('/', e)} className="relative flex flex-col md:flex-row items-center justify-center gap-1 font-bold transition-colors group">
             <Home size={specs.utilIcon} className={location.pathname === '/' ? 'text-blue-500' : 'text-neutral-400 dark:text-neutral-400 group-hover:text-blue-500'} />
             <span className={`text-[11px] md:text-[14px] font-bold uppercase tracking-[0.005em] ${location.pathname === '/' ? 'bg-gradient-to-br from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent' : 'text-neutral-400 dark:text-neutral-400 group-hover:bg-gradient-to-br group-hover:from-[#0866FF] group-hover:to-[#00CFFF] group-hover:bg-clip-text group-hover:text-transparent'}`}>HOME</span>
           </Link>
@@ -1027,9 +1029,10 @@ return (
               <Link
                 key={link.to}
                 to={link.to}
-                onPointerEnter={() => link.to === '/kits' && preloadKits()}
-                onPointerDown={() => link.to === '/kits' && preloadKits()}
-                onFocus={() => link.to === '/kits' && preloadKits()}
+                onPointerEnter={() => preloadRoute(link.to)}
+                onTouchStart={() => preloadRoute(link.to)}
+                onPointerDown={() => preloadRoute(link.to)}
+                onFocus={() => preloadRoute(link.to)}
                 onClick={(e) => handleNavClick(link.to, e)}
                 className="relative flex flex-col md:flex-row items-center justify-center gap-1 font-bold transition-colors group"
               >
@@ -1068,7 +1071,7 @@ return (
                 } else {
                     navigate('/cart');
                 }
-            }} className="p-2 relative group">
+            }} onPointerEnter={() => preloadRoute('/cart')} onPointerDown={() => preloadRoute('/cart')} onTouchStart={() => preloadRoute('/cart')} className="p-2 relative group">
               {isAdmin && isAdminView ? (
                 <ShelvingUnit
                   size={24} 
@@ -1431,7 +1434,8 @@ return (
                 return (
                   <button
                     key={link.to}
-                    onPointerDown={() => link.to === '/kits' && preloadKits()}
+                    onPointerDown={() => preloadRoute(link.to)}
+                    onTouchStart={() => preloadRoute(link.to)}
                     onClick={(e) => handleNavClick(link.to, e)}
                     className={`group flex flex-col items-center justify-center gap-1 transition-colors ${buttonClass}`}
                   >

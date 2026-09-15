@@ -1032,7 +1032,7 @@ const GarageProjectSummary = ({
                 </div>
                 <div className="flex w-full shrink-0 items-center justify-between gap-3 border-t border-[var(--color-border)] pt-3">
                 <div className="min-w-0 text-left text-[13px] font-black uppercase leading-tight text-[var(--color-text-muted)] sm:text-[14px]">
-                  {getProjectMaterialWeightLabel(item, filamentInventory) && (
+                  {!isSTLProject && getProjectMaterialWeightLabel(item, filamentInventory) && (
                     <span>{getProjectMaterialWeightLabel(item, filamentInventory)}</span>
                   )}
                 </div>
@@ -2595,7 +2595,7 @@ export default function ProjectCard({
                             </div>
                             <div className="flex w-full shrink-0 items-center justify-between gap-3 border-t border-[var(--color-border)] pt-3">
                               <div className="min-w-0 text-left text-[14px] font-black uppercase leading-tight text-[var(--color-text-muted)]">
-                                {getProjectMaterialWeightLabel(item, filamentInventory) && (
+                                {!isSTL && getProjectMaterialWeightLabel(item, filamentInventory) && (
                                   <span>{getProjectMaterialWeightLabel(item, filamentInventory)}</span>
                                 )}
                               </div>

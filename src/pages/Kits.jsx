@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Package, Gift, Plus, Trash2, Box, ClockFading, Pencil, Search, X, Wallet, AlertCircle, TrendingUp, Zap, Sparkles, ArrowBigDownDash, ArrowBigUpDash, ArrowBigRightDash, ArrowBigLeftDash, ChevronDown, MoreHorizontal, Image as ImageIcon, Settings } from 'lucide-react';
 import { useStore } from '../store/useStore';
@@ -7,12 +7,12 @@ import PageTemplate from './PageTemplate';
 import ProductCard from '../components/kitcards/ProductCard';
 import KitSkeleton from '../components/kitcards/KitSkeleton';
 import AddKitCard from '../components/kitcards/AddKitCard';
-import AddKitModal from '../components/kitcards/AddKitModal';
-import AddDealModal from '../components/kitcards/AddDealModal';
-import DealDetailsModal from '../components/kitcards/DealDetailsModal';
-import SupplierBalancesModal from '../components/kitcards/SupplierBalancesModal';
-import SalesDashboardModal from '../components/kitcards/SalesDashboardModal';
-import KitDataQualityModal from '../components/kitcards/KitDataQualityModal';
+const AddKitModal = lazy(() => import('../components/kitcards/AddKitModal'));
+const AddDealModal = lazy(() => import('../components/kitcards/AddDealModal'));
+const DealDetailsModal = lazy(() => import('../components/kitcards/DealDetailsModal'));
+const SupplierBalancesModal = lazy(() => import('../components/kitcards/SupplierBalancesModal'));
+const SalesDashboardModal = lazy(() => import('../components/kitcards/SalesDashboardModal'));
+const KitDataQualityModal = lazy(() => import('../components/kitcards/KitDataQualityModal'));
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
 import { getBundleDealPricing, getClearanceBundlePricing, getFlexiBundlePreviewPricing, getHighestCostStock } from '../utils/bundlePricing';
 import { isOfferCheckoutActive } from '../utils/offerUtils';
@@ -1819,30 +1819,44 @@ export default function Kits({ isActive = true }) {
             )}
           </main>
 
-          <AddKitModal isOpen={isAddKitModalOpen} onClose={() => { setIsAddKitModalOpen(false); setKitToEdit(null); }} onSave={handleSaveNewKit} editingKit={kitToEdit} />
-          <AddDealModal isOpen={isAddDealModalOpen} onClose={handleCloseDealModal} dealToEdit={dealToEdit} />
-          <DealDetailsModal
-            isOpen={!!selectedDeal}
-            onClose={() => setSelectedDeal(null)}
-            deal={selectedDeal}
-            onBuyNow={handleDealCheckout}
-            onAddToBasket={handleDealAddToBasket}
-            onOpenKit={handleOpenDealKit}
-            isEditMode={isAdmin && isAdminView}
-            onEditDeal={(deal) => {
-              setSelectedDeal(null);
-              setDealToEdit(deal);
-              setIsAddDealModalOpen(true);
-            }}
-          />
-          <SupplierBalancesModal isOpen={isSupplierBalancesModalOpen} onClose={handleCloseSupplierBalances} />
-          <SalesDashboardModal isOpen={isSalesDashboardModalOpen} onClose={handleCloseSalesDashboard} />
-          <KitDataQualityModal
-            isOpen={isKitDataQualityModalOpen}
-            onClose={handleCloseKitDataQuality}
-            kits={storeKits}
-            onSave={handleSaveNewKit}
-          />
+          <Suspense fallback={null}>
+            {isAddKitModalOpen && (
+              <AddKitModal isOpen={isAddKitModalOpen} onClose={() => { isAddKitModalOpen(false); setKitToEdit(null); }} onSave={handleSaveNewKit} editingKit={kitToEdit} />
+            )}
+            {isAddDealModalOpen && (
+              <AddDealModal isOpen={isAddDealModalOpen} onClose={handleCloseDealModal} dealToEdit={dealToEdit} />
+            )}
+            {Boolean(selectedDeal) && (
+              <DealDetailsModal
+                isOpen={Boolean(selectedDeal)}
+                onClose={() => setSelectedDeal(null)}
+                deal={selectedDeal}
+                onBuyNow={handleDealCheckout}
+                onAddToBasket={handleDealAddToBasket}
+                onOpenKit={handleOpenDealKit}
+                isEditMode={isAdmin && isAdminView}
+                onEditDeal={(deal) => {
+                  setSelectedDeal(null);
+                  setDealToEdit(deal);
+                  setIsAddDealModalOpen(true);
+                }}
+              />
+            )}
+            {isSupplierBalancesModalOpen && (
+              <SupplierBalancesModal isOpen={isSupplierBalancesModalOpen} onClose={handleCloseSupplierBalances} />
+            )}
+            {isSalesDashboardModalOpen && (
+              <SalesDashboardModal isOpen={isSalesDashboardModalOpen} onClose={handleCloseSalesDashboard} />
+            )}
+            {isKitDataQualityModalOpen && (
+              <KitDataQualityModal
+                isOpen={isKitDataQualityModalOpen}
+                onClose={handleCloseKitDataQuality}
+                kits={storeKits}
+                onSave={handleSaveNewKit}
+              />
+            )}
+          </Suspense>
       </div>
     </PageTemplate>
   );

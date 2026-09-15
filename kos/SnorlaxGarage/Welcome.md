@@ -37,7 +37,7 @@ This vault documents the current application behavior. It helps developers, oper
 ### Core access and architecture
 
 - [[Authentication & Authorization]] — Firebase providers, admin whitelist, route guards, and credential boundaries.
-- [[Data & Store Architecture]] — Zustand, Firestore listeners, cache behavior, collections, and security boundaries.
+- [[Data & Store Architecture]] — Zustand, Firestore listeners, Spark plan quotas, client performance, code-splitting, and architecture roadmap.
 
 ### Customer and commerce flows
 

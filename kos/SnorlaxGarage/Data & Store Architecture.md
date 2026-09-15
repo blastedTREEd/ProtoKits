@@ -166,3 +166,83 @@ The application currently performs reservation and several business mutations th
 - Preserve compatibility with older stock condition arrays while migrating records to explicit `boxCondition` and `kitCondition` fields.
 - Avoid exposing rates, credentials, or admin-only fields through public documents or hidden-only UI.
 - When adding a route, update both route preloading requirements and the relevant live-listener ownership so the global loading gate cannot wait forever or create duplicate listeners.
+
+
+### Spark-plan live verification (Updated 2026-09-15)
+
+Direct query against the Google Cloud Billing API (`cloudbilling.googleapis.com/v1/projects/snorlaxgarage/billingInfo`) confirmed:
+- **`billingEnabled`:** `false`
+- **`billingAccountName`:** `""` (none attached)
+- **Subscription Tier:** **Free Spark Plan** (100% no-cost tier)
+
+The application remains strictly constrained to Spark no-cost quotas:
+- 50,000 document reads/day
+- 20,000 document writes/day
+- 20,000 document deletes/day
+- 1 GiB stored data
+- 10 GiB/month network egress
+
+---
+
+## ⚡ 7. Client Performance, Bundle Optimization & Roadmap (Updated 2026-09-15)
+
+### Completed Safe / Zero-Risk Optimizations (Shipped)
+
+To eliminate browser tab crashes on low-memory and mobile devices without risking functional regressions:
+1. **Entry Chunk Reduction (-75%):**
+   - `index.js` dropped from **1,086 kB → 267.98 kB**.
+   - Vendor libraries were chunked via Rollup (`vendor-react`, `vendor-framer`, `vendor-leaflet`).
+   - Admin-only modals in `Navbar.jsx` (`OperationsModal`, `StoryEditorModal`, `AccountSettingsModal`, `WelcomeModal`) are dynamically imported via `React.lazy()` with `<Suspense fallback={null}>`.
+   - Extracted `CustomDateTimePicker` into `src/components/common/CustomDateTimePicker.jsx` so `StoryEditorModal` no longer pulls in `AddKitModal` (3,894 lines).
+   - Removed dead dependencies `papaparse` and `react-facebook` (159 packages removed from `node_modules`).
+   - Removed unused `Auth` import from `App.jsx`.
+2. **Page Chunk Reductions:**
+   - `Kits.js`: Dropped from **263.79 kB → 49.60 kB (-81%)** by lazy-loading `AddKitModal`, `AddDealModal`, `SupplierBalancesModal`, `SalesDashboardModal`, `KitDataQualityModal`, and `DealDetailsModal`.
+   - `Prints.js`: Dropped from **249.27 kB → 27.87 kB (-89%)** by lazy-loading `PrintsCalculator`, `PrintedProjectModal`, `FilamentManagerModal`, `PrinterManagerModal`, and `RatesManagerModal`.
+3. **Instant Route Navigation:**
+   - Centralized route preloading in `src/routePreloads.js` for `/`, `/kits`, `/prints`, `/orders`, and `/cart`.
+   - Connected `preloadRoute(path)` to `pointerEnter`, `pointerDown`, and `touchStart` on all desktop and mobile Navbar navigation targets. Navigation occurs near-instantly when clicked/tapped without dropping into full-screen loading gates.
+4. **Image Memory Deferral:**
+   - Defaulted `loading="lazy"` on `UniversalImage.jsx` so off-screen inventory thumbnails and product cards do not consume decode memory and network bandwidth upon initial render.
+5. **Project Card Cleanup:**
+   - Suppressed material weight label (e.g. `6.9G`) on STL project cards and modals while preserving dimensions.
+
+---
+
+### Moderate-Risk Optimization Plan (Scheduled for Later Implementation)
+
+These changes provide additional memory reductions but require manual user validation:
+1. **Kits DOM Tree Unmounting (`App.jsx`):**
+   - *Current Behavior:* `hasVisitedKits` keeps the `<Kits />` component permanently mounted in the DOM (hidden via CSS) once visited to preserve scroll position and avoid remount overhead.
+   - *Optimization:* Unmount the component tree when navigating away from `/kits` to free thousands of DOM nodes on mobile devices.
+   - *Considerations:* Must cache scroll position in session state or sessionStorage so navigating back restores scroll smoothly without keeping memory tied up.
+2. **Navbar Event Listener Consolidation:**
+   - *Current Behavior:* 15+ individual event listeners registered across window events (`scroll`, `resize`, `mousedown`, `touchstart`, etc.).
+   - *Optimization:* Consolidate into unified, debounced/throttled listeners to lower idle CPU cycles on low-end CPUs.
+
+---
+
+### High-Risk Architecture Optimization Plan (Scheduled for Phased Implementation)
+
+These tasks represent significant architectural improvements that require end-to-end regression testing:
+1. **List Virtualization (`@tanstack/react-virtual` or `react-window`):**
+   - *Target Pages:* `/kits` (Kits catalog) and `/orders` (Order tracking & management).
+   - *Current Risk:* Over 50–100+ complex cards rendered simultaneously in DOM (10,000–50,000 DOM nodes).
+   - *Implementation Requirements:*
+     - Support dynamic/variable row heights (cards expand/contract based on deals, stock conditions, variant pickers).
+     - Preserve in-page browser search (Ctrl+F) or enhance app-level search to compensate.
+     - Isolate or lift internal timers from cards to prevent timer resets as cards scroll into and out of view.
+2. **Centralized Countdown Timer Coordination:**
+   - *Current Risk:* 14+ independent `setInterval(..., 1000)` timers across `Orders.jsx`, `Cart.jsx`, and `ProductCard.jsx`, multiplying by item count to 40–100+ concurrent 1-second interval callbacks.
+   - *Implementation Requirements:*
+     - Introduce a single global or page-level tick context (`TimerContext`) updating once per second.
+     - Subcomponents subscribe to current timestamp and compute diffs purely via memoized selectors, eliminating dozens of concurrent native intervals.
+3. **Zustand Store Modularization (`useStore.js`):**
+   - *Current Risk:* 6,011 lines in a single monolithic file. Any state mutation triggers subscriber evaluations across all components.
+   - *Implementation Requirements:*
+     - Split into domain slices (`catalogSlice`, `ordersSlice`, `printSlice`, `authSlice`, `settingsSlice`).
+     - Retain centralized Firestore subscription management to prevent duplicate listeners or broken reference counts.
+4. **Monolithic Component Decoupling:**
+   - *Target Files:* `CheckoutModal.jsx` (5,145 lines) and `Orders.jsx` (4,181 lines).
+   - *Implementation Requirements:*
+     - Extract sub-modals, customer order summaries, and admin dispatch tools into discrete subcomponents with prop isolation.
