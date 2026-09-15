@@ -1052,6 +1052,9 @@ const releaseStockTarget = async (kitId, stockKey, orderDocId, order = {}) => {
     delete nextStocks[stockKey].order;
     delete nextStocks[stockKey].reservedByDealId;
     delete nextStocks[stockKey].adminShelfOrigin;
+    delete nextStocks[stockKey].receiptValidated;
+    delete nextStocks[stockKey].isLegacyOrder;
+    delete nextStocks[stockKey].legacyOrder;
 
     const hasAvailable = Object.values(nextStocks).some((candidate) => !candidate.order?.orderId && !candidate.isReserved);
     await updateDoc(kitRef, {
@@ -1062,6 +1065,9 @@ const releaseStockTarget = async (kitId, stockKey, orderDocId, order = {}) => {
       [`stocks.${stockKey}.reservedByDealId`]: deleteField(),
       [`stocks.${stockKey}.order`]: deleteField(),
       [`stocks.${stockKey}.adminShelfOrigin`]: deleteField(),
+      [`stocks.${stockKey}.receiptValidated`]: deleteField(),
+      [`stocks.${stockKey}.isLegacyOrder`]: deleteField(),
+      [`stocks.${stockKey}.legacyOrder`]: deleteField(),
       hasAvailableStock: hasAvailable,
       lastUpdated: serverTimestamp()
     });
@@ -1079,6 +1085,9 @@ const releaseStockTarget = async (kitId, stockKey, orderDocId, order = {}) => {
   delete nextStocks[stockKey].reservationType;
   delete nextStocks[stockKey].reservedByDealId;
   delete nextStocks[stockKey].adminShelfOrigin;
+  delete nextStocks[stockKey].receiptValidated;
+  delete nextStocks[stockKey].isLegacyOrder;
+  delete nextStocks[stockKey].legacyOrder;
   nextStocks[stockKey].reservedBy = null;
   nextStocks[stockKey].reservedAt = null;
 
@@ -1092,6 +1101,9 @@ const releaseStockTarget = async (kitId, stockKey, orderDocId, order = {}) => {
     [`stocks.${stockKey}.reservedByDealId`]: deleteField(),
     [`stocks.${stockKey}.order`]: deleteField(),
     [`stocks.${stockKey}.adminShelfOrigin`]: deleteField(),
+    [`stocks.${stockKey}.receiptValidated`]: deleteField(),
+    [`stocks.${stockKey}.isLegacyOrder`]: deleteField(),
+    [`stocks.${stockKey}.legacyOrder`]: deleteField(),
     hasAvailableStock: hasAvailable,
     lastAvailableAt: serverTimestamp(),
     lastUpdated: serverTimestamp()
@@ -3821,8 +3833,8 @@ export const useStore = create(
           return;
         }
 
-        await deleteDoc(doc(db, "orders", orderDocId));
         await releaseOrderStocks(orderDocId, order, kits);
+        await deleteDoc(doc(db, "orders", orderDocId));
       },
 
       reverseCompletedOrder: async (orderDocId) => {
@@ -4556,8 +4568,133 @@ export const useStore = create(
               }
             }
           }
+
+          if (isAdmin) {
+            await get().sanitizeOrphanedKitStocks();
+          }
         } catch (err) {
           console.error("SG LOG: Error cleaning up cancelled orders:", err);
+        }
+      },
+
+      sanitizeOrphanedKitStocks: async () => {
+        const { isAdmin } = get();
+        if (!isAdmin) return { sanitizedKitCount: 0, sanitizedStockCount: 0 };
+
+        try {
+          console.log('SG LOG: Auditing kit stocks for orphaned orders and stale validation tags...');
+          const [kitsSnap, ordersSnap] = await Promise.all([
+            getDocs(collection(db, 'kits')),
+            getDocs(collection(db, 'orders'))
+          ]);
+
+          const kits = docsToArray(kitsSnap);
+          const orders = docsToArray(ordersSnap);
+
+          const activeOrderIds = new Set();
+          for (const order of orders) {
+            const status = String(order.status || '').trim().toLowerCase();
+            if (status !== 'cancelled' && status !== 'canceled' && status !== 'invalid') {
+              if (order.id) activeOrderIds.add(String(order.id));
+              if (order.orderId) activeOrderIds.add(String(order.orderId));
+              if (order.orderDocId) activeOrderIds.add(String(order.orderDocId));
+            }
+          }
+
+          let totalSanitizedKits = 0;
+          let totalSanitizedStocks = 0;
+
+          for (const kit of kits) {
+            if (!kit.stocks || typeof kit.stocks !== 'object') continue;
+
+            const kitRef = doc(db, 'kits', kit.id);
+            const updatePayload = {};
+            let kitModified = false;
+            const nextStocks = { ...kit.stocks };
+
+            for (const [stockKey, stock] of Object.entries(kit.stocks)) {
+              if (!stock) continue;
+
+              let isOrphaned = false;
+
+              // Case A: Stock has order reference, but order does not exist or is cancelled
+              const orderRef = stock.order;
+              if (orderRef) {
+                const referenceIds = typeof orderRef === 'object'
+                  ? [orderRef.orderDocId, orderRef.orderId, orderRef.id].filter(Boolean).map(String)
+                  : [String(orderRef)];
+
+                const hasActiveOrder = referenceIds.some((refId) => activeOrderIds.has(refId));
+                if (!hasActiveOrder) {
+                  isOrphaned = true;
+                }
+              }
+
+              // Case B: Stock has receiptValidated, isLegacyOrder, or legacyOrder set, but no active order
+              if (!isOrphaned && (stock.receiptValidated || stock.isLegacyOrder || stock.legacyOrder)) {
+                let hasAssociatedActiveOrder = false;
+                if (orderRef) {
+                  const referenceIds = typeof orderRef === 'object'
+                    ? [orderRef.orderDocId, orderRef.orderId, orderRef.id].filter(Boolean).map(String)
+                    : [String(orderRef)];
+                  hasAssociatedActiveOrder = referenceIds.some((refId) => activeOrderIds.has(refId));
+                }
+                if (!hasAssociatedActiveOrder) {
+                  isOrphaned = true;
+                }
+              }
+
+              if (isOrphaned) {
+                console.log(`SG LOG: Repairing orphaned stock ${kit.id}:${stockKey}`);
+                kitModified = true;
+                totalSanitizedStocks += 1;
+
+                nextStocks[stockKey] = {
+                  ...nextStocks[stockKey],
+                  isReserved: false,
+                  reservedBy: null,
+                  reservedAt: null
+                };
+                delete nextStocks[stockKey].order;
+                delete nextStocks[stockKey].reservationType;
+                delete nextStocks[stockKey].reservedByDealId;
+                delete nextStocks[stockKey].adminShelfOrigin;
+                delete nextStocks[stockKey].receiptValidated;
+                delete nextStocks[stockKey].isLegacyOrder;
+                delete nextStocks[stockKey].legacyOrder;
+
+                updatePayload[`stocks.${stockKey}.isReserved`] = false;
+                updatePayload[`stocks.${stockKey}.reservedAt`] = null;
+                updatePayload[`stocks.${stockKey}.reservedBy`] = null;
+                updatePayload[`stocks.${stockKey}.availableAt`] = serverTimestamp();
+                updatePayload[`stocks.${stockKey}.reservationType`] = deleteField();
+                updatePayload[`stocks.${stockKey}.reservedByDealId`] = deleteField();
+                updatePayload[`stocks.${stockKey}.order`] = deleteField();
+                updatePayload[`stocks.${stockKey}.adminShelfOrigin`] = deleteField();
+                updatePayload[`stocks.${stockKey}.receiptValidated`] = deleteField();
+                updatePayload[`stocks.${stockKey}.isLegacyOrder`] = deleteField();
+                updatePayload[`stocks.${stockKey}.legacyOrder`] = deleteField();
+              }
+            }
+
+            if (kitModified) {
+              totalSanitizedKits += 1;
+              const hasAvailable = Object.values(nextStocks).some((s) => !s.order?.orderId && !s.isReserved);
+              updatePayload.hasAvailableStock = hasAvailable;
+              updatePayload.lastAvailableAt = serverTimestamp();
+              updatePayload.lastUpdated = serverTimestamp();
+
+              await updateDoc(kitRef, updatePayload);
+            }
+          }
+
+          if (totalSanitizedStocks > 0) {
+            console.log(`SG LOG: Repaired ${totalSanitizedStocks} orphaned stock(s) across ${totalSanitizedKits} kit(s).`);
+          }
+          return { sanitizedKitCount: totalSanitizedKits, sanitizedStockCount: totalSanitizedStocks };
+        } catch (err) {
+          console.error('SG LOG: Error sanitizing orphaned kit stocks:', err);
+          return { sanitizedKitCount: 0, sanitizedStockCount: 0, error: err.message };
         }
       },
 

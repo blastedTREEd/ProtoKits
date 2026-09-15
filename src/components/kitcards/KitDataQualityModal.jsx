@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
-import { AlertCircle, CheckCircle2, Loader2, Save, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Loader2, RefreshCw, Save, X } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
+import { useStore } from '../../store/useStore';
 
 function getLegacyConditions(stock) {
   if (Array.isArray(stock?.condition)) {
@@ -82,10 +83,30 @@ function getDraft(drafts, kit) {
 
 export default function KitDataQualityModal({ isOpen, onClose, kits = [], onSave }) {
   const { isDarkMode } = useTheme();
+  const sanitizeOrphanedKitStocks = useStore((state) => state.sanitizeOrphanedKitStocks);
+  const setToastMessage = useStore((state) => state.setToastMessage);
   const [drafts, setDrafts] = useState({});
   const [isSaving, setIsSaving] = useState(false);
+  const [isSanitizing, setIsSanitizing] = useState(false);
   const [saveError, setSaveError] = useState('');
   const rows = useMemo(() => getRows(kits), [kits]);
+
+  const handleSanitizeOrphanedStocks = async () => {
+    if (isSanitizing) return;
+    setIsSanitizing(true);
+    try {
+      const result = await sanitizeOrphanedKitStocks();
+      if (result?.sanitizedStockCount > 0) {
+        setToastMessage?.(`Repaired ${result.sanitizedStockCount} orphaned stock(s) across ${result.sanitizedKitCount} kit(s)!`);
+      } else {
+        setToastMessage?.('All kit stocks are in sync. No orphaned stocks found.');
+      }
+    } catch (err) {
+      setToastMessage?.('Failed to repair orphaned stocks: ' + err.message);
+    } finally {
+      setIsSanitizing(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -285,14 +306,26 @@ export default function KitDataQualityModal({ isOpen, onClose, kits = [], onSave
           )}
         </div>
 
-        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-black/5 px-5 py-4 dark:border-white/10 md:px-6">
-          {saveError ? <p className="text-[10px] font-black uppercase text-red-500">{saveError}</p> : <span />}
+        <div className="flex flex-wrap shrink-0 items-center justify-between gap-3 border-t border-black/5 px-5 py-4 dark:border-white/10 md:px-6">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handleSanitizeOrphanedStocks}
+              disabled={isSanitizing || isSaving}
+              className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2 text-[10px] font-black uppercase tracking-widest text-emerald-600 transition-all hover:bg-emerald-500/20 disabled:opacity-40"
+              title="Scan and release stocks from deleted or cancelled orders"
+            >
+              {isSanitizing ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+              {isSanitizing ? 'Repairing Stocks...' : 'Repair Orphaned Stocks'}
+            </button>
+            {saveError ? <p className="text-[10px] font-black uppercase text-red-500">{saveError}</p> : null}
+          </div>
           <div className="flex shrink-0 gap-2">
-          <button type="button" onClick={handleClose} disabled={isSaving} className="rounded-xl border border-black/10 px-4 py-2.5 text-[11px] font-black uppercase tracking-widest transition-all hover:border-red-500 hover:text-red-500 disabled:opacity-40 dark:border-white/10">Cancel</button>
-          <button type="button" onClick={handleSave} disabled={rows.length === 0 || isSaving} className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-[11px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/20 transition-all hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400 disabled:shadow-none">
-            {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-            {isSaving ? 'Saving' : 'Save Changes'}
-          </button>
+            <button type="button" onClick={handleClose} disabled={isSaving || isSanitizing} className="rounded-xl border border-black/10 px-4 py-2.5 text-[11px] font-black uppercase tracking-widest transition-all hover:border-red-500 hover:text-red-500 disabled:opacity-40 dark:border-white/10">Cancel</button>
+            <button type="button" onClick={handleSave} disabled={rows.length === 0 || isSaving || isSanitizing} className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-[11px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/20 transition-all hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400 disabled:shadow-none">
+              {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+              {isSaving ? 'Saving' : 'Save Changes'}
+            </button>
           </div>
         </div>
       </div>
