@@ -40,12 +40,7 @@ const isBundlePurchasableStock = (stock, source) => (
   && (!stock.isReserved || stock.reservationType === 'admin')
 );
 
-const formatWildSaleCountdown = (milliseconds) => {
-  const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
-};
+
 
 export const isActiveHunt = (hunt, now = Date.now()) => {
   const status = String(hunt?.status || 'pending').toLowerCase();
@@ -189,7 +184,6 @@ export const buildCommerceNotifications = ({
       if (!validFrom || !validUntil || now < validFrom.getTime() || now >= validUntil.getTime()) return;
 
       const kit = kitMap.get(kitId);
-      const remaining = validUntil.getTime() - now;
       notifications.push({
         id: `wild-sale:${deal.id}:${kitId}`,
         notificationKind: 'wild_sale',
