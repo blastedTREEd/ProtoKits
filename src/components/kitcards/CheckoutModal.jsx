@@ -3949,7 +3949,7 @@ const handleFinalizeOrder = async () => {
 
               <div className="mt-6 space-y-4">
                 <div>
-                  <p className="mb-2 text-[12px] font-black uppercase tracking-widest opacity-60">Payment Plan</p>
+                  <p className="mb-2 text-[12px] font-black uppercase tracking-widest">Payment Plan</p>
                   <div className="grid grid-cols-2 gap-2">
                     {availablePaymentPlans.map(plan => {
                       const label = plan === 'full' ? 'Full' : plan === 'partial' ? 'Partial' : 'Reservation';
@@ -4006,7 +4006,7 @@ const handleFinalizeOrder = async () => {
                 )}
 
                 <div>
-                  <p className="mb-2 text-[12px] font-black uppercase tracking-widest opacity-60">Payment Method</p>
+                  <p className="mb-2 text-[12px] font-black uppercase tracking-widest">Payment Method</p>
                   <div className="grid grid-cols-2 gap-2">
                     {availablePaymentMethods.map(method => {
                       const isSelected = checkoutData.paymentMethod?.toLowerCase() === method.toLowerCase();
@@ -4028,13 +4028,13 @@ const handleFinalizeOrder = async () => {
                   {isFinalizing ? 'Reserving...' : isPaymentUnavailable ? 'Payment Unavailable' : 'Pay Now'}
                 </button>
                 {availabilityNotice && (
-                  <div className="space-y-0.5 text-center text-[10px] font-black uppercase tracking-widest text-amber-200">
+                  <div className="space-y-0.5 text-center text-[12px] font-bold uppercase tracking-widest text-amber-200">
                     <p>{availabilityNotice.warning}</p>
-                    <p className="text-[9px] text-white/75">{availabilityNotice.detail}</p>
+                    <p className="text-[11px] text-white">{availabilityNotice.detail}</p>
                   </div>
                 )}
                 {hasIncompleteRequiredDetails && (
-                  <p className="text-center text-[11px] font-black uppercase tracking-widest text-white/70">Details Incomplete</p>
+                  <p className="text-center text-[12px] font-black uppercase tracking-widest text-white">Details Incomplete</p>
                 )}
               </div>
             </section>
@@ -4867,7 +4867,7 @@ const handleFinalizeOrder = async () => {
                   <div className="space-y-5 pt-5 border-t border-white/10">
                       <div className="space-y-4">
                         <div className="space-y-2">
-                          <p className="text-[10px] font-black uppercase opacity-60 tracking-widest">Payment Plan</p>
+                          <p className="text-[10px] font-black uppercase tracking-widest">Payment Plan</p>
                           <div className="grid grid-cols-2 gap-2">
                             {availablePaymentPlans.map(plan => {
                               const isSelected = checkoutData.paymentPlan === plan;
@@ -4999,7 +4999,7 @@ const handleFinalizeOrder = async () => {
                         </AnimatePresence>
                       </div>
                       <div className="space-y-2">
-                        <p className="text-[10px] font-black uppercase opacity-60 tracking-widest">Payment Method</p>
+                        <p className="text-[10px] font-black uppercase tracking-widest">Payment Method</p>
                         <div className="grid grid-cols-2 gap-2">
                           {/* Gamitin ang availablePaymentMethods na naka-compute na sa useMemo —
                               hindi na kailangan ng duplicate filter logic dito. Naka-apply na
@@ -5059,13 +5059,13 @@ const handleFinalizeOrder = async () => {
                             )}
                           </motion.button>
                           {availabilityNotice && (
-                            <div className="space-y-0.5 text-center text-[10px] font-black uppercase tracking-widest text-amber-200">
+                            <div className="space-y-0.5 text-center text-[12px] font-black uppercase tracking-widest text-amber-200">
                               <p>{availabilityNotice.warning}</p>
-                              <p className="text-[9px] text-white/75">{availabilityNotice.detail}</p>
+                              <p className="text-[12px] text-white">{availabilityNotice.detail}</p>
                             </div>
                           )}
                           {hasIncompleteRequiredDetails && (
-                            <p className="text-center text-[10px] font-black uppercase tracking-widest text-white/70">Details Incomplete</p>
+                            <p className="text-center text-[12px] font-black uppercase tracking-widest text-white">Details Incomplete</p>
                           )}
                         </>
                       );
