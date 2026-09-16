@@ -276,7 +276,10 @@ export default function ShippingOptions({
       const nextConfig = { ...methodConfig };
 
       if (Array.isArray(methodConfig.requiredFields)) {
-        const nextRequiredFields = methodConfig.requiredFields.filter(fieldId => fieldId !== 4 && fieldId !== 15);
+        const branchDropoffEnabled = methodConfig.isBranchDropoff === true || (methodConfig.isBranchDropoff === undefined && methodConfig.requiredFields.includes(13));
+        const nextRequiredFields = branchDropoffEnabled
+          ? methodConfig.requiredFields.filter(fieldId => fieldId !== 4 && fieldId !== 12 && fieldId !== 14 && fieldId !== 15)
+          : methodConfig.requiredFields.filter(fieldId => fieldId !== 4 && fieldId !== 15);
         if (nextRequiredFields.length !== methodConfig.requiredFields.length) {
           nextConfig.requiredFields = nextRequiredFields;
           methodChanged = true;
@@ -293,7 +296,9 @@ export default function ShippingOptions({
           const orderPickupEnabled = !branchDropoffEnabled && subConfig.isPickupRequired === true;
           const nextRequiredFields = orderPickupEnabled
               ? [1, 2, 14]
-              : subConfig.requiredFields.filter(fieldId => fieldId !== 4 && fieldId !== 14 && fieldId !== 15);
+              : branchDropoffEnabled
+                ? subConfig.requiredFields.filter(fieldId => fieldId !== 4 && fieldId !== 12 && fieldId !== 14 && fieldId !== 15)
+                : subConfig.requiredFields.filter(fieldId => fieldId !== 4 && fieldId !== 14 && fieldId !== 15);
           const fieldsChanged = nextRequiredFields.length !== subConfig.requiredFields.length
             || nextRequiredFields.some((fieldId, index) => fieldId !== subConfig.requiredFields[index]);
           const hasBranchConflict = branchDropoffEnabled
@@ -379,9 +384,10 @@ export default function ShippingOptions({
       const requiredFields = Array.isArray(config?.requiredFields) ? config.requiredFields : [];
 
       if (!isEnabled) {
-        const nextFields = requiredFields.includes(13)
+        const nextFields = (requiredFields.includes(13)
           ? requiredFields
-          : [...requiredFields, 13].sort((a, b) => a - b);
+          : [...requiredFields, 13]
+        ).filter(fieldId => fieldId !== 12 && fieldId !== 14 && fieldId !== 15).sort((a, b) => a - b);
 
         if (subKey) {
           updateSuboptionConfig(method, subKey, {

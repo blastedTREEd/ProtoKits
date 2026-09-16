@@ -457,7 +457,7 @@ export default function DynamicShippingForm({
       )}
 
       {/* Map (Field 12) */}
-      {isRequired(12) && addressStatus.isEditingAddress && (
+      {isRequired(12) && !isRequired(13) && addressStatus.isEditingAddress && (
         <div className="space-y-2 animate-in fade-in zoom-in-95 duration-300">
           <div className="relative z-0 isolate h-64 w-full overflow-hidden rounded-2xl border border-black/5 bg-black/[0.03] dark:border-white/5 dark:bg-white/[0.04]">
             <MapContainer center={[deliveryData.lat, deliveryData.lng]} zoom={MAP_MAX_PIN_ZOOM} maxZoom={MAP_MAX_PIN_ZOOM} style={{ height: '100%', width: '100%' }}>

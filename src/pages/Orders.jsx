@@ -629,6 +629,18 @@ const getShippingFlags = (order, shippingSettings = null) => {
   const isPickupPointCourier = usesPickupPoint && !isSelfPickup && !isLalamoveSelf;
   const isFreeShipping = isOrderFreeShipping(order, shippingSettings?.shippingMethods);
   const isCourier = !isMeetup && !isSelfPickup && Boolean(order?.shippingMethod);
+  const isBranchDropoff = (() => {
+    if (order?.isBranchDropoff === true) return true;
+    if (order?.receiverDetails?.lbcBranch || order?.lbcBranch) return true;
+    const methodKey = String(order?.shippingMethodKey || order?.shippingMethod || '').trim();
+    const subKey = String(order?.shippingSuboptionKey || '').trim();
+    const methodConfig = shippingSettings?.shippingMethods?.[methodKey];
+    const subConfig = subKey && methodConfig?.suboptions ? methodConfig.suboptions[subKey] : null;
+    if (subConfig?.isBranchDropoff === true || methodConfig?.isBranchDropoff === true) return true;
+    if (Array.isArray(subConfig?.requiredFields) && subConfig.requiredFields.includes(13)) return true;
+    if (Array.isArray(methodConfig?.requiredFields) && methodConfig.requiredFields.includes(13)) return true;
+    return false;
+  })();
   return {
     isLbc,
     isLalamoveSeller,
@@ -640,6 +652,7 @@ const getShippingFlags = (order, shippingSettings = null) => {
     usesMeetupLocation: isMeetup,
     isPickupPointCourier,
     isFreeShipping,
+    isBranchDropoff,
     needsAdminShipping: (isLbc || isLalamoveSeller || isSpx || (isCourier && !isLalamoveSelf)) && !isFreeShipping,
     needsTracking: (isLbc || isLalamoveSeller || isSpx || (isCourier && !isLalamoveSelf)) && !usesPickupPoint && !isMeetup
   };
@@ -2258,8 +2271,8 @@ export default function Orders() {
 
     const location = isLegacyOrder
       ? [legacyAddress.city, legacyAddress.province, legacyAddress.zipCode].filter(Boolean).join(', ')
-      : flags.isLbc && rd.lbcBranch
-      ? rd.lbcBranch
+      : (flags.isLbc || flags.isBranchDropoff) && (rd.lbcBranch || order?.lbcBranch)
+      ? (rd.lbcBranch || order?.lbcBranch)
       : flags.isMeetup
         ? (showExactAddress ? (order?.pickupDetails?.exactAddress || order?.meetupLocation) : order?.meetupLocation)
         : (flags.isSelfPickup || flags.usesPickupPoint)
@@ -2274,7 +2287,7 @@ export default function Orders() {
       landmark: pickupLandmark || rd.landmark || '',
       lat: (showExactAddress ? (actualPickupPoint?.lat || order?.pickupDetails?.exactLat) : null) || rd.lat || order?.pickupDetails?.lat || null,
       lng: (showExactAddress ? (actualPickupPoint?.lng || order?.pickupDetails?.exactLng) : null) || rd.lng || order?.pickupDetails?.lng || null,
-      lbcBranch: rd.lbcBranch
+      lbcBranch: rd.lbcBranch || order?.lbcBranch || null
     };
   };
 
@@ -2492,6 +2505,58 @@ export default function Orders() {
   const renderOrderDetailView = () => {
     if (!selectedOrder) return null;
 
+    const renderTrackingSection = (isRightColumn = false) => {
+      if (!showTrackingSection || isSelectedLegacyOrder) return null;
+
+      return (
+        <div className={isRightColumn ? "flex flex-col gap-3" : "pt-2 border-t border-black/5 dark:border-white/5 flex flex-col gap-3"}>
+          <h3 className={isRightColumn ? "text-[13px] font-black uppercase tracking-widest mb-1 text-left" : "text-[13px] font-black uppercase tracking-wider"}>Tracking Details</h3>
+          {isAdminMode && !selectedIsSelfBooking && !['Completed', 'Cancelled'].includes(selectedOrder.status) ? (
+            <div className="space-y-3">
+              <input className="w-full rounded-xl border border-black/10 bg-white p-3 text-xs font-black uppercase dark:border-white/10 dark:bg-[#121212]" value={trackingRef} onChange={(event) => setTrackingRef(event.target.value.toUpperCase())} placeholder={selectedShippingFlags.isLbc ? 'LBC TRACKING NO.' : 'TRACKING NO. / COURIER URL'} />
+              {selectedShippingFlags.needsAdminShipping && <input type="number" className="w-full rounded-xl border border-black/10 bg-white p-3 text-xs font-black dark:border-white/10 dark:bg-[#121212]" value={shippingFeeInput} onChange={(event) => setShippingFeeInput(event.target.value)} placeholder="SHIPPING FEE" />}
+              {selectedShippingFlags.isFreeShipping && (
+                <div className="flex items-center justify-between rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2.5 text-xs font-black uppercase text-emerald-600 dark:text-emerald-400">
+                  <span>Shipping Fee</span>
+                  <span>FREE SHIPPING (₱0)</span>
+                </div>
+              )}
+              {selectedShippingFlags.isLbc && <input className="w-full rounded-xl border border-black/10 bg-white p-3 text-xs font-black dark:border-white/10 dark:bg-[#121212]" value={claimantBalance} onChange={(event) => setClaimantBalance(event.target.value)} placeholder="CLAIMANT BALANCE" />}
+              <button type="button" onClick={handleSaveShippingDetails} className="w-full rounded-xl bg-blue-600 py-3 text-[12px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/20 transition-all active:scale-95">Confirm Tracking Details &amp; Mark In Transit</button>
+            </div>
+          ) : selectedIsSelfBooking && !isAdminMode && selectedOrder.status === 'Ready for Pickup' && !selectedTracking.value ? (
+            <div className="space-y-3">
+              <input type="text" className="w-full rounded-xl border border-black/10 bg-white p-3 text-xs font-semibold dark:border-white/10 dark:bg-[#121212]" placeholder="TRACKING NO. / COURIER URL" value={customerTrackingLink} onChange={(event) => setCustomerTrackingLink(event.target.value)} />
+              <button type="button" onClick={handleSaveCustomerTrackingLink} className="w-full rounded-xl bg-blue-600 py-3 text-[12px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/20 transition-all active:scale-95">Confirm Tracking Details</button>
+            </div>
+          ) : selectedIsSelfBooking && !isAdminMode && selectedOrder.status !== 'Ready for Pickup' && !selectedTracking.value ? (
+            <p className="text-[13px] font-black uppercase leading-tight text-amber-600 dark:text-amber-500">Please wait until the order is ready for pickup.</p>
+          ) : selectedIsSelfBooking && isAdminMode && !selectedTracking.value ? (
+            <p className="text-[13px] font-black uppercase leading-tight text-amber-600 dark:text-amber-500">PENDING</p>
+          ) : selectedTracking.value ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                {isTrackingUrl(selectedTracking.value) && canCopyOrOpenTracking ? (
+                  <a href={selectedTracking.value} target="_blank" rel="noopener noreferrer" className="inline-flex min-w-0 items-center gap-2 break-all text-[14px] font-black text-blue-600 hover:underline"><ExternalLink size={15} /> <span className="break-all">Open tracking link</span></a>
+                ) : (
+                  <span className="min-w-0 break-all text-[14px] font-black uppercase text-blue-600 dark:text-blue-500">{selectedTracking.value}</span>
+                )}
+                {canCopyOrOpenTracking && !isTrackingUrl(selectedTracking.value) && <button type="button" onClick={() => handleCopyTrackingValue(selectedTracking.value)} className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-blue-600/20 px-2.5 py-2 text-[10px] font-black uppercase tracking-widest text-blue-600 transition hover:bg-blue-600/10"><Copy size={13} /> Copy</button>}
+              </div>
+              {selectedShippingFlags.isFreeShipping ? (
+                <p className="text-[14px] font-bold">Shipping Fee: <span className="font-black uppercase text-emerald-600 dark:text-emerald-500">FREE SHIPPING</span></p>
+              ) : selectedShippingFlags.needsAdminShipping ? (
+                <p className="text-[14px] font-bold">Shipping Fee: {selectedTotals.shippingFee === 0 ? <span className="font-black uppercase text-amber-600 dark:text-amber-500">{shippingFeeDisplayTextOrder}</span> : `₱${selectedTotals.shippingFee.toLocaleString()}`}</p>
+              ) : null}
+              {selectedOrder.claimantBalance && <p className="text-[14px] font-bold">Claimant Balance: ₱{Number(selectedOrder.claimantBalance || 0).toLocaleString()}</p>}
+            </div>
+          ) : (
+            <p className="text-[13px] font-black uppercase leading-tight text-amber-600 dark:text-amber-500">Please wait.</p>
+          )}
+        </div>
+      );
+    };
+
     const isFinalizedOrder = ['completed', 'cancelled'].includes(String(selectedOrder.status || '').toLowerCase());
     const completedAddress = [
       selectedOrder.receiverDetails?.city
@@ -2533,12 +2598,16 @@ export default function Orders() {
     const pickupMapLng = detailShowExact
       ? selectedLogistics.lng
       : selectedOrder.pickupDetails?.lng;
-    const mapLat = (isSelectedLegacyOrder ? legacyZipMapCoordinates?.lat : null)
-      || (isPickupMap ? pickupMapLat : null)
-      || selectedLogistics.lat;
-    const mapLng = (isSelectedLegacyOrder ? legacyZipMapCoordinates?.lng : null)
-      || (isPickupMap ? pickupMapLng : null)
-      || selectedLogistics.lng;
+    const mapLat = selectedShippingFlags.isBranchDropoff
+      ? null
+      : (isSelectedLegacyOrder ? legacyZipMapCoordinates?.lat : null)
+        || (isPickupMap ? pickupMapLat : null)
+        || selectedLogistics.lat;
+    const mapLng = selectedShippingFlags.isBranchDropoff
+      ? null
+      : (isSelectedLegacyOrder ? legacyZipMapCoordinates?.lng : null)
+        || (isPickupMap ? pickupMapLng : null)
+        || selectedLogistics.lng;
     const itemsSubtotal = detailItems.reduce((acc, item) => {
       const sellPrice = Number(item.sellPrice || item.price || 0);
       const installmentFee = Number(item.appliedInstallmentFee || 0);
@@ -2721,7 +2790,7 @@ export default function Orders() {
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(360px,420px)] gap-x-8 gap-y-6 items-start">
           <div className="lg:col-span-2 lg:row-start-1">
           {/* Shipping Details & Map */}
-        <div className={`grid grid-cols-1 ${isFinalizedOrder ? '' : 'lg:grid-cols-2 gap-8 mb-8 pb-8 border-b border-black/5 dark:border-white/5'}`}>
+        <div className={`grid grid-cols-1 ${isFinalizedOrder || (selectedShippingFlags.isBranchDropoff && (!showTrackingSection || isSelectedLegacyOrder)) ? 'mb-8 pb-8 border-b border-black/5 dark:border-white/5' : 'lg:grid-cols-2 gap-8 mb-8 pb-8 border-b border-black/5 dark:border-white/5'}`}>
           {/* Left Column: Shipping Info */}
           <div className="space-y-4 text-left">
             <h3 className="text-[13px] font-black uppercase tracking-widest mb-2">Shipping Details</h3>
@@ -2759,36 +2828,54 @@ export default function Orders() {
             <div className="flex flex-col">
               <div className="flex items-center gap-2 mb-0.5">
                 <span className="text-[13px] font-black uppercase tracking-wider">
-                  {selectedShippingFlags.usesPickupPoint && !isSelectedLegacyOrder ? 'Pickup Pin' : 'Complete Address'}
+                  {selectedShippingFlags.usesPickupPoint && !isSelectedLegacyOrder ? 'Pickup Pin' : selectedShippingFlags.isBranchDropoff ? `${selectedOrder?.courierName || (selectedShippingMethod !== 'N/A' ? selectedShippingMethod : 'Courier')} Branch` : 'Complete Address'}
                 </span>
               </div>
               <span className="text-[14px] font-bold uppercase leading-relaxed text-blue-600">
-                {!isFinalizedOrder && !isSelectedLegacyOrder && selectedShippingFlags.usesPickupPoint && selectedLogistics.landmark && (
-                  <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <span>{selectedLogistics.landmark}</span>
-                    <span className={`inline-flex align-middle px-2 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider ${detailShowExact
-                      ? 'bg-blue-600/15 text-blue-600 dark:text-blue-400'
-                      : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
-                    }`}>
-                      {detailShowExact ? (selectedShippingFlags.isSelfPickup ? 'PICKUP LOCATION' : 'PICKUP PIN LOCATION') : (selectedShippingFlags.isSelfPickup ? 'LOCATION CHECK ONLY' : 'RATE CHECKING ONLY')}
+                {selectedShippingFlags.isBranchDropoff ? (
+                  (() => {
+                    const rd = selectedOrder.receiverDetails || {};
+                    const city = rd.city || rd.town || selectedOrder.city || selectedOrder.town || '';
+                    const province = rd.province || selectedOrder.province || '';
+                    const zipCode = rd.zipCode || rd.zip || selectedOrder.zipCode || selectedOrder.zip || '';
+                    const cityProvince = [city, province].filter(Boolean).join(', ');
+                    const destinationLine = [cityProvince, zipCode].filter(Boolean).join('  ');
+                    return (
+                      <span className="block">
+                        {destinationLine || 'No address details'}
+                      </span>
+                    );
+                  })()
+                ) : (
+                  <>
+                    {!isFinalizedOrder && !isSelectedLegacyOrder && selectedShippingFlags.usesPickupPoint && selectedLogistics.landmark && (
+                      <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span>{selectedLogistics.landmark}</span>
+                        <span className={`inline-flex align-middle px-2 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider ${detailShowExact
+                          ? 'bg-blue-600/15 text-blue-600 dark:text-blue-400'
+                          : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                        }`}>
+                          {detailShowExact ? (selectedShippingFlags.isSelfPickup ? 'PICKUP LOCATION' : 'PICKUP PIN LOCATION') : (selectedShippingFlags.isSelfPickup ? 'LOCATION CHECK ONLY' : 'RATE CHECKING ONLY')}
+                        </span>
+                      </span>
+                    )}
+                    <span className="block">
+                      {isFinalizedOrder ? (completedAddress || 'No address details') : selectedLogistics.display}
+                      {!isFinalizedOrder && !isSelectedLegacyOrder && selectedShippingFlags.usesPickupPoint && !selectedLogistics.landmark && (
+                        <span className={`inline-flex align-middle ml-2 px-2 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider ${detailShowExact
+                          ? 'bg-blue-600/15 text-blue-600 dark:text-blue-400'
+                          : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                        }`}>
+                          {detailShowExact ? (selectedShippingFlags.isSelfPickup ? 'PICKUP LOCATION' : 'PICKUP PIN LOCATION') : (selectedShippingFlags.isSelfPickup ? 'LOCATION CHECK ONLY' : 'RATE CHECKING ONLY')}
+                        </span>
+                      )}
                     </span>
-                  </span>
-                )}
-                <span className="block">
-                  {isFinalizedOrder ? (completedAddress || 'No address details') : selectedLogistics.display}
-                  {!isFinalizedOrder && !isSelectedLegacyOrder && selectedShippingFlags.usesPickupPoint && !selectedLogistics.landmark && (
-                    <span className={`inline-flex align-middle ml-2 px-2 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider ${detailShowExact
-                      ? 'bg-blue-600/15 text-blue-600 dark:text-blue-400'
-                      : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
-                    }`}>
-                      {detailShowExact ? 'ACTUAL PIN' : (selectedShippingFlags.isSelfPickup ? 'LOCATION CHECK ONLY' : 'RATE CHECKING ONLY')}
-                    </span>
-                  )}
-                </span>
-                {!isFinalizedOrder && !isSelectedLegacyOrder && !selectedShippingFlags.usesPickupPoint && selectedOrder.receiverDetails?.city && (
-                  <span className="block mt-0.5">
-                    {selectedOrder.receiverDetails.city}, {selectedOrder.receiverDetails.province} {selectedOrder.receiverDetails.zipCode}
-                  </span>
+                    {!isFinalizedOrder && !isSelectedLegacyOrder && !selectedShippingFlags.usesPickupPoint && selectedOrder.receiverDetails?.city && (
+                      <span className="block mt-0.5">
+                        {selectedOrder.receiverDetails.city}, {selectedOrder.receiverDetails.province} {selectedOrder.receiverDetails.zipCode}
+                      </span>
+                    )}
+                  </>
                 )}
               </span>
               {!isFinalizedOrder && !isAdminMode && selectedShippingFlags.usesPickupPoint && !isSelectedLegacyOrder && !detailShowExact && (
@@ -2857,84 +2944,48 @@ export default function Orders() {
               </div>
             )}
 
-            {/* Tracking / Inputs */}
-            {showTrackingSection && !isSelectedLegacyOrder && (
-              <div className="pt-2 border-t border-black/5 dark:border-white/5 flex flex-col gap-3">
-                <span className="text-[13px] font-black uppercase tracking-wider">Tracking Details</span>
-                {isAdminMode && !selectedIsSelfBooking && !['Completed', 'Cancelled'].includes(selectedOrder.status) ? (
-                  <div className="space-y-3">
-                    <input className="w-full rounded-xl border border-black/10 bg-white p-3 text-xs font-black uppercase dark:border-white/10 dark:bg-[#121212]" value={trackingRef} onChange={(event) => setTrackingRef(event.target.value.toUpperCase())} placeholder={selectedShippingFlags.isLbc ? 'LBC TRACKING NO.' : 'TRACKING NO. / COURIER URL'} />
-                    {selectedShippingFlags.needsAdminShipping && <input type="number" className="w-full rounded-xl border border-black/10 bg-white p-3 text-xs font-black dark:border-white/10 dark:bg-[#121212]" value={shippingFeeInput} onChange={(event) => setShippingFeeInput(event.target.value)} placeholder="SHIPPING FEE" />}
-                    {selectedShippingFlags.isFreeShipping && (
-                      <div className="flex items-center justify-between rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2.5 text-xs font-black uppercase text-emerald-600 dark:text-emerald-400">
-                        <span>Shipping Fee</span>
-                        <span>FREE SHIPPING (₱0)</span>
-                      </div>
-                    )}
-                    {selectedShippingFlags.isLbc && <input className="w-full rounded-xl border border-black/10 bg-white p-3 text-xs font-black dark:border-white/10 dark:bg-[#121212]" value={claimantBalance} onChange={(event) => setClaimantBalance(event.target.value)} placeholder="CLAIMANT BALANCE" />}
-                    <button type="button" onClick={handleSaveShippingDetails} className="w-full rounded-xl bg-blue-600 py-3 text-[12px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/20 transition-all active:scale-95">Confirm Tracking Details &amp; Mark In Transit</button>
-                  </div>
-                ) : selectedIsSelfBooking && !isAdminMode && selectedOrder.status === 'Ready for Pickup' && !selectedTracking.value ? (
-                  <div className="space-y-3">
-                    <input type="text" className="w-full rounded-xl border border-black/10 bg-white p-3 text-xs font-semibold dark:border-white/10 dark:bg-[#121212]" placeholder="TRACKING NO. / COURIER URL" value={customerTrackingLink} onChange={(event) => setCustomerTrackingLink(event.target.value)} />
-                    <button type="button" onClick={handleSaveCustomerTrackingLink} className="w-full rounded-xl bg-blue-600 py-3 text-[12px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/20 transition-all active:scale-95">Confirm Tracking Details</button>
-                  </div>
-                ) : selectedIsSelfBooking && !isAdminMode && selectedOrder.status !== 'Ready for Pickup' && !selectedTracking.value ? (
-                  <p className="text-[13px] font-black uppercase leading-tight text-amber-600 dark:text-amber-500">Please wait until the order is ready for pickup.</p>
-                ) : selectedIsSelfBooking && isAdminMode && !selectedTracking.value ? (
-                  <p className="text-[13px] font-black uppercase leading-tight text-amber-600 dark:text-amber-500">PENDING</p>
-                ) : selectedTracking.value ? (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-3">
-                      {isTrackingUrl(selectedTracking.value) && canCopyOrOpenTracking ? (
-                        <a href={selectedTracking.value} target="_blank" rel="noopener noreferrer" className="inline-flex min-w-0 items-center gap-2 break-all text-[14px] font-black text-blue-600 hover:underline"><ExternalLink size={15} /> <span className="break-all">Open tracking link</span></a>
-                      ) : (
-                        <span className="min-w-0 break-all text-[14px] font-black uppercase text-blue-600 dark:text-blue-500">{selectedTracking.value}</span>
-                      )}
-                      {canCopyOrOpenTracking && !isTrackingUrl(selectedTracking.value) && <button type="button" onClick={() => handleCopyTrackingValue(selectedTracking.value)} className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-blue-600/20 px-2.5 py-2 text-[10px] font-black uppercase tracking-widest text-blue-600 transition hover:bg-blue-600/10"><Copy size={13} /> Copy</button>}
-                    </div>
-                    {selectedShippingFlags.isFreeShipping ? (
-                      <p className="text-[14px] font-bold">Shipping Fee: <span className="font-black uppercase text-emerald-600 dark:text-emerald-500">FREE SHIPPING</span></p>
-                    ) : selectedShippingFlags.needsAdminShipping ? (
-                      <p className="text-[14px] font-bold">Shipping Fee: {selectedTotals.shippingFee === 0 ? <span className="font-black uppercase text-amber-600 dark:text-amber-500">{shippingFeeDisplayTextOrder}</span> : `₱${selectedTotals.shippingFee.toLocaleString()}`}</p>
-                    ) : null}
-                    {selectedOrder.claimantBalance && <p className="text-[14px] font-bold">Claimant Balance: ₱{Number(selectedOrder.claimantBalance || 0).toLocaleString()}</p>}
-                  </div>
-                ) : (
-                  <p className="text-[13px] font-black uppercase leading-tight text-amber-600 dark:text-amber-500">Please wait.</p>
-                )}
-              </div>
-            )}
+            {/* Tracking / Inputs (non-branch dropoff or mobile fallback) */}
+            {!selectedShippingFlags.isBranchDropoff && renderTrackingSection(false)}
           </div>
 
-          {/* Right Column: Map */}
-          {!isFinalizedOrder && <div className="flex flex-col h-full justify-between">
-            <h3 className="text-[13px] font-black uppercase tracking-widest mb-2 text-left">Location Map</h3>
-            {mapLat && mapLng ? (
-              <div className="overflow-hidden rounded-3xl border border-black/5 dark:border-white/5 h-[280px] w-full relative z-10">
-                <MapContainer 
-                  center={[mapLat, mapLng]} 
-                  zoom={17} 
-                  scrollWheelZoom={false} 
-                  style={{ height: '100%', width: '100%' }}
-                >
-                  <TileLayer
-                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  />
-                  <Marker position={[mapLat, mapLng]} />
-                  <ChangeView center={[mapLat, mapLng]} />
-                  <MapRecenterButton center={[mapLat, mapLng]} />
-                </MapContainer>
-              </div>
+          {/* Right Column: Map or Tracking Details (for branch dropoff on desktop) */}
+          {!isFinalizedOrder && (
+            selectedShippingFlags.isBranchDropoff ? (
+              showTrackingSection && !isSelectedLegacyOrder ? (
+                <div className="flex flex-col text-left">
+                  {renderTrackingSection(true)}
+                </div>
+              ) : null
             ) : (
-              <div className="h-[280px] rounded-3xl bg-black/[0.02] dark:bg-white/[0.02] border border-black/5 dark:border-white/5 flex flex-col items-center justify-center text-center p-4">
-                <MapPin size={36} className="text-blue-600 opacity-40 mb-2" />
-                <span className="text-xs font-black uppercase opacity-55">No coordinates for map</span>
-                <span className="text-[10px] opacity-40 mt-1">Delivery address will be used manually.</span>
+              <div className="flex flex-col h-full justify-between">
+                <h3 className="text-[13px] font-black uppercase tracking-widest mb-2 text-left">Location Map</h3>
+                {mapLat && mapLng ? (
+                  <div className="overflow-hidden rounded-3xl border border-black/5 dark:border-white/5 h-[280px] w-full relative z-10">
+                    <MapContainer 
+                      center={[mapLat, mapLng]} 
+                      zoom={17} 
+                      scrollWheelZoom={false} 
+                      style={{ height: '100%', width: '100%' }}
+                    >
+                      <TileLayer
+                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                      />
+                      <Marker position={[mapLat, mapLng]} />
+                      <ChangeView center={[mapLat, mapLng]} />
+                      <MapRecenterButton center={[mapLat, mapLng]} />
+                    </MapContainer>
+                  </div>
+                ) : (
+                  <div className="h-[280px] rounded-3xl bg-black/[0.02] dark:bg-white/[0.02] border border-black/5 dark:border-white/5 flex flex-col items-center justify-center text-center p-4">
+                    <MapPin size={36} className="text-blue-600 opacity-40 mb-2" />
+                    <span className="text-xs font-black uppercase opacity-55">No coordinates for map</span>
+                    <span className="text-[10px] opacity-40 mt-1">Delivery address will be used manually.</span>
+                  </div>
+                )}
               </div>
-            )}
-           </div>}
+            )
+          )}
          </div>
           </div>
 
