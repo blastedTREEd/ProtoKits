@@ -2770,7 +2770,7 @@ export default function Orders() {
                       ? 'bg-blue-600/15 text-blue-600 dark:text-blue-400'
                       : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
                     }`}>
-                      {detailShowExact ? 'ACTUAL PIN' : (selectedShippingFlags.isSelfPickup ? 'LOCATION CHECK ONLY' : 'RATE CHECKING ONLY')}
+                      {detailShowExact ? (selectedShippingFlags.isSelfPickup ? 'PICKUP LOCATION' : 'PICKUP PIN LOCATION') : (selectedShippingFlags.isSelfPickup ? 'LOCATION CHECK ONLY' : 'RATE CHECKING ONLY')}
                     </span>
                   </span>
                 )}
