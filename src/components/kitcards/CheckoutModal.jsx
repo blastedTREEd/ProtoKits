@@ -4355,7 +4355,7 @@ const handleFinalizeOrder = async () => {
                                     </p>
                                   )}
                                   <p className="text-[9px] font-black uppercase text-amber-600 dark:text-amber-500 leading-tight ml-6 mt-1 animate-in fade-in duration-300">
-                                      * Actual pin and complete address will be available once payment is validated and the order is ready for pickup.
+                                      *FOR SHIPPING RATE CHECKING ONLY. ACTUAL PIN WILL BE AAILABLE AFTER RECEIPT VALIDATION.
                                   </p>
                                 </div>
                                 <div className="p-4 rounded-2xl bg-blue-600/5 border border-blue-600/10 space-y-2">
@@ -4392,7 +4392,7 @@ const handleFinalizeOrder = async () => {
                                       {getCheckoutPlaceAddress(selectedPickupDetails)}
                                     </p>
                                     <p className="text-[9px] font-black uppercase text-amber-600 dark:text-amber-500 leading-tight ml-6 mt-1 animate-in fade-in duration-300">
-                                      * Actual pin and complete address will be available once payment is validated and the order is ready for pickup.
+                                      *FOR SHIPPING RATE CHECKING ONLY. ACTUAL PIN WILL BE AAILABLE AFTER RECEIPT VALIDATION.
                                     </p>
                                     </>
                                   )}
@@ -4499,7 +4499,7 @@ const handleFinalizeOrder = async () => {
                                       )}
                                       {checkoutData.shippingMethod !== 'Seller Meetup' && (
                                         <p className="text-[9px] font-black uppercase text-amber-600 dark:text-amber-500 leading-tight ml-6 mt-1">
-                                          * Actual pin and complete address will be available once payment is validated and the order is ready for pickup.
+                                          *FOR SHIPPING RATE CHECKING ONLY. ACTUAL PIN WILL BE AAILABLE AFTER RECEIPT VALIDATION.
                                         </p>
                                       )}
                                     </div>

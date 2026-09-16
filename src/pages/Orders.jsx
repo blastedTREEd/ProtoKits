@@ -2728,7 +2728,7 @@ export default function Orders() {
                       ? 'bg-blue-600/15 text-blue-600 dark:text-blue-400'
                       : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
                     }`}>
-                      {detailShowExact ? 'Actual Pin' : 'Rate Checking'}
+                      {detailShowExact ? 'ACTUAL PIN' : 'RATE CHECKING'}
                     </span>
                   </span>
                 )}
@@ -2739,7 +2739,7 @@ export default function Orders() {
                       ? 'bg-blue-600/15 text-blue-600 dark:text-blue-400'
                       : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
                     }`}>
-                      {detailShowExact ? 'Actual Pin' : 'Rate Checking'}
+                      {detailShowExact ? 'ACTUAL PIN' : 'RATE CHECKING'}
                     </span>
                   )}
                 </span>
@@ -2751,7 +2751,7 @@ export default function Orders() {
               </span>
               {!isFinalizedOrder && !isAdminMode && selectedShippingFlags.usesPickupPoint && !isSelectedLegacyOrder && !detailShowExact && (
                 <span className="text-[13px] font-black uppercase text-amber-600 dark:text-amber-500 mt-1 leading-tight">
-                   * Actual pin and complete address will be available once payment is validated and the order is ready for pickup.
+                   *FOR SHIPPING RATE CHECKING ONLY. ACTUAL PIN WILL BE AAILABLE AFTER RECEIPT VALIDATION.
                 </span>
               )}
             </div>

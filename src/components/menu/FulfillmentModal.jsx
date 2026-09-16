@@ -825,7 +825,7 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
                             className="flex items-center gap-1.5 rounded-xl border border-garage-blue/30 bg-garage-blue/10 px-3 py-2 text-[11px] font-black uppercase tracking-wide text-garage-blue transition-all"
                           >
                             {pickupAddressMode === 'actual-pin' ? <MapPinCheck size={14} strokeWidth={2.5} /> : <MapPinSearch size={14} strokeWidth={2.5} />}
-                            {pickupAddressMode === 'actual-pin' ? 'Actual Pin' : 'Rate Checking'}
+                            {pickupAddressMode === 'actual-pin' ? 'ACTUAL PIN' : 'RATE CHECKING'}
                           </button>
                         ) : <span />}
                         <button
