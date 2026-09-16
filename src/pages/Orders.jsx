@@ -2957,7 +2957,7 @@ export default function Orders() {
                 </div>
               ) : null
             ) : (
-              <div className="flex flex-col h-full justify-between">
+              <div className="flex flex-col">
                 <h3 className="text-[13px] font-black uppercase tracking-widest mb-2 text-left">Location Map</h3>
                 {mapLat && mapLng ? (
                   <div className="overflow-hidden rounded-3xl border border-black/5 dark:border-white/5 h-[280px] w-full relative z-10">
