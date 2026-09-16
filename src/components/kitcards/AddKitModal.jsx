@@ -938,6 +938,8 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
   const [returnToMasterListOnSave, setReturnToMasterListOnSave] = useState(false);
   const [masterSearchQuery, setMasterSearchQuery] = useState('');
   const [selectedMasterIds, setSelectedMasterIds] = useState([]);
+  const hasUnsavedChangesRef = useRef(false);
+  const handleCloseRef = useRef(null);
   const [bulkUpdateParam, setBulkUpdateParam] = useState('brand');
   const [bulkUpdateValue, setBulkUpdateValue] = useState('');
   const [recentEdits, setRecentEdits] = useState(() => {
@@ -1155,12 +1157,17 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
     window.history.pushState({ modalKey: stateKey }, '');
 
     const handlePopState = () => {
-      handleClose();
+      handleCloseRef.current?.();
     };
 
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
-        handleClose();
+        if (hasUnsavedChangesRef.current) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        handleCloseRef.current?.();
       }
     };
 
@@ -2057,6 +2064,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
     if (hasUnsavedChanges && !window.confirm('Discard unsaved kit changes?')) return;
     onClose();
   };
+  handleCloseRef.current = handleClose;
 
   const buildBatchPreviewRow = (row, index) => {
     const status = normalizeStockStatus(getBatchValue(row, 'AVAILABILITY', 'STATUS'));
@@ -2476,6 +2484,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
     editingStockKey
   );
   const hasUnsavedChanges = Boolean(savedSnapshot && currentSnapshot !== savedSnapshot);
+  hasUnsavedChangesRef.current = hasUnsavedChanges;
   const panelClass = isDarkMode
     ? 'bg-[#0b0b0c] border-white/10 text-white'
     : 'bg-white border-black/10 text-neutral-900';

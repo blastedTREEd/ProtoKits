@@ -1821,7 +1821,7 @@ export default function Kits({ isActive = true }) {
 
           <Suspense fallback={null}>
             {isAddKitModalOpen && (
-              <AddKitModal isOpen={isAddKitModalOpen} onClose={() => { isAddKitModalOpen(false); setKitToEdit(null); }} onSave={handleSaveNewKit} editingKit={kitToEdit} />
+              <AddKitModal isOpen={isAddKitModalOpen} onClose={() => { setIsAddKitModalOpen(false); setKitToEdit(null); }} onSave={handleSaveNewKit} editingKit={kitToEdit} />
             )}
             {isAddDealModalOpen && (
               <AddDealModal isOpen={isAddDealModalOpen} onClose={handleCloseDealModal} dealToEdit={dealToEdit} />
