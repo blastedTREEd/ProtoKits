@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Settings, ChevronDown, ChevronUp, Plus, Trash2, Check } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Settings, ChevronDown, ChevronUp, Plus, Trash2, Check, Pencil, X } from 'lucide-react';
 import ShippingFieldsConfig from './ShippingFieldsConfig';
 
 const DEFAULT_METHOD_REQUIRED_FIELDS = {
@@ -24,6 +24,39 @@ export default function ShippingOptions({
   const [newMethodName, setNewMethodName] = useState('');
   const [newSubOptionLabels, setNewSubOptionLabels] = useState({}); // { [method]: label }
   const [expandedConfigs, setExpandedConfigs] = useState({}); // { [methodOrSubKey]: boolean }
+  const [editingSubKey, setEditingSubKey] = useState(null); // format: `${method}__${subKey}`
+  const [editingSubLabel, setEditingSubLabel] = useState('');
+  const justFinishedEditingRef = useRef(false);
+
+  const startEditSubLabel = (method, subKey, currentLabel) => {
+    setEditingSubKey(`${method}__${subKey}`);
+    setEditingSubLabel(currentLabel || '');
+  };
+
+  const handleSaveSubLabel = (method, subKey) => {
+    const trimmed = editingSubLabel.trim();
+    setEditingSubKey(null);
+    justFinishedEditingRef.current = true;
+    setTimeout(() => {
+      justFinishedEditingRef.current = false;
+    }, 200);
+
+    if (trimmed) {
+      const currentVal = getSuboptionConfig(method, subKey);
+      if (trimmed !== currentVal?.label) {
+        updateSuboptionConfig(method, subKey, { label: trimmed }, true);
+      }
+    }
+  };
+
+  const handleCancelSubLabel = () => {
+    setEditingSubKey(null);
+    setEditingSubLabel('');
+    justFinishedEditingRef.current = true;
+    setTimeout(() => {
+      justFinishedEditingRef.current = false;
+    }, 200);
+  };
 
   const toggleExpanded = (key) => {
     setExpandedConfigs(prev => ({
@@ -243,10 +276,7 @@ export default function ShippingOptions({
       const nextConfig = { ...methodConfig };
 
       if (Array.isArray(methodConfig.requiredFields)) {
-        const branchDropoffEnabled = methodConfig.requiredFields.includes(13);
-      const nextRequiredFields = branchDropoffEnabled
-        ? BRANCH_DROPOFF_REQUIRED_FIELDS
-          : methodConfig.requiredFields.filter(fieldId => fieldId !== 4 && fieldId !== 15);
+        const nextRequiredFields = methodConfig.requiredFields.filter(fieldId => fieldId !== 4 && fieldId !== 15);
         if (nextRequiredFields.length !== methodConfig.requiredFields.length) {
           nextConfig.requiredFields = nextRequiredFields;
           methodChanged = true;
@@ -259,24 +289,23 @@ export default function ShippingOptions({
 
         Object.entries(methodConfig.suboptions).forEach(([subKey, subConfig]) => {
           if (!Array.isArray(subConfig?.requiredFields)) return;
-          const branchDropoffEnabled = subConfig.requiredFields.includes(13);
+          const branchDropoffEnabled = subConfig.isBranchDropoff === true || (subConfig.isBranchDropoff === undefined && subConfig.requiredFields.includes(13));
           const orderPickupEnabled = !branchDropoffEnabled && subConfig.isPickupRequired === true;
           const nextRequiredFields = orderPickupEnabled
               ? [1, 2, 14]
-              : branchDropoffEnabled
-                ? BRANCH_DROPOFF_REQUIRED_FIELDS
-                : subConfig.requiredFields.filter(fieldId => fieldId !== 4 && fieldId !== 14 && fieldId !== 15);
+              : subConfig.requiredFields.filter(fieldId => fieldId !== 4 && fieldId !== 14 && fieldId !== 15);
           const fieldsChanged = nextRequiredFields.length !== subConfig.requiredFields.length
             || nextRequiredFields.some((fieldId, index) => fieldId !== subConfig.requiredFields[index]);
           const hasBranchConflict = branchDropoffEnabled
             && (subConfig.isPickupRequired || subConfig.isSelfBooking);
           const hasOrderPickupConflict = orderPickupEnabled && subConfig.isSelfBooking;
-          if (!fieldsChanged && !hasBranchConflict && !hasOrderPickupConflict) return;
+          const needsBranchFlag = branchDropoffEnabled && subConfig.isBranchDropoff === undefined;
+          if (!fieldsChanged && !hasBranchConflict && !hasOrderPickupConflict && !needsBranchFlag) return;
           nextSuboptions[subKey] = {
             ...subConfig,
             requiredFields: nextRequiredFields,
             ...(branchDropoffEnabled
-              ? { isPickupRequired: false, isSelfBooking: false }
+              ? { isBranchDropoff: true, isPickupRequired: false, isSelfBooking: false }
               : orderPickupEnabled
                 ? { isSelfBooking: false }
                 : {})
@@ -330,10 +359,14 @@ export default function ShippingOptions({
     );
   };
 
-  // Branch drop-off is represented by the courier branch required field (id 13).
+  // Branch drop-off is represented by the courier branch required field (id 13)
+  // or explicit isBranchDropoff configuration flag.
   const getBranchDropoff = (methodVal, subKey = null) => {
     const methodObj = typeof methodVal === 'object' && methodVal !== null ? methodVal : {};
     const config = subKey ? methodObj.suboptions?.[subKey] : methodObj;
+    if (config?.isBranchDropoff !== undefined) {
+      return config.isBranchDropoff === true;
+    }
     return Array.isArray(config?.requiredFields) && config.requiredFields.includes(13);
   };
 
@@ -344,17 +377,35 @@ export default function ShippingOptions({
       const methodObj = typeof methodVal === 'object' && methodVal !== null ? methodVal : {};
       const config = subKey ? methodObj.suboptions?.[subKey] : methodObj;
       const requiredFields = Array.isArray(config?.requiredFields) ? config.requiredFields : [];
-      const nextFields = isEnabled
-        ? requiredFields.filter(fieldId => fieldId !== 13)
-        : BRANCH_DROPOFF_REQUIRED_FIELDS;
 
-      if (subKey) {
-        updateSuboptionConfig(method, subKey, {
-          requiredFields: nextFields,
-          ...(isEnabled ? {} : { isPickupRequired: false, isSelfBooking: false })
-        }, true);
+      if (!isEnabled) {
+        const nextFields = requiredFields.includes(13)
+          ? requiredFields
+          : [...requiredFields, 13].sort((a, b) => a - b);
+
+        if (subKey) {
+          updateSuboptionConfig(method, subKey, {
+            isBranchDropoff: true,
+            requiredFields: nextFields,
+            isPickupRequired: false,
+            isSelfBooking: false
+          }, true);
+        } else {
+          updateMethodConfig(method, {
+            isBranchDropoff: true,
+            requiredFields: nextFields
+          }, true);
+        }
       } else {
-        updateMethodConfig(method, { requiredFields: nextFields }, true);
+        if (subKey) {
+          updateSuboptionConfig(method, subKey, {
+            isBranchDropoff: false
+          }, true);
+        } else {
+          updateMethodConfig(method, {
+            isBranchDropoff: false
+          }, true);
+        }
       }
     };
 
@@ -495,7 +546,7 @@ export default function ShippingOptions({
                   <div className="flex flex-wrap gap-2">
                     <input
                       type="text"
-                      placeholder="Add New Suboption (e.g. Standard, COD)"
+                      placeholder="Add New Option (e.g. Standard, COD)"
                       value={newSubOptionLabels[m] || ''}
                       onChange={(e) => setNewSubOptionLabels(prev => ({ ...prev, [m]: e.target.value }))}
                       className="min-w-0 flex-1 rounded-xl border border-black/5 bg-white/5 px-3 py-2 text-[13px] font-bold text-neutral-900 focus:outline-none dark:border-white/5 dark:bg-black/5 dark:text-white"
@@ -515,12 +566,15 @@ export default function ShippingOptions({
                     {isMainConfigExpanded && (
                       <ShippingFieldsConfig
                         requiredFields={defaultRequiredFields || methodConfig.requiredFields || []}
-                        onChangeFields={(next) => updateMethodConfig(m, { requiredFields: next }, true)}
+                        onChangeFields={(next) => updateMethodConfig(m, {
+                          requiredFields: next,
+                          ...(getBranchDropoff(methodVal) ? { isBranchDropoff: true } : {})
+                        }, true)}
                         hiddenFieldIds={defaultRequiredFields
                           ? []
                           : (getBranchDropoff(methodVal) ? [4, 12, 14, 15] : [4, 13, 15])}
-                        allowedFieldIds={defaultRequiredFields || (getBranchDropoff(methodVal) ? BRANCH_DROPOFF_REQUIRED_FIELDS : null)}
-                        lockedFieldIds={defaultRequiredFields || (getBranchDropoff(methodVal) ? BRANCH_DROPOFF_REQUIRED_FIELDS : [])}
+                        allowedFieldIds={defaultRequiredFields || null}
+                        lockedFieldIds={defaultRequiredFields || []}
                       />
                     )}
                     <div className="flex items-center pt-1">
@@ -549,6 +603,7 @@ export default function ShippingOptions({
                         const isBranchDropoffEnabled = getBranchDropoff(methodVal, sub.key);
                         const isOrderPickupEnabled = subVal.isPickupRequired === true;
                         const isStandardDelivery = sub.key === 'standard-delivery';
+                        const isEditingThisLabel = editingSubKey === `${m}__${sub.key}`;
 
                         return (
                           <div
@@ -557,6 +612,7 @@ export default function ShippingOptions({
                             tabIndex={0}
                             aria-checked={isSubActive}
                             onClick={(event) => {
+                              if (justFinishedEditingRef.current) return;
                               const interactiveTarget = event.target.closest('button, a, input, textarea, select, label, [role="button"], [role="switch"]');
                               if (interactiveTarget && interactiveTarget !== event.currentTarget) return;
                               updateSuboptionConfig(m, sub.key, { active: !isSubActive }, true);
@@ -573,7 +629,81 @@ export default function ShippingOptions({
                           >
                             <div className="flex flex-wrap items-start justify-between gap-3">
                               <div className="flex min-w-0 items-center gap-2">
-                                <span className="text-[13px] font-black uppercase tracking-wider">{sub.label}</span>
+                                {isEditingThisLabel ? (
+                                  <div
+                                    className="flex items-center gap-1.5"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <input
+                                      type="text"
+                                      value={editingSubLabel}
+                                      onChange={(e) => setEditingSubLabel(e.target.value)}
+                                      onBlur={(e) => {
+                                        if (e.currentTarget.parentElement?.contains(e.relatedTarget)) return;
+                                        handleSaveSubLabel(m, sub.key);
+                                      }}
+                                      onKeyDown={(e) => {
+                                        e.stopPropagation();
+                                        if (e.key === 'Enter') {
+                                          e.preventDefault();
+                                          handleSaveSubLabel(m, sub.key);
+                                        } else if (e.key === 'Escape') {
+                                          e.preventDefault();
+                                          handleCancelSubLabel();
+                                        }
+                                      }}
+                                      onFocus={(e) => e.target.select()}
+                                      placeholder="Option name"
+                                      className="h-8 min-w-[120px] max-w-[200px] rounded-lg border border-garage-blue bg-white px-2.5 text-[13px] font-black uppercase tracking-wider text-neutral-900 outline-none shadow-sm focus:ring-2 focus:ring-garage-blue/40 dark:border-garage-blue dark:bg-neutral-900 dark:text-white"
+                                      autoFocus
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleSaveSubLabel(m, sub.key);
+                                      }}
+                                      title="Save name"
+                                      className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-sm transition-all hover:bg-emerald-700 active:scale-95"
+                                    >
+                                      <Check size={14} strokeWidth={3} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleCancelSubLabel();
+                                      }}
+                                      title="Cancel"
+                                      className="flex h-8 w-8 items-center justify-center rounded-lg bg-black/10 text-neutral-600 transition-all hover:bg-black/20 active:scale-95 dark:bg-white/10 dark:text-neutral-300 dark:hover:bg-white/20"
+                                    >
+                                      <X size={14} strokeWidth={2.5} />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      startEditSubLabel(m, sub.key, sub.label);
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        startEditSubLabel(m, sub.key, sub.label);
+                                      }
+                                    }}
+                                    title="Tap to rename option"
+                                    className="group/label -ml-1.5 flex cursor-pointer items-center gap-1.5 rounded-lg px-1.5 py-1 transition-colors hover:bg-black/5 dark:hover:bg-white/10"
+                                  >
+                                    <span className="text-[13px] font-black uppercase tracking-wider transition-colors group-hover/label:text-garage-blue">
+                                      {sub.label}
+                                    </span>
+                                    <Pencil size={12} className="text-neutral-400 opacity-40 transition-all group-hover/label:text-garage-blue group-hover/label:opacity-100" />
+                                  </div>
+                                )}
                               </div>
                               {isSubActive && (
                                 <div className="flex min-w-0 flex-1 flex-wrap justify-end gap-2 max-lg:mt-1 max-lg:w-full max-lg:flex-none max-lg:basis-full max-lg:justify-start">
@@ -604,17 +734,20 @@ export default function ShippingOptions({
                                   <ShippingFieldsConfig
                                     requiredFields={isOrderPickupEnabled
                                       ? [1, 2, 14]
-                                      : (isBranchDropoffEnabled ? BRANCH_DROPOFF_REQUIRED_FIELDS : (subVal.requiredFields || []))}
-                                    onChangeFields={(next) => updateSuboptionConfig(m, sub.key, { requiredFields: next }, true)}
+                                      : (subVal.requiredFields || [])}
+                                    onChangeFields={(next) => updateSuboptionConfig(m, sub.key, {
+                                      requiredFields: next,
+                                      ...(isBranchDropoffEnabled ? { isBranchDropoff: true } : {})
+                                    }, true)}
                                     hiddenFieldIds={isOrderPickupEnabled
                                       ? []
                                       : (isBranchDropoffEnabled ? [4, 12, 14, 15] : [4, 13, 14, 15])}
                                     allowedFieldIds={isOrderPickupEnabled
                                       ? [1, 2, 14]
-                                      : (isBranchDropoffEnabled ? BRANCH_DROPOFF_REQUIRED_FIELDS : null)}
+                                      : null}
                                     lockedFieldIds={isOrderPickupEnabled
                                       ? [1, 2, 14]
-                                      : (isBranchDropoffEnabled ? BRANCH_DROPOFF_REQUIRED_FIELDS : [])}
+                                      : []}
                                   />
                                 )}
                               </div>

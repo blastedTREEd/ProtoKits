@@ -1645,6 +1645,12 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
 
     const methodConfig = storeAdmin?.shippingMethods?.[method];
     const selectedSubKey = getSelectedShippingSubKey(checkoutData, storeAdmin?.shippingMethods);
+    const subVal = selectedSubKey && methodConfig?.suboptions ? methodConfig.suboptions[selectedSubKey] : null;
+
+    if (methodConfig?.isBranchDropoff === true || subVal?.isBranchDropoff === true) {
+      return true;
+    }
+
     return getRequiredFields(methodConfig, selectedSubKey)
       .some(fieldId => Number(fieldId) === 13);
   }, [checkoutData, storeAdmin]);
@@ -2132,6 +2138,14 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       });
   }, [isAdminCheckoutConfigReady, enabledShippingMethods, selfPickupPoints, storeAdmin, checkoutItems, isMethodFreeShipping]);
 
+  const isSelfBookingSuboption = useCallback((subKey, subVal) => {
+    if (!subKey && !subVal) return false;
+    if (subVal?.isSelfBooking === true) return true;
+    if (String(subKey).toLowerCase() === 'self') return true;
+    const label = String(subVal?.label || subKey || '').toLowerCase();
+    return /self[\s-_]*booking/i.test(label);
+  }, []);
+
   const getRankedSuboptions = useCallback((method, methodConfig = null) => {
     const config = methodConfig || enabledShippingMethods?.[method] || storeAdmin?.shippingMethods?.[method];
     const wasDisabled = config?._wasDisabled;
@@ -2149,13 +2163,15 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       .map(([subKey, subVal]) => {
         const isFree = isMethodFreeShipping(method, subKey);
         const hasDiscount = getHandlingDiscountSetting(storeAdmin?.shippingMethods, method, subKey);
-        let priority = 3;
+        const isSelfBooking = isSelfBookingSuboption(subKey, subVal);
+        let priority = 4;
         if (isFree) priority = 1;
-        else if (hasDiscount) priority = 2;
-        return { subKey, subVal, isFree, hasDiscount, priority };
+        else if (isSelfBooking) priority = 2;
+        else if (hasDiscount) priority = 3;
+        return { subKey, subVal, isFree, hasDiscount, isSelfBooking, priority };
       })
       .sort((a, b) => a.priority - b.priority);
-  }, [checkoutItems, enabledShippingMethods, isMethodFreeShipping, selfPickupPoints.length, storeAdmin?.shippingMethods]);
+  }, [checkoutItems, enabledShippingMethods, isMethodFreeShipping, isSelfBookingSuboption, selfPickupPoints.length, storeAdmin?.shippingMethods]);
 
   const getBestSuboptionKey = useCallback((method, methodConfig = null) => {
     return getRankedSuboptions(method, methodConfig)[0]?.subKey || '';
@@ -2282,6 +2298,42 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       }
     }
 
+    // Pre-select SELF-BOOKING suboption if available for couriers
+    const findAvailableSelfBookingKey = () => {
+      if (methodConfig?.suboptions && Object.keys(methodConfig.suboptions).length > 0) {
+        const entry = Object.entries(methodConfig.suboptions).find(([subKey, subVal]) => {
+          if (!isSelfBookingSuboption(subKey, subVal)) return false;
+          if (selfPickupPoints.length === 0) return false;
+          const hasFreePromo = checkoutItems.some(item =>
+            itemHasFreeShippingForSubKey(item, m, subKey, storeAdmin?.shippingMethods)
+          );
+          const wasDisabled = methodConfig?._wasDisabled;
+          if (wasDisabled && !hasFreePromo) return false;
+          return isShippingSuboptionEnabled(subVal) || hasFreePromo;
+        });
+        if (entry) return entry[0];
+      }
+
+      if (m === 'Lalamove' && selfPickupPoints.length > 0) {
+        const wasDisabled = methodConfig?._wasDisabled;
+        const hasFreePromo = checkoutItems.some(item =>
+          itemHasFreeShippingForSubKey(item, m, 'self', storeAdmin?.shippingMethods)
+        );
+        if ((!wasDisabled || hasFreePromo) && (isSubMethodEnabled(methodConfig, 'self') || hasFreePromo)) {
+          return 'self';
+        }
+      }
+
+      return '';
+    };
+
+    const selfBookingSubKey = findAvailableSelfBookingKey();
+    if (!configuredSuboption || configuredSuboption === 'All') {
+      if (selfBookingSubKey) {
+        bestSubKey = selfBookingSubKey;
+      }
+    }
+
     // Find best suboption fallback
     if (!bestSubKey) {
       bestSubKey = getBestSuboptionKey(m, methodConfig);
@@ -2304,9 +2356,11 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
         .map(subKey => {
           const isFree = isMethodFreeShipping(m, subKey);
           const hasDiscount = getHandlingDiscountSetting(storeAdmin?.shippingMethods, m, subKey);
-          let priority = 3;
+          const isSelfBooking = subKey === 'self';
+          let priority = 4;
           if (isFree) priority = 1;
-          else if (hasDiscount) priority = 2;
+          else if (isSelfBooking) priority = 2;
+          else if (hasDiscount) priority = 3;
           return { subKey, priority };
         });
 
@@ -2356,13 +2410,13 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       spxType,
       lbcType,
       lalamoveType,
-      customSuboption: '',
+      customSuboption: bestSubKey,
       pickupLocation,
       pickupLocationIndex,
       meetupLocation,
       meetupLocationIndex
     };
-  }, [enabledShippingMethods, getBestSuboptionKey, storeAdmin, checkoutItems, isMethodFreeShipping, pickupPoints, selfPickupPoints, rateCheckingPickupIndex, isPreOrderKitCheckoutItem]);
+  }, [enabledShippingMethods, getBestSuboptionKey, storeAdmin, checkoutItems, isMethodFreeShipping, isSelfBookingSuboption, pickupPoints, selfPickupPoints, rateCheckingPickupIndex, isPreOrderKitCheckoutItem]);
 
   const handleShippingChange = useCallback((m) => {
     let newCheckoutData;
@@ -2500,6 +2554,41 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       ? [...new Set([...configuredFields, 1, 2])]
       : configuredFields;
   }, [checkoutData, isGuestPreview, storeAdmin]);
+
+  const shippingFeeDisplayText = useMemo(() => {
+    if (isFreeShippingApplied) return 'FREE SHIPPING';
+    if (!checkoutData.shippingMethod || isShippingNotApplicable) return 'Not Included';
+
+    const method = checkoutData.shippingMethod;
+    const methodConfig = storeAdmin?.shippingMethods?.[method];
+    const selectedSubKey = getSelectedShippingSubKey(checkoutData, storeAdmin?.shippingMethods);
+    const subVal = selectedSubKey && methodConfig?.suboptions ? methodConfig.suboptions[selectedSubKey] : null;
+
+    // Kuhanin ang active required fields para sa napiling courier option lamang:
+    let activeOptionFields = [];
+    if (subVal && Array.isArray(subVal.requiredFields)) {
+      activeOptionFields = subVal.requiredFields;
+    } else if (methodConfig?.suboptions && Object.keys(methodConfig.suboptions).length > 0) {
+      activeOptionFields = Array.isArray(subVal?.requiredFields) ? subVal.requiredFields : [];
+    } else if (Array.isArray(methodConfig?.requiredFields)) {
+      activeOptionFields = methodConfig.requiredFields;
+    }
+
+    // 1. Pay on Pickup: STRICTLY ONLY when the courier option requires Courier branch (field 13)
+    const requiresCourierBranch = activeOptionFields.includes(13);
+
+    if (requiresCourierBranch) {
+      return 'Pay on Pickup';
+    }
+
+    // 2. All other couriers default to Pay on Delivery
+    return 'Pay on Delivery';
+  }, [
+    checkoutData,
+    isFreeShippingApplied,
+    isShippingNotApplicable,
+    storeAdmin?.shippingMethods
+  ]);
 
   const courierName = useMemo(() => {
     if (!checkoutData.shippingMethod) return 'LBC';
@@ -3586,7 +3675,7 @@ const handleFinalizeOrder = async () => {
 
                 {shouldShowSuboptionDropdown && (
                   <CheckoutDropdown
-                    label="Suboption"
+                    label="Options"
                     value={activeSubKey}
                     placeholder="Select option"
                     options={suboptionDropdownOptions}
@@ -3669,9 +3758,16 @@ const handleFinalizeOrder = async () => {
                       <div className="flex items-center gap-2">
                         <p className="text-[12px] font-black uppercase tracking-widest opacity-40">{usesMeetupLocation ? 'Meetup Location' : 'Pickup Pin'}</p>
                       </div>
-                      <p className="mt-1 text-[13px] font-black uppercase text-blue-600">
-                        {selectedLocalPlaceDetails?.landmark || (usesMeetupLocation ? 'Meetup Place' : 'Pickup Point')}
-                      </p>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <p className="text-[13px] font-black uppercase text-blue-600">
+                          {selectedLocalPlaceDetails?.landmark || (usesMeetupLocation ? 'Meetup Place' : 'Pickup Point')}
+                        </p>
+                        {!usesMeetupLocation && (
+                          <span className="inline-flex align-middle px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                            {checkoutData.shippingMethod === 'Self-Pickup' ? 'LOCATION CHECK ONLY' : 'RATE CHECKING ONLY'}
+                          </span>
+                        )}
+                      </div>
                       {selectedLocalPlaceAddress && (
                         <p className="mt-1 text-[13px] font-bold uppercase opacity-55">{selectedLocalPlaceAddress}</p>
                       )}
@@ -3843,7 +3939,7 @@ const handleFinalizeOrder = async () => {
                   </div>
                 )}
                 {!isShippingNotApplicable && (
-                  <div className={`flex justify-between ${isFreeShippingApplied ? 'text-emerald-200' : ''}`}><span>Shipping Fee</span><span>{isFreeShippingApplied ? 'FREE SHIPPING' : 'Not Included'}</span></div>
+                  <div className={`flex justify-between ${isFreeShippingApplied ? 'text-emerald-200' : ''}`}><span>Shipping Fee</span><span>{shippingFeeDisplayText}</span></div>
                 )}
                 <div className="flex justify-between border-t border-white/15 pt-4 text-xl font-black italic"><span>Total</span><span>₱{totalToSettle.toLocaleString()}</span></div>
                 {isInstallmentPlan && (
@@ -4097,7 +4193,7 @@ const handleFinalizeOrder = async () => {
                     return (
                       <>
                         <div className="mt-4 space-y-2 animate-in slide-in-from-top duration-300">
-                          <h5 className="text-[11px] font-black uppercase opacity-40">{checkoutData.shippingMethod} Option</h5>
+                          <h5 className="text-[11px] font-black uppercase opacity-40">Options</h5>
                           <div className="grid grid-cols-1 gap-1">
                             {Object.entries(enabledShippingMethods?.[checkoutData.shippingMethod]?.suboptions || {})
                               .filter(([subKey, subVal]) => {
@@ -4321,9 +4417,14 @@ const handleFinalizeOrder = async () => {
                                     <div className="flex items-center gap-2">
                                       <p className="text-[8px] font-black uppercase opacity-30 tracking-[0.2em]">Pickup Pin</p>
                                     </div>
-                                  <div className="flex items-center gap-2">
-                                    <MapPinCheckInside size={16} className="text-blue-600" />
-                                    <p className="text-sm font-black uppercase italic text-blue-600">{selectedPickupDetails?.landmark || 'Pickup Point'}</p>
+                                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                    <div className="flex items-center gap-2">
+                                      <MapPinCheckInside size={16} className="text-blue-600" />
+                                      <p className="text-sm font-black uppercase italic text-blue-600">{selectedPickupDetails?.landmark || 'Pickup Point'}</p>
+                                    </div>
+                                    <span className="inline-flex align-middle px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                                      RATE CHECKING ONLY
+                                    </span>
                                   </div>
                                   {getCheckoutPlaceAddress(selectedPickupDetails) && (
                                     <p className="text-[11px] font-black uppercase text-neutral-500 dark:text-neutral-300 leading-tight ml-6">
@@ -4343,11 +4444,16 @@ const handleFinalizeOrder = async () => {
                                   <div className="flex items-center gap-2">
                                     <p className="text-[8px] font-black uppercase opacity-30 tracking-[0.2em]">Pickup Pin</p>
                                   </div>
-                                  <div className="flex items-center gap-2">
-                                    <MapPinCheckInside size={16} className="text-blue-600" />
-                                    <p className="text-sm font-black uppercase italic text-blue-600">
-                                      {selectedPickupDetails?.landmark || 'Pickup Point'}
-                                    </p>
+                                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                    <div className="flex items-center gap-2">
+                                      <MapPinCheckInside size={16} className="text-blue-600" />
+                                      <p className="text-sm font-black uppercase italic text-blue-600">
+                                        {selectedPickupDetails?.landmark || 'Pickup Point'}
+                                      </p>
+                                    </div>
+                                    <span className="inline-flex align-middle px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                                      LOCATION CHECK ONLY
+                                    </span>
                                   </div>
                                   {getCheckoutPlaceAddress(selectedPickupDetails) && (
                                     <p className="text-[11px] font-black uppercase text-neutral-500 dark:text-neutral-300 leading-tight ml-6">
@@ -4355,7 +4461,7 @@ const handleFinalizeOrder = async () => {
                                     </p>
                                   )}
                                   <p className="text-[9px] font-black uppercase text-amber-600 dark:text-amber-500 leading-tight ml-6 mt-1 animate-in fade-in duration-300">
-                                      *FOR SHIPPING RATE CHECKING ONLY. ACTUAL PIN WILL BE AAILABLE AFTER RECEIPT VALIDATION.
+                                      *FOR LOCATION CHECK ONLY. ACTUAL PIN WILL BE AVAILABLE AFTER RECEIPT VALIDATION.
                                   </p>
                                 </div>
                                 <div className="p-4 rounded-2xl bg-blue-600/5 border border-blue-600/10 space-y-2">
@@ -4380,11 +4486,16 @@ const handleFinalizeOrder = async () => {
                                   <div className="flex items-center gap-2">
                                     <p className="text-[8px] font-black uppercase opacity-30 tracking-[0.2em]">Pickup Pin</p>
                                   </div>
-                                  <div className="flex items-center gap-2">
-                                    <MapPinCheckInside size={16} className="text-blue-600" />
-                                    <p className="text-sm font-black uppercase italic text-blue-600">
-                                      {selectedPickupDetails?.landmark || 'Pickup Point'}
-                                    </p>
+                                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                    <div className="flex items-center gap-2">
+                                      <MapPinCheckInside size={16} className="text-blue-600" />
+                                      <p className="text-sm font-black uppercase italic text-blue-600">
+                                        {selectedPickupDetails?.landmark || 'Pickup Point'}
+                                      </p>
+                                    </div>
+                                    <span className="inline-flex align-middle px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                                      {checkoutData.shippingMethod === 'Self-Pickup' ? 'LOCATION CHECK ONLY' : 'RATE CHECKING ONLY'}
+                                    </span>
                                   </div>
                                   {getCheckoutPlaceAddress(selectedPickupDetails) && (
                                     <>
@@ -4392,7 +4503,9 @@ const handleFinalizeOrder = async () => {
                                       {getCheckoutPlaceAddress(selectedPickupDetails)}
                                     </p>
                                     <p className="text-[9px] font-black uppercase text-amber-600 dark:text-amber-500 leading-tight ml-6 mt-1 animate-in fade-in duration-300">
-                                      *FOR SHIPPING RATE CHECKING ONLY. ACTUAL PIN WILL BE AAILABLE AFTER RECEIPT VALIDATION.
+                                      {checkoutData.shippingMethod === 'Self-Pickup'
+                                        ? '*FOR LOCATION CHECK ONLY. ACTUAL PIN WILL BE AVAILABLE AFTER RECEIPT VALIDATION.'
+                                        : '*FOR SHIPPING RATE CHECKING ONLY. ACTUAL PIN WILL BE AVAILABLE AFTER RECEIPT VALIDATION.'}
                                     </p>
                                     </>
                                   )}
@@ -4484,13 +4597,20 @@ const handleFinalizeOrder = async () => {
                                       </p>
                                     </div>
                                     <div className="space-y-1">
-                                      <div className="flex items-center gap-2">
-                                        <MapPinCheckInside size={16} className="text-blue-600" />
-                                        <p className="text-sm font-black uppercase italic text-blue-600">
-                                          {selectedLocalPlaceDetails?.landmark || (
-                                            checkoutData.shippingMethod === 'Seller Meetup' ? 'Meetup Place' : 'Pickup Point'
-                                          )}
-                                        </p>
+                                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                        <div className="flex items-center gap-2">
+                                          <MapPinCheckInside size={16} className="text-blue-600" />
+                                          <p className="text-sm font-black uppercase italic text-blue-600">
+                                            {selectedLocalPlaceDetails?.landmark || (
+                                              checkoutData.shippingMethod === 'Seller Meetup' ? 'Meetup Place' : 'Pickup Point'
+                                            )}
+                                          </p>
+                                        </div>
+                                        {checkoutData.shippingMethod !== 'Seller Meetup' && (
+                                          <span className="inline-flex align-middle px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                                            {checkoutData.shippingMethod === 'Self-Pickup' ? 'LOCATION CHECK ONLY' : 'RATE CHECKING ONLY'}
+                                          </span>
+                                        )}
                                       </div>
                                       {selectedLocalPlaceAddress && (
                                         <p className="text-[11px] font-black uppercase text-neutral-500 dark:text-neutral-300 leading-tight ml-6">
@@ -4499,7 +4619,9 @@ const handleFinalizeOrder = async () => {
                                       )}
                                       {checkoutData.shippingMethod !== 'Seller Meetup' && (
                                         <p className="text-[9px] font-black uppercase text-amber-600 dark:text-amber-500 leading-tight ml-6 mt-1">
-                                          *FOR SHIPPING RATE CHECKING ONLY. ACTUAL PIN WILL BE AAILABLE AFTER RECEIPT VALIDATION.
+                                          {checkoutData.shippingMethod === 'Self-Pickup'
+                                            ? '*FOR LOCATION CHECK ONLY. ACTUAL PIN WILL BE AVAILABLE AFTER RECEIPT VALIDATION.'
+                                            : '*FOR SHIPPING RATE CHECKING ONLY. ACTUAL PIN WILL BE AVAILABLE AFTER RECEIPT VALIDATION.'}
                                         </p>
                                       )}
                                     </div>
@@ -4737,7 +4859,7 @@ const handleFinalizeOrder = async () => {
                       {!isShippingNotApplicable && (
                         <div className={`flex justify-between uppercase ${isFreeShippingApplied ? 'text-emerald-300' : 'text-white/60'}`}>
                           <span>Shipping Fee</span>
-                          <span>{isFreeShippingApplied ? 'FREE SHIPPING' : 'NOT INCLUDED'}</span>
+                          <span>{shippingFeeDisplayText.toUpperCase()}</span>
                         </div>
                       )}
                       <div className="flex justify-between text-lg font-black italic uppercase pt-2"><span>Total</span><span>₱{totalToSettle.toLocaleString()}</span></div>

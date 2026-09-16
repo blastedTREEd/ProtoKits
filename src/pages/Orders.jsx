@@ -628,6 +628,7 @@ const getShippingFlags = (order, shippingSettings = null) => {
   const usesPickupPoint = hasPickupPoint && !isMeetup;
   const isPickupPointCourier = usesPickupPoint && !isSelfPickup && !isLalamoveSelf;
   const isFreeShipping = isOrderFreeShipping(order, shippingSettings?.shippingMethods);
+  const isCourier = !isMeetup && !isSelfPickup && Boolean(order?.shippingMethod);
   return {
     isLbc,
     isLalamoveSeller,
@@ -639,8 +640,8 @@ const getShippingFlags = (order, shippingSettings = null) => {
     usesMeetupLocation: isMeetup,
     isPickupPointCourier,
     isFreeShipping,
-    needsAdminShipping: (isLbc || isLalamoveSeller || isSpx) && !isFreeShipping,
-    needsTracking: (isLbc || isLalamoveSeller || isSpx) && !usesPickupPoint && !isMeetup
+    needsAdminShipping: (isLbc || isLalamoveSeller || isSpx || (isCourier && !isLalamoveSelf)) && !isFreeShipping,
+    needsTracking: (isLbc || isLalamoveSeller || isSpx || (isCourier && !isLalamoveSelf)) && !usesPickupPoint && !isMeetup
   };
 };
 
@@ -760,7 +761,7 @@ const isOrderInitialPaymentValidated = (order) => {
   if (order.receiptValidated) return true;
   if (hasValidatedFirstReceipt(order)) return true;
   if (Number(order.buyerPaid || 0) > 0) return true;
-  if (Boolean(order.downpaymentConfirmedAt)) return true;
+  if (order.downpaymentConfirmedAt) return true;
   if (order.paymentReview?.decision === 'approved' || order.paymentReview?.decision === 'balance_requested') return true;
   return false;
 };
@@ -2395,7 +2396,9 @@ export default function Orders() {
       ...legacyOrders.map((order) => ({ type: 'order', key: order.id, order }))
     ];
   })();
-  const selectedShippingFlags = selectedOrder ? getShippingFlags(selectedOrder, shippingSettings) : {};
+  const selectedShippingFlags = useMemo(() => (
+    selectedOrder ? getShippingFlags(selectedOrder, shippingSettings) : {}
+  ), [selectedOrder, shippingSettings]);
   const selectedIsSelfBooking = isOrderSelfBooking(selectedOrder, shippingSettings);
   const selectedPaymentFullyValidated = Boolean(
     selectedOrder && hasValidatedFirstReceipt(selectedOrder) && calculateBalance(selectedOrder) <= 0
@@ -2417,6 +2420,45 @@ export default function Orders() {
     selectedShippingMethod,
     selectedShippingSuboption !== 'N/A' ? selectedShippingSuboption : ''
   ].filter(Boolean).join(' - ') || 'N/A';
+  const shippingFeeDisplayTextOrder = useMemo(() => {
+    if (!selectedOrder) return 'Not Included';
+    if (selectedShippingFlags.isFreeShipping) return 'FREE SHIPPING';
+    if (selectedShippingFlags.isSelfPickup || selectedShippingFlags.isMeetup || selectedShippingFlags.isLalamoveSelf) {
+      return 'Not Included';
+    }
+
+    const methodKey = selectedShippingMethodKey || selectedShippingMethod;
+    const subKey = selectedShippingSuboptionKey;
+    const methodConfig = shippingSettings?.shippingMethods?.[methodKey];
+    const subConfig = methodConfig?.suboptions?.[subKey];
+
+    let activeOptionFields = [];
+    if (subConfig && Array.isArray(subConfig.requiredFields)) {
+      activeOptionFields = subConfig.requiredFields;
+    } else if (methodConfig?.suboptions && Object.keys(methodConfig.suboptions).length > 0) {
+      activeOptionFields = Array.isArray(subConfig?.requiredFields) ? subConfig.requiredFields : [];
+    } else if (Array.isArray(methodConfig?.requiredFields)) {
+      activeOptionFields = methodConfig.requiredFields;
+    }
+
+    // Pay on Pickup: STRICTLY ONLY when the courier option requires Courier branch (field 13)
+    const requiresCourierBranch = activeOptionFields.includes(13) || Boolean(selectedOrder.lbcBranch && !selectedOrder.receiverAddress);
+
+    if (requiresCourierBranch) {
+      return 'Pay on Pickup';
+    }
+
+    // All other couriers default to Pay on Delivery
+    return 'Pay on Delivery';
+  }, [
+    selectedOrder,
+    selectedShippingFlags,
+    selectedShippingMethod,
+    selectedShippingMethodKey,
+    selectedShippingSuboptionKey,
+    shippingSettings?.shippingMethods
+  ]);
+
   const isSelectedSellerMeetup = Boolean(
     selectedShippingFlags.isMeetup && isSellerMeetupShippingMethod(selectedShippingMethodDisplay)
   );
@@ -2724,22 +2766,22 @@ export default function Orders() {
                 {!isFinalizedOrder && !isSelectedLegacyOrder && selectedShippingFlags.usesPickupPoint && selectedLogistics.landmark && (
                   <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <span>{selectedLogistics.landmark}</span>
-                    <span className={`inline-flex align-middle px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${detailShowExact
+                    <span className={`inline-flex align-middle px-2 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider ${detailShowExact
                       ? 'bg-blue-600/15 text-blue-600 dark:text-blue-400'
                       : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
                     }`}>
-                      {detailShowExact ? 'ACTUAL PIN' : 'RATE CHECKING'}
+                      {detailShowExact ? 'ACTUAL PIN' : (selectedShippingFlags.isSelfPickup ? 'LOCATION CHECK ONLY' : 'RATE CHECKING ONLY')}
                     </span>
                   </span>
                 )}
                 <span className="block">
                   {isFinalizedOrder ? (completedAddress || 'No address details') : selectedLogistics.display}
                   {!isFinalizedOrder && !isSelectedLegacyOrder && selectedShippingFlags.usesPickupPoint && !selectedLogistics.landmark && (
-                    <span className={`inline-flex align-middle ml-2 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${detailShowExact
+                    <span className={`inline-flex align-middle ml-2 px-2 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider ${detailShowExact
                       ? 'bg-blue-600/15 text-blue-600 dark:text-blue-400'
                       : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
                     }`}>
-                      {detailShowExact ? 'ACTUAL PIN' : 'RATE CHECKING'}
+                      {detailShowExact ? 'ACTUAL PIN' : (selectedShippingFlags.isSelfPickup ? 'LOCATION CHECK ONLY' : 'RATE CHECKING ONLY')}
                     </span>
                   )}
                 </span>
@@ -2751,7 +2793,9 @@ export default function Orders() {
               </span>
               {!isFinalizedOrder && !isAdminMode && selectedShippingFlags.usesPickupPoint && !isSelectedLegacyOrder && !detailShowExact && (
                 <span className="text-[13px] font-black uppercase text-amber-600 dark:text-amber-500 mt-1 leading-tight">
-                   *FOR SHIPPING RATE CHECKING ONLY. ACTUAL PIN WILL BE AAILABLE AFTER RECEIPT VALIDATION.
+                   {selectedShippingFlags.isSelfPickup
+                     ? '*FOR LOCATION CHECK ONLY. ACTUAL PIN WILL BE AVAILABLE AFTER RECEIPT VALIDATION.'
+                     : '*FOR SHIPPING RATE CHECKING ONLY. ACTUAL PIN WILL BE AVAILABLE AFTER RECEIPT VALIDATION.'}
                 </span>
               )}
             </div>
@@ -2852,7 +2896,7 @@ export default function Orders() {
                     {selectedShippingFlags.isFreeShipping ? (
                       <p className="text-[14px] font-bold">Shipping Fee: <span className="font-black uppercase text-emerald-600 dark:text-emerald-500">FREE SHIPPING</span></p>
                     ) : selectedShippingFlags.needsAdminShipping ? (
-                      <p className="text-[14px] font-bold">Shipping Fee: {selectedTotals.shippingFee === 0 ? <span className="font-black uppercase text-amber-600 dark:text-amber-500">Not Included</span> : `₱${selectedTotals.shippingFee.toLocaleString()}`}</p>
+                      <p className="text-[14px] font-bold">Shipping Fee: {selectedTotals.shippingFee === 0 ? <span className="font-black uppercase text-amber-600 dark:text-amber-500">{shippingFeeDisplayTextOrder}</span> : `₱${selectedTotals.shippingFee.toLocaleString()}`}</p>
                     ) : null}
                     {selectedOrder.claimantBalance && <p className="text-[14px] font-bold">Claimant Balance: ₱{Number(selectedOrder.claimantBalance || 0).toLocaleString()}</p>}
                   </div>
@@ -3301,7 +3345,7 @@ export default function Orders() {
                 {selectedShippingFlags.isFreeShipping ? (
                   <span className="text-emerald-600 dark:text-emerald-500 uppercase font-black">FREE SHIPPING</span>
                 ) : selectedShippingFlags.needsAdminShipping && selectedTotals.shippingFee === 0 ? (
-                  <span className="text-amber-600 dark:text-amber-500 uppercase font-black">Not Included</span>
+                  <span className="text-amber-600 dark:text-amber-500 uppercase font-black">{shippingFeeDisplayTextOrder}</span>
                 ) : (
                   `₱${selectedTotals.shippingFee.toLocaleString()}`
                 )}
@@ -4073,7 +4117,7 @@ export default function Orders() {
                 </div>
 
                 <aside className="space-y-5">
-                  <section className="rounded-2xl border border-black/10 p-5 dark:border-white/10"><h3 className="mb-4 text-[12px] font-black uppercase tracking-widest opacity-45">Shipping</h3><div className="space-y-3"><select required value={manualOrderData.shippingMethod} onChange={handleLegacyShippingMethodChange} className="w-full rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10"><option value="">Select shipping option</option>{legacyShippingOptions.map(method => <option key={method} value={method}>{method}</option>)}</select>{legacySuboptions.length > 0 && <select required value={manualOrderData.shippingSuboption} onChange={(event) => setManualOrderData(prev => ({ ...prev, shippingSuboption: event.target.value }))} className="w-full rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10"><option value="">Select suboption</option>{legacySuboptions.map(([key, config]) => <option key={key} value={key}>{config.label || key}</option>)}</select>}</div></section>
+                  <section className="rounded-2xl border border-black/10 p-5 dark:border-white/10"><h3 className="mb-4 text-[12px] font-black uppercase tracking-widest opacity-45">Shipping</h3><div className="space-y-3"><select required value={manualOrderData.shippingMethod} onChange={handleLegacyShippingMethodChange} className="w-full rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10"><option value="">Select shipping option</option>{legacyShippingOptions.map(method => <option key={method} value={method}>{method}</option>)}</select>{legacySuboptions.length > 0 && <select required value={manualOrderData.shippingSuboption} onChange={(event) => setManualOrderData(prev => ({ ...prev, shippingSuboption: event.target.value }))} className="w-full rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase dark:border-white/10"><option value="">Select option</option>{legacySuboptions.map(([key, config]) => <option key={key} value={key}>{config.label || key}</option>)}</select>}</div></section>
                   <section className="rounded-2xl border border-black/10 p-5 dark:border-white/10"><h3 className="mb-4 text-[12px] font-black uppercase tracking-widest opacity-45">Delivery address</h3><PhilippineAddressSuggestions idPrefix="legacy-address" province={manualOrderData.province} /><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1"><input list="legacy-address-provinces" required disabled={Boolean(legacyAutoAddressPoint)} value={manualOrderData.province} onChange={(event) => handleLegacyLocationChange('province', event.target.value)} placeholder="PROVINCE" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10" /><input list="legacy-address-cities" required disabled={Boolean(legacyAutoAddressPoint)} value={manualOrderData.city} onChange={(event) => handleLegacyLocationChange('city', event.target.value)} placeholder="CITY / TOWN" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10" /><input required disabled={Boolean(legacyAutoAddressPoint)} inputMode="numeric" pattern="[0-9]{4}" maxLength={4} value={manualOrderData.zipCode} onChange={handleLegacyZipCodeChange} placeholder="ZIP CODE" className="rounded-xl border border-black/10 bg-transparent px-3 py-3 text-[12px] font-black uppercase disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10" /></div>{legacyAutoAddressPoint ? <p className="mt-3 text-[10px] font-bold uppercase tracking-wider text-blue-600">{isLegacySellerMeetup ? 'Seller meetup address filled from the configured meetup place.' : 'Self-pickup address filled from the active pickup point tagged as Actual Pin.'}</p> : <p className="mt-3 text-[10px] font-bold uppercase tracking-wider opacity-45">Enter the province first, then city/town to generate the ZIP code, or enter a 4-digit ZIP code to fill them automatically.</p>}</section>
                   <section className="rounded-2xl border border-blue-500/20 bg-blue-500/[0.04] p-5">
                     <h3 className="mb-4 text-[12px] font-black uppercase tracking-widest text-blue-600">Payment summary</h3>
@@ -4083,7 +4127,7 @@ export default function Orders() {
                     </label>
                     <div className="rounded-xl border border-blue-500/15 bg-blue-500/[0.04] p-3">
                       <div className="flex items-center justify-between gap-3"><span className="text-[10px] font-black uppercase tracking-widest opacity-55">Detected handling fee</span><span className="text-[14px] font-black text-blue-600">₱{legacyHandlingFee.toLocaleString()}</span></div>
-                      <p className="mt-1 text-[9px] font-bold uppercase tracking-wider opacity-45">Based on the selected shipping method and suboption</p>
+                      <p className="mt-1 text-[9px] font-bold uppercase tracking-wider opacity-45">Based on the selected shipping method and option</p>
                     </div>
                     <div className="mt-3 flex items-center justify-between"><span className="text-[10px] font-black uppercase tracking-widest opacity-55">Cash transfer fee</span><span className="text-[12px] font-black text-emerald-600 dark:text-emerald-400">₱0 · Not charged</span></div>
                     <div className="mt-4 flex items-center justify-between border-t border-blue-500/15 pt-4"><span className="text-[10px] font-black uppercase tracking-widest opacity-55">Distributed to items</span><span className="text-[18px] font-black text-blue-600">₱{legacyItemTotal.toLocaleString()}</span></div>
