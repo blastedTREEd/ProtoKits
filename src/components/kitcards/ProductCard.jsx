@@ -584,14 +584,16 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     const timer = setInterval(() => {
       const current = Date.now();
       setNow(current);
+
+      if (isAdmin) {
+        setTimeLeft("");
+        return;
+      }
       
       const firstRelease = stockList.find(s => {
-        let releaseTime;
-        if (s.publicReleaseDate) {
-          releaseTime = new Date(s.publicReleaseDate).getTime();
-        } else {
-          releaseTime = (s.timestamp || 0) + (61 * 60 * 1000);
-        }
+        if (!s.publicReleaseDate) return false;
+        if (hasOrderAssociation(s) || s.isReserved || isSupplierRefundPending(s)) return false;
+        const releaseTime = new Date(s.publicReleaseDate).getTime();
         return releaseTime > current;
       });
       
@@ -600,10 +602,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
         return;
       }
 
-      const releaseTime = firstRelease.publicReleaseDate 
-        ? new Date(firstRelease.publicReleaseDate).getTime() 
-        : (firstRelease.timestamp || 0) + (61 * 60 * 1000);
-      
+      const releaseTime = new Date(firstRelease.publicReleaseDate).getTime();
       const distance = releaseTime - current;
 
       const days = Math.floor(distance / (1000 * 60 * 60 * 24));
@@ -615,7 +614,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [stockList]);
+  }, [stockList, isAdmin]);
 
   const isPendingRelease = timeLeft !== "";
 
@@ -873,7 +872,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       if (!isClearanceKitActive(deal, kitId, now)) return false;
       return Object.values(kit?.stocks || {}).some(stock => canUseClearanceStock(stock, stockSource));
     });
-  }, [allKits, deals, kitId, kit, now]);
+  }, [allKits, deals, kitId, kit, now, validatedOrderStockData]);
 
   const bundleDealDetails = useMemo(() => {
     return bundleOnlyDeals.map(deal => {
@@ -2638,8 +2637,8 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                               </button>
                             </div>
                           ) : (
-                                 <div className="grid w-full grid-cols-2 items-stretch gap-2">
-                                   {!isAdminView && (
+                                 <div className={`grid w-full ${(!isAdminView && availableCount > 0) ? 'grid-cols-2' : 'grid-cols-1'} items-stretch gap-2`}>
+                                   {!isAdminView && availableCount > 0 && (
                                      <button onClick={handleAddToCart} className="flex-1 flex items-center justify-center gap-2 px-2 py-4 rounded-full font-black italic uppercase text-[12px] tracking-widest transition-all active:scale-95 whitespace-nowrap border-t border-black/5 dark:border-white/10 group/basket bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg shadow-blue-500/20">{addToCartLabel}</button>
                                    )}
                                    <button onClick={(e) => handleBuyNow(e, selectedStock || visibleStocks[0])} className="flex-1 flex items-center justify-center gap-2 px-2 py-4 rounded-full text-white font-black italic uppercase text-[12px] tracking-widest shadow-2xl transition-all active:scale-95 whitespace-nowrap group/buy bg-gradient-to-br from-amber-500 to-orange-600 shadow-orange-500/30 hover:bg-orange-600">{buyLabel}</button>

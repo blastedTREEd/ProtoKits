@@ -2580,40 +2580,45 @@ export const useStore = create(
             // The admin collection is represented by reservation markers on
             // the kit document. Keep only the lowest-cost eligible stock
             // marked as an admin reservation.
+            // ONLY rebalance if the kit ALREADY had an active admin shelf reservation!
             const adminShelfKeys = new Set(
               Object.entries(stocks)
-                .filter(([, stock]) => isPotentialAdminShelfStock(stock))
+                .filter(([key, stock]) => key !== resolvedStockKey && isPotentialAdminShelfStock(stock))
                 .map(([key]) => key)
             );
-            const currentShelfWinner = [...adminShelfKeys]
-              .map((key) => ({ key, stock: stocks[key] }))
-              .filter(({ stock }) => stock && Number(stock.costPrice) > 0)
-              .sort((a, b) => Number(a.stock.costPrice) - Number(b.stock.costPrice) || String(a.key).localeCompare(String(b.key)))[0];
-            const candidateStock = stocks[resolvedStockKey] && !adminShelfKeys.has(resolvedStockKey)
-              ? { key: resolvedStockKey, stock: stocks[resolvedStockKey] }
-              : null;
-            const winner = candidateStock
-              && (!currentShelfWinner || Number(candidateStock.stock.costPrice) < Number(currentShelfWinner.stock.costPrice))
-              ? candidateStock
-              : currentShelfWinner;
 
-            if (winner) {
-              [...adminShelfKeys].filter((key) => key !== winner.key).forEach((key) => {
-                if (!stocks[key]) return;
-                stocks[key] = { ...stocks[key], isReserved: false, availableAt: timing };
-                delete stocks[key].reservedBy;
-                delete stocks[key].reservedAt;
-                delete stocks[key].reservationType;
-                delete stocks[key].reservedByDealId;
-                releasedShelfStockKeys.push(key);
-              });
-              stocks[winner.key] = {
-                ...stocks[winner.key],
-                isReserved: true,
-                reservationType: 'admin',
-                reservedBy: stocks[winner.key].reservedBy || get().user?.uid || 'admin',
-                reservedAt: stocks[winner.key].reservedAt || timing
-              };
+            if (adminShelfKeys.size > 0) {
+              const currentShelfWinner = [...adminShelfKeys]
+                .map((key) => ({ key, stock: stocks[key] }))
+                .filter(({ stock }) => stock && Number(stock.costPrice) > 0)
+                .sort((a, b) => Number(a.stock.costPrice) - Number(b.stock.costPrice) || String(a.key).localeCompare(String(b.key)))[0];
+              const candidateStock = stocks[resolvedStockKey] && !adminShelfKeys.has(resolvedStockKey)
+                ? { key: resolvedStockKey, stock: stocks[resolvedStockKey] }
+                : null;
+              const winner = candidateStock
+                && currentShelfWinner
+                && Number(candidateStock.stock.costPrice) < Number(currentShelfWinner.stock.costPrice)
+                ? candidateStock
+                : currentShelfWinner;
+
+              if (winner) {
+                [...adminShelfKeys].filter((key) => key !== winner.key).forEach((key) => {
+                  if (!stocks[key]) return;
+                  stocks[key] = { ...stocks[key], isReserved: false, availableAt: timing };
+                  delete stocks[key].reservedBy;
+                  delete stocks[key].reservedAt;
+                  delete stocks[key].reservationType;
+                  delete stocks[key].reservedByDealId;
+                  releasedShelfStockKeys.push(key);
+                });
+                stocks[winner.key] = {
+                  ...stocks[winner.key],
+                  isReserved: true,
+                  reservationType: 'admin',
+                  reservedBy: stocks[winner.key].reservedBy || get().user?.uid || 'admin',
+                  reservedAt: stocks[winner.key].reservedAt || timing
+                };
+              }
             }
           }
 
