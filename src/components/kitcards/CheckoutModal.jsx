@@ -2548,20 +2548,12 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
         ? [1, 2]
         : [1, 2, 5, 6, 7, 9, 10, 11, 12];
 
-    let fields = configuredFields;
-    if (usesBranchDropoff) {
-      fields = fields.filter(id => Number(id) !== 12);
-      if (!fields.includes(13)) {
-        fields = [...fields, 13];
-      }
-    }
-
     // Guest orders must remain recoverable through genuine recipient/contact
     // details, even when a pickup method has a lighter form configuration.
     return isGuestPreview
-      ? [...new Set([...fields, 1, 2])]
-      : fields;
-  }, [checkoutData, isGuestPreview, storeAdmin, usesBranchDropoff]);
+      ? [...new Set([...configuredFields, 1, 2])]
+      : configuredFields;
+  }, [checkoutData, isGuestPreview, storeAdmin]);
 
   const shippingFeeDisplayText = useMemo(() => {
     if (isFreeShippingApplied) return 'FREE SHIPPING';
@@ -2676,9 +2668,9 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     if (isNoDetailsMode) return true;
     const requiresAddress = requiredFields.some(id => [5, 6, 7, 8, 9, 10, 11, 12].includes(id));
     if (requiresAddress && addressStatus.isEditingAddress) return false; // Kung nag-eedit pa ng address at required, invalid
-    if (!usesBranchDropoff && requiredFields.includes(12) && !addressStatus.isPinConfirmed) return false;
+    if (requiredFields.includes(12) && !addressStatus.isPinConfirmed) return false;
     return isDetailsFormValid;
-  }, [isNoDetailsMode, addressStatus.isEditingAddress, addressStatus.isPinConfirmed, isDetailsFormValid, requiredFields, usesBranchDropoff]);
+  }, [isNoDetailsMode, addressStatus.isEditingAddress, addressStatus.isPinConfirmed, isDetailsFormValid, requiredFields]);
 
   const hasIncompleteRequiredDetails = Boolean(user) && !isNoDetailsMode && !isFormValid;
 
@@ -2949,7 +2941,6 @@ const handleFinalizeOrder = async () => {
           const subConfig = methodConfig?.suboptions?.[subKey];
           return subConfig?.isSelfBooking === true;
         })(),
-        isBranchDropoff: Boolean(usesBranchDropoff),
         shippingMethodKey: checkoutData.shippingMethod || null,
         shippingSuboptionKey: checkoutData.selectedSuboption || checkoutData.customSuboption || null,
         shippingMethod: (checkoutData.selectedSuboption || checkoutData.customSuboption)
@@ -3791,8 +3782,11 @@ const handleFinalizeOrder = async () => {
                     <div className="rounded-2xl bg-black/[0.03] p-4 dark:bg-white/[0.04] lg:col-span-2">
                       <p className="text-[12px] font-black uppercase tracking-widest opacity-40">{courierName} Branch</p>
                       <p className="mt-1 text-[13px] font-black uppercase text-blue-600">
-                        {branchDestinationLine || 'No address confirmed'}
+                        {checkoutData.lbcBranch || 'No branch provided'}
                       </p>
+                      {branchDestinationLine && (
+                        <p className="mt-1 text-[13px] font-bold uppercase opacity-55">{branchDestinationLine}</p>
+                      )}
                     </div>
                   )}
                   {!isLocalPlaceMethod && !showLocationSelect && !isBranchPickup && (
@@ -3826,7 +3820,7 @@ const handleFinalizeOrder = async () => {
                       </div>
                     </div>
                   )}
-                  {!isLocalPlaceMethod && !showLocationSelect && !usesBranchDropoff && requiredFields.includes(12) && (
+                  {!isLocalPlaceMethod && !showLocationSelect && requiredFields.includes(12) && (
                     <div className="space-y-2 lg:col-span-2">
                       <p className="text-[12px] font-black uppercase tracking-widest opacity-40">Drop-Off Pin</p>
                       <div className="relative z-0 isolate h-64 w-full overflow-hidden rounded-2xl border border-black/5 bg-black/[0.03] dark:border-white/5 dark:bg-white/[0.04]">
@@ -4666,12 +4660,15 @@ const handleFinalizeOrder = async () => {
                                   ].filter(Boolean).join(', ');
                                   return (
                                     <>
-                                      {isBranchPickup && (
+                                      {isBranchPickup && checkoutData.lbcBranch && (
                                         <div className="space-y-1">
                                           <p className="text-[8px] font-black uppercase opacity-30 tracking-[0.2em]">{courierName} Branch</p>
-                                          <p className="text-sm font-black uppercase italic text-blue-600">
-                                            {branchDestinationLine || 'No address confirmed'}
-                                          </p>
+                                          <p className="text-sm font-black uppercase italic text-blue-600">{checkoutData.lbcBranch}</p>
+                                          {branchDestinationLine && (
+                                            <p className="text-[11px] font-black uppercase text-neutral-500 dark:text-neutral-300 leading-tight">
+                                              {branchDestinationLine}
+                                            </p>
+                                          )}
                                         </div>
                                       )}
 
@@ -4687,7 +4684,7 @@ const handleFinalizeOrder = async () => {
                                   </div>
                                 )}
 
-                                {!isLocalPlaceMethod && !usesBranchDropoff && requiredFields.includes(12) && (
+                                {!isLocalPlaceMethod && requiredFields.includes(12) && (
                                   <div className="space-y-2">
                                     <p className="text-[8px] font-black uppercase opacity-30 tracking-[0.2em]">Drop-Off Pin</p>
                                     <div className="relative z-0 isolate w-full h-40 rounded-[2rem] overflow-hidden border-2 border-blue-600/20">
