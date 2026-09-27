@@ -32,7 +32,6 @@ import { isFlexiBundleDeal, isPerKitClearanceDeal, isWildSaleDeal, getActiveClea
 import { getStockEta } from '../../utils/stockDates';
 import { getPrintedProjectModelName } from '../../utils/printedProjectName';
 import {
-  getNextAvailableDate,
   getUnavailableDateSet,
   getUnavailableWeekdaySet,
   toDateKey
@@ -42,6 +41,7 @@ import {
   isEmbeddedImage,
   resolveGridImage
 } from '../../utils/orderPayload';
+import { findFirstAvailable, getOccupiedDates } from '../calculator/GarageCalendar';
 
 // --- LEAFLET CSS & ICON FIX ---
 import 'leaflet/dist/leaflet.css';
@@ -79,6 +79,96 @@ const formatFulfillmentDate = (date) => {
   }).format(date instanceof Date ? date : new Date(date));
 
   return formatted.toUpperCase();
+};
+
+const formatMeetupTimeWindow = (place = {}) => {
+  const start = String(place.meetupStartTime || '').trim();
+  const end = String(place.meetupEndTime || '').trim();
+  if (!start && !end) return '';
+  return `${start || 'OPEN'}${end ? ` - ${end}` : ''}`;
+};
+
+const getSharedMeetupTimeWindow = (pickupDetails = {}, place = {}) => (
+  formatMeetupTimeWindow(pickupDetails.meetup || {}) || formatMeetupTimeWindow(place)
+);
+
+const getNextAvailableDateWithExtraWeekdays = (
+  schedule,
+  type,
+  startDate,
+  extraUnavailableWeekdays = [],
+  maxDays = 730
+) => {
+  const unavailableDates = getUnavailableDateSet(schedule, type);
+  const unavailableWeekdays = new Set([
+    ...getUnavailableWeekdaySet(schedule, type),
+    ...extraUnavailableWeekdays.map(Number).filter(day => day >= 0 && day <= 6)
+  ]);
+  const candidate = new Date(startDate);
+  candidate.setHours(0, 0, 0, 0);
+
+  for (let offset = 0; offset <= maxDays; offset += 1) {
+    const date = new Date(candidate);
+    date.setDate(candidate.getDate() + offset);
+    if (!unavailableDates.has(toDateKey(date)) && !unavailableWeekdays.has(date.getDay())) {
+      return date;
+    }
+  }
+
+  return null;
+};
+
+const hasPassedDailyClosingTime = (date, closingTime) => {
+  const match = String(closingTime || '').match(/^(\d{2}):(\d{2})$/);
+  if (!match) return false;
+
+  const closingHour = Number(match[1]);
+  const closingMinute = Number(match[2]);
+  if (closingHour > 23 || closingMinute > 59) return false;
+
+  return (date.getHours() * 60) + date.getMinutes()
+    >= (closingHour * 60) + closingMinute;
+};
+
+const getProjectPrintWindow = (projectItems, orders, schedule) => {
+  if (!projectItems.length) return null;
+
+  const occupiedDates = getOccupiedDates(orders, schedule);
+  const unavailableDates = getUnavailableDateSet(schedule, 'printing');
+  const unavailableWeekdays = getUnavailableWeekdaySet(schedule, 'printing');
+  const startDate = findFirstAvailable(occupiedDates, unavailableDates, unavailableWeekdays);
+  if (!startDate) return null;
+
+  const candidate = new Date(startDate);
+  let lastPrintingDate = new Date(startDate);
+
+  for (const item of projectItems) {
+    const printDays = Math.max(
+      1,
+      Number(item?.projectData?.totals?.days || 0)
+        + (item?.projectData?.selectedDesignService ? 1 : 0)
+    ) * Math.max(1, Number(item?.quantity || 1));
+
+    let scheduledDays = 0;
+    let guard = 0;
+    while (scheduledDays < printDays && guard < 3660) {
+      const key = toDateKey(candidate);
+      if (
+        !occupiedDates.has(key)
+        && !unavailableDates.has(key)
+        && !unavailableWeekdays.has(candidate.getDay())
+      ) {
+        lastPrintingDate = new Date(candidate);
+        scheduledDays += 1;
+      }
+      candidate.setDate(candidate.getDate() + 1);
+      guard += 1;
+    }
+
+    if (guard >= 3660) return null;
+  }
+
+  return { startDate, lastPrintingDate };
 };
 
 const formatEtaMonthYear = (value) => {
@@ -675,6 +765,50 @@ const MAP_MAX_PIN_ZOOM = 19;
 // Ang mga locally-handled na methods na hindi gumagamit ng delivery address form
 const LOCAL_METHODS = ['Seller Meetup', 'Self-Pickup'];
 
+const SHIPPING_METHOD_CONFIG_KEYS = new Set([
+  'active',
+  'hasSuboptions',
+  'requiredFields',
+  'courierName',
+  'handlingFee',
+  'handlingDiscount',
+  'cashEnabled',
+  'isBranchDropoff',
+  'branchUnavailableWeekdays',
+  'branchDropoffClosingTime',
+  'pickupDetails',
+  'places',
+  'suboptions',
+  '_wasDisabled'
+]);
+
+const getShippingSuboptionEntries = (methodConfig = {}) => {
+  const nestedEntries = Object.entries(methodConfig?.suboptions || {});
+  if (nestedEntries.length > 0) return nestedEntries;
+
+  return Object.entries(methodConfig || {}).filter(([key, value]) => (
+    !SHIPPING_METHOD_CONFIG_KEYS.has(key)
+    && !key.startsWith('_')
+    && (typeof value === 'boolean' || (value && typeof value === 'object' && !Array.isArray(value)))
+  ));
+};
+
+const getShippingSuboptionConfig = (methodConfig = {}, subKey = '') => {
+  if (!subKey) return null;
+  const resolvedKey = resolveSuboptionKey(methodConfig, subKey);
+  return methodConfig?.suboptions?.[resolvedKey]
+    || methodConfig?.suboptions?.[subKey]
+    || methodConfig?.[resolvedKey]
+    || methodConfig?.[subKey]
+    || null;
+};
+
+const isSelfBookingConfig = (subKey, subConfig) => (
+  subConfig?.isSelfBooking === true
+  || String(subKey || '').toLowerCase() === 'self'
+  || /self[\s-_]*booking/i.test(String(subConfig?.label || subKey || ''))
+);
+
 
 
 // Unified key resolver — i-resolve ang shorthand subKey (e.g. 'cop', 'cod', 'self') sa actual database key
@@ -704,8 +838,8 @@ const resolveSuboptionKey = (methodConfig, subKey) => {
 const checkUsesPickupPoint = (method, methodConfig, subKey) => {
   if (methodConfig && typeof methodConfig === 'object') {
     const rk = resolveSuboptionKey(methodConfig, subKey);
-    if (methodConfig.hasSuboptions && rk && methodConfig.suboptions?.[rk]) {
-      const sub = methodConfig.suboptions[rk];
+    const sub = getShippingSuboptionConfig(methodConfig, rk);
+    if (sub) {
       if (Array.isArray(sub.requiredFields)) {
         return sub.requiredFields.includes(14);
       }
@@ -716,15 +850,14 @@ const checkUsesPickupPoint = (method, methodConfig, subKey) => {
     }
   }
   if (method === 'Self-Pickup') return true;
-  if (method === 'Lalamove' && subKey === 'self') return true;
   return false;
 };
 
 const checkUsesMeetupLocation = (method, methodConfig, subKey) => {
   if (methodConfig && typeof methodConfig === 'object') {
     const rk = resolveSuboptionKey(methodConfig, subKey);
-    if (methodConfig.hasSuboptions && rk && methodConfig.suboptions?.[rk]) {
-      const sub = methodConfig.suboptions[rk];
+    const sub = getShippingSuboptionConfig(methodConfig, rk);
+    if (sub) {
       if (Array.isArray(sub.requiredFields)) {
         return sub.requiredFields.includes(15);
       }
@@ -743,8 +876,8 @@ const getRequiredFields = (methodConfig, subKey = null) => {
   if (methodConfig && typeof methodConfig === 'object') {
     if (subKey) {
       const rk = resolveSuboptionKey(methodConfig, subKey);
-      if (methodConfig.suboptions?.[rk]) {
-        const subConfig = methodConfig.suboptions[rk];
+      const subConfig = getShippingSuboptionConfig(methodConfig, rk);
+      if (subConfig) {
         if (Array.isArray(subConfig.requiredFields)) return subConfig.requiredFields;
         // Suboption exists pero walang requiredFields — fall back to method-level
       }
@@ -760,10 +893,8 @@ const getRequiredFields = (methodConfig, subKey = null) => {
 const getCourierName = (method, subKey, methodConfig) => {
   if (methodConfig && typeof methodConfig === 'object') {
     if (subKey) {
-      const rk = resolveSuboptionKey(methodConfig, subKey);
-      if (methodConfig.suboptions?.[rk]?.courierName) {
-        return methodConfig.suboptions[rk].courierName;
-      }
+      const subConfig = getShippingSuboptionConfig(methodConfig, subKey);
+      if (subConfig?.courierName) return subConfig.courierName;
     }
     if (methodConfig.courierName) return methodConfig.courierName;
   }
@@ -808,7 +939,7 @@ const hasConfiguredSuboptions = (methodConfig) => (
 // Para sa free shipping matching, ginagamit natin ang label ng suboption
 const getSuboptionLabel = (shippingMethods, method, subKey) => {
   if (!subKey) return 'All';
-  return shippingMethods?.[method]?.suboptions?.[subKey]?.label || subKey;
+  return getShippingSuboptionConfig(shippingMethods?.[method], subKey)?.label || subKey;
 };
 
 const getPaymentMethodConfig = (methods = {}, method = '') => {
@@ -1050,6 +1181,29 @@ const getSelectedShippingSubKey = (checkoutData = {}) => {
   return checkoutData.selectedSuboption || checkoutData.customSuboption || null;
 };
 
+const getSelectedShippingOptionConfig = (shippingMethods, method, subKey = null) => {
+  const methodConfig = shippingMethods?.[method];
+  if (!methodConfig || typeof methodConfig !== 'object') return {};
+
+  if (subKey && methodConfig.suboptions && typeof methodConfig.suboptions === 'object') {
+    const resolvedSubKey = resolveSuboptionKey(methodConfig, subKey);
+    return methodConfig.suboptions[resolvedSubKey]
+      || methodConfig.suboptions[subKey]
+      || methodConfig;
+  }
+
+  return methodConfig;
+};
+
+const isBranchDropoffShippingOption = (optionConfig = {}) => (
+  optionConfig?.isBranchDropoff === true
+  || (
+    optionConfig?.isBranchDropoff === undefined
+    && Array.isArray(optionConfig?.requiredFields)
+    && optionConfig.requiredFields.some(fieldId => Number(fieldId) === 13)
+  )
+);
+
 const itemHasFreeShippingForSubKey = (item, method, subKey, shippingMethods) => {
   if (!isFreeShippingActive(item, null)) return false;
   const suboptionCandidates = getSuboptionCandidatesFromKey(shippingMethods, method, subKey);
@@ -1223,10 +1377,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   
   const [checkoutData, setCheckoutData] = useState({
     shippingMethod: '', 
-    lbcType: '', 
     lbcBranch: '',
-    lalamoveType: '',
-    spxType: '',
     meetupLocation: '',
     meetupLocationIndex: null,
     pickupLocation: '',
@@ -1630,6 +1781,21 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     if (checkoutItems.length === 0 || !checkoutData.shippingMethod) return null;
 
     const selectedSubKey = getSelectedShippingSubKey(checkoutData);
+    const selectedShippingOption = getSelectedShippingOptionConfig(
+      storeAdmin?.shippingMethods,
+      checkoutData.shippingMethod,
+      selectedSubKey
+    );
+    const shippingMethodConfig = storeAdmin?.shippingMethods?.[checkoutData.shippingMethod];
+    const hasSharedBranchGuardrails = shippingMethodConfig
+      && typeof shippingMethodConfig === 'object'
+      && (
+        Object.prototype.hasOwnProperty.call(shippingMethodConfig, 'branchUnavailableWeekdays')
+        || Object.prototype.hasOwnProperty.call(shippingMethodConfig, 'branchDropoffClosingTime')
+      );
+    const branchGuardrailConfig = hasSharedBranchGuardrails
+      ? shippingMethodConfig
+      : selectedShippingOption;
     const selectedSuboption = selectedSubKey
       ? getSuboptionCandidatesFromKey(storeAdmin?.shippingMethods, checkoutData.shippingMethod, selectedSubKey)
       : null;
@@ -1640,7 +1806,13 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
         selectedSuboption
       )
     ));
+    const customProjectItems = checkoutItems.filter(item => (
+      isProjectCheckoutItem(item)
+      && !isPrintedProjectItem(item, findCheckoutKit(kits, item))
+    ));
+    const hasCustomProjects = customProjectItems.length > 0;
     const hasPreOrders = checkoutItems.some(item => isPreOrderKitItem(item, kits));
+    const isSellerMeetup = checkoutData.shippingMethod === 'Seller Meetup';
     const freeShippingEtaMonth = freeShippingItems
       .map(item => {
         const kit = findCheckoutKit(kits, item);
@@ -1648,8 +1820,10 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       })
       .map(formatEtaMonthYear)
       .find(Boolean);
+    const todayDate = new Date();
+    const todayKey = toDateKey(todayDate);
 
-    if (freeShippingEtaMonth) {
+    if (freeShippingEtaMonth && !hasCustomProjects) {
       return {
         warning: `EXPECT BY ${freeShippingEtaMonth}`,
         detail: '',
@@ -1657,7 +1831,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       };
     }
 
-    if (hasPreOrders) {
+    if (hasPreOrders && !hasCustomProjects) {
       return {
         warning: 'SHIPS UPON ARRIVAL',
         detail: '',
@@ -1665,40 +1839,84 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       };
     }
 
-    const hasCustomProjects = checkoutItems.some(item => (
-      isProjectCheckoutItem(item)
-      && !isPrintedProjectItem(item, findCheckoutKit(kits, item))
-    ));
-    const scheduleType = hasCustomProjects ? 'printing' : 'shipping';
     const schedule = storeAdmin?.availabilitySchedule;
-    const unavailableDates = getUnavailableDateSet(schedule, scheduleType);
-    const unavailableWeekdays = getUnavailableWeekdaySet(schedule, scheduleType);
-    const todayDate = new Date();
-    const todayKey = toDateKey(todayDate);
+    const unavailableDates = getUnavailableDateSet(schedule, 'shipping');
+    const unavailableWeekdays = new Set(getUnavailableWeekdaySet(schedule, 'shipping'));
+    if (isBranchDropoffShippingOption(selectedShippingOption)) {
+      (branchGuardrailConfig.branchUnavailableWeekdays || [])
+        .map(Number)
+        .filter(day => day >= 0 && day <= 6)
+        .forEach(day => unavailableWeekdays.add(day));
+    }
+    const branchClosingPassed = isBranchDropoffShippingOption(selectedShippingOption)
+      && hasPassedDailyClosingTime(todayDate, branchGuardrailConfig.branchDropoffClosingTime);
+
+    if (hasCustomProjects) {
+      const printWindow = getProjectPrintWindow(customProjectItems, orders, schedule);
+      if (!printWindow) return null;
+
+      const printStartDate = printWindow.startDate;
+      const printStartIsToday = toDateKey(printStartDate) === todayKey;
+      const nextFulfillmentStart = new Date(printWindow.lastPrintingDate);
+      nextFulfillmentStart.setDate(nextFulfillmentStart.getDate() + 1);
+      const nextFulfillmentDate = getNextAvailableDateWithExtraWeekdays(
+        schedule,
+        'shipping',
+        nextFulfillmentStart,
+        Array.from(unavailableWeekdays)
+      );
+      const fulfillmentLabel = nextFulfillmentDate
+        ? formatFulfillmentDate(nextFulfillmentDate)
+        : '';
+      return {
+        warning: printStartIsToday
+          ? 'PRINT IMMEDIATELY'
+          : `PRINTS BY ${formatFulfillmentDate(printStartDate)}`,
+        detail: fulfillmentLabel
+          ? `${isSellerMeetup ? 'MEETUP BY' : 'SHIPS BY'} ${fulfillmentLabel} OR ONWARDS`
+          : '',
+        isDelayed: !printStartIsToday,
+        printStartDate: toDateKey(printStartDate),
+        printEndDate: toDateKey(printWindow.lastPrintingDate),
+        fulfillmentAvailableDate: nextFulfillmentDate ? toDateKey(nextFulfillmentDate) : null
+      };
+    }
+
     const todayIsUnavailable = unavailableDates.has(todayKey)
-      || unavailableWeekdays.has(todayDate.getDay());
+      || unavailableWeekdays.has(todayDate.getDay())
+      || branchClosingPassed;
     const blockedKey = todayIsUnavailable ? todayKey : '';
 
     if (!blockedKey) {
       return {
-        warning: hasCustomProjects ? 'PRINT IMMEDIATELY' : 'SHIP IMMEDIATELY',
+        warning: 'SHIP IMMEDIATELY',
         detail: '',
-        isDelayed: false
+        isDelayed: false,
+        fulfillmentAvailableDate: isSellerMeetup ? todayKey : null
       };
     }
 
-    const nextAvailableDate = getNextAvailableDate(schedule, scheduleType, new Date(`${blockedKey}T00:00:00`));
+    const nextAvailabilityStart = new Date(`${blockedKey}T00:00:00`);
+    if (branchClosingPassed) {
+      nextAvailabilityStart.setDate(nextAvailabilityStart.getDate() + 1);
+    }
+
+    const nextAvailableDate = getNextAvailableDateWithExtraWeekdays(
+      schedule,
+      'shipping',
+      nextAvailabilityStart,
+      Array.from(unavailableWeekdays)
+    );
     if (!nextAvailableDate) return null;
 
     const dateLabel = formatFulfillmentDate(nextAvailableDate);
     return {
-      warning: scheduleType === 'printing'
-        ? `PRINTS BY ${dateLabel}`
-        : `SHIP BY ${dateLabel} OR ONWARDS`,
+      warning: `SHIP BY ${dateLabel} OR ONWARDS`,
       detail: '',
-      isDelayed: true
+      isDelayed: true,
+      fulfillmentAvailableDate: isSellerMeetup ? toDateKey(nextAvailableDate) : null
     };
-  }, [checkoutData, checkoutItems, kits, storeAdmin?.availabilitySchedule, storeAdmin?.shippingMethods]);
+  }, [checkoutData, checkoutItems, kits, orders, storeAdmin?.availabilitySchedule, storeAdmin?.shippingMethods]);
 
   const isCheckoutUnderMaintenance = useMemo(() => {
     if (!isMaintenance) return false;
@@ -1731,16 +1949,13 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     const method = checkoutData.shippingMethod;
     if (!method) return false;
 
-    const methodConfig = storeAdmin?.shippingMethods?.[method];
     const selectedSubKey = getSelectedShippingSubKey(checkoutData, storeAdmin?.shippingMethods);
-    const subVal = selectedSubKey && methodConfig?.suboptions ? methodConfig.suboptions[selectedSubKey] : null;
-
-    if (methodConfig?.isBranchDropoff === true || subVal?.isBranchDropoff === true) {
-      return true;
-    }
-
-    return getRequiredFields(methodConfig, selectedSubKey)
-      .some(fieldId => Number(fieldId) === 13);
+    const selectedOption = getSelectedShippingOptionConfig(
+      storeAdmin?.shippingMethods,
+      method,
+      selectedSubKey
+    );
+    return isBranchDropoffShippingOption(selectedOption);
   }, [checkoutData, storeAdmin]);
 
 
@@ -2059,20 +2274,13 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       ? freeShippingSubOverrides
       : { ...suboptions, ...freeShippingSubOverrides };
 
-    // Para sa standard couriers (SPX, LBC, Lalamove) na nag-iimbak ng suboption state
-    // bilang top-level boolean key (e.g. SPX Express.delivery = false) kaysa sa nested
-    // suboptions map, i-force-enable din ang top-level key kapag may free shipping promo.
-    // Ito ay para ma-enable ang Standard Delivery suboption kahit naka-disable sa Firebase
-    // kapag ang courier ay may free shipping promo para doon.
-    const topLevelSubKeys = methodName === 'LBC' ? ['cop', 'cod']
-      : methodName === 'Lalamove' ? ['self', 'seller']
-      : methodName === 'SPX Express' ? ['delivery', 'cod']
-      : [];
-    // Ang standard delivery key ng bawat courier
-    const standardSubKey = methodName === 'LBC' ? 'cop'
-      : methodName === 'Lalamove' ? 'seller'
-      : methodName === 'SPX Express' ? 'delivery'
-      : null;
+    // Legacy configs may store suboption flags at method level instead of
+    // inside `suboptions`; discover those keys from the Firebase shape.
+    const topLevelSuboptions = getShippingSuboptionEntries(baseObj);
+    const topLevelSubKeys = topLevelSuboptions.map(([subKey]) => subKey);
+    const standardSubKey = topLevelSuboptions.find(([subKey, subVal]) => (
+      !isSelfBookingConfig(subKey, subVal)
+    ))?.[0] || topLevelSubKeys[0] || null;
     const topLevelOverrides = {};
     let anySubHasFree = false;
     topLevelSubKeys.forEach(subKey => {
@@ -2136,32 +2344,16 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
         if (m === 'Seller Meetup') return (storeAdmin?.pickupDetails?.meetup?.places || []).some(p => p.isActive !== false);
         if (m === 'Self-Pickup') return selfPickupPoints.length > 0;
 
-        // Methods with suboptions: need at least one active suboption
-        const hasSuboptions = methodConfig.hasSuboptions || Object.keys(methodConfig.suboptions || {}).length > 0;
+        // Methods with suboptions: need at least one active suboption. The
+        // entries are discovered from Firebase, including legacy top-level
+        // suboption flags.
+        const suboptionEntries = getShippingSuboptionEntries(methodConfig);
+        const hasSuboptions = methodConfig.hasSuboptions || suboptionEntries.length > 0;
         if (hasSuboptions) {
-          const suboptions = methodConfig.suboptions || {};
-          return Object.values(suboptions).some(sub => {
-            const effectiveSub = sub; // free shipping override already applied above
+          return suboptionEntries.some(([subKey, effectiveSub]) => {
             if (!isShippingSuboptionEnabled(effectiveSub)) return false;
-            // If isSelfBooking: needs pickup points available
-            if (effectiveSub?.isSelfBooking && selfPickupPoints.length === 0) return false;
+            if (isSelfBookingConfig(subKey, effectiveSub) && selfPickupPoints.length === 0) return false;
             return true;
-          });
-        }
-
-        // Standard courier methods also might have suboptions like cop/cod directly on config
-        // or we need to check if they have at least one active suboption.
-        if (['SPX Express', 'LBC', 'Lalamove'].includes(m)) {
-          const subKeys = m === 'LBC' ? ['cop', 'cod']
-                        : m === 'Lalamove' ? ['self', 'seller']
-                        : ['delivery', 'cod'];
-          const methodWasDisabled = effectiveConfig?._wasDisabled;
-          return subKeys.some(subKey => {
-            if (m === 'Lalamove' && subKey === 'self' && selfPickupPoints.length === 0) return false;
-            const hasFreePromo = checkoutItems.some(item => itemHasFreeShippingForSubKey(item, m, subKey, storeAdmin?.shippingMethods));
-            // Kung disabled ang method, ipakita lang ang suboption na may free shipping promo
-            if (methodWasDisabled && !hasFreePromo) return false;
-            return isSubMethodEnabled(effectiveConfig, subKey) || hasFreePromo;
           });
         }
 
@@ -2173,49 +2365,28 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
           if (methodName === 'Seller Meetup') return 4;
 
           const config = rawMethods[methodName] || storeAdmin?.shippingMethods?.[methodName];
-          const hasSuboptions = config?.hasSuboptions || Object.keys(config?.suboptions || {}).length > 0;
+          const suboptionEntries = getShippingSuboptionEntries(config);
+          const hasSuboptions = config?.hasSuboptions || suboptionEntries.length > 0;
 
           // 1. Check for Free Shipping
           let isFree = isMethodFreeShipping(methodName);
-          if (hasSuboptions && config.suboptions) {
-            isFree = isFree || Object.keys(config.suboptions).some(subKey => {
-              const sub = config.suboptions[subKey];
-              if (!isShippingSuboptionEnabled(sub)) return false;
-              return isMethodFreeShipping(methodName, subKey);
-            });
-          } else if (['SPX Express', 'LBC', 'Lalamove'].includes(methodName)) {
-            const subKeys = methodName === 'LBC' ? ['cop', 'cod']
-                          : methodName === 'Lalamove' ? ['self', 'seller']
-                          : ['delivery', 'cod'];
-            isFree = isFree || subKeys.some(subKey => {
-              if (methodName === 'Lalamove' && subKey === 'self' && selfPickupPoints.length === 0) return false;
-              const hasFreePromo = checkoutItems.some(item => itemHasFreeShippingForSubKey(item, methodName, subKey, storeAdmin?.shippingMethods));
-              const isEnabled = isSubMethodEnabled(config, subKey) || hasFreePromo;
-              if (!isEnabled) return false;
-              return isMethodFreeShipping(methodName, subKey);
-            });
+          if (hasSuboptions) {
+            isFree = isFree || suboptionEntries.some(([subKey, sub]) => (
+              isShippingSuboptionEnabled(sub)
+              && (!isSelfBookingConfig(subKey, sub) || selfPickupPoints.length > 0)
+              && isMethodFreeShipping(methodName, subKey)
+            ));
           }
           if (isFree) return 1;
 
           // 2. Check for Discount
           let hasDiscount = getHandlingDiscountSetting(storeAdmin?.shippingMethods, methodName);
-          if (hasSuboptions && config.suboptions) {
-            hasDiscount = hasDiscount || Object.keys(config.suboptions).some(subKey => {
-              const sub = config.suboptions[subKey];
-              if (!isShippingSuboptionEnabled(sub)) return false;
-              return getHandlingDiscountSetting(storeAdmin?.shippingMethods, methodName, subKey);
-            });
-          } else if (['SPX Express', 'LBC', 'Lalamove'].includes(methodName)) {
-            const subKeys = methodName === 'LBC' ? ['cop', 'cod']
-                          : methodName === 'Lalamove' ? ['self', 'seller']
-                          : ['delivery', 'cod'];
-            hasDiscount = hasDiscount || subKeys.some(subKey => {
-              if (methodName === 'Lalamove' && subKey === 'self' && selfPickupPoints.length === 0) return false;
-              const hasFreePromo = checkoutItems.some(item => itemHasFreeShippingForSubKey(item, methodName, subKey, storeAdmin?.shippingMethods));
-              const isEnabled = isSubMethodEnabled(config, subKey) || hasFreePromo;
-              if (!isEnabled) return false;
-              return getHandlingDiscountSetting(storeAdmin?.shippingMethods, methodName, subKey);
-            });
+          if (hasSuboptions) {
+            hasDiscount = hasDiscount || suboptionEntries.some(([subKey, sub]) => (
+              isShippingSuboptionEnabled(sub)
+              && (!isSelfBookingConfig(subKey, sub) || selfPickupPoints.length > 0)
+              && getHandlingDiscountSetting(storeAdmin?.shippingMethods, methodName, subKey)
+            ));
           }
           if (hasDiscount) return 2;
 
@@ -2224,26 +2395,22 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
 
         return getPriority(a) - getPriority(b);
       });
-  }, [isAdminCheckoutConfigReady, enabledShippingMethods, selfPickupPoints, storeAdmin, checkoutItems, isMethodFreeShipping]);
+  }, [isAdminCheckoutConfigReady, enabledShippingMethods, selfPickupPoints, storeAdmin, isMethodFreeShipping]);
 
   const isSelfBookingSuboption = useCallback((subKey, subVal) => {
-    if (!subKey && !subVal) return false;
-    if (subVal?.isSelfBooking === true) return true;
-    if (String(subKey).toLowerCase() === 'self') return true;
-    const label = String(subVal?.label || subKey || '').toLowerCase();
-    return /self[\s-_]*booking/i.test(label);
+    return isSelfBookingConfig(subKey, subVal);
   }, []);
 
   const getRankedSuboptions = useCallback((method, methodConfig = null) => {
     const config = methodConfig || enabledShippingMethods?.[method] || storeAdmin?.shippingMethods?.[method];
     const wasDisabled = config?._wasDisabled;
-    const suboptions = Object.entries(config?.suboptions || {}).filter(([subKey, subVal]) => {
+    const suboptions = getShippingSuboptionEntries(config).filter(([subKey, subVal]) => {
       const hasFreePromo = checkoutItems.some(item =>
         itemHasFreeShippingForSubKey(item, method, subKey, storeAdmin?.shippingMethods)
       );
       if (wasDisabled && !hasFreePromo) return false;
       if (!isShippingSuboptionEnabled(subVal) && !hasFreePromo) return false;
-      if (subVal?.isSelfBooking && selfPickupPoints.length === 0) return false;
+      if (isSelfBookingConfig(subKey, subVal) && selfPickupPoints.length === 0) return false;
       return true;
     });
 
@@ -2311,40 +2478,8 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       return totalAppliedHandlingFee > 0 ? `₱${totalAppliedHandlingFee.toLocaleString()} OFF` : '';
     }
 
-    if (['SPX Express', 'LBC', 'Lalamove'].includes(method)) {
-      const methodConfig = enabledShippingMethods?.[method] || storeAdmin?.shippingMethods?.[method];
-      const subKeys = method === 'LBC' ? ['cop', 'cod']
-        : method === 'Lalamove' ? ['self', 'seller']
-        : ['delivery', 'cod'];
-      const availableSubKeys = subKeys.filter(subKey => {
-        if (method === 'Lalamove' && subKey === 'self' && selfPickupPoints.length === 0) return false;
-        const hasFreePromo = checkoutItems.some(item =>
-          itemHasFreeShippingForSubKey(item, method, subKey, storeAdmin?.shippingMethods)
-        );
-        return isSubMethodEnabled(methodConfig, subKey) || hasFreePromo;
-      });
-
-      const rankedKeys = availableSubKeys
-        .map(subKey => ({
-          subKey,
-          isFree: isMethodFreeShipping(method, subKey),
-          hasDiscount: getHandlingDiscountSetting(storeAdmin?.shippingMethods, method, subKey)
-        }))
-        .map(option => ({
-          ...option,
-          priority: option.isFree ? 1 : option.hasDiscount ? 2 : 3
-        }))
-        .sort((a, b) => a.priority - b.priority);
-      const bestLegacySuboption = rankedKeys[0];
-
-      if (bestLegacySuboption?.isFree) return 'FREE SHIPPING';
-      if (bestLegacySuboption?.hasDiscount) {
-        return totalAppliedHandlingFee > 0 ? `₱${totalAppliedHandlingFee.toLocaleString()} OFF` : '';
-      }
-    }
-
     return '';
-  }, [checkoutItems, enabledShippingMethods, getRankedSuboptions, isMethodFreeShipping, selfPickupPoints.length, storeAdmin?.shippingMethods, totalAppliedHandlingFee]);
+  }, [getRankedSuboptions, isMethodFreeShipping, storeAdmin?.shippingMethods, totalAppliedHandlingFee]);
 
   const buildShippingData = useCallback((m, sourceData) => {
     const methodConfig = enabledShippingMethods?.[m] || storeAdmin?.shippingMethods?.[m];
@@ -2371,25 +2506,20 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
         }
       }
 
-      if (!bestSubKey && ['SPX Express', 'LBC', 'Lalamove'].includes(m)) {
-        const subKeys = m === 'LBC' ? ['cop', 'cod']
-          : m === 'Lalamove' ? ['self', 'seller']
-          : ['delivery', 'cod'];
-        const matched = subKeys.find(subKey => {
+      if (!bestSubKey) {
+        const matchingEntry = getShippingSuboptionEntries(methodConfig).find(([subKey]) => {
           if (promoValuesMatch(subKey, configuredSuboption)) return true;
           const candidates = getSuboptionCandidatesFromKey(storeAdmin?.shippingMethods, m, subKey);
           return candidates.some(c => isSuboptionMatchingPromo(c, configuredSuboption));
         });
-        if (matched) {
-          bestSubKey = matched;
-        }
+        if (matchingEntry) bestSubKey = matchingEntry[0];
       }
     }
 
     // Pre-select SELF-BOOKING suboption if available for couriers
     const findAvailableSelfBookingKey = () => {
-      if (methodConfig?.suboptions && Object.keys(methodConfig.suboptions).length > 0) {
-        const entry = Object.entries(methodConfig.suboptions).find(([subKey, subVal]) => {
+      if (getShippingSuboptionEntries(methodConfig).length > 0) {
+        const entry = getShippingSuboptionEntries(methodConfig).find(([subKey, subVal]) => {
           if (!isSelfBookingSuboption(subKey, subVal)) return false;
           if (selfPickupPoints.length === 0) return false;
           const hasFreePromo = checkoutItems.some(item =>
@@ -2400,16 +2530,6 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
           return isShippingSuboptionEnabled(subVal) || hasFreePromo;
         });
         if (entry) return entry[0];
-      }
-
-      if (m === 'Lalamove' && selfPickupPoints.length > 0) {
-        const wasDisabled = methodConfig?._wasDisabled;
-        const hasFreePromo = checkoutItems.some(item =>
-          itemHasFreeShippingForSubKey(item, m, 'self', storeAdmin?.shippingMethods)
-        );
-        if ((!wasDisabled || hasFreePromo) && (isSubMethodEnabled(methodConfig, 'self') || hasFreePromo)) {
-          return 'self';
-        }
       }
 
       return '';
@@ -2426,15 +2546,13 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     if (!bestSubKey) {
       bestSubKey = getBestSuboptionKey(m, methodConfig);
     }
-    if (!bestSubKey && ['SPX Express', 'LBC', 'Lalamove'].includes(m)) {
-      const subKeys = m === 'LBC' ? ['cop', 'cod']
-        : m === 'Lalamove' ? ['self', 'seller']
-        : ['delivery', 'cod'];
-
+    if (!bestSubKey) {
+      const subKeys = getShippingSuboptionEntries(methodConfig).map(([subKey]) => subKey);
       const wasDisabled = methodConfig?._wasDisabled;
       const rated = subKeys
         .filter(subKey => {
-          if (m === 'Lalamove' && subKey === 'self' && selfPickupPoints.length === 0) return false;
+          const subConfig = getShippingSuboptionConfig(methodConfig, subKey);
+          if (isSelfBookingConfig(subKey, subConfig) && selfPickupPoints.length === 0) return false;
           const hasFreePromo = checkoutItems.some(item => 
             itemHasFreeShippingForSubKey(item, m, subKey, storeAdmin?.shippingMethods)
           );
@@ -2444,7 +2562,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
         .map(subKey => {
           const isFree = isMethodFreeShipping(m, subKey);
           const hasDiscount = getHandlingDiscountSetting(storeAdmin?.shippingMethods, m, subKey);
-          const isSelfBooking = subKey === 'self';
+          const isSelfBooking = isSelfBookingConfig(subKey, getShippingSuboptionConfig(methodConfig, subKey));
           let priority = 4;
           if (isFree) priority = 1;
           else if (isSelfBooking) priority = 2;
@@ -2481,23 +2599,10 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       meetupLocationIndex = 0;
     }
 
-    const spxType = m === 'SPX Express'
-      ? (bestSubKey === 'cod' ? 'Cash On Delivery' : 'Standard Delivery')
-      : sourceData?.spxType || 'Standard Delivery';
-    const lbcType = m === 'LBC'
-      ? (bestSubKey === 'cod' ? 'COD' : 'COP')
-      : sourceData?.lbcType || 'COP';
-    const lalamoveType = m === 'Lalamove'
-      ? (bestSubKey === 'self' ? 'Self-Booking' : 'Seller-Booking')
-      : sourceData?.lalamoveType || 'Seller-Booking';
-
     return {
       ...sourceData,
       shippingMethod: m,
       selectedSuboption: bestSubKey,
-      spxType,
-      lbcType,
-      lalamoveType,
       customSuboption: bestSubKey,
       pickupLocation,
       pickupLocationIndex,
@@ -2514,9 +2619,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     });
     // Side effects after state update
     const methodConfig = enabledShippingMethods?.[m] || storeAdmin?.shippingMethods?.[m];
-    const selectedSubConfig = newCheckoutData?.selectedSuboption
-      ? methodConfig?.suboptions?.[newCheckoutData.selectedSuboption]
-      : null;
+    const selectedSubConfig = getShippingSuboptionConfig(methodConfig, newCheckoutData?.selectedSuboption);
       
     // Determine if the selected suboption/method requires any address inputs
     const subFields = methodConfig ? getRequiredFields(methodConfig, newCheckoutData?.selectedSuboption) : [];
@@ -2527,7 +2630,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       m === 'Seller Meetup' ||
       checkUsesPickupPoint(m, methodConfig, newCheckoutData?.selectedSuboption) ||
       checkUsesMeetupLocation(m, methodConfig, newCheckoutData?.selectedSuboption) ||
-      selectedSubConfig?.isSelfBooking === true ||
+      isSelfBookingConfig(newCheckoutData?.selectedSuboption, selectedSubConfig) ||
       selectedSubConfig?.isPickupRequired === true ||
       !subNeedsAddress;
 
@@ -2679,7 +2782,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   ]);
 
   const courierName = useMemo(() => {
-    if (!checkoutData.shippingMethod) return 'LBC';
+    if (!checkoutData.shippingMethod) return 'Courier';
     const method = checkoutData.shippingMethod;
     const subKey = getSelectedShippingSubKey(checkoutData, storeAdmin?.shippingMethods);
     const methodConfig = storeAdmin?.shippingMethods?.[method];
@@ -2708,6 +2811,16 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     usesPickupPoint ||
     usesMeetupLocation
   ), [checkoutData.shippingMethod, usesPickupPoint, usesMeetupLocation]);
+
+  const selectedShippingMethodConfig = storeAdmin?.shippingMethods?.[checkoutData.shippingMethod] || {};
+  const selectedShippingSuboptionConfig = getShippingSuboptionConfig(
+    selectedShippingMethodConfig,
+    getSelectedShippingSubKey(checkoutData)
+  );
+  const selectedIsSelfBooking = isSelfBookingConfig(
+    getSelectedShippingSubKey(checkoutData),
+    selectedShippingSuboptionConfig
+  );
 
   const selectedLocalPlaceDetails = useMemo(() => {
     if (usesMeetupLocation) return selectedMeetupDetails;
@@ -2744,7 +2857,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     if (requiredFields.includes(11) && !`${deliveryData.province || ''}`.trim()) return false;
     if (requiredFields.includes(13)) {
       if (!`${checkoutData.lbcBranch || ''}`.trim()) return false;
-      const prefix = `${courierName || 'LBC'} Express - `;
+      const prefix = `${courierName || 'Courier'} Express - `;
       if (checkoutData.lbcBranch.trim() === prefix.trim()) return false;
     }
     if ((requiredFields.includes(14) || usesPickupPoint) && !checkoutData.pickupLocation) return false;
@@ -2809,7 +2922,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     updatedDelivery.lng = Number(deliveryData.lng) || DEFAULT_DELIVERY_COORDS.lng;
 
     if (requiredFields.includes(13)) {
-      const prefix = `${courierName || 'LBC'} Express - `;
+      const prefix = `${courierName || 'Courier'} Express - `;
       const value = checkoutData.lbcBranch || '';
       const cleanValue = value.replace(new RegExp(`^${prefix}`, 'i'), '').trim();
       updatedDelivery.lbcBranch = cleanValue ? `${prefix}${cleanValue}` : '';
@@ -3023,6 +3136,14 @@ const handleFinalizeOrder = async () => {
         isPreOrder,
         hasProjects,
         isMadeToOrder: hasProjects,
+        projectPrintStartDate: hasProjects ? (availabilityNotice?.printStartDate || null) : null,
+        projectPrintEndDate: hasProjects ? (availabilityNotice?.printEndDate || null) : null,
+        fulfillmentAvailableDate: (hasProjects || checkoutData.shippingMethod === 'Seller Meetup')
+          ? (availabilityNotice?.fulfillmentAvailableDate || null)
+          : null,
+        meetupPreferredDate: checkoutData.shippingMethod === 'Seller Meetup'
+          ? (availabilityNotice?.fulfillmentAvailableDate || null)
+          : null,
         isSelfBooking: (() => {
           const subKey = checkoutData.selectedSuboption || checkoutData.customSuboption || null;
           const methodConfig = storeAdmin?.shippingMethods?.[checkoutData.shippingMethod];
@@ -3065,7 +3186,17 @@ const handleFinalizeOrder = async () => {
             lat: selectedLocalPlaceDetails.lat || null,
             lng: selectedLocalPlaceDetails.lng || null,
             exactLat: exactPlace?.lat || selectedLocalPlaceDetails.lat || null,
-            exactLng: exactPlace?.lng || selectedLocalPlaceDetails.lng || null
+            exactLng: exactPlace?.lng || selectedLocalPlaceDetails.lng || null,
+            ...(usesMeetupLocation
+              ? {
+                meetupStartTime: storeAdmin?.pickupDetails?.meetup?.meetupStartTime
+                  || selectedLocalPlaceDetails.meetupStartTime
+                  || null,
+                meetupEndTime: storeAdmin?.pickupDetails?.meetup?.meetupEndTime
+                  || selectedLocalPlaceDetails.meetupEndTime
+                  || null
+              }
+              : {})
           };
         })() : null,
         buyerRole: isAdmin ? 'admin' : 'customer',
@@ -4118,6 +4249,7 @@ const handleFinalizeOrder = async () => {
                 {availabilityNotice && !isPaymentUnavailable && (availabilityNotice.isDelayed || !hasIncompleteRequiredDetails) && (
                   <div className="space-y-0.5 text-center text-[12px] font-bold uppercase tracking-widest text-emerald-300">
                     <p>{availabilityNotice.warning}</p>
+                    {availabilityNotice.detail && <p>{availabilityNotice.detail}</p>}
                   </div>
                 )}
                 {hasIncompleteRequiredDetails && (
@@ -4172,62 +4304,18 @@ const handleFinalizeOrder = async () => {
                     <>
                       {shippingOptions.map(m => {
                         const isSelected = checkoutData.shippingMethod === m;
-                        let discountLabel = '';
-
-                        if (m === 'LBC') {
-                            const lbcWasDisabled = enabledShippingMethods.LBC?._wasDisabled;
-                            ['cop', 'cod'].forEach(subKey => {
-                                const hasFreePromo = checkoutItems.some(item => itemHasFreeShippingForSubKey(item, 'LBC', subKey, storeAdmin?.shippingMethods));
-                                // Kung disabled ang LBC, ipakita lang ang discount label ng suboption na may promo
-                                if (lbcWasDisabled && !hasFreePromo) return;
-                                if (isSubMethodEnabled(enabledShippingMethods.LBC, subKey) || hasFreePromo) {
-                                    const label = getShippingDiscountLabel('LBC', subKey);
-                                    if (!discountLabel && label) discountLabel = label;
-                                    if (label === 'FREE SHIPPING') discountLabel = label;
-                                }
-                            });
-                        } else if (m === 'Lalamove') {
-                            const lalamoveWasDisabled = enabledShippingMethods.Lalamove?._wasDisabled;
-                            ['self', 'seller'].forEach(subKey => {
-                                if (subKey === 'self' && selfPickupPoints.length === 0) return;
-                                const hasFreePromo = checkoutItems.some(item => itemHasFreeShippingForSubKey(item, 'Lalamove', subKey, storeAdmin?.shippingMethods));
-                                if (lalamoveWasDisabled && !hasFreePromo) return;
-                                if (isSubMethodEnabled(enabledShippingMethods.Lalamove, subKey) || hasFreePromo) {
-                                    const label = getShippingDiscountLabel('Lalamove', subKey);
-                                    if (!discountLabel && label) discountLabel = label;
-                                    if (label === 'FREE SHIPPING') discountLabel = label;
-                                }
-                            });
-                        } else if (m === 'SPX Express') {
-                            const spxWasDisabled = enabledShippingMethods['SPX Express']?._wasDisabled;
-                            ['delivery', 'cod'].forEach(subKey => {
-                                const hasFreePromo = checkoutItems.some(item => itemHasFreeShippingForSubKey(item, 'SPX Express', subKey, storeAdmin?.shippingMethods));
-                                if (spxWasDisabled && !hasFreePromo) return;
-                                if (isSubMethodEnabled(enabledShippingMethods['SPX Express'], subKey) || hasFreePromo) {
-                                    const label = getShippingDiscountLabel('SPX Express', subKey);
-                                    if (!discountLabel || label === 'FREE SHIPPING') discountLabel = label;
-                                }
-                            });
-                        } else {
-                            // Custom methods: i-check suboptions para sa FREE SHIPPING label
-                            const rawMethodConfig = storeAdmin?.shippingMethods?.[m];
-                            const methodConfig = enabledShippingMethods[m];
-                            const customWasDisabled = methodConfig?._wasDisabled;
-                            if (methodConfig?.hasSuboptions && rawMethodConfig?.suboptions) {
-                              for (const [subKey, subVal] of Object.entries(rawMethodConfig.suboptions)) {
-                                const hasFreePromo = checkoutItems.some(item => itemHasFreeShippingForSubKey(item, m, subKey, storeAdmin?.shippingMethods));
-                                // Kung disabled ang method, ipakita lang ang label ng promo suboption
-                                if (customWasDisabled && !hasFreePromo) continue;
-                                if (isShippingSuboptionEnabled(subVal) || hasFreePromo) {
-                                  const label = getShippingDiscountLabel(m, subKey);
-                                  if (!discountLabel && label) discountLabel = label;
-                                  if (label === 'FREE SHIPPING') discountLabel = label;
-                                }
-                              }
-                            } else {
-                              discountLabel = getShippingDiscountLabel(m);
-                            }
-                        }
+                        const rawMethodConfig = storeAdmin?.shippingMethods?.[m] || {};
+                        const methodConfig = enabledShippingMethods[m] || rawMethodConfig;
+                        const suboptionEntries = getShippingSuboptionEntries(rawMethodConfig);
+                        const discountLabel = suboptionEntries.reduce((currentLabel, [subKey, subVal]) => {
+                          const hasFreePromo = checkoutItems.some(item => itemHasFreeShippingForSubKey(item, m, subKey, storeAdmin?.shippingMethods));
+                          if (methodConfig?._wasDisabled && !hasFreePromo) return currentLabel;
+                          if (!isShippingSuboptionEnabled(subVal) && !hasFreePromo) return currentLabel;
+                          const label = getShippingDiscountLabel(m, subKey);
+                          return currentLabel === 'FREE SHIPPING' || !label
+                            ? currentLabel || label
+                            : label === 'FREE SHIPPING' ? label : currentLabel;
+                        }, getShippingDiscountLabel(m));
                         
                         return (
                           <div key={m} className="space-y-2">
@@ -4236,7 +4324,7 @@ const handleFinalizeOrder = async () => {
                               onClick={() => {
                                 if (isSelected) {
                                   // I-deselect ang current method
-                                  updateCheckoutData(prev => ({ ...prev, shippingMethod: '', lbcType: 'COP', lalamoveType: 'Seller-Booking', spxType: 'Standard Delivery', selectedSuboption: '', customSuboption: '' }));
+                                  updateCheckoutData(prev => ({ ...prev, shippingMethod: '', selectedSuboption: '', customSuboption: '' }));
                                 } else {
                                   handleShippingChange(m);
                                 }
@@ -4402,6 +4490,7 @@ const handleFinalizeOrder = async () => {
                                   const fallbackLabel = `Meetup Place ${idx + 1}`;
                                   const placeLabel = getCheckoutPlaceLabel(place, fallbackLabel);
                                   const placeAddress = getCheckoutPlaceAddress(place, { includeHouseNo: false });
+                                  const meetupTimeWindow = getSharedMeetupTimeWindow(storeAdmin?.pickupDetails, place);
                                   const isSelected = checkoutData.meetupLocationIndex === idx || checkoutData.meetupLocation === placeLabel;
                                   return (
                                     <motion.button
@@ -4421,6 +4510,11 @@ const handleFinalizeOrder = async () => {
                                       {placeAddress && (
                                         <p className={`text-[10px] font-bold mt-0.5 ml-5 leading-tight ${isSelected ? 'text-blue-600/80' : 'text-neutral-500 dark:text-neutral-400'}`}>{placeAddress}</p>
                                       )}
+                                      {meetupTimeWindow && (
+                                        <p className={`mt-1 ml-5 text-[10px] font-black tracking-wide ${isSelected ? 'text-blue-600/80' : 'text-neutral-500 dark:text-neutral-400'}`}>
+                                          MEETUP WINDOW: {meetupTimeWindow}
+                                        </p>
+                                      )}
                                     </motion.button>
                                   );
                                 })}
@@ -4432,7 +4526,7 @@ const handleFinalizeOrder = async () => {
                   })()}
                   {((checkoutData.shippingMethod === 'Seller Meetup' && usesMeetupLocation) ||
                     (checkoutData.shippingMethod === 'Self-Pickup' && usesPickupPoint) ||
-                    (checkoutData.shippingMethod === 'Lalamove' && checkoutData.lalamoveType === 'Self-Booking' && usesPickupPoint)) && (
+                    (selectedIsSelfBooking && usesPickupPoint)) && (
                     <div className="mt-3 space-y-2 animate-in slide-in-from-top duration-300">
                       <div className="flex items-center gap-2">
                         <h5 className="text-[11px] font-black uppercase opacity-40">
@@ -4452,10 +4546,13 @@ const handleFinalizeOrder = async () => {
                               : pickupPoints.indexOf(place);
                             const fallbackLabel = `${checkoutData.shippingMethod === 'Seller Meetup' ? 'Meetup Place' : 'Pickup Point'} ${originalIdx + 1}`;
                             const placeLabel = getCheckoutPlaceLabel(place, fallbackLabel);
+                            const meetupTimeWindow = checkoutData.shippingMethod === 'Seller Meetup'
+                              ? getSharedMeetupTimeWindow(storeAdmin?.pickupDetails, place)
+                              : '';
                             const isSelected = checkoutData.shippingMethod === 'Seller Meetup'
                                               ? checkoutData.meetupLocationIndex === idx || checkoutData.meetupLocation === placeLabel
                                               : checkoutData.pickupLocationIndex === originalIdx || checkoutData.pickupLocation === placeLabel;
-                            const discountLabel = checkoutData.shippingMethod === 'Lalamove' ? '' : getShippingDiscountLabel(checkoutData.shippingMethod);
+                            const discountLabel = selectedIsSelfBooking ? '' : getShippingDiscountLabel(checkoutData.shippingMethod);
 
                             return (
                               <motion.button
@@ -4475,6 +4572,11 @@ const handleFinalizeOrder = async () => {
                                   </div>
                                   {discountLabel && <span className={`text-[11px] font-black ml-2 text-emerald-500`}>{discountLabel}</span>}
                                 </div>
+                                {meetupTimeWindow && (
+                                  <p className="mt-1 ml-6 text-[10px] font-black tracking-wide text-neutral-500 dark:text-neutral-400">
+                                    MEETUP WINDOW: {meetupTimeWindow}
+                                  </p>
+                                )}
                               </motion.button>
                             );
                           })}
@@ -4498,7 +4600,7 @@ const handleFinalizeOrder = async () => {
                         </h4>
                         {isNoDetailsMode ? (
                           <div className="p-5 rounded-[2.5rem] bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5 space-y-5 animate-in zoom-in-95 duration-300 text-left">
-                            {checkoutData.shippingMethod === 'Lalamove' && checkoutData.lalamoveType === 'Self-Booking' && usesPickupPoint && (
+                            {selectedIsSelfBooking && usesPickupPoint && (
                               <>
                                 <div className="space-y-1">
                                     <div className="flex items-center gap-2">
@@ -4521,7 +4623,7 @@ const handleFinalizeOrder = async () => {
                                 </div>
                                 <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 space-y-2">
                                   <div className="flex items-center gap-2 text-amber-600"><Info size={14} /><p className="text-[11px] font-black uppercase italic">Self-Booking Instructions</p></div>
-                                  <p className="text-[11px] font-bold text-neutral-800 dark:text-neutral-200 leading-relaxed">Search for the pickup point name above for checking your Lalamove rate.</p>
+                                      <p className="text-[11px] font-bold text-neutral-800 dark:text-neutral-200 leading-relaxed">Search for the pickup point name above for checking the courier rate.</p>
                                 </div>
                               </>
                             )}
@@ -4567,7 +4669,7 @@ const handleFinalizeOrder = async () => {
                               </div>
                             )}
                             {/* Dynamic courier with pickup requirement */}
-                            {!LOCAL_METHODS.includes(checkoutData.shippingMethod) && !(checkoutData.shippingMethod === 'Lalamove' && checkoutData.lalamoveType === 'Self-Booking') && usesPickupPoint && selectedPickupDetails && (
+                            {!LOCAL_METHODS.includes(checkoutData.shippingMethod) && !selectedIsSelfBooking && usesPickupPoint && selectedPickupDetails && (
                               <>
                                 <div className="space-y-1">
                                   <div className="flex items-center gap-2">
@@ -4702,6 +4804,11 @@ const handleFinalizeOrder = async () => {
                                       {selectedLocalPlaceAddress && (
                                         <p className="text-[11px] font-black uppercase text-neutral-500 dark:text-neutral-300 leading-tight ml-6">
                                           {selectedLocalPlaceAddress}
+                                        </p>
+                                      )}
+                                      {usesMeetupLocation && getSharedMeetupTimeWindow(storeAdmin?.pickupDetails, selectedLocalPlaceDetails) && (
+                                        <p className="text-[10px] font-black uppercase tracking-wide text-blue-600 leading-tight ml-6 mt-1">
+                                          Meetup Window: {getSharedMeetupTimeWindow(storeAdmin?.pickupDetails, selectedLocalPlaceDetails)}
                                         </p>
                                       )}
                                       {checkoutData.shippingMethod !== 'Seller Meetup' && (
@@ -5148,6 +5255,7 @@ const handleFinalizeOrder = async () => {
                           {availabilityNotice && !isPaymentUnavailable && (availabilityNotice.isDelayed || !hasIncompleteRequiredDetails) && (
                             <div className="space-y-0.5 text-center text-[12px] font-black uppercase tracking-widest text-emerald-300">
                               <p>{availabilityNotice.warning}</p>
+                              {availabilityNotice.detail && <p>{availabilityNotice.detail}</p>}
                             </div>
                           )}
                           {hasIncompleteRequiredDetails && (

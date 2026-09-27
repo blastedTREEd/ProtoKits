@@ -8,6 +8,15 @@ const DEFAULT_METHOD_REQUIRED_FIELDS = {
 };
 
 const BRANCH_DROPOFF_REQUIRED_FIELDS = [1, 2, 5, 6, 7, 8, 9, 10, 11, 13];
+const BRANCH_UNAVAILABLE_WEEKDAY_OPTIONS = [
+  { value: 0, label: 'Sunday' },
+  { value: 1, label: 'Monday' },
+  { value: 2, label: 'Tuesday' },
+  { value: 3, label: 'Wednesday' },
+  { value: 4, label: 'Thursday' },
+  { value: 5, label: 'Friday' },
+  { value: 6, label: 'Saturday' }
+];
 
 export default function ShippingOptions({ 
   shippingMethods, 
@@ -375,6 +384,12 @@ export default function ShippingOptions({
     return Array.isArray(config?.requiredFields) && config.requiredFields.includes(13);
   };
 
+  const hasBranchDropoffOption = (methodVal) => {
+    const methodObj = typeof methodVal === 'object' && methodVal !== null ? methodVal : {};
+    return getBranchDropoff(methodVal)
+      || Object.keys(methodObj.suboptions || {}).some(subKey => getBranchDropoff(methodVal, subKey));
+  };
+
   const BranchDropoffToggle = ({ method, methodVal, subKey = null }) => {
     const isEnabled = getBranchDropoff(methodVal, subKey);
 
@@ -405,11 +420,15 @@ export default function ShippingOptions({
       } else {
         if (subKey) {
           updateSuboptionConfig(method, subKey, {
-            isBranchDropoff: false
+            isBranchDropoff: false,
+            branchUnavailableWeekdays: [],
+            branchDropoffClosingTime: ''
           }, true);
         } else {
           updateMethodConfig(method, {
-            isBranchDropoff: false
+            isBranchDropoff: false,
+            branchUnavailableWeekdays: [],
+            branchDropoffClosingTime: ''
           }, true);
         }
       }
@@ -427,6 +446,110 @@ export default function ShippingOptions({
       >
         Branch Dropoff
       </button>
+    );
+  };
+
+  const BranchDropoffScheduleControls = ({ method, methodVal, subKey = null }) => {
+    const isEnabled = subKey
+      ? getBranchDropoff(methodVal, subKey)
+      : hasBranchDropoffOption(methodVal);
+    if (!isEnabled) return null;
+
+    const methodObj = typeof methodVal === 'object' && methodVal !== null ? methodVal : {};
+    const optionConfig = subKey ? methodObj.suboptions?.[subKey] : methodObj;
+    const legacyBranchOption = !subKey
+      ? Object.values(methodObj.suboptions || {}).find(option => getBranchDropoff(option))
+      : null;
+    const config = subKey
+      ? optionConfig
+      : (Object.prototype.hasOwnProperty.call(methodObj, 'branchUnavailableWeekdays')
+        || Object.prototype.hasOwnProperty.call(methodObj, 'branchDropoffClosingTime')
+        ? methodObj
+        : (legacyBranchOption || methodObj));
+    const selectedDays = Array.isArray(config?.branchUnavailableWeekdays)
+      ? config.branchUnavailableWeekdays.map(Number).filter(day => day >= 0 && day <= 6)
+      : [];
+    const closingTime = typeof config?.branchDropoffClosingTime === 'string'
+      ? config.branchDropoffClosingTime
+      : '';
+
+    const updateConfig = (patch) => {
+      if (subKey) {
+        updateSuboptionConfig(method, subKey, patch, true);
+      } else {
+        updateMethodConfig(method, patch, true);
+      }
+    };
+
+    const handleDaysChange = (event) => {
+      const nextDays = Array.from(event.target.selectedOptions)
+        .map(option => Number(option.value))
+        .filter(day => day >= 0 && day <= 6)
+        .sort((a, b) => a - b);
+
+      updateConfig({ branchUnavailableWeekdays: nextDays });
+    };
+
+    return (
+      <div className="flex flex-wrap items-center gap-2" onClick={(event) => event.stopPropagation()}>
+        <details className="group relative">
+          <summary className={`list-none cursor-pointer rounded-xl border px-3 py-1.5 text-[13px] font-black uppercase tracking-tighter transition-all ${
+            selectedDays.length > 0
+              ? 'border-garage-blue bg-garage-blue text-white shadow-md shadow-blue-500/20'
+              : 'border-transparent bg-black/5 text-neutral-400 dark:bg-white/5'
+          }`}>
+            NoDropoff
+          </summary>
+          <div className="absolute left-0 top-full z-30 mt-2 w-[280px] rounded-xl border border-garage-blue/20 bg-[var(--color-surface-raised)] p-3 text-left shadow-xl">
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[10px] font-black uppercase tracking-wider text-garage-blue">
+                Branch closed days
+              </span>
+              <select
+                multiple
+                size={3}
+                value={selectedDays.map(String)}
+                onChange={handleDaysChange}
+                className="min-h-[72px] w-full rounded-lg border border-garage-blue/20 bg-white px-2 py-1.5 text-[12px] font-bold text-neutral-800 outline-none focus:ring-2 focus:ring-garage-blue/40 dark:bg-neutral-900 dark:text-white"
+                aria-label="Branch closed days"
+              >
+                {BRANCH_UNAVAILABLE_WEEKDAY_OPTIONS.map(({ value, label }) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+              <span className="text-[10px] font-semibold text-neutral-400">
+                Select every weekday the branch is closed or unavailable.
+              </span>
+            </label>
+          </div>
+        </details>
+        <details className="group relative">
+          <summary className={`list-none cursor-pointer rounded-xl border px-3 py-1.5 text-[13px] font-black uppercase tracking-tighter transition-all ${
+            closingTime
+              ? 'border-garage-blue bg-garage-blue text-white shadow-md shadow-blue-500/20'
+              : 'border-transparent bg-black/5 text-neutral-400 dark:bg-white/5'
+          }`}>
+            Closing
+          </summary>
+          <div className="absolute right-0 top-full z-30 mt-2 flex w-[340px] flex-wrap items-center gap-2 rounded-xl border border-garage-blue/20 bg-[var(--color-surface-raised)] p-3 text-left shadow-xl">
+            <label className="flex min-w-[180px] flex-1 flex-col gap-1.5">
+              <span className="text-[10px] font-black uppercase tracking-wider text-garage-blue">
+                Branch closing time
+              </span>
+              <input
+                type="time"
+                value={closingTime}
+                onChange={(event) => updateConfig({ branchDropoffClosingTime: event.target.value })}
+                className="rounded-lg border border-garage-blue/20 bg-white px-2.5 py-2 text-[12px] font-bold text-neutral-800 outline-none focus:ring-2 focus:ring-garage-blue/40 dark:bg-neutral-900 dark:text-white"
+                aria-label="Branch closing time"
+              />
+            </label>
+            <span className="max-w-[360px] text-[10px] font-semibold text-neutral-400">
+              Orders placed at or after this time move to the next available branch day.
+            </span>
+          </div>
+        </details>
+      </div>
     );
   };
 
@@ -521,13 +644,16 @@ export default function ShippingOptions({
                 </span>
                 <span className="text-[13px] font-bold opacity-45 uppercase">{isActive ? 'Available' : 'Disabled'}</span>
               </div>
-              {isActive && !hasSuboptions && (
+              {isActive && (
                 <div className="flex min-w-0 flex-1 flex-wrap justify-end gap-2 max-lg:mt-1 max-lg:w-full max-lg:flex-none max-lg:basis-full max-lg:justify-start">
-                  <HandlingFeeToggle method={m} methodVal={methodVal} />
-                  {!isDefaultMethod(m) && (
+                  {!hasSuboptions && <HandlingFeeToggle method={m} methodVal={methodVal} />}
+                  {!hasSuboptions && !isDefaultMethod(m) && (
                     <BranchDropoffToggle method={m} methodVal={methodVal} />
                   )}
-                  {isDefaultMethod(m) && (
+                  {!isDefaultMethod(m) && hasBranchDropoffOption(methodVal) && (
+                    <BranchDropoffScheduleControls method={m} methodVal={methodVal} />
+                  )}
+                  {!hasSuboptions && isDefaultMethod(m) && (
                     <button
                       type="button"
                       onClick={() => updateMethodConfig(m, { cashEnabled: !methodConfig.cashEnabled }, true)}

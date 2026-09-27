@@ -1,7 +1,7 @@
 import React, { forwardRef, useImperativeHandle, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-leaflet';
 import { 
-  X, Trash2, Home, Users, Bike, Settings, Building2, Map, Sparkles, MapPin, MapPinCheck, MapPinSearch, Hash, Plus, ChevronDown, ChevronUp
+  X, Trash2, Home, Users, Bike, Settings, Building2, Map, Sparkles, MapPin, MapPinCheck, MapPinSearch, Hash, Plus, ChevronDown, ChevronUp, Clock
 } from 'lucide-react';
 import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { useStore } from '../../store/useStore';
@@ -81,6 +81,13 @@ const getPlaceCardAddress = (place = {}) => {
   return address.slice(label.length).replace(/^[,\s]+/, '');
 };
 
+const formatMeetupTimeWindow = (place = {}) => {
+  const start = String(place.meetupStartTime || '').trim();
+  const end = String(place.meetupEndTime || '').trim();
+  if (!start && !end) return '';
+  return `${start || 'OPEN'}${end ? ` - ${end}` : ''}`;
+};
+
 const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose, embedded = false, visible = true, onChangesChange = null }, ref) {
   const { isDarkMode } = useTheme();
   const { user, updateShippingSettings, shippingSettings } = useStore();
@@ -105,6 +112,8 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
     // Dati nagse-seed ng LBC/Lalamove/SPX Express kahit deleted na sa Firebase.
     
     const meetupPlaces = shippingSettings?.pickupDetails?.meetup?.places || [];
+    const meetupSettings = shippingSettings?.pickupDetails?.meetup || {};
+    const legacyMeetupWindow = meetupPlaces.find(place => place.meetupStartTime || place.meetupEndTime) || {};
     const rawPickup = shippingSettings?.pickupDetails?.['pickup-point'] || {};
     const pickupPlaces = rawPickup.places || (rawPickup.landmark ? [rawPickup] : []);
 
@@ -118,6 +127,8 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
       province: "",
       zipCode: "",
       meetupPlaces,
+      meetupStartTime: meetupSettings.meetupStartTime || legacyMeetupWindow.meetupStartTime || '',
+      meetupEndTime: meetupSettings.meetupEndTime || legacyMeetupWindow.meetupEndTime || '',
       pickupPlaces,
       shippingMethods: { ...(shippingSettings?.shippingMethods || {}) },
       lat: 14.5995,
@@ -196,7 +207,9 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
       },
       meetup: {
         ...(existingPickupDetails.meetup || {}),
-        places: [...(formData?.meetupPlaces || [])]
+        places: [...(formData?.meetupPlaces || [])],
+        meetupStartTime: formData?.meetupStartTime || '',
+        meetupEndTime: formData?.meetupEndTime || ''
       }
     };
 
@@ -292,6 +305,36 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
       console.error(err);
       setFormData(prev => ({ ...prev, [listKey]: previousPlaces }));
       alert("Failed to toggle availability.");
+    }
+  };
+
+  const handleMeetupTimeWindowChange = async (field, value) => {
+    const previousPickupDetails = pickupDetailsRef.current || {};
+    const nextPickupDetails = {
+      ...previousPickupDetails,
+      meetup: {
+        ...(previousPickupDetails.meetup || {}),
+        places: [...(formData?.meetupPlaces || [])],
+        [field]: value
+      }
+    };
+    pickupDetailsRef.current = nextPickupDetails;
+    setFormData(prev => ({ ...prev, [field]: value }));
+
+    try {
+      const write = pickupDetailsWriteQueueRef.current
+        .catch(() => undefined)
+        .then(() => updateShippingSettings(user.uid, { pickupDetails: nextPickupDetails }));
+      pickupDetailsWriteQueueRef.current = write.catch(() => undefined);
+      await write;
+    } catch (err) {
+      console.error(err);
+      pickupDetailsRef.current = previousPickupDetails;
+      setFormData(prev => ({
+        ...prev,
+        [field]: previousPickupDetails.meetup?.[field] || ''
+      }));
+      alert('Failed to update meetup time window.');
     }
   };
 
@@ -782,6 +825,38 @@ const FulfillmentModal = forwardRef(function FulfillmentModal({ isOpen, onClose,
 
         {isExpanded && (
           <>
+            {type === 'meetup' && (
+              <details className="group rounded-2xl border border-garage-blue/20 bg-garage-blue/[0.04] p-3">
+                <summary className="flex cursor-pointer list-none items-center gap-2 text-[12px] font-black uppercase tracking-wider text-garage-blue">
+                  <Clock size={15} />
+                  {formatMeetupTimeWindow(formData) ? `Time Window: ${formatMeetupTimeWindow(formData)}` : 'Set Time Window'}
+                  <ChevronDown size={14} className="ml-auto transition-transform group-open:rotate-180" />
+                </summary>
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="flex flex-col gap-1 text-left">
+                    <span className="text-[10px] font-black uppercase tracking-wider opacity-60">Opens</span>
+                    <input
+                      type="time"
+                      value={formData.meetupStartTime || ''}
+                      onChange={(event) => handleMeetupTimeWindowChange('meetupStartTime', event.target.value)}
+                      className={inputClass}
+                      aria-label="Meetup opening time"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-left">
+                    <span className="text-[10px] font-black uppercase tracking-wider opacity-60">Closes</span>
+                    <input
+                      type="time"
+                      value={formData.meetupEndTime || ''}
+                      onChange={(event) => handleMeetupTimeWindowChange('meetupEndTime', event.target.value)}
+                      className={inputClass}
+                      aria-label="Meetup closing time"
+                    />
+                  </label>
+                </div>
+                <p className="mt-2 text-[10px] font-semibold opacity-50">This window applies to every meetup location.</p>
+              </details>
+            )}
             {!isEditingPlace && places.length > 0 ? (
               <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
                 {places.map((place, index) => {

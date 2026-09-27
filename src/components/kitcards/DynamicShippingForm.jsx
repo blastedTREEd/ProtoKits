@@ -69,13 +69,13 @@ export default function DynamicShippingForm({
   setValidationState,
   addressStatus,
   setAddressStatus,
-  courierName = 'LBC',
+  courierName = 'Courier',
   isDarkMode = false
 }) {
   const isRequired = (id) => requiredFields.includes(id);
 
   const getBranchPrefix = useCallback((courier) => {
-    const cleanCourier = (courier || 'LBC').trim();
+    const cleanCourier = (courier || 'Courier').trim();
     return `${cleanCourier} Express - `;
   }, []);
 

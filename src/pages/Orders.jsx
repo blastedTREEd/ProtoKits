@@ -5,7 +5,7 @@ import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
 import { 
   ClipboardList, Plus, MapPin, Package, PackageOpen, ShieldCheck, X, CheckCircle2, 
-  ChevronLeft, ChevronRight, ChevronDown, Clock, Calendar, Store, Truck, Tag, Trash2, AlertCircle,
+  ChevronDown, Clock, Store, Truck, Tag, Trash2, AlertCircle,
   Camera, Upload, QrCode, ArrowRight, Eye, Download, ListTodo, Flag,
   XCircle, Wallet, MapPinSearch, ClockFading, PrinterCheck, Undo2, Pause, Play, Copy, ExternalLink
 } from 'lucide-react';
@@ -31,6 +31,7 @@ import {
 import PhilippineAddressSuggestions from '../components/common/PhilippineAddressSuggestions';
 import { getProjectScheduleDates } from '../components/calculator/GarageCalendar';
 import { isOrderFreeShipping } from '../utils/shippingUtils';
+import { getNextAvailableDate } from '../utils/availabilitySchedule';
 
 let DefaultIcon = L.icon({ iconUrl: markerIcon, shadowUrl: markerShadow, iconSize: [25, 41], iconAnchor: [12, 41] });
 L.Marker.prototype.options.icon = DefaultIcon;
@@ -407,75 +408,61 @@ const toLocalDateKey = (date) => {
   return `${year}-${month}-${day}`;
 };
 
-const parseLocalDateKey = (value) => {
-  const [year, month, day] = String(value || '').split('-').map(Number);
-  if (![year, month, day].every(Number.isFinite)) return null;
-  return new Date(year, month - 1, day);
+const normalizeTimeValue = (value) => {
+  const match = String(value || '').match(/^(\d{2}):(\d{2})$/);
+  if (!match) return '';
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  return hours <= 23 && minutes <= 59 ? `${match[1]}:${match[2]}` : '';
 };
 
-function MeetupCalendarPicker({ value, onChange }) {
-  const today = useMemo(() => {
-    const date = new Date();
-    date.setHours(0, 0, 0, 0);
-    return date;
-  }, []);
-  const selectedDate = parseLocalDateKey(value);
-  const [viewDate, setViewDate] = useState(() => (
-    selectedDate || new Date(today.getFullYear(), today.getMonth(), 1)
-  ));
+const timeToMinutes = (value) => {
+  const normalized = normalizeTimeValue(value);
+  if (!normalized) return null;
+  const [hours, minutes] = normalized.split(':').map(Number);
+  return (hours * 60) + minutes;
+};
 
-  const year = viewDate.getFullYear();
-  const month = viewDate.getMonth();
-  const firstDay = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const cells = [];
-  for (let index = 0; index < firstDay; index += 1) cells.push(null);
-  for (let day = 1; day <= daysInMonth; day += 1) cells.push(new Date(year, month, day));
+const isMeetupTimeWithinWindow = (startTime, windowStart, windowEnd, durationMinutes = 15) => {
+  const selectedMinutes = timeToMinutes(startTime);
+  const windowStartMinutes = timeToMinutes(windowStart);
+  const windowEndMinutes = timeToMinutes(windowEnd);
+  if ([selectedMinutes, windowStartMinutes, windowEndMinutes].some(value => value === null)) return false;
+  return selectedMinutes >= windowStartMinutes
+    && selectedMinutes + durationMinutes <= windowEndMinutes;
+};
 
-  return (
-    <div className="rounded-2xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.03]">
-      <div className="mb-3 flex items-center justify-between">
-        <button type="button" onClick={() => setViewDate(new Date(year, month - 1, 1))} className="rounded-lg p-2 transition hover:bg-black/10 dark:hover:bg-white/10" aria-label="Previous month">
-          <ChevronLeft size={15} />
-        </button>
-        <span className="text-[11px] font-black uppercase tracking-widest">
-          {viewDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-        </span>
-        <button type="button" onClick={() => setViewDate(new Date(year, month + 1, 1))} className="rounded-lg p-2 transition hover:bg-black/10 dark:hover:bg-white/10" aria-label="Next month">
-          <ChevronRight size={15} />
-        </button>
-      </div>
-      <div className="mb-1 grid grid-cols-7 gap-1 text-center text-[9px] font-black uppercase opacity-45">
-        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label) => <span key={label}>{label}</span>)}
-      </div>
-      <div className="grid grid-cols-7 gap-1">
-        {cells.map((date, index) => {
-          if (!date) return <span key={`empty-${index}`} className="aspect-square" />;
-          const dateKey = toLocalDateKey(date);
-          const isPast = date < today;
-          const isSelected = value === dateKey;
-          return (
-            <button
-              type="button"
-              key={dateKey}
-              disabled={isPast}
-              onClick={() => onChange(dateKey)}
-              className={`aspect-square rounded-lg text-[11px] font-black transition ${isSelected ? 'bg-blue-600 text-white shadow-md' : isPast ? 'cursor-not-allowed opacity-25' : 'hover:bg-blue-600/15'}`}
-            >
-              {date.getDate()}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
+const buildMeetupTimeOptions = (windowStart, windowEnd, durationMinutes = 15, stepMinutes = 15) => {
+  const startMinutes = timeToMinutes(windowStart);
+  const endMinutes = timeToMinutes(windowEnd);
+  if (startMinutes === null || endMinutes === null || endMinutes - startMinutes < durationMinutes) return [];
 
-const buildQuarterHourOptions = () => Array.from({ length: 24 * 4 }, (_, index) => {
-  const hours = Math.floor(index / 4);
-  const minutes = (index % 4) * 15;
-  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-});
+  const options = [];
+  for (let value = startMinutes; value + durationMinutes <= endMinutes; value += stepMinutes) {
+    options.push(`${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`);
+  }
+  return options;
+};
+
+const parseDateKey = (dateKey) => {
+  const [year, month, day] = String(dateKey || '').split('-').map(Number);
+  if (!year || !month || !day) return null;
+  const date = new Date(year, month - 1, day);
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day
+    ? date
+    : null;
+};
+
+const formatMeetupDate = (dateKey) => {
+  const date = parseDateKey(dateKey);
+  if (!date) return 'DATE PENDING';
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric'
+  }).format(date);
+};
 
 const getEndTimeForWindow = (startTime, durationMinutes = 15) => {
   const [hours, minutes] = String(startTime || '').split(':').map(Number);
@@ -617,25 +604,32 @@ const compressImage = (base64Str, maxWidth = 1024, maxHeight = 1024, quality = 0
 
 const getShippingFlags = (order, shippingSettings = null) => {
   const method = String(order?.shippingMethod || '').toUpperCase();
-  const isLbc = method.includes('LBC');
-  const isLalamoveSeller = method.includes('LALAMOVE (SELLER-BOOKING)');
-  const isLalamoveSelf = method.includes('LALAMOVE (SELF-BOOKING)');
-  const isSpx = method.includes('SPX EXPRESS');
+  const shippingMethods = shippingSettings?.shippingMethods || {};
+  const methodKey = String(order?.shippingMethodKey || order?.shippingMethod || '').trim();
+  const resolvedMethodKey = Object.keys(shippingMethods).find(key => (
+    normalizeShippingValue(key) === normalizeShippingValue(methodKey)
+  )) || methodKey;
+  const methodConfig = shippingMethods?.[resolvedMethodKey] || {};
+  const subKey = String(order?.shippingSuboptionKey || '').trim();
+  const subConfig = methodConfig?.suboptions?.[subKey] || methodConfig?.[subKey] || {};
+  const activeOptionConfig = subConfig && typeof subConfig === 'object' ? subConfig : methodConfig;
+  const activeRequiredFields = Array.isArray(activeOptionConfig?.requiredFields)
+    ? activeOptionConfig.requiredFields
+    : Array.isArray(methodConfig?.requiredFields) ? methodConfig.requiredFields : [];
+  const isSelfBooking = order?.isSelfBooking === true
+    || activeOptionConfig?.isSelfBooking === true
+    || methodConfig?.isSelfBooking === true;
   const hasMeetupLocation = Boolean(order?.meetupLocation);
-  const isMeetup = method.includes('MEETUP') || hasMeetupLocation;
+  const isMeetup = method.includes('MEETUP') || hasMeetupLocation || activeRequiredFields.includes(15);
   const isSelfPickup = method.includes('SELF-PICKUP');
   const hasPickupPoint = Boolean(order?.pickupLocation || order?.pickupDetails);
   const usesPickupPoint = hasPickupPoint && !isMeetup;
-  const isPickupPointCourier = usesPickupPoint && !isSelfPickup && !isLalamoveSelf;
+  const isPickupPointCourier = usesPickupPoint && !isSelfPickup && !isSelfBooking;
   const isFreeShipping = isOrderFreeShipping(order, shippingSettings?.shippingMethods);
   const isCourier = !isMeetup && !isSelfPickup && Boolean(order?.shippingMethod);
   const isBranchDropoff = (() => {
     if (order?.isBranchDropoff === true) return true;
     if (order?.receiverDetails?.lbcBranch || order?.lbcBranch) return true;
-    const methodKey = String(order?.shippingMethodKey || order?.shippingMethod || '').trim();
-    const subKey = String(order?.shippingSuboptionKey || '').trim();
-    const methodConfig = shippingSettings?.shippingMethods?.[methodKey];
-    const subConfig = subKey && methodConfig?.suboptions ? methodConfig.suboptions[subKey] : null;
     if (subConfig?.isBranchDropoff === true || methodConfig?.isBranchDropoff === true) return true;
     if (Array.isArray(subConfig?.requiredFields) && subConfig.requiredFields.includes(13)) return true;
     if (Array.isArray(methodConfig?.requiredFields) && methodConfig.requiredFields.includes(13)) return true;
@@ -673,10 +667,7 @@ const getShippingFlags = (order, shippingSettings = null) => {
   })();
 
   return {
-    isLbc,
-    isLalamoveSeller,
-    isLalamoveSelf,
-    isSpx,
+    isSelfBooking,
     isMeetup,
     isSelfPickup,
     usesPickupPoint,
@@ -684,9 +675,9 @@ const getShippingFlags = (order, shippingSettings = null) => {
     isPickupPointCourier,
     isFreeShipping,
     isBranchDropoff,
-    requiresCourierBranch, 
-    needsAdminShipping: (isLbc || isLalamoveSeller || isSpx || (isCourier && !isLalamoveSelf)) && !isFreeShipping,
-    needsTracking: (isLbc || isLalamoveSeller || isSpx || (isCourier && !isLalamoveSelf)) && !usesPickupPoint && !isMeetup
+    requiresCourierBranch: requiresCourierBranch || activeRequiredFields.includes(13),
+    needsAdminShipping: isCourier && !isSelfBooking && !isFreeShipping,
+    needsTracking: isCourier && !isSelfBooking && !usesPickupPoint && !isMeetup
   };
 };
 
@@ -760,7 +751,7 @@ const normalizeShippingValue = (value) => String(value || '').trim().toLowerCase
 
 const isOrderSelfBooking = (order, settings) => {
   if (!order) return false;
-  if (order.isSelfBooking === true || getShippingFlags(order).isLalamoveSelf) return true;
+  if (order.isSelfBooking === true || getShippingFlags(order, settings).isSelfBooking) return true;
 
   const shippingMethods = settings?.shippingMethods || {};
   const savedMethod = normalizeShippingValue(order.shippingMethod);
@@ -1139,12 +1130,22 @@ export default function Orders() {
       setTrackingRef(selectedOrder.trackingNo || '');
       setCustomerTrackingLink(selectedOrder.customerTrackingLink || selectedOrder.trackingLink || '');
       const meetupSchedule = selectedOrder.meetupSchedule || {};
-      setMeetupDate(meetupSchedule.date || selectedOrder.meetupPreferredDate || '');
-      setMeetupStartTime(meetupSchedule.startTime || selectedOrder.meetupPreferredStartTime || '09:00');
+      const configuredMeetupStart = normalizeTimeValue(shippingSettings?.pickupDetails?.meetup?.meetupStartTime);
+      setMeetupDate(
+        meetupSchedule.date
+        || selectedOrder.meetupPreferredDate
+        || selectedOrder.fulfillmentAvailableDate
+        || ''
+      );
+      setMeetupStartTime(
+        normalizeTimeValue(meetupSchedule.startTime || selectedOrder.meetupPreferredStartTime)
+        || configuredMeetupStart
+        || '09:00'
+      );
       setClaimantBalance(selectedOrder.claimantBalance || '');
       setShippingFeeInput(selectedOrder.shippingFee ?? '');
     }
-  }, [selectedOrder]);
+  }, [selectedOrder, shippingSettings?.pickupDetails?.meetup?.meetupStartTime]);
 
   useEffect(() => {
     const address = getLegacyOrderAddress(selectedOrder);
@@ -1255,8 +1256,7 @@ export default function Orders() {
     if (!order) return null;
     const nextOrder = { ...order, ...patch };
     const status = nextOrder.status;
-    const method = String(nextOrder.shippingMethod || '').toUpperCase();
-    const isLBC = method.includes('LBC');
+    const requiresBranchPayment = getShippingFlags(nextOrder, shippingSettings).requiresCourierBranch;
     const balance = calculateBalance(nextOrder);
     const isProject = nextOrder.type === 'project' || nextOrder.items?.some(i => i.type === 'project');
 
@@ -1273,19 +1273,19 @@ export default function Orders() {
     }
 
     if (['Reserved', 'Validating'].includes(status)) return isAdminMode ? 'to_validate' : 'to_pay';
-    if (status === 'Arrived' && !isLBC && balance > 0) return isAdminMode ? 'to_validate' : 'to_pay';
+    if (status === 'Arrived' && !requiresBranchPayment && balance > 0) return isAdminMode ? 'to_validate' : 'to_pay';
     // Full-payment orders with balance requested (incomplete payment) — show in validation/payment tab
     if (nextOrder.balanceRequested && balance > 0 && !nextOrder.balanceReceipt && ['Preparing'].includes(status)) return isAdminMode ? 'to_validate' : 'to_pay';
 
     if (['Preparing', 'Ready for Pickup', 'Ready for Meetup', 'To Ship'].includes(status)) {
-      if (isLBC || balance <= 0 || (nextOrder.paymentPlan === 'partial' && !isProject)) {
+      if (requiresBranchPayment || balance <= 0 || (nextOrder.paymentPlan === 'partial' && !isProject)) {
         return 'to_ship';
       }
     }
-    if (status === 'Arrived' && (isLBC || balance <= 0)) return 'to_ship';
+    if (status === 'Arrived' && (requiresBranchPayment || balance <= 0)) return 'to_ship';
 
     return null;
-  }, [calculateBalance, isAdminMode]);
+  }, [calculateBalance, isAdminMode, shippingSettings]);
 
   const moveOrderToTargetTab = useCallback((order, patch = {}) => {
     const targetTab = getTargetTabForOrder(order, patch);
@@ -1855,15 +1855,41 @@ export default function Orders() {
   }, [setToastMessage]);
 
   const handleSaveMeetupSchedule = async () => {
-    if (!selectedOrder || !meetupDate || !meetupStartTime) {
-      alert('Select a meetup date and preferred time first.');
+    if (isAdminMode) {
+      alert('Only the buyer may select the preferred meetup time.');
       return;
     }
 
-    const endTime = getEndTimeForWindow(meetupStartTime, 15);
+    const meetupSettings = shippingSettings?.pickupDetails?.meetup || {};
+    const windowStart = normalizeTimeValue(meetupSettings.meetupStartTime);
+    const windowEnd = normalizeTimeValue(meetupSettings.meetupEndTime);
+    const meetupTimeOptions = buildMeetupTimeOptions(windowStart, windowEnd);
+    const selectedStartTime = meetupTimeOptions.includes(meetupStartTime)
+      ? meetupStartTime
+      : meetupTimeOptions[0] || '';
+    const fallbackAvailableDate = toLocalDateKey(
+      getNextAvailableDate(shippingSettings?.availabilitySchedule, 'shipping') || new Date()
+    );
+    const availableDate = selectedOrder?.fulfillmentAvailableDate
+      || selectedOrder?.meetupPreferredDate
+      || meetupDate
+      || fallbackAvailableDate;
+    const isReadyForMeetup = ['Ready for Meetup', 'Ready for Pickup'].includes(selectedOrder?.status);
+
+    if (!selectedOrder || !isReadyForMeetup) {
+      alert('Meetup time can be selected when the order is Ready for Meetup.');
+      return;
+    }
+
+    if (!availableDate || !isMeetupTimeWithinWindow(selectedStartTime, windowStart, windowEnd)) {
+      alert('Select a 15-minute meetup time within the configured meetup time window.');
+      return;
+    }
+
+    const endTime = getEndTimeForWindow(selectedStartTime, 15);
     const meetupSchedule = {
-      date: meetupDate,
-      startTime: meetupStartTime,
+      date: availableDate,
+      startTime: selectedStartTime,
       endTime,
       durationMinutes: 15,
       confirmedAt: new Date().toISOString()
@@ -1872,15 +1898,15 @@ export default function Orders() {
     try {
       await updateOrderDetails(selectedOrder.id, {
         meetupSchedule,
-        meetupPreferredDate: meetupDate,
-        meetupPreferredStartTime: meetupStartTime,
+        meetupPreferredDate: availableDate,
+        meetupPreferredStartTime: selectedStartTime,
         meetupPreferredEndTime: endTime
       });
       setSelectedOrder(prev => ({
         ...prev,
         meetupSchedule,
-        meetupPreferredDate: meetupDate,
-        meetupPreferredStartTime: meetupStartTime,
+        meetupPreferredDate: availableDate,
+        meetupPreferredStartTime: selectedStartTime,
         meetupPreferredEndTime: endTime
       }));
       setToastMessage('Meetup window confirmed.');
@@ -1974,7 +2000,7 @@ export default function Orders() {
       } else if (isPreOrder) {
         newStatus = 'Waiting';
       } else {
-        newStatus = order.shippingMethod?.toUpperCase().includes('LBC') ? 'To Ship' : 'Preparing';
+        newStatus = getShippingFlags(order, shippingSettings).requiresCourierBranch ? 'To Ship' : 'Preparing';
       }
       await updateOrderStatus(order.id, newStatus);
       
@@ -2303,7 +2329,7 @@ export default function Orders() {
 
     const location = isLegacyOrder
       ? [legacyAddress.city, legacyAddress.province, legacyAddress.zipCode].filter(Boolean).join(', ')
-      : (flags.isLbc || flags.isBranchDropoff) && (rd.lbcBranch || order?.lbcBranch)
+      : flags.isBranchDropoff && (rd.lbcBranch || order?.lbcBranch || rd.branch || order?.branch)
       ? (rd.lbcBranch || order?.lbcBranch)
       : flags.isMeetup
         ? (showExactAddress ? (order?.pickupDetails?.exactAddress || order?.meetupLocation) : order?.meetupLocation)
@@ -2347,9 +2373,9 @@ export default function Orders() {
   };
   
   const tabData = useMemo(() => {
-    const isLBC = (o) => o.shippingMethod?.toUpperCase().includes('LBC');
+    const requiresBranchPayment = (o) => getShippingFlags(o, shippingSettings).requiresCourierBranch;
     const baseTabs = (isAdminMode ? [
-      { id: 'to_validate', label: 'To Validate', filter: (o) => (!['Cancelled', 'Completed'].includes(o.status) && (!isOrderInitialPaymentValidated(o) || isSecondPaymentPending(o))) || o.status === 'Validating' || (!isLBC(o) && calculateBalance(o) > 0 && o.status === 'Arrived') || (calculateBalance(o) > 0 && o.status === 'Reserved') || (o.balanceRequested && calculateBalance(o) > 0 && !o.balanceReceipt && o.status === 'Preparing') },
+      { id: 'to_validate', label: 'To Validate', filter: (o) => (!['Cancelled', 'Completed'].includes(o.status) && (!isOrderInitialPaymentValidated(o) || isSecondPaymentPending(o))) || o.status === 'Validating' || (!requiresBranchPayment(o) && calculateBalance(o) > 0 && o.status === 'Arrived') || (calculateBalance(o) > 0 && o.status === 'Reserved') || (o.balanceRequested && calculateBalance(o) > 0 && !o.balanceReceipt && o.status === 'Preparing') },
       { id: 'to_follow', label: 'In Progress', filter: (o) => {
         if (!isOrderInitialPaymentValidated(o) || isSecondPaymentPending(o)) return false;
         if (o.status === 'Waiting') return true;
@@ -2363,19 +2389,18 @@ export default function Orders() {
       { id: 'to_ship', label: 'To Ship', filter: (o) => {
         if (!isOrderInitialPaymentValidated(o) || isSecondPaymentPending(o)) return false;
         if (['Preparing', 'Ready for Pickup', 'Ready for Meetup', 'To Ship'].includes(o.status)) {
-          // Fully paid, LBC (courier collects), o partial payment plan sa kits (non-projects)
+          // Branch-payment options, fully paid orders, and partial kit plans can move to shipping.
           const isProject = o.type === 'project' || o.items?.some(i => i.type === 'project');
-          return isLBC(o) || calculateBalance(o) <= 0 || (o.paymentPlan === 'partial' && !isProject);
+          return requiresBranchPayment(o) || calculateBalance(o) <= 0 || (o.paymentPlan === 'partial' && !isProject);
         }
-        // Arrived — ipakita lang dito kung fully paid na o LBC (kung may balance pa, nasa To Validate pa)
-        if (o.status === 'Arrived') return isLBC(o) || calculateBalance(o) <= 0;
+        if (o.status === 'Arrived') return requiresBranchPayment(o) || calculateBalance(o) <= 0;
         return false;
       }},
       { id: 'to_receive', label: 'To Receive', filter: (o) => o.status === 'Shipped' || o.status === 'Dispatched' || o.status === 'In Transit' },
       { id: 'completed', label: 'Completed', filter: (o) => o.status === 'Completed' },
       { id: 'cancelled', label: 'Cancelled', filter: (o) => o.status === 'Cancelled' }
     ] : [
-      { id: 'to_pay', label: 'To Pay', filter: (o) => (!['Cancelled', 'Completed'].includes(o.status) && (!isOrderInitialPaymentValidated(o) || isSecondPaymentPending(o))) || o.status === 'Reserved' || o.status === 'Validating' || (!isLBC(o) && calculateBalance(o) > 0 && o.status === 'Arrived') || (o.balanceRequested && calculateBalance(o) > 0 && !o.balanceReceipt && o.status === 'Preparing') },
+      { id: 'to_pay', label: 'To Pay', filter: (o) => (!['Cancelled', 'Completed'].includes(o.status) && (!isOrderInitialPaymentValidated(o) || isSecondPaymentPending(o))) || o.status === 'Reserved' || o.status === 'Validating' || (!requiresBranchPayment(o) && calculateBalance(o) > 0 && o.status === 'Arrived') || (o.balanceRequested && calculateBalance(o) > 0 && !o.balanceReceipt && o.status === 'Preparing') },
       { id: 'to_follow', label: 'In Progress', filter: (o) => {
         if (!isOrderInitialPaymentValidated(o) || isSecondPaymentPending(o)) return false;
         if (o.status === 'Waiting') return true;
@@ -2389,9 +2414,9 @@ export default function Orders() {
         if (!isOrderInitialPaymentValidated(o) || isSecondPaymentPending(o)) return false;
         if (['Preparing', 'Ready for Pickup', 'Ready for Meetup', 'To Ship'].includes(o.status)) {
           const isProject = o.type === 'project' || o.items?.some(i => i.type === 'project');
-          return isLBC(o) || calculateBalance(o) <= 0 || (o.paymentPlan === 'partial' && !isProject);
+          return requiresBranchPayment(o) || calculateBalance(o) <= 0 || (o.paymentPlan === 'partial' && !isProject);
         }
-        if (o.status === 'Arrived') return isLBC(o) || calculateBalance(o) <= 0;
+        if (o.status === 'Arrived') return requiresBranchPayment(o) || calculateBalance(o) <= 0;
         return false;
       }},
       { id: 'to_receive', label: 'To Receive', filter: (o) => o.status === 'Shipped' || o.status === 'Dispatched' || o.status === 'In Transit' },
@@ -2399,7 +2424,7 @@ export default function Orders() {
       { id: 'cancelled', label: 'Cancelled', filter: (o) => o.status === 'Cancelled' }
     ]);
     return baseTabs.map(t => ({ ...t, orders: sortedOrders.filter(t.filter) }));
-  }, [sortedOrders, isAdminMode, calculateBalance]);
+  }, [sortedOrders, isAdminMode, calculateBalance, shippingSettings]);
 
   useEffect(() => { 
     if (!isLoading && tabData.length > 0 && !tabData.find(t => t.id === activeTab)) {
@@ -2468,7 +2493,7 @@ export default function Orders() {
   const shippingFeeDisplayTextOrder = useMemo(() => {
     if (!selectedOrder) return 'Not Included';
     if (selectedShippingFlags.isFreeShipping) return 'FREE SHIPPING';
-    if (selectedShippingFlags.isSelfPickup || selectedShippingFlags.isMeetup || selectedShippingFlags.isLalamoveSelf) {
+    if (selectedShippingFlags.isSelfPickup || selectedShippingFlags.isMeetup || selectedShippingFlags.isSelfBooking) {
       return 'Not Included';
     }
 
@@ -2506,6 +2531,37 @@ export default function Orders() {
 
   const isSelectedSellerMeetup = Boolean(
     selectedShippingFlags.isMeetup && isSellerMeetupShippingMethod(selectedShippingMethodDisplay)
+  );
+  const meetupSettings = shippingSettings?.pickupDetails?.meetup || {};
+  const meetupWindowStart = normalizeTimeValue(meetupSettings.meetupStartTime);
+  const meetupWindowEnd = normalizeTimeValue(meetupSettings.meetupEndTime);
+  const meetupWindowConfigured = Boolean(
+    meetupWindowStart
+    && meetupWindowEnd
+    && timeToMinutes(meetupWindowEnd) - timeToMinutes(meetupWindowStart) >= 15
+  );
+  const meetupTimeOptions = buildMeetupTimeOptions(meetupWindowStart, meetupWindowEnd);
+  const selectedMeetupStartTime = meetupTimeOptions.includes(meetupStartTime)
+    ? meetupStartTime
+    : meetupTimeOptions[0] || '';
+  const meetupReady = Boolean(
+    !isAdminMode
+    && isSelectedSellerMeetup
+    && ['Ready for Meetup', 'Ready for Pickup'].includes(selectedOrder?.status)
+  );
+  const meetupOrderReady = Boolean(
+    isSelectedSellerMeetup
+    && ['Ready for Meetup', 'Ready for Pickup'].includes(selectedOrder?.status)
+  );
+  const currentMeetupDate = selectedOrder?.meetupSchedule?.date
+    || selectedOrder?.fulfillmentAvailableDate
+    || selectedOrder?.meetupPreferredDate
+    || meetupDate
+    || toLocalDateKey(getNextAvailableDate(shippingSettings?.availabilitySchedule, 'shipping') || new Date());
+  const meetupTimeIsValid = isMeetupTimeWithinWindow(
+    selectedMeetupStartTime,
+    meetupWindowStart,
+    meetupWindowEnd
   );
   const selectedPrintingProjects = (selectedOrder?.items || []).filter((item) => (
     item?.type === 'project'
@@ -2873,26 +2929,64 @@ export default function Orders() {
             {/* Seller meetup: customer/admin can confirm a 15-minute waiting window. */}
             {isSelectedSellerMeetup && !isSelectedLegacyOrder && (
               <div className="pt-2 border-t border-black/5 dark:border-white/5 flex flex-col gap-3">
-                <span className="inline-flex items-center gap-2 text-[13px] font-black uppercase tracking-wider"><Calendar size={15} /> Meetup Window</span>
-                <p className="text-[11px] font-bold uppercase tracking-wide opacity-55">Select the preferred date and time. The confirmed window lasts 15 minutes.</p>
-                <MeetupCalendarPicker key={selectedOrder.id} value={meetupDate} onChange={setMeetupDate} />
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest opacity-60">
-                    Preferred start time
-                    <select value={meetupStartTime} onChange={(event) => setMeetupStartTime(event.target.value)} className="rounded-xl border border-black/10 bg-white p-3 text-xs font-black text-blue-600 dark:border-white/10 dark:bg-[#121212]">
-                      {buildQuarterHourOptions().map((time) => <option key={time} value={time}>{formatTrackingTime(time)}</option>)}
-                    </select>
-                  </label>
-                  <div className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest opacity-60">
-                    Waiting window ends
-                    <div className="rounded-xl border border-black/10 bg-black/[0.03] p-3 text-xs font-black text-blue-600 dark:border-white/10 dark:bg-white/[0.03]">
-                      {formatTrackingTime(getEndTimeForWindow(meetupStartTime, 15))}
-                    </div>
-                  </div>
+                <span className="inline-flex items-center gap-2 text-[13px] font-black uppercase tracking-wider"><Clock size={15} /> Meetup Window</span>
+                <p className="text-[11px] font-bold uppercase tracking-wide opacity-55">Choose a preferred time for the current available meetup date. The confirmed window lasts 15 minutes.</p>
+                <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-3">
+                  <span className="block text-[10px] font-black uppercase tracking-widest opacity-60">Current available date</span>
+                  <span className="mt-1 block text-sm font-black uppercase text-blue-600">{formatMeetupDate(currentMeetupDate)}</span>
                 </div>
-                {meetupDate && <p className="text-[12px] font-black uppercase text-blue-600">{meetupDate} · {formatTrackingTime(meetupStartTime)}–{formatTrackingTime(getEndTimeForWindow(meetupStartTime, 15))}</p>}
-                {!['Completed', 'Cancelled'].includes(selectedOrder.status) && (
-                  <button type="button" onClick={handleSaveMeetupSchedule} className="w-full rounded-xl bg-blue-600 py-3 text-[12px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/20 transition-all active:scale-95">Confirm Meetup Window</button>
+                {selectedOrder?.meetupSchedule?.startTime && (
+                  <p className="text-[12px] font-black uppercase text-blue-600">
+                    Buyer-confirmed window: {formatMeetupDate(selectedOrder.meetupSchedule.date || currentMeetupDate)} · {formatTrackingTime(selectedOrder.meetupSchedule.startTime)}–{formatTrackingTime(selectedOrder.meetupSchedule.endTime)}
+                  </p>
+                )}
+                {meetupReady ? (
+                  meetupWindowConfigured ? (
+                    <>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest opacity-60">
+                          Preferred meetup time
+                          <select
+                            value={selectedMeetupStartTime}
+                            onChange={(event) => setMeetupStartTime(event.target.value)}
+                            className="rounded-xl border border-black/10 bg-white p-3 text-xs font-black text-blue-600 dark:border-white/10 dark:bg-[#121212]"
+                          >
+                            {meetupTimeOptions.map((time) => (
+                              <option key={time} value={time}>{formatTrackingTime(time)}</option>
+                            ))}
+                          </select>
+                          <span className="text-[10px] normal-case tracking-normal opacity-60">
+                            Available from {formatTrackingTime(meetupWindowStart)} to {formatTrackingTime(meetupWindowEnd)}.
+                          </span>
+                        </label>
+                        <div className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest opacity-60">
+                          Waiting window ends
+                          <div className="rounded-xl border border-black/10 bg-black/[0.03] p-3 text-xs font-black text-blue-600 dark:border-white/10 dark:bg-white/[0.03]">
+                            {formatTrackingTime(getEndTimeForWindow(selectedMeetupStartTime, 15))}
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-[12px] font-black uppercase text-blue-600">{formatMeetupDate(currentMeetupDate)} · {formatTrackingTime(selectedMeetupStartTime)}–{formatTrackingTime(getEndTimeForWindow(selectedMeetupStartTime, 15))}</p>
+                      {!['Completed', 'Cancelled'].includes(selectedOrder.status) && (
+                        <button
+                          type="button"
+                          onClick={handleSaveMeetupSchedule}
+                          disabled={!meetupTimeIsValid}
+                          className="w-full rounded-xl bg-blue-600 py-3 text-[12px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/20 transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Confirm Meetup Window
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <p className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-[11px] font-black uppercase tracking-wide text-amber-600">Meetup time window is not configured yet.</p>
+                  )
+                ) : (
+                  <p className="rounded-xl border border-black/10 bg-black/[0.03] p-3 text-[11px] font-black uppercase tracking-wide opacity-60 dark:border-white/10 dark:bg-white/[0.03]">
+                    {isAdminMode
+                      ? (meetupOrderReady ? 'Only the buyer may select the preferred meetup time.' : 'The buyer may select a meetup time when the order is Ready for Meetup.')
+                      : 'Time selection opens when the order is Ready for Meetup.'}
+                  </p>
                 )}
               </div>
             )}
@@ -2917,7 +3011,7 @@ export default function Orders() {
                 <span className="text-[13px] font-black uppercase tracking-wider">Tracking Details</span>
                 {isAdminMode && !selectedIsSelfBooking && !['Completed', 'Cancelled'].includes(selectedOrder.status) ? (
                   <div className="space-y-3">
-                    <input className="w-full rounded-xl border border-black/10 bg-white p-3 text-xs font-black uppercase dark:border-white/10 dark:bg-[#121212]" value={trackingRef} onChange={(event) => setTrackingRef(event.target.value.toUpperCase())} placeholder={selectedShippingFlags.isLbc ? 'LBC TRACKING NO.' : 'TRACKING NO. / COURIER URL'} />
+                    <input className="w-full rounded-xl border border-black/10 bg-white p-3 text-xs font-black uppercase dark:border-white/10 dark:bg-[#121212]" value={trackingRef} onChange={(event) => setTrackingRef(event.target.value.toUpperCase())} placeholder={selectedShippingFlags.requiresCourierBranch ? 'BRANCH / COURIER TRACKING NO.' : 'TRACKING NO. / COURIER URL'} />
                     {selectedShippingFlags.needsAdminShipping && <input type="number" className="w-full rounded-xl border border-black/10 bg-white p-3 text-xs font-black dark:border-white/10 dark:bg-[#121212]" value={shippingFeeInput} onChange={(event) => setShippingFeeInput(event.target.value)} placeholder="SHIPPING FEE" />}
                     {selectedShippingFlags.isFreeShipping && (
                       <div className="flex items-center justify-between rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2.5 text-xs font-black uppercase text-emerald-600 dark:text-emerald-400">
@@ -2925,7 +3019,7 @@ export default function Orders() {
                         <span>FREE SHIPPING (₱0)</span>
                       </div>
                     )}
-                    {selectedShippingFlags.isLbc && <input className="w-full rounded-xl border border-black/10 bg-white p-3 text-xs font-black dark:border-white/10 dark:bg-[#121212]" value={claimantBalance} onChange={(event) => setClaimantBalance(event.target.value)} placeholder="CLAIMANT BALANCE" />}
+                    {selectedShippingFlags.requiresCourierBranch && <input className="w-full rounded-xl border border-black/10 bg-white p-3 text-xs font-black dark:border-white/10 dark:bg-[#121212]" value={claimantBalance} onChange={(event) => setClaimantBalance(event.target.value)} placeholder="CLAIMANT BALANCE" />}
                     <button type="button" onClick={handleSaveShippingDetails} className="w-full rounded-xl bg-blue-600 py-3 text-[12px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/20 transition-all active:scale-95">Confirm Tracking Details &amp; Mark In Transit</button>
                   </div>
                 ) : selectedIsSelfBooking && !isAdminMode && selectedOrder.status === 'Ready for Pickup' && !selectedTracking.value ? (
@@ -2962,7 +3056,7 @@ export default function Orders() {
           </div>
 
           {/* Right Column: Map */}
-          {!isFinalizedOrder && !selectedShippingFlags.isBranchDropoff && <div className="flex flex-col h-full justify-between">
+          {!isFinalizedOrder && !selectedShippingFlags.isBranchDropoff && <div className="flex flex-col self-start">
             <h3 className="text-[13px] font-black uppercase tracking-widest mb-2 text-left">Location Map</h3>
             {mapLat && mapLng ? (
               <div className="overflow-hidden rounded-3xl border border-black/5 dark:border-white/5 h-[280px] w-full relative z-10">
@@ -4257,7 +4351,7 @@ export default function Orders() {
                     <div className="space-y-1">
                       <label className="text-[9px] font-black uppercase opacity-40 tracking-widest">Shipping Method</label>
                       <select className="w-full p-4 rounded-xl border bg-transparent text-xs font-black" value={manualOrderData.shippingMethod} onChange={(e) => setManualOrderData(prev => ({...prev, shippingMethod: e.target.value}))}>
-                        {['LBC COP/COD', 'Seller Meetup', 'Self-Pickup', 'SPX Express'].map(m => <option key={m} value={m}>{m}</option>)}
+                        {legacyShippingOptions.map(m => <option key={m} value={m}>{m}</option>)}
                       </select>
                     </div>
                     <div className="space-y-1">
