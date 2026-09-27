@@ -1665,10 +1665,6 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       };
     }
 
-    const hasPrintedProjects = checkoutItems.some(item => (
-      isProjectCheckoutItem(item)
-      && isPrintedProjectItem(item, findCheckoutKit(kits, item))
-    ));
     const hasCustomProjects = checkoutItems.some(item => (
       isProjectCheckoutItem(item)
       && !isPrintedProjectItem(item, findCheckoutKit(kits, item))
@@ -1702,7 +1698,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       detail: '',
       isDelayed: true
     };
-  }, [checkoutData, checkoutItems, hasProjects, kits, storeAdmin?.availabilitySchedule, storeAdmin?.shippingMethods]);
+  }, [checkoutData, checkoutItems, kits, storeAdmin?.availabilitySchedule, storeAdmin?.shippingMethods]);
 
   const isCheckoutUnderMaintenance = useMemo(() => {
     if (!isMaintenance) return false;
