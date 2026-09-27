@@ -2588,7 +2588,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                               <div className="w-full mb-2 p-1.5 flex items-center justify-center">
                                   <span className="text-emerald-600 dark:text-emerald-400 font-black italic uppercase tracking-[0.2em] text-[11px]">
                                   {isOnHandStock(selectedStock)
-                                    ? (canShipToday ? 'SHIP ONCE PAID' : `SHIP BY ${nextShippingDateLabel}`)
+                                    ? (canShipToday ? 'SHIP IMMEDIATELY' : `SHIP BY ${nextShippingDateLabel}`)
                                     : 'SHIPS UPON ARRIVAL'}
                                   </span>
                               </div>

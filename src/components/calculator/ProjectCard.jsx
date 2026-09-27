@@ -10,7 +10,7 @@ import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
 import GarageCalendar, { findFirstAvailable, getOccupiedDates } from './GarageCalendar';
 import ProjectStatusGrid from './ProjectStatusGrid';
-import { getUnavailableDateSet, getUnavailableWeekdaySet, toDateKey } from '../../utils/availabilitySchedule';
+import { getNextAvailableDate, getUnavailableDateSet, getUnavailableWeekdaySet, toDateKey } from '../../utils/availabilitySchedule';
 import {
   getPrinterFeeders,
   isFilamentCompatibleWithPrinter,
@@ -1807,19 +1807,42 @@ export default function ProjectCard({
     return { available };
   }, [details, filamentInventory, project]);
 
-  const projectCanStartToday = useMemo(() => {
+  const nextPrintingDate = useMemo(() => {
     const schedule = shippingSettings?.availabilitySchedule;
     const unavailableDates = getUnavailableDateSet(schedule, 'printing');
     const unavailableWeekdays = getUnavailableWeekdaySet(schedule, 'printing');
-    const firstAvailable = findFirstAvailable(
+    return findFirstAvailable(
       getOccupiedDates(orders, schedule),
       unavailableDates,
       unavailableWeekdays
     );
+  }, [orders, shippingSettings?.availabilitySchedule]);
+
+  const projectCanStartToday = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    return Boolean(firstAvailable && toDateKey(firstAvailable) === toDateKey(today));
-  }, [orders, shippingSettings?.availabilitySchedule]);
+    return Boolean(nextPrintingDate && toDateKey(nextPrintingDate) === toDateKey(today));
+  }, [nextPrintingDate]);
+
+  const nextPrintingDateLabel = nextPrintingDate
+    ? nextPrintingDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase()
+    : '';
+
+  const nextShippingDate = useMemo(() => (
+    getNextAvailableDate(
+      shippingSettings?.availabilitySchedule,
+      'shipping',
+      new Date()
+    )
+  ), [shippingSettings?.availabilitySchedule]);
+
+  const canShipPrintedProjectToday = Boolean(
+    nextShippingDate
+    && toDateKey(nextShippingDate) === toDateKey(new Date())
+  );
+  const nextShippingDateLabel = nextShippingDate
+    ? nextShippingDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase()
+    : '';
 
   // Both project types require a capable printer that can fit the project,
   // accept its materials, and have enough filament capacity. A maintenance
@@ -2104,6 +2127,15 @@ export default function ProjectCard({
   // admin view as well; the admin add-to-basket action targets the shelf.
   const isAdminBlueprintView = isBlueprint && !isPrintedProject && isAdmin && isAdminView && showManagementActions;
   const isPublicVaultView = isVault && !(isAdmin && isAdminView);
+  const printFulfillmentBanner = (
+    <div className="flex items-center justify-center p-1.5">
+      <span className="text-center text-[11px] font-black italic uppercase tracking-[0.2em] text-emerald-600 dark:text-emerald-400">
+        {isPrintedProject
+          ? (canShipPrintedProjectToday ? 'SHIP IMMEDIATELY' : `SHIP BY ${nextShippingDateLabel}`)
+          : (projectCanStartToday ? 'PRINT IMMEDIATELY' : `PRINT BY ${nextPrintingDateLabel}`)}
+      </span>
+    </div>
+  );
   const vaultNeedsProjectName = isPublicVaultView && projectNameNeedsUpdate;
   const vaultNeedsFileLink = isPublicVaultView
     && !projectNameNeedsUpdate
@@ -2844,72 +2876,78 @@ export default function ProjectCard({
           </button>
         </>
       ) : isPublicVaultView ? (
-        <>
-          {onDelete && (
+        <div className="flex w-full flex-col gap-2">
+          {printFulfillmentBanner}
+          <div className="flex w-full flex-row items-center gap-2">
+            {onDelete && (
+              <button
+                type="button"
+                onClick={handleDeleteProject}
+                className="h-12 w-12 rounded-full bg-red-600 text-white shadow-lg shadow-red-600/20 flex items-center justify-center active:scale-95 transition-all"
+                title="Delete project"
+              >
+                <Trash2 size={16} strokeWidth={3} />
+              </button>
+            )}
+            {onModify && (
+              <button
+                type="button"
+                onClick={handleModifyProject}
+                className="h-12 flex-1 min-w-0 px-4 rounded-full bg-neutral-900 dark:bg-white/10 text-white font-black italic uppercase text-[11px] tracking-widest flex items-center justify-center shadow-lg active:scale-95 transition-all"
+                title="Edit project"
+              >
+                <span className="truncate">Edit Project</span>
+              </button>
+            )}
             <button
               type="button"
-              onClick={handleDeleteProject}
-              className="h-12 w-12 rounded-full bg-red-600 text-white shadow-lg shadow-red-600/20 flex items-center justify-center active:scale-95 transition-all"
-              title="Delete project"
-            >
-              <Trash2 size={16} strokeWidth={3} />
-            </button>
-          )}
-          {onModify && (
-            <button
-              type="button"
-              onClick={handleModifyProject}
-              className="h-12 flex-1 min-w-0 px-4 rounded-full bg-neutral-900 dark:bg-white/10 text-white font-black italic uppercase text-[11px] tracking-widest flex items-center justify-center shadow-lg active:scale-95 transition-all"
-              title="Edit project"
-            >
-              <span className="truncate">Edit Project</span>
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={handleVaultPrimaryAction}
-            disabled={vaultPrimaryActionDisabled}
-            className={`h-12 flex-1 min-w-0 px-4 rounded-full text-white font-black italic uppercase text-[11px] tracking-widest flex items-center justify-center shadow-lg active:scale-95 transition-all ${
-              vaultPrimaryActionDisabled
-                ? 'bg-neutral-400 cursor-not-allowed opacity-50'
-                : 'bg-gradient-to-br from-blue-500 to-blue-600'
-            }`}
-          >
-            <span className="truncate">{vaultPrimaryActionLabel}</span>
-          </button>
-        </>
-      ) : (
-        <>
-          <div className="w-1/2">
-            <button 
-              onClick={(e) => handleAddProjectToBasket(e, { closeModal: true })}
-              disabled={!canAddToBasket || !vaultReadyForBasket}
-              className={`w-full h-12 rounded-full text-white font-black italic uppercase text-[11px] tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all ${
-                !canAddToBasket || !vaultReadyForBasket
-                  ? 'bg-neutral-400 cursor-not-allowed opacity-50'
-                  : 'bg-neutral-900 dark:bg-white/10'
-              }`}
-            >
-              <ShoppingBasket size={14} strokeWidth={3} />
-              <span className="truncate">{printerIssue ? 'Printer Issue' : 'Add to Cart'}</span>
-            </button>
-          </div>
-
-          <div className="w-1/2">
-            <button 
-              onClick={handleOrderProjectNow}
-              disabled={!canAddToBasket || !vaultReadyForOrder || !onOrderNow}
-              className={`w-full h-12 rounded-full text-white font-black italic uppercase text-[11px] tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all ${
-                !canAddToBasket || !vaultReadyForOrder || !onOrderNow
+              onClick={handleVaultPrimaryAction}
+              disabled={vaultPrimaryActionDisabled}
+              className={`h-12 flex-1 min-w-0 px-4 rounded-full text-white font-black italic uppercase text-[11px] tracking-widest flex items-center justify-center shadow-lg active:scale-95 transition-all ${
+                vaultPrimaryActionDisabled
                   ? 'bg-neutral-400 cursor-not-allowed opacity-50'
                   : 'bg-gradient-to-br from-blue-500 to-blue-600'
               }`}
             >
-              <Zap size={14} strokeWidth={3} />
-              <span className="truncate">{printerIssue ? 'Printer Issue' : (isPrintedProject ? 'Buy Now' : 'Order Now')}</span>
+              <span className="truncate">{vaultPrimaryActionLabel}</span>
             </button>
           </div>
-        </>
+        </div>
+      ) : (
+        <div className="flex w-full flex-col gap-2">
+          {printFulfillmentBanner}
+          <div className="flex w-full flex-row gap-2">
+            <div className="w-1/2">
+              <button 
+                onClick={(e) => handleAddProjectToBasket(e, { closeModal: true })}
+                disabled={!canAddToBasket || !vaultReadyForBasket}
+                className={`w-full h-12 rounded-full text-white font-black italic uppercase text-[11px] tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all ${
+                  !canAddToBasket || !vaultReadyForBasket
+                    ? 'bg-neutral-400 cursor-not-allowed opacity-50'
+                    : 'bg-neutral-900 dark:bg-white/10'
+                }`}
+              >
+                <ShoppingBasket size={14} strokeWidth={3} />
+                <span className="truncate">{printerIssue ? 'Printer Issue' : 'Add to Cart'}</span>
+              </button>
+            </div>
+
+            <div className="w-1/2">
+              <button 
+                onClick={handleOrderProjectNow}
+                disabled={!canAddToBasket || !vaultReadyForOrder || !onOrderNow}
+                className={`w-full h-12 rounded-full text-white font-black italic uppercase text-[11px] tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all ${
+                  !canAddToBasket || !vaultReadyForOrder || !onOrderNow
+                    ? 'bg-neutral-400 cursor-not-allowed opacity-50'
+                    : 'bg-gradient-to-br from-blue-500 to-blue-600'
+                }`}
+              >
+                <Zap size={14} strokeWidth={3} />
+                <span className="truncate">{printerIssue ? 'Printer Issue' : (isPrintedProject ? 'Buy Now' : 'Order Now')}</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   </div>

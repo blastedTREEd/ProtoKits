@@ -139,6 +139,9 @@ const isProjectCheckoutItem = (item) => (
 const isPrintedProjectItem = (item, kit) => Boolean(
   item?.printedProject
   || item?.isPrintedProject
+  || item?.projectData?.printedProject
+  || item?.projectData?.isPrintedProject
+  || item?.projectData?.productType === 'printed-project'
   || kit?.isPrintedProject
   || kit?.productType === 'printed-project'
 );
@@ -1662,7 +1665,15 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       };
     }
 
-    const scheduleType = hasProjects ? 'printing' : 'shipping';
+    const hasPrintedProjects = checkoutItems.some(item => (
+      isProjectCheckoutItem(item)
+      && isPrintedProjectItem(item, findCheckoutKit(kits, item))
+    ));
+    const hasCustomProjects = checkoutItems.some(item => (
+      isProjectCheckoutItem(item)
+      && !isPrintedProjectItem(item, findCheckoutKit(kits, item))
+    ));
+    const scheduleType = hasCustomProjects ? 'printing' : 'shipping';
     const schedule = storeAdmin?.availabilitySchedule;
     const unavailableDates = getUnavailableDateSet(schedule, scheduleType);
     const unavailableWeekdays = getUnavailableWeekdaySet(schedule, scheduleType);
@@ -1674,7 +1685,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
 
     if (!blockedKey) {
       return {
-        warning: hasProjects ? 'PRINT IMMEDIATELY' : 'SHIP IMMEDIATELY',
+        warning: hasCustomProjects ? 'PRINT IMMEDIATELY' : 'SHIP IMMEDIATELY',
         detail: '',
         isDelayed: false
       };
