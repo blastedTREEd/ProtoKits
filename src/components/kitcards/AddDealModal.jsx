@@ -1890,7 +1890,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                               </label>
                               <span className="text-[12px] font-black uppercase tracking-widest opacity-35">Highest onhand</span>
                             </div>
-                            <div className="aspect-square w-full max-w-[150px] rounded-2xl bg-white dark:bg-black/20 border border-[var(--color-border)] p-2">
+                            <div className="aspect-square w-full max-w-[150px] rounded-2xl bg-white dark:bg-[var(--color-surface-raised)] border border-[var(--color-border)] p-2">
                               <div className="grid h-full w-full grid-cols-2 grid-rows-2 gap-2">
                                 {previewKitsData.map((kit, idx) => (
                                   <div key={kit.id} className={`relative overflow-hidden rounded-xl bg-black/5 ${getPreviewTileClass(previewKitsData.length, idx)}`}>

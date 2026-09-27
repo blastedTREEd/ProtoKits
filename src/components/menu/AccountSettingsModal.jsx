@@ -361,7 +361,7 @@ export default function AccountSettingsModal({ isOpen, onClose }) {
   };
 
   const mapCenter = [formData.lat, formData.lng];
-  const inputClass = `w-full pl-12 pr-4 py-3 rounded-2xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-600/50 ${isDarkMode ? 'bg-white/5 text-white' : 'bg-black/5 text-neutral-900'}`;
+  const inputClass = `w-full pl-12 pr-4 py-3 rounded-2xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-600/50 ${isDarkMode ? 'bg-[var(--color-surface-raised)] text-white' : 'bg-black/5 text-neutral-900'}`;
 
   return (
     <AnimatePresence>
@@ -385,16 +385,16 @@ export default function AccountSettingsModal({ isOpen, onClose }) {
             onDragEnd={(e, info) => {
               if (info.offset.y > 100) onClose();
             }}
-            className={`relative w-full md:max-w-2xl h-[92vh] md:h-auto md:max-h-[90vh] overflow-hidden flex flex-col rounded-t-[2.5rem] md:rounded-[2.5rem] shadow-2xl ${isDarkMode ? 'bg-neutral-900' : 'bg-white'}`}
+            className={`relative w-full md:max-w-2xl h-[92vh] md:h-auto md:max-h-[90vh] overflow-hidden flex flex-col rounded-t-[2.5rem] md:rounded-[2.5rem] shadow-2xl ${isDarkMode ? 'bg-[var(--color-surface-raised)]' : 'bg-white'}`}
           >
             {/* Drag Handle for Mobile */}
             <div className="w-full flex justify-center pt-4 pb-2 md:hidden shrink-0">
               <div className="w-12 h-1.5 rounded-full bg-black/10 dark:bg-white/10" />
             </div>
 
-            <div className={`p-4 md:p-8 flex justify-between items-center border-b shadow-sm relative z-10 shrink-0 ${isDarkMode ? 'border-white/5 bg-neutral-900 shadow-black/20' : 'border-black/5 bg-white shadow-black/5'}`}>
+            <div className={`p-4 md:p-8 flex justify-between items-center border-b shadow-sm relative z-10 shrink-0 ${isDarkMode ? 'border-white/5 bg-[var(--color-surface-raised)] shadow-black/20' : 'border-black/5 bg-white shadow-black/5'}`}>
                <h2 className="text-lg md:text-xl font-black italic uppercase text-blue-600 ml-2 md:ml-4">Account Settings</h2>
-               <button onClick={onClose} className="p-3 rounded-full bg-black/5 hover:bg-red-500/10 transition-all mr-2 md:mr-4"><X size={20} /></button>
+               <button onClick={onClose} className={`p-3 rounded-full hover:bg-red-500/10 transition-all mr-2 md:mr-4 ${isDarkMode ? 'bg-[var(--color-surface)]' : 'bg-black/5'}`}><X size={20} /></button>
             </div>
             <div 
               ref={scrollRef}

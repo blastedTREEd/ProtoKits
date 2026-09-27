@@ -2487,7 +2487,7 @@ export default function Orders() {
     }
 
     // Pay on Pickup: STRICTLY ONLY when the courier option requires Courier branch (field 13)
-    const requiresCourierBranch = activeOptionFields.includes(13) || Boolean(selectedOrder.lbcBranch && !selectedOrder.receiverAddress);
+    const requiresCourierBranch = activeOptionFields.includes(13);
 
     if (requiresCourierBranch) {
       return 'Pay on Pickup';
@@ -4151,7 +4151,7 @@ export default function Orders() {
                   <section>
                     <div className="mb-3 flex items-center justify-between"><h3 className="text-[12px] font-black uppercase tracking-widest opacity-45">Included items</h3><span className="text-[11px] font-black uppercase tracking-widest text-blue-600">{manualOrderData.selectedItems.length} selected</span></div>
                     <div className="rounded-2xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.03]">
-                      <input value={manualOrderData.search} onChange={(event) => setManualOrderData(prev => ({ ...prev, search: event.target.value }))} placeholder="Search kits, brand, line, or stock…" className="mb-3 w-full rounded-xl border border-black/10 bg-white px-4 py-3 text-[13px] font-bold outline-none focus:border-blue-500 dark:border-white/10 dark:bg-black/20" />
+                      <input value={manualOrderData.search} onChange={(event) => setManualOrderData(prev => ({ ...prev, search: event.target.value }))} placeholder="Search kits, brand, line, or stock…" className="mb-3 w-full rounded-xl border border-black/10 bg-white px-4 py-3 text-[13px] font-bold outline-none focus:border-blue-500 dark:border-white/10 dark:bg-[var(--color-surface-raised)]" />
                       <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
                         {filteredLegacyStockChoices.map(({ kit, stockKey, stock }) => {
                           const selected = manualOrderData.selectedItems.some(item => item.kitId === kit.id && item.stockKey === stockKey);
@@ -4177,7 +4177,7 @@ export default function Orders() {
                     <h3 className="mb-4 text-[12px] font-black uppercase tracking-widest text-blue-600">Payment summary</h3>
                     <label className="mb-3 block text-[10px] font-black uppercase tracking-widest opacity-45">
                       Total paid by buyer
-                      <input required min="0" type="number" value={manualOrderData.buyerPaid} onChange={(event) => setManualOrderData(prev => ({ ...prev, buyerPaid: event.target.value }))} className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-3 text-[14px] font-black text-neutral-950 dark:border-white/10 dark:bg-black/20 dark:text-white" />
+                      <input required min="0" type="number" value={manualOrderData.buyerPaid} onChange={(event) => setManualOrderData(prev => ({ ...prev, buyerPaid: event.target.value }))} className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-3 text-[14px] font-black text-neutral-950 dark:border-white/10 dark:bg-[var(--color-surface-raised)] dark:text-white" />
                     </label>
                     <div className="rounded-xl border border-blue-500/15 bg-blue-500/[0.04] p-3">
                       <div className="flex items-center justify-between gap-3"><span className="text-[10px] font-black uppercase tracking-widest opacity-55">Detected handling fee</span><span className="text-[14px] font-black text-blue-600">₱{legacyHandlingFee.toLocaleString()}</span></div>

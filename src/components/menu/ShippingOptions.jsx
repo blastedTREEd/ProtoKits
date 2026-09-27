@@ -555,7 +555,7 @@ export default function ShippingOptions({
                       placeholder="Add New Option (e.g. Standard, COD)"
                       value={newSubOptionLabels[m] || ''}
                       onChange={(e) => setNewSubOptionLabels(prev => ({ ...prev, [m]: e.target.value }))}
-                      className="min-w-0 flex-1 rounded-xl border border-black/5 bg-white/5 px-3 py-2 text-[13px] font-bold text-neutral-900 focus:outline-none dark:border-white/5 dark:bg-black/5 dark:text-white"
+                      className="min-w-0 flex-1 rounded-xl border border-black/5 bg-white/5 px-3 py-2 text-[13px] font-bold text-neutral-900 focus:outline-none dark:border-white/5 dark:bg-[var(--color-surface-raised)] dark:text-white"
                     />
                     <button
                       onClick={() => handleAddSuboption(m)}

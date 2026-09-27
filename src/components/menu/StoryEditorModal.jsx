@@ -1441,7 +1441,7 @@ const renderEditorFormButtons = () => (
               <button 
                 type="button"
                 onClick={(e) => { e.stopPropagation(); resetForm(); onClose(); }} 
-                className="rounded-full border border-black/10 bg-white/90 p-2 text-neutral-600 shadow-lg backdrop-blur-md transition-all hover:bg-white hover:text-neutral-950 dark:border-white/10 dark:bg-black/40 dark:text-white/80 dark:hover:bg-black/60 dark:hover:text-white"
+                className="rounded-full border border-black/10 bg-white/90 p-2 text-neutral-600 shadow-lg backdrop-blur-md transition-all hover:bg-white hover:text-neutral-950 dark:border-white/10 dark:bg-[var(--color-surface-raised)] dark:text-white/80 dark:hover:bg-[var(--color-surface-raised)] dark:hover:text-white"
                 aria-label="Close story editor"
               >
                 <X size={20} />

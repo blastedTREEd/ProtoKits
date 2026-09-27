@@ -83,6 +83,16 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
     
     const items = [];
     sourceKits.forEach((kit) => {
+      const isPrintedProject = kit?.isPrintedProject === true
+        || kit?.productType === 'printed-project'
+        || kit?.productType === 'admin-shelf-project'
+        || kit?.isAdminShelfProject === true
+        || kit?.specs?.printedProject === true;
+
+      // Printed projects can share the kits collection with supplier inventory,
+      // but they are not supplier balances and should not appear in this report.
+      if (isPrintedProject) return;
+
       const stocks = Object.entries(kit.stocks || {}).map(([key, stock]) => ({
         ...stock,
         key,

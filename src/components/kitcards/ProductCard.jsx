@@ -23,6 +23,7 @@ import { getStockStandaloneSellPrice } from '../../utils/standalonePricing';
 import { getBundleDisplayTotals } from '../../utils/bundleDisplayPricing';
 import { getDealDiscountAmount, getDealGrabLabel, getDealSaveUpToLabel } from '../../utils/dealSavings';
 import { getStockEta } from '../../utils/stockDates';
+import { getNextAvailableDate, toDateKey } from '../../utils/availabilitySchedule';
 import { isFlexiBundleDeal, isPerKitClearanceDeal, isWildSaleDeal, isClearanceKitActive, getActiveClearanceKitIds, getClearanceDisplayLabel } from '../../utils/dealTypes';
 import { getValidatedOrderStockSet, filterActiveKitStocks } from '../../utils/stockOrderUtils';
 import UniversalImage from '../common/UniversalImage';
@@ -1020,6 +1021,41 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       return expiry === 0 || now < expiry;
     });
   }, [visibleStocks, now]);
+
+  const nextShippingDate = useMemo(() => (
+    getNextAvailableDate(
+      shippingSettings?.availabilitySchedule,
+      'shipping',
+      now ? new Date(now) : new Date()
+    )
+  ), [shippingSettings?.availabilitySchedule, now]);
+
+  const nextShippingDateLabel = nextShippingDate
+    ? nextShippingDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase()
+    : '';
+  const shippingDateReference = now ? new Date(now) : new Date();
+  const canShipToday = Boolean(
+    nextShippingDate
+    && toDateKey(nextShippingDate) === toDateKey(shippingDateReference)
+  );
+  const selectedFreeShippingActive = Boolean(
+    selectedStock?.isFreeShippingEligible
+    && selectedStock?.freeShippingMethod
+    && selectedStock.freeShippingMethod !== 'All'
+    && (!selectedStock.freeShippingUntil || shippingDateReference.getTime() < new Date(selectedStock.freeShippingUntil).getTime())
+  );
+  const showShippingStatusBanner = Boolean(
+    selectedStock
+    && (
+      (isOnHandStock(selectedStock) && nextShippingDateLabel)
+      || (isPreOrderStock(selectedStock) && !selectedFreeShippingActive)
+    )
+  );
+  const showPreOrderFreeShippingBanner = Boolean(
+    selectedStock
+    && isPreOrderStock(selectedStock)
+    && selectedFreeShippingActive
+  );
 
   const line = kit?.specs?.line || '';
   const scale = kit?.specs?.scale || '';
@@ -2536,7 +2572,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                     </div>
                   </div>
 
-                  <div className={`w-full bottom-0 p-2 border-t shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] ${isDarkMode ? 'bg-black/80 border-white/10' : 'bg-white/80 border-black/5'} backdrop-blur-md z-[210] flex-none`}>
+                  <div className={`w-full bottom-0 p-2 border-t shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] ${isDarkMode ? 'bg-[var(--color-surface-raised)] border-white/10' : 'bg-white/80 border-black/5'} backdrop-blur-md z-[210] flex-none`}>
                     <div className={`grid transition-all duration-300 ease-in-out overflow-hidden ${acceptedOffer && acceptedOfferStock && selectedStock?.key === acceptedOfferStock.key && offerCountdown !== 'EXPIRED' ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
                       <div className="overflow-hidden">
                         <div className="w-full mb-2 bg-red-500 rounded-lg p-1.5 flex items-center justify-center backdrop-blur-sm">
@@ -2546,13 +2582,23 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                         </div>
                       </div>
                     </div>
-                    <div className={`grid transition-all duration-300 ease-in-out overflow-hidden ${selectedStock && selectedStock.isFreeShippingEligible && selectedStock.freeShippingMethod && selectedStock.freeShippingMethod !== 'All' && (!selectedStock.freeShippingUntil || now < new Date(selectedStock.freeShippingUntil).getTime()) ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+                    <div className={`grid transition-all duration-300 ease-in-out overflow-hidden ${showShippingStatusBanner || showPreOrderFreeShippingBanner ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
                         <div className="overflow-hidden">
-                            <div className="w-full mb-2 bg-emerald-500 rounded-lg p-1.5 flex items-center justify-center backdrop-blur-sm">
-                                <span className="text-white font-black italic uppercase tracking-[0.2em] text-[11px] drop-shadow-md">
-                                FREE SHIPPING {selectedStock?.freeShippingUntil ? `RUNS UNTIL ${new Date(selectedStock.freeShippingUntil).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase()}` : 'ELIGIBLE'}
-                                </span>
-                            </div>
+                            {showShippingStatusBanner ? (
+                              <div className="w-full mb-2 p-1.5 flex items-center justify-center">
+                                  <span className="text-emerald-600 dark:text-emerald-400 font-black italic uppercase tracking-[0.2em] text-[11px]">
+                                  {isOnHandStock(selectedStock)
+                                    ? (canShipToday ? 'SHIP ONCE PAID' : `SHIP BY ${nextShippingDateLabel}`)
+                                    : 'SHIPS UPON ARRIVAL'}
+                                  </span>
+                              </div>
+                            ) : (
+                              <div className="w-full mb-2 bg-emerald-500 rounded-lg p-1.5 flex items-center justify-center backdrop-blur-sm">
+                                  <span className="text-white font-black italic uppercase tracking-[0.2em] text-[11px] drop-shadow-md">
+                                  FREE SHIPPING {selectedStock?.freeShippingUntil ? `RUNS UNTIL ${new Date(selectedStock.freeShippingUntil).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase()}` : 'ELIGIBLE'}
+                                  </span>
+                              </div>
+                            )}
                         </div>
                     </div>
                     <div className="flex flex-col sm:flex-row md:flex-col lg:flex-row sm:items-center lg:items-center justify-between sm:gap-6 lg:gap-6">

@@ -937,7 +937,7 @@ return (
       )}
     </AnimatePresence>
 
-    <nav ref={navbarRef} style={{ height: specs.h }} className={`${isStoriesManagerOpen ? (isDesktop ? 'fixed left-0 right-0 top-0 z-[400]' : 'hidden') : 'sticky top-0 z-[110]'} w-full transition-all duration-500 border-b ${location.pathname === '/checkout' ? 'hidden lg:block' : ''} ${isDarkMode ? 'bg-[#0a0a0a] border-white/10' : 'bg-white border-black/10'}`}>
+    <nav ref={navbarRef} style={{ height: specs.h }} className={`${isStoriesManagerOpen ? (isDesktop ? 'fixed left-0 right-0 top-0 z-[400]' : 'hidden') : 'sticky top-0 z-[110]'} w-full transition-all duration-500 border-b ${location.pathname === '/checkout' ? 'hidden lg:block' : ''} ${isDarkMode ? 'bg-[var(--color-surface-raised)] border-white/10' : 'bg-white border-black/10'}`}>
       <div className="h-full mx-auto flex items-center px-4 lg:px-10 relative max-w-[1440px]">
         {isMobile ? (
           <div className="flex items-center h-full z-[120] shrink-0 relative">
@@ -945,7 +945,7 @@ return (
               style={{ width: specs.logoSize, height: specs.logoSize, padding: specs.ringPadding }} 
               className="relative rounded-full flex items-center justify-center bg-gradient-to-br from-[#0866FF] to-[#00CFFF] shadow-xl transition-all duration-500"
             >
-              <div className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center border-[2px] ${isDarkMode ? 'border-neutral-900' : 'border-white'} ${isFallbackLogo ? 'bg-gradient-to-br from-[#0866FF] to-[#00CFFF]' : 'bg-white dark:bg-neutral-800'}`}>
+              <div className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center border-[2px] ${isDarkMode ? 'border-neutral-900' : 'border-white'} ${isFallbackLogo ? 'bg-gradient-to-br from-[#0866FF] to-[#00CFFF]' : 'bg-white dark:bg-[var(--color-surface-raised)]'}`}>
                 {displayImg ? (
                   <img
                     src={displayImg}
@@ -978,7 +978,7 @@ return (
               style={{ width: specs.logoSize, height: specs.logoSize, top: '50%', transform: 'translateY(-50%)', padding: specs.ringPadding }} 
               className="absolute rounded-full flex items-center justify-center bg-gradient-to-br from-[#0866FF] to-[#00CFFF] shadow-xl transition-all duration-500"
             >
-              <div className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center border-[2px] ${isDarkMode ? 'border-neutral-900' : 'border-white'} ${isFallbackLogo ? 'bg-gradient-to-br from-[#0866FF] to-[#00CFFF]' : 'bg-white dark:bg-neutral-800'}`}>
+              <div className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center border-[2px] ${isDarkMode ? 'border-neutral-900' : 'border-white'} ${isFallbackLogo ? 'bg-gradient-to-br from-[#0866FF] to-[#00CFFF]' : 'bg-white dark:bg-[var(--color-surface-raised)]'}`}>
                 {displayImg ? (
                   <img
                     src={displayImg}
@@ -1158,7 +1158,7 @@ return (
                     }}
                     className={`${isProfileFullscreen ? 'absolute inset-0 w-full max-w-none sm:ml-auto sm:max-w-sm' : 'fixed w-72'}`}
                   >
-                  <div className={`${isProfileFullscreen ? 'flex h-full max-h-full flex-col rounded-b-[2.5rem]' : 'max-h-[calc(100dvh-5rem)] rounded-[2rem]'} overflow-hidden border ${isDarkMode ? 'border-white/10 bg-[#0a0a0a]' : 'border-black/10 bg-white'}`}>
+                  <div className={`${isProfileFullscreen ? 'flex h-full max-h-full flex-col rounded-b-[2.5rem]' : 'max-h-[calc(100dvh-5rem)] rounded-[2rem]'} overflow-hidden border ${isDarkMode ? 'border-white/10 bg-[var(--color-surface-raised)]' : 'border-black/10 bg-white'}`}>
                     <div
                       ref={profileScrollRef}
                       data-modal-scroll-container="profile"
@@ -1192,7 +1192,7 @@ return (
                                     className={`w-14 h-14 rounded-full border-2 object-cover ${isAdminView ? 'border-white dark:border-neutral-900' : 'border-transparent'}`} 
                                   />
                                 ) : (
-                                  <div className={`w-14 h-14 rounded-full border-2 flex items-center justify-center bg-zinc-100 dark:bg-zinc-800 text-neutral-400 ${isAdminView ? 'border-white dark:border-neutral-900' : 'border-transparent'}`}>
+                                  <div className={`w-14 h-14 rounded-full border-2 flex items-center justify-center bg-zinc-100 dark:bg-[var(--color-surface-raised)] text-neutral-400 ${isAdminView ? 'border-white dark:border-neutral-900' : 'border-transparent'}`}>
                                     <span className="text-sm font-black tracking-tighter">SG</span>
                                   </div>
                                 )}
@@ -1213,7 +1213,7 @@ return (
                                     className={`w-14 h-14 rounded-full border-2 object-cover ${!isAdminView ? 'border-white dark:border-neutral-900' : 'border-transparent'}`} 
                                   />
                                 ) : (
-                                  <div className={`w-14 h-14 rounded-full border-2 flex items-center justify-center bg-zinc-100 dark:bg-zinc-800 text-neutral-400 ${!isAdminView ? 'border-white dark:border-neutral-900' : 'border-transparent'}`}>
+                                  <div className={`w-14 h-14 rounded-full border-2 flex items-center justify-center bg-zinc-100 dark:bg-[var(--color-surface-raised)] text-neutral-400 ${!isAdminView ? 'border-white dark:border-neutral-900' : 'border-transparent'}`}>
                                     <ContactRound size={30} />
                                   </div>
                                 )}
@@ -1235,7 +1235,7 @@ return (
                                 className="w-16 h-16 rounded-full border-2 border-white dark:border-neutral-900 object-cover" 
                               />
                             ) : (
-                              <div className="w-16 h-16 rounded-full border-2 border-white dark:border-neutral-900 flex items-center justify-center bg-zinc-100 dark:bg-zinc-800 text-neutral-400">
+                              <div className="w-16 h-16 rounded-full border-2 border-white dark:border-neutral-900 flex items-center justify-center bg-zinc-100 dark:bg-[var(--color-surface-raised)] text-neutral-400">
                                 <ContactRound size={40} />
                               </div>
                             )}
@@ -1411,7 +1411,7 @@ return (
  {/* Mini Navbar */}
         {isMobile && !isStoriesManagerOpen && !isProfileOpen && !isNotificationModalOpen && location.pathname !== '/checkout' && (
           <div className={`fixed bottom-0 left-0 right-0 z-[100] transition-transform duration-300 ${showBottomNav ? 'translate-y-0' : 'translate-y-full'}`}>
-            <div style={{ height: specs.h }} className={`flex items-center justify-around px-2 border-t ${isDarkMode ? 'bg-[#121212] border-white/10' : 'bg-white border-black/5'} shadow-2xl`}>
+            <div style={{ height: specs.h }} className={`flex items-center justify-around px-2 border-t ${isDarkMode ? 'bg-[var(--color-surface-raised)] border-white/10' : 'bg-white border-black/5'} shadow-2xl`}>
               <button onClick={(e) => handleNavClick('/', e)} className={`flex flex-col items-center justify-center gap-1 transition-colors ${location.pathname === '/' ? 'text-garage-blue' : 'text-neutral-600 dark:text-neutral-400'}`}>
                 <Home size={20} />
                 <span className="text-[10px] font-black uppercase tracking-[0.005em]">Home</span>

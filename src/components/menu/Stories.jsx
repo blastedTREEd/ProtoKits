@@ -638,7 +638,7 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
                 className={`absolute top-5 right-5 z-30 p-2 rounded-full backdrop-blur-md border transition-all shadow-lg ${
                   isMobile
                     ? 'bg-black/40 border-white/10 text-white/80 hover:text-white hover:bg-black/60'
-                    : 'bg-white/90 border-black/10 text-neutral-600 hover:text-neutral-950 hover:bg-white dark:bg-black/40 dark:border-white/10 dark:text-white/80 dark:hover:text-white dark:hover:bg-black/60'
+                    : 'bg-white/90 border-black/10 text-neutral-600 hover:text-neutral-950 hover:bg-white dark:bg-[var(--color-surface-raised)] dark:border-white/10 dark:text-white/80 dark:hover:text-white dark:hover:bg-[var(--color-surface-raised)]'
                 }`}
               >
                 <X size={20} />

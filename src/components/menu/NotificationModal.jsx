@@ -422,7 +422,7 @@ export default function NotificationModal({
           }}
           className={`${isFullscreen ? 'absolute inset-0 w-full max-w-none sm:ml-auto sm:max-w-sm' : 'fixed z-[1000] w-[390px] max-w-[calc(100vw-5rem)]'}`}
         >
-        <div className={`${isFullscreen ? 'flex h-full max-h-full flex-col rounded-b-[2.5rem]' : 'rounded-[1.5rem]'} overflow-hidden border ${isDarkMode ? 'border-white/10 bg-[#0a0a0a]' : 'border-black/10 bg-white'}`}>
+        <div className={`${isFullscreen ? 'flex h-full max-h-full flex-col rounded-b-[2.5rem]' : 'rounded-[1.5rem]'} overflow-hidden border ${isDarkMode ? 'border-white/10 bg-[var(--color-surface-raised)]' : 'border-black/10 bg-white'}`}>
           <div
             ref={notificationListRef}
             data-modal-scroll-container="notification"

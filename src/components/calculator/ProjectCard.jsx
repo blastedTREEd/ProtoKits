@@ -2804,7 +2804,7 @@ export default function ProjectCard({
 
 {/* Footer Actions */}
 {!isReadOnly && (
-  <div className={`absolute bottom-0 left-0 right-0 w-full p-2 border-t ${isDarkMode ? 'bg-black/80 border-white/10' : 'bg-white/80 border-black/5'} backdrop-blur-md z-[110]`}>
+  <div className={`absolute bottom-0 left-0 right-0 w-full p-2 border-t ${isDarkMode ? 'bg-[var(--color-surface-raised)] border-white/10' : 'bg-white/80 border-black/5'} backdrop-blur-md z-[110]`}>
     <div className={`flex flex-row items-center gap-2 ${isAdminBlueprintView || isPublicVaultView ? 'justify-end' : ''}`}>
       {isAdminBlueprintView ? (
         <>

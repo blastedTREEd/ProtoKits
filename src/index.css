@@ -15,17 +15,35 @@
 :root {
   --color-bg: #edecec;       /* Main background light */
   --color-surface: #eeeded;  /* Cards, Navbar, Stories light */
+  --color-surface-raised: #f5f5f5; /* Raised controls and panels light */
   --color-border: #E4E6EB;   /* Divider/Lines light */
   --color-text-main: #050505; /* Main text light */
   --color-primary: #0866FF;  /* Snorlax Garage Blue */
 }
 
 .dark {
-  --color-bg: #0B0B0B;       /* Deep Black background */
-  --color-surface: #18191A;  /* Dark Gray Cards */
+  --color-bg: #252525;       /* Shared dark-mode background */
+  --color-surface: #252525;  /* Shared dark-mode component surface */
+  --color-surface-raised: #404040; /* Raised controls and panels dark */
   --color-border: #2F3031;   /* Dark Borders */
   --color-text-main: #E4E6EB; /* Light Text */
   --color-primary: #2D88FF;  /* Brighter Blue for Dark Mode */
+}
+
+/* Keep legacy component-level dark-mode classes on the same shared surface.
+ * Most components use the theme variables already, but these selectors cover
+ * older hard-coded dark backgrounds without changing translucent overlays. */
+.dark [class*="dark:bg-[#0a0a0a]"],
+.dark [class*="dark:bg-[#111]"],
+.dark [class*="dark:bg-[#111111]"],
+.dark [class*="dark:bg-[#121212]"],
+.dark [class*="dark:bg-neutral-950"],
+.dark [class*="dark:bg-neutral-900"],
+.dark [class*="dark:bg-neutral-800"],
+.dark [class*="dark:bg-neutral-700"],
+.dark [class*="dark:bg-zinc-900"],
+.dark [class*="dark:bg-zinc-800"] {
+  background-color: rgb(37 37 37 / var(--tw-bg-opacity, 1)) !important;
 }
 
 @layer base {
@@ -193,7 +211,7 @@
 }
 
 .glass-nav-dark {
-  background: rgba(0, 0, 0, 0.6) !important;
+  background: var(--color-surface-raised) !important;
   backdrop-filter: blur(20px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);

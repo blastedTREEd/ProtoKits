@@ -32,7 +32,6 @@ import { isFlexiBundleDeal, isPerKitClearanceDeal, isWildSaleDeal, getActiveClea
 import { getStockEta } from '../../utils/stockDates';
 import { getPrintedProjectModelName } from '../../utils/printedProjectName';
 import {
-  formatAvailabilityDate,
   getNextAvailableDate,
   getUnavailableDateSet,
   getUnavailableWeekdaySet,
@@ -67,6 +66,41 @@ function resolveImage(idOrUrl, imagesArray) {
 }
 
 const toCheckoutNumber = (value) => Number(value || 0);
+
+const formatFulfillmentDate = (date) => {
+  if (!date) return '';
+
+  const currentYear = new Date().getFullYear();
+  const targetYear = date instanceof Date ? date.getFullYear() : new Date(date).getFullYear();
+  const formatted = new Intl.DateTimeFormat('en-US', {
+    month: 'long',
+    day: 'numeric',
+    ...(targetYear !== currentYear ? { year: 'numeric' } : {})
+  }).format(date instanceof Date ? date : new Date(date));
+
+  return formatted.toUpperCase();
+};
+
+const formatEtaMonthYear = (value) => {
+  const normalized = String(value || '').trim().toUpperCase();
+  if (!normalized) return '';
+
+  const monthNames = [
+    'JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE',
+    'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'
+  ];
+  const monthToken = normalized.replace(/[^A-Z]/g, '').slice(0, 3);
+  const monthIndex = monthNames.findIndex(month => month.startsWith(monthToken));
+  if (monthIndex < 0) return normalized;
+
+  const currentDate = new Date();
+  const suppliedYear = normalized.match(/\b(20\d{2})\b/)?.[1];
+  const year = suppliedYear
+    ? Number(suppliedYear)
+    : (monthIndex < currentDate.getMonth() ? currentDate.getFullYear() + 1 : currentDate.getFullYear());
+
+  return `${monthNames[monthIndex].slice(0, 3)} ${year}`;
+};
 
 // Order-level fees are paid once, but orders display individual kits. Split
 // each fee by the value of every checkout line so the kit totals reconcile to
@@ -1590,7 +1624,43 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
   ), [checkoutItems]);
 
   const availabilityNotice = useMemo(() => {
-    if (checkoutItems.length === 0) return '';
+    if (checkoutItems.length === 0 || !checkoutData.shippingMethod) return null;
+
+    const selectedSubKey = getSelectedShippingSubKey(checkoutData);
+    const selectedSuboption = selectedSubKey
+      ? getSuboptionCandidatesFromKey(storeAdmin?.shippingMethods, checkoutData.shippingMethod, selectedSubKey)
+      : null;
+    const freeShippingItems = checkoutItems.filter(item => (
+      isItemShippingEligibleForFreeShipping(
+        item,
+        checkoutData.shippingMethod,
+        selectedSuboption
+      )
+    ));
+    const hasPreOrders = checkoutItems.some(item => isPreOrderKitItem(item, kits));
+    const freeShippingEtaMonth = freeShippingItems
+      .map(item => {
+        const kit = findCheckoutKit(kits, item);
+        return getStockEta(kit?.stocks?.[item?.stockKey] || item);
+      })
+      .map(formatEtaMonthYear)
+      .find(Boolean);
+
+    if (freeShippingEtaMonth) {
+      return {
+        warning: `EXPECT BY ${freeShippingEtaMonth}`,
+        detail: '',
+        isDelayed: false
+      };
+    }
+
+    if (hasPreOrders) {
+      return {
+        warning: 'SHIPS UPON ARRIVAL',
+        detail: '',
+        isDelayed: false
+      };
+    }
 
     const scheduleType = hasProjects ? 'printing' : 'shipping';
     const schedule = storeAdmin?.availabilitySchedule;
@@ -1602,15 +1672,26 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       || unavailableWeekdays.has(todayDate.getDay());
     const blockedKey = todayIsUnavailable ? todayKey : '';
 
-    if (!blockedKey) return '';
+    if (!blockedKey) {
+      return {
+        warning: hasProjects ? 'PRINT IMMEDIATELY' : 'SHIP IMMEDIATELY',
+        detail: '',
+        isDelayed: false
+      };
+    }
 
     const nextAvailableDate = getNextAvailableDate(schedule, scheduleType, new Date(`${blockedKey}T00:00:00`));
-    if (!nextAvailableDate) return '';
+    if (!nextAvailableDate) return null;
+
+    const dateLabel = formatFulfillmentDate(nextAvailableDate);
     return {
-      warning: 'PLEASE EXPECT SHIPPING DELAY',
-      detail: `Next ${scheduleType} will be on ${formatAvailabilityDate(nextAvailableDate)}.`
+      warning: scheduleType === 'printing'
+        ? `PRINTS BY ${dateLabel}`
+        : `SHIP BY ${dateLabel} OR ONWARDS`,
+      detail: '',
+      isDelayed: true
     };
-  }, [checkoutItems.length, hasProjects, storeAdmin?.availabilitySchedule]);
+  }, [checkoutData, checkoutItems, hasProjects, kits, storeAdmin?.availabilitySchedule, storeAdmin?.shippingMethods]);
 
   const isCheckoutUnderMaintenance = useMemo(() => {
     if (!isMaintenance) return false;
@@ -4023,18 +4104,17 @@ const handleFinalizeOrder = async () => {
                 <button
                   onClick={handleFinalizeOrder}
                   disabled={isDisabled}
-                  className="flex w-full items-center justify-center gap-2 rounded-2xl bg-white py-5 text-[13px] font-black uppercase tracking-[0.2em] text-blue-600 shadow-xl disabled:cursor-not-allowed disabled:opacity-50"
+                  className={`flex w-full items-center justify-center gap-2 rounded-2xl bg-white py-5 text-[13px] font-black uppercase tracking-[0.2em] shadow-xl disabled:cursor-not-allowed disabled:opacity-50 ${isPaymentUnavailable ? 'text-red-500' : 'text-blue-600'}`}
                 >
                   {isFinalizing ? 'Reserving...' : isPaymentUnavailable ? 'Payment Unavailable' : 'Pay Now'}
                 </button>
-                {availabilityNotice && (
-                  <div className="space-y-0.5 text-center text-[12px] font-bold uppercase tracking-widest text-amber-200">
+                {availabilityNotice && !isPaymentUnavailable && (availabilityNotice.isDelayed || !hasIncompleteRequiredDetails) && (
+                  <div className="space-y-0.5 text-center text-[12px] font-bold uppercase tracking-widest text-emerald-300">
                     <p>{availabilityNotice.warning}</p>
-                    <p className="text-[11px] text-white">{availabilityNotice.detail}</p>
                   </div>
                 )}
                 {hasIncompleteRequiredDetails && (
-                  <p className="text-center text-[12px] font-black uppercase tracking-widest text-white">Details Incomplete</p>
+                  <p className="text-center text-[12px] font-black uppercase tracking-widest text-red-300">Details Incomplete</p>
                 )}
               </div>
             </section>
@@ -5045,7 +5125,7 @@ const handleFinalizeOrder = async () => {
                             whileHover={buttonDisabled ? {} : { scale: 1.03, y: -2 }}
                             whileTap={buttonDisabled ? {} : { scale: 0.95, y: 1 }}
                             transition={{ type: "spring", stiffness: 400, damping: 25 }}
-                            className="w-full py-5 rounded-2xl bg-white text-blue-600 font-black uppercase text-xs tracking-[0.2em] shadow-xl flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed"
+                            className={`w-full py-5 rounded-2xl bg-white font-black uppercase text-xs tracking-[0.2em] shadow-xl flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed ${isPaymentUnavailable ? 'text-red-500' : 'text-blue-600'}`}
                           >
                             {isFinalizing ? (
                               <>
@@ -5058,14 +5138,13 @@ const handleFinalizeOrder = async () => {
                               'Pay Now'
                             )}
                           </motion.button>
-                          {availabilityNotice && (
-                            <div className="space-y-0.5 text-center text-[12px] font-black uppercase tracking-widest text-amber-200">
+                          {availabilityNotice && !isPaymentUnavailable && (availabilityNotice.isDelayed || !hasIncompleteRequiredDetails) && (
+                            <div className="space-y-0.5 text-center text-[12px] font-black uppercase tracking-widest text-emerald-300">
                               <p>{availabilityNotice.warning}</p>
-                              <p className="text-[12px] text-white">{availabilityNotice.detail}</p>
                             </div>
                           )}
                           {hasIncompleteRequiredDetails && (
-                            <p className="text-center text-[12px] font-black uppercase tracking-widest text-white">Details Incomplete</p>
+                            <p className="text-center text-[12px] font-black uppercase tracking-widest text-red-300">Details Incomplete</p>
                           )}
                         </>
                       );

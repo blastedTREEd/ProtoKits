@@ -107,7 +107,7 @@ export default function PaymentOptions({
           onFocus={() => handleFeeFocus(field)}
           onChange={(e) => updateFeeField(field, e.target.value)}
           onBlur={() => handleFeeBlur(field)}
-          className="w-full pl-8 pr-4 py-3 bg-white/70 dark:bg-black/20 rounded-xl text-[13px] font-black outline-none focus:ring-2 focus:ring-garage-blue/30"
+          className="w-full pl-8 pr-4 py-3 bg-white/70 dark:bg-[var(--color-surface-raised)] rounded-xl text-[13px] font-black outline-none focus:ring-2 focus:ring-garage-blue/30"
         />
       </div>
     </div>
@@ -139,7 +139,7 @@ export default function PaymentOptions({
             updatePaymentData(null, field, nextValue);
             persistPaymentSetting?.(null, field, nextValue);
           }}
-            className="w-full pl-4 pr-16 py-3 bg-white/70 dark:bg-black/20 rounded-xl text-[13px] font-black outline-none focus:ring-2 focus:ring-garage-blue/30"
+            className="w-full pl-4 pr-16 py-3 bg-white/70 dark:bg-[var(--color-surface-raised)] rounded-xl text-[13px] font-black outline-none focus:ring-2 focus:ring-garage-blue/30"
         />
         <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[13px] font-black opacity-40">Days</span>
       </div>
@@ -296,7 +296,7 @@ export default function PaymentOptions({
 
                   {cat.id === 'methods' && isActive && (
                     <div className="px-4 pb-4 animate-in slide-in-from-top-2 duration-300 space-y-3">
-                      <div className="rounded-xl bg-white/60 dark:bg-black/20 p-3">
+                      <div className="rounded-xl bg-white/60 dark:bg-[var(--color-surface-raised)] p-3">
                         <label className="mb-2 block text-[13px] font-black uppercase tracking-widest opacity-40">
                           Cash Transfer Fee
                         </label>
@@ -323,7 +323,7 @@ export default function PaymentOptions({
                               }
                               persistPaymentSetting?.('methods', `${opt}CashTransferFee`, nextValue);
                             }}
-                            className="w-full rounded-xl bg-white/80 py-3 pl-7 pr-4 text-[13px] font-black outline-none focus:ring-2 focus:ring-garage-blue/30 dark:bg-black/30"
+                            className="w-full rounded-xl bg-white/80 py-3 pl-7 pr-4 text-[13px] font-black outline-none focus:ring-2 focus:ring-garage-blue/30 dark:bg-[var(--color-surface-raised)]"
                           />
                         </div>
                       </div>

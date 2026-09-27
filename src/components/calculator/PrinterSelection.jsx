@@ -215,7 +215,7 @@ export default function PrinterSelection({ onSelect, selectedPrinter: initialSel
 
       {/* NEXT BUTTON */}
       <div className="px-5 sticky bottom-4 w-full mt-4 transition-all duration-500 z-50">
-        <div className="bg-white/80 dark:bg-black/80 backdrop-blur-md p-1 rounded-[2.5rem] border border-gray-200 dark:border-white/10 shadow-2xl">
+        <div className="bg-white/80 dark:bg-[var(--color-surface-raised)] backdrop-blur-md p-1 rounded-[2.5rem] border border-gray-200 dark:border-white/10 shadow-2xl">
           <button 
             onClick={() => {
               if (!isSelectedOnline || !selectedPrinter) return;
