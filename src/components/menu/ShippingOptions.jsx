@@ -17,6 +17,17 @@ const BRANCH_UNAVAILABLE_WEEKDAY_OPTIONS = [
   { value: 5, label: 'Friday' },
   { value: 6, label: 'Saturday' }
 ];
+const STANDARD_DELIVERY_SUBOPTION_KEY = 'standard-delivery';
+const STANDARD_DELIVERY_SUBOPTION_KEYS = new Set([
+  'standard-delivery',
+  'standarddelivery',
+  'standard'
+]);
+
+const isStandardDeliverySuboption = (subKey, subConfig = {}) => (
+  subConfig.isStandardDelivery === true
+    || STANDARD_DELIVERY_SUBOPTION_KEYS.has(String(subKey || '').trim().toLowerCase())
+);
 
 export default function ShippingOptions({ 
   shippingMethods, 
@@ -36,6 +47,11 @@ export default function ShippingOptions({
   const [editingSubKey, setEditingSubKey] = useState(null); // format: `${method}__${subKey}`
   const [editingSubLabel, setEditingSubLabel] = useState('');
   const justFinishedEditingRef = useRef(false);
+  const shippingMethodsRef = useRef(shippingMethods || {});
+
+  useEffect(() => {
+    shippingMethodsRef.current = shippingMethods || {};
+  }, [shippingMethods]);
 
   const startEditSubLabel = (method, subKey, currentLabel) => {
     setEditingSubKey(`${method}__${subKey}`);
@@ -107,13 +123,22 @@ export default function ShippingOptions({
     return Promise.resolve(true);
   }, [onShippingMethodsChange, persistShippingMethods, setShippingMethods]);
 
+  // Keep rapid toggles based on the latest local payload even before the
+  // parent finishes rendering the next shippingMethods prop. This prevents a
+  // courier active toggle from overwriting a just-saved branch-dropoff flag.
+  const commitLatestShippingMethods = useCallback((nextMethods) => {
+    shippingMethodsRef.current = nextMethods;
+    return commitShippingMethods(nextMethods);
+  }, [commitShippingMethods]);
+
   // I-update ang suboption config — laging nasa .suboptions[subKey]
   const updateSuboptionConfig = (m, subKey, patch, persist = true) => {
-    const methodObj = getMethodConfig(m);
+    const current = shippingMethodsRef.current?.[m];
+    const methodObj = typeof current === 'object' && current !== null ? current : { active: !!current };
     const suboptions = methodObj.suboptions || {};
     const subObj = suboptions[subKey] || { active: true };
     const nextMethods = {
-      ...shippingMethods,
+      ...shippingMethodsRef.current,
       [m]: {
         ...methodObj,
         suboptions: {
@@ -123,7 +148,7 @@ export default function ShippingOptions({
       }
     };
     if (persist) {
-      commitShippingMethods(nextMethods).catch((error) => {
+      commitLatestShippingMethods(nextMethods).catch((error) => {
         console.error('Failed to persist shipping toggle:', error);
         alert('Failed to update shipping settings.');
       });
@@ -131,13 +156,14 @@ export default function ShippingOptions({
   };
 
   const updateMethodConfig = (m, patch, persist = true) => {
-    const methodObj = getMethodConfig(m);
+    const current = shippingMethodsRef.current?.[m];
+    const methodObj = typeof current === 'object' && current !== null ? current : { active: !!current };
     const nextMethods = {
-      ...shippingMethods,
+      ...shippingMethodsRef.current,
       [m]: { ...methodObj, ...patch }
     };
     if (persist) {
-      commitShippingMethods(nextMethods).catch((error) => {
+      commitLatestShippingMethods(nextMethods).catch((error) => {
         console.error('Failed to persist shipping setting:', error);
         alert('Failed to update shipping settings.');
       });
@@ -183,7 +209,10 @@ export default function ShippingOptions({
             courierName: '',
             handlingFee: true,
             isSelfBooking: false,
-            isPickupRequired: false
+            isPickupRequired: false,
+            isBranchDropoff: false,
+            isStandardDelivery: true,
+            branchDropoffConfigured: false
           }
         }
       }
@@ -225,7 +254,10 @@ export default function ShippingOptions({
             courierName: '',
             handlingFee: true,
             isSelfBooking: false,    // Customer ang mag-bubook ng sarili nilang courier
-            isPickupRequired: false // Kailangan mag-select ng pickup point
+            isPickupRequired: false, // Kailangan mag-select ng pickup point
+            ...(subKey === STANDARD_DELIVERY_SUBOPTION_KEY
+              ? { isBranchDropoff: false, isStandardDelivery: true, branchDropoffConfigured: false }
+              : {})
           }
         }
       }
@@ -301,7 +333,12 @@ export default function ShippingOptions({
 
         Object.entries(methodConfig.suboptions).forEach(([subKey, subConfig]) => {
           if (!Array.isArray(subConfig?.requiredFields)) return;
-          const branchDropoffEnabled = subConfig.isBranchDropoff === true || (subConfig.isBranchDropoff === undefined && subConfig.requiredFields.includes(13));
+          const isStandardDelivery = isStandardDeliverySuboption(subKey, subConfig);
+          const hasExplicitBranchChoice = subConfig.branchDropoffConfigured === true;
+          const branchDropoffEnabled = isStandardDelivery
+            ? hasExplicitBranchChoice && subConfig.isBranchDropoff === true
+            : subConfig.isBranchDropoff === true
+              || (subConfig.isBranchDropoff === undefined && subConfig.requiredFields.includes(13));
           const orderPickupEnabled = !branchDropoffEnabled && subConfig.isPickupRequired === true;
           const nextRequiredFields = orderPickupEnabled
               ? [1, 2, 14]
@@ -314,7 +351,12 @@ export default function ShippingOptions({
             && (subConfig.isPickupRequired || subConfig.isSelfBooking);
           const hasOrderPickupConflict = orderPickupEnabled && subConfig.isSelfBooking;
           const needsBranchFlag = branchDropoffEnabled && subConfig.isBranchDropoff === undefined;
-          if (!fieldsChanged && !hasBranchConflict && !hasOrderPickupConflict && !needsBranchFlag) return;
+          const needsStandardDeliveryDefault = isStandardDelivery
+            && subConfig.branchDropoffConfigured !== true
+            && (subConfig.isStandardDelivery !== true
+              || subConfig.branchDropoffConfigured !== false
+              || subConfig.isBranchDropoff !== false);
+          if (!fieldsChanged && !hasBranchConflict && !hasOrderPickupConflict && !needsBranchFlag && !needsStandardDeliveryDefault) return;
           nextSuboptions[subKey] = {
             ...subConfig,
             requiredFields: nextRequiredFields,
@@ -322,7 +364,9 @@ export default function ShippingOptions({
               ? { isBranchDropoff: true, isPickupRequired: false, isSelfBooking: false }
               : orderPickupEnabled
                 ? { isSelfBooking: false }
-                : {})
+                : (isStandardDelivery
+                  ? { isBranchDropoff: false, isStandardDelivery: true, branchDropoffConfigured: false }
+                  : {}))
           };
           suboptionsChanged = true;
         });
@@ -378,6 +422,9 @@ export default function ShippingOptions({
   const getBranchDropoff = (methodVal, subKey = null) => {
     const methodObj = typeof methodVal === 'object' && methodVal !== null ? methodVal : {};
     const config = subKey ? methodObj.suboptions?.[subKey] : methodObj;
+    if (subKey && isStandardDeliverySuboption(subKey, config) && config?.branchDropoffConfigured !== true) {
+      return false;
+    }
     if (config?.isBranchDropoff !== undefined) {
       return config.isBranchDropoff === true;
     }
@@ -407,6 +454,7 @@ export default function ShippingOptions({
         if (subKey) {
           updateSuboptionConfig(method, subKey, {
             isBranchDropoff: true,
+            ...(isStandardDeliverySuboption(subKey, config) ? { branchDropoffConfigured: true, isStandardDelivery: true } : {}),
             requiredFields: nextFields,
             isPickupRequired: false,
             isSelfBooking: false
@@ -421,14 +469,11 @@ export default function ShippingOptions({
         if (subKey) {
           updateSuboptionConfig(method, subKey, {
             isBranchDropoff: false,
-            branchUnavailableWeekdays: [],
-            branchDropoffClosingTime: ''
+            ...(isStandardDeliverySuboption(subKey, config) ? { branchDropoffConfigured: true, isStandardDelivery: true } : {})
           }, true);
         } else {
           updateMethodConfig(method, {
-            isBranchDropoff: false,
-            branchUnavailableWeekdays: [],
-            branchDropoffClosingTime: ''
+            isBranchDropoff: false
           }, true);
         }
       }
@@ -734,7 +779,7 @@ export default function ShippingOptions({
                         const isSubExpanded = expandedConfigs[`${m}-${sub.key}`];
                         const isBranchDropoffEnabled = getBranchDropoff(methodVal, sub.key);
                         const isOrderPickupEnabled = subVal.isPickupRequired === true;
-                        const isStandardDelivery = sub.key === 'standard-delivery';
+                        const isStandardDelivery = isStandardDeliverySuboption(sub.key, subVal);
                         const isEditingThisLabel = editingSubKey === `${m}__${sub.key}`;
 
                         return (
@@ -869,7 +914,11 @@ export default function ShippingOptions({
                                       : (subVal.requiredFields || [])}
                                     onChangeFields={(next) => updateSuboptionConfig(m, sub.key, {
                                       requiredFields: next,
-                                      ...(isBranchDropoffEnabled ? { isBranchDropoff: true } : {})
+                                      ...(isBranchDropoffEnabled
+                                        ? { isBranchDropoff: true }
+                                        : isStandardDelivery
+                                          ? { isBranchDropoff: false, isStandardDelivery: true }
+                                          : {})
                                     }, true)}
                                     hiddenFieldIds={isOrderPickupEnabled
                                       ? []

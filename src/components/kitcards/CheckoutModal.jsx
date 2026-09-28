@@ -1813,6 +1813,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     const hasCustomProjects = customProjectItems.length > 0;
     const hasPreOrders = checkoutItems.some(item => isPreOrderKitItem(item, kits));
     const isSellerMeetup = checkoutData.shippingMethod === 'Seller Meetup';
+    const isSelfPickup = checkoutData.shippingMethod === 'Self-Pickup';
     const freeShippingEtaMonth = freeShippingItems
       .map(item => {
         const kit = findCheckoutKit(kits, item);
@@ -1822,6 +1823,9 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       .find(Boolean);
     const todayDate = new Date();
     const todayKey = toDateKey(todayDate);
+    const tomorrowDate = new Date(todayDate);
+    tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+    const isTomorrow = (date) => date && toDateKey(date) === toDateKey(tomorrowDate);
 
     if (freeShippingEtaMonth && !hasCustomProjects) {
       return {
@@ -1868,12 +1872,25 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       const fulfillmentLabel = nextFulfillmentDate
         ? formatFulfillmentDate(nextFulfillmentDate)
         : '';
+      const printStartIsTomorrow = isTomorrow(printStartDate);
+      const fulfillmentIsTomorrow = isTomorrow(nextFulfillmentDate);
+      const fulfillmentPrefix = isSelfPickup
+        ? 'PICKUP'
+        : isSellerMeetup
+          ? 'MEETUP'
+          : 'SHIPS';
       return {
         warning: printStartIsToday
           ? 'PRINT IMMEDIATELY'
-          : `PRINTS BY ${formatFulfillmentDate(printStartDate)}`,
+          : printStartIsTomorrow
+            ? 'PRINTS TOMORROW'
+            : `PRINTS BY ${formatFulfillmentDate(printStartDate)}`,
         detail: fulfillmentLabel
-          ? `${isSellerMeetup ? 'MEETUP BY' : 'SHIPS BY'} ${fulfillmentLabel} OR ONWARDS`
+          ? fulfillmentIsTomorrow
+            ? `${fulfillmentPrefix} TOMORROW`
+            : isSelfPickup
+              ? `PICKUP BY ${fulfillmentLabel}`
+              : `${fulfillmentPrefix} BY ${fulfillmentLabel} OR ONWARDS`
           : '',
         isDelayed: !printStartIsToday,
         printStartDate: toDateKey(printStartDate),
@@ -1889,7 +1906,11 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
 
     if (!blockedKey) {
       return {
-        warning: 'SHIP IMMEDIATELY',
+        warning: isSelfPickup
+          ? 'SAME DAY PICKUP'
+          : isReservationPlan
+            ? 'SHIPS ONCE BALANCE IS PAID'
+            : 'SAME DAY SHIPPING',
         detail: '',
         isDelayed: false,
         fulfillmentAvailableDate: isSellerMeetup ? todayKey : null
@@ -1910,13 +1931,24 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     if (!nextAvailableDate) return null;
 
     const dateLabel = formatFulfillmentDate(nextAvailableDate);
+    if (isTomorrow(nextAvailableDate)) {
+      return {
+        warning: isSelfPickup ? 'PICKUP TOMORROW' : 'SHIPS TOMORROW',
+        detail: '',
+        isDelayed: true,
+        fulfillmentAvailableDate: isSellerMeetup ? toDateKey(nextAvailableDate) : null
+      };
+    }
+
     return {
-      warning: `SHIP BY ${dateLabel} OR ONWARDS`,
+      warning: isSelfPickup
+        ? `PICKUP BY ${dateLabel}`
+        : `SHIPS BY ${dateLabel} OR ONWARDS`,
       detail: '',
       isDelayed: true,
       fulfillmentAvailableDate: isSellerMeetup ? toDateKey(nextAvailableDate) : null
     };
-  }, [checkoutData, checkoutItems, kits, orders, storeAdmin?.availabilitySchedule, storeAdmin?.shippingMethods]);
+  }, [checkoutData, checkoutItems, isReservationPlan, kits, orders, storeAdmin?.availabilitySchedule, storeAdmin?.shippingMethods]);
 
   const isCheckoutUnderMaintenance = useMemo(() => {
     if (!isMaintenance) return false;
@@ -4246,7 +4278,7 @@ const handleFinalizeOrder = async () => {
                 >
                   {isFinalizing ? 'Reserving...' : isPaymentUnavailable ? 'Payment Unavailable' : 'Pay Now'}
                 </button>
-                {availabilityNotice && !isPaymentUnavailable && (availabilityNotice.isDelayed || !hasIncompleteRequiredDetails) && (
+                {availabilityNotice && !isPaymentUnavailable && !hasIncompleteRequiredDetails && (
                   <div className="space-y-0.5 text-center text-[12px] font-bold uppercase tracking-widest text-emerald-300">
                     <p>{availabilityNotice.warning}</p>
                     {availabilityNotice.detail && <p>{availabilityNotice.detail}</p>}
@@ -5252,7 +5284,7 @@ const handleFinalizeOrder = async () => {
                               'Pay Now'
                             )}
                           </motion.button>
-                          {availabilityNotice && !isPaymentUnavailable && (availabilityNotice.isDelayed || !hasIncompleteRequiredDetails) && (
+                        {availabilityNotice && !isPaymentUnavailable && !hasIncompleteRequiredDetails && (
                             <div className="space-y-0.5 text-center text-[12px] font-black uppercase tracking-widest text-emerald-300">
                               <p>{availabilityNotice.warning}</p>
                               {availabilityNotice.detail && <p>{availabilityNotice.detail}</p>}
