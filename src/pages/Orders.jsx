@@ -444,6 +444,31 @@ const buildMeetupTimeOptions = (windowStart, windowEnd, durationMinutes = 15, st
   return options;
 };
 
+const buildBuyerMeetupTimeOptions = (
+  windowStart,
+  windowEnd,
+  meetupDate,
+  adminCanMeetupToday = true,
+  now = new Date(),
+  durationMinutes = 15,
+  stepMinutes = 15
+) => {
+  const options = buildMeetupTimeOptions(windowStart, windowEnd, durationMinutes, stepMinutes);
+  if (!adminCanMeetupToday || !meetupDate || meetupDate !== toLocalDateKey(now)) return options;
+
+  const currentMinutes = (now.getHours() * 60) + now.getMinutes();
+  let upcomingSlotsToExclude = 2;
+  return options.filter((time) => {
+    const timeMinutes = timeToMinutes(time);
+    if (timeMinutes < currentMinutes) return false;
+    if (upcomingSlotsToExclude > 0) {
+      upcomingSlotsToExclude -= 1;
+      return false;
+    }
+    return true;
+  });
+};
+
 const parseDateKey = (dateKey) => {
   const [year, month, day] = String(dateKey || '').split('-').map(Number);
   if (!year || !month || !day) return null;
@@ -1863,10 +1888,6 @@ export default function Orders() {
     const meetupSettings = shippingSettings?.pickupDetails?.meetup || {};
     const windowStart = normalizeTimeValue(meetupSettings.meetupStartTime);
     const windowEnd = normalizeTimeValue(meetupSettings.meetupEndTime);
-    const meetupTimeOptions = buildMeetupTimeOptions(windowStart, windowEnd);
-    const selectedStartTime = meetupTimeOptions.includes(meetupStartTime)
-      ? meetupStartTime
-      : meetupTimeOptions[0] || '';
     const fallbackAvailableDate = toLocalDateKey(
       getNextAvailableDate(shippingSettings?.availabilitySchedule, 'shipping') || new Date()
     );
@@ -1874,6 +1895,21 @@ export default function Orders() {
       || selectedOrder?.meetupPreferredDate
       || meetupDate
       || fallbackAvailableDate;
+    const today = new Date();
+    const todayKey = toLocalDateKey(today);
+    const adminCanMeetupToday = toLocalDateKey(
+      getNextAvailableDate(shippingSettings?.availabilitySchedule, 'shipping', today) || today
+    ) === todayKey;
+    const meetupTimeOptions = buildBuyerMeetupTimeOptions(
+      windowStart,
+      windowEnd,
+      availableDate,
+      adminCanMeetupToday,
+      today
+    );
+    const selectedStartTime = meetupTimeOptions.includes(meetupStartTime)
+      ? meetupStartTime
+      : meetupTimeOptions[0] || '';
     const isReadyForMeetup = ['Ready for Meetup', 'Ready for Pickup'].includes(selectedOrder?.status);
 
     if (!selectedOrder || !isReadyForMeetup) {
@@ -2540,10 +2576,6 @@ export default function Orders() {
     && meetupWindowEnd
     && timeToMinutes(meetupWindowEnd) - timeToMinutes(meetupWindowStart) >= 15
   );
-  const meetupTimeOptions = buildMeetupTimeOptions(meetupWindowStart, meetupWindowEnd);
-  const selectedMeetupStartTime = meetupTimeOptions.includes(meetupStartTime)
-    ? meetupStartTime
-    : meetupTimeOptions[0] || '';
   const meetupReady = Boolean(
     !isAdminMode
     && isSelectedSellerMeetup
@@ -2558,6 +2590,21 @@ export default function Orders() {
     || selectedOrder?.meetupPreferredDate
     || meetupDate
     || toLocalDateKey(getNextAvailableDate(shippingSettings?.availabilitySchedule, 'shipping') || new Date());
+  const meetupToday = new Date();
+  const meetupTodayKey = toLocalDateKey(meetupToday);
+  const adminCanMeetupToday = toLocalDateKey(
+    getNextAvailableDate(shippingSettings?.availabilitySchedule, 'shipping', meetupToday) || meetupToday
+  ) === meetupTodayKey;
+  const meetupTimeOptions = buildBuyerMeetupTimeOptions(
+    meetupWindowStart,
+    meetupWindowEnd,
+    currentMeetupDate,
+    adminCanMeetupToday,
+    meetupToday
+  );
+  const selectedMeetupStartTime = meetupTimeOptions.includes(meetupStartTime)
+    ? meetupStartTime
+    : meetupTimeOptions[0] || '';
   const meetupTimeIsValid = isMeetupTimeWithinWindow(
     selectedMeetupStartTime,
     meetupWindowStart,
@@ -2949,6 +2996,7 @@ export default function Orders() {
                           <select
                             value={selectedMeetupStartTime}
                             onChange={(event) => setMeetupStartTime(event.target.value)}
+                            disabled={meetupTimeOptions.length === 0}
                             className="rounded-xl border border-black/10 bg-white p-3 text-xs font-black text-blue-600 dark:border-white/10 dark:bg-[#121212]"
                           >
                             {meetupTimeOptions.map((time) => (
@@ -2956,7 +3004,9 @@ export default function Orders() {
                             ))}
                           </select>
                           <span className="text-[10px] normal-case tracking-normal opacity-60">
-                            Available from {formatTrackingTime(meetupWindowStart)} to {formatTrackingTime(meetupWindowEnd)}.
+                            {meetupTimeOptions.length > 0
+                              ? `Available from ${formatTrackingTime(meetupTimeOptions[0])} to ${formatTrackingTime(meetupWindowEnd)}.`
+                              : 'No eligible meetup times remain today.'}
                           </span>
                         </label>
                         <div className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest opacity-60">

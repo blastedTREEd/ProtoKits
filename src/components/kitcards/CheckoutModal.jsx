@@ -1890,8 +1890,12 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
             : `PRINTS BY ${formatFulfillmentDate(printStartDate)}`,
         detail: fulfillmentLabel
           ? fulfillmentIsTomorrow
-            ? (isBranchDropoff ? 'NEXT DAY DROPOFF' : `${fulfillmentPrefix} TOMORROW`)
-            : isBranchDropoff
+            ? (isSellerMeetup
+              ? 'NEXT DAY MEETUP'
+              : isBranchDropoff ? 'NEXT DAY DROPOFF' : `${fulfillmentPrefix} TOMORROW`)
+            : isSellerMeetup
+              ? `MEETUP BY ${fulfillmentLabel}`
+              : isBranchDropoff
               ? `DROPOFF BY ${fulfillmentLabel}`
             : isSelfPickup
               ? `PICKUP BY ${fulfillmentLabel}`
@@ -1911,7 +1915,9 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
 
     if (!blockedKey) {
       return {
-        warning: isBranchDropoff
+        warning: isSellerMeetup
+          ? 'SAME DAY MEETUP'
+          : isBranchDropoff
           ? 'SAME DAY DROPOFF'
           : isSelfPickup
           ? 'SAME DAY PICKUP'
@@ -1940,8 +1946,10 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     const dateLabel = formatFulfillmentDate(nextAvailableDate);
     if (isTomorrow(nextAvailableDate)) {
       return {
-        warning: isBranchDropoff
-          ? 'NEXT DAY DROPOFF'
+        warning: isSellerMeetup
+          ? 'NEXT DAY MEETUP'
+          : isBranchDropoff
+            ? 'NEXT DAY DROPOFF'
           : isSelfPickup
             ? 'PICKUP TOMORROW'
             : 'SHIPS TOMORROW',
@@ -1952,8 +1960,10 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     }
 
     return {
-      warning: isBranchDropoff
-        ? `DROPOFF BY ${dateLabel}`
+      warning: isSellerMeetup
+        ? `MEETUP BY ${dateLabel}`
+        : isBranchDropoff
+          ? `DROPOFF BY ${dateLabel}`
         : isSelfPickup
         ? `PICKUP BY ${dateLabel}`
         : `SHIPS BY ${dateLabel} OR ONWARDS`,
