@@ -64,7 +64,7 @@ export default function Checkout() {
 
   return (
     <PageTemplate isDarkMode={isDarkMode}>
-      <div className="min-h-dvh w-full bg-neutral-50 transition-colors duration-500 dark:bg-[#0a0a0a] lg:min-h-[calc(100dvh-60px)]">
+      <div className="min-h-dvh w-full bg-neutral-50 transition-colors duration-500 dark:bg-[var(--color-bg)] lg:min-h-[calc(100dvh-60px)]">
         <CheckoutModal isOpen variant="page" items={items} isGuestPreview={isGuestPreview} onClose={handleClose} />
       </div>
     </PageTemplate>
