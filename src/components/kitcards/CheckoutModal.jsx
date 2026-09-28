@@ -1796,6 +1796,7 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     const branchGuardrailConfig = hasSharedBranchGuardrails
       ? shippingMethodConfig
       : selectedShippingOption;
+    const isBranchDropoff = isBranchDropoffShippingOption(selectedShippingOption);
     const selectedSuboption = selectedSubKey
       ? getSuboptionCandidatesFromKey(storeAdmin?.shippingMethods, checkoutData.shippingMethod, selectedSubKey)
       : null;
@@ -1846,13 +1847,13 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     const schedule = storeAdmin?.availabilitySchedule;
     const unavailableDates = getUnavailableDateSet(schedule, 'shipping');
     const unavailableWeekdays = new Set(getUnavailableWeekdaySet(schedule, 'shipping'));
-    if (isBranchDropoffShippingOption(selectedShippingOption)) {
+    if (isBranchDropoff) {
       (branchGuardrailConfig.branchUnavailableWeekdays || [])
         .map(Number)
         .filter(day => day >= 0 && day <= 6)
         .forEach(day => unavailableWeekdays.add(day));
     }
-    const branchClosingPassed = isBranchDropoffShippingOption(selectedShippingOption)
+    const branchClosingPassed = isBranchDropoff
       && hasPassedDailyClosingTime(todayDate, branchGuardrailConfig.branchDropoffClosingTime);
 
     if (hasCustomProjects) {
@@ -1876,6 +1877,8 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
       const fulfillmentIsTomorrow = isTomorrow(nextFulfillmentDate);
       const fulfillmentPrefix = isSelfPickup
         ? 'PICKUP'
+        : isBranchDropoff
+          ? 'DROPOFF'
         : isSellerMeetup
           ? 'MEETUP'
           : 'SHIPS';
@@ -1887,7 +1890,9 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
             : `PRINTS BY ${formatFulfillmentDate(printStartDate)}`,
         detail: fulfillmentLabel
           ? fulfillmentIsTomorrow
-            ? `${fulfillmentPrefix} TOMORROW`
+            ? (isBranchDropoff ? 'NEXT DAY DROPOFF' : `${fulfillmentPrefix} TOMORROW`)
+            : isBranchDropoff
+              ? `DROPOFF BY ${fulfillmentLabel}`
             : isSelfPickup
               ? `PICKUP BY ${fulfillmentLabel}`
               : `${fulfillmentPrefix} BY ${fulfillmentLabel} OR ONWARDS`
@@ -1906,7 +1911,9 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
 
     if (!blockedKey) {
       return {
-        warning: isSelfPickup
+        warning: isBranchDropoff
+          ? 'SAME DAY DROPOFF'
+          : isSelfPickup
           ? 'SAME DAY PICKUP'
           : isReservationPlan
             ? 'SHIPS ONCE BALANCE IS PAID'
@@ -1933,7 +1940,11 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     const dateLabel = formatFulfillmentDate(nextAvailableDate);
     if (isTomorrow(nextAvailableDate)) {
       return {
-        warning: isSelfPickup ? 'PICKUP TOMORROW' : 'SHIPS TOMORROW',
+        warning: isBranchDropoff
+          ? 'NEXT DAY DROPOFF'
+          : isSelfPickup
+            ? 'PICKUP TOMORROW'
+            : 'SHIPS TOMORROW',
         detail: '',
         isDelayed: true,
         fulfillmentAvailableDate: isSellerMeetup ? toDateKey(nextAvailableDate) : null
@@ -1941,7 +1952,9 @@ export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPrev
     }
 
     return {
-      warning: isSelfPickup
+      warning: isBranchDropoff
+        ? `DROPOFF BY ${dateLabel}`
+        : isSelfPickup
         ? `PICKUP BY ${dateLabel}`
         : `SHIPS BY ${dateLabel} OR ONWARDS`,
       detail: '',
