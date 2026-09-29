@@ -30,6 +30,10 @@ STL is an estimate path. The calculator uses dimensions, quantity, printer setti
 
 3MF is the plate-ready path. The imported sliced data supplies more precise print time, filament weight, plate information, and color-swap data. The calculator still applies the configured labor, electricity, maintenance, markup, and service rates.
 
+### Plate/model inclusion toggle
+
+The STL model selector and 3MF build-plate selector support selective costing. Tapping the currently selected model or plate toggles its `included` state without deleting the model/plate data. Included items remain blue even when they are not the active selection; excluded items are gray. The cost engine, production schedule, extras, and project checklist ignore records explicitly marked `included: false`. Records created before this behavior have no field and continue to be treated as included.
+
 ## 4. Project Vault and limits
 
 Signed-in users can save reusable projects under `projectVaults/{uid}`. Guests use browser-local temporary storage. The non-admin project limit is based on the current base allowance plus completed project orders; administrators bypass that limit for operational work.

@@ -1268,6 +1268,7 @@ export const useStore = create(
       isSyncing: false,
       syncStatus: 'Syncing Profile',
       authAttemptId: 0,
+      authSyncId: 0,
       authRetry: null,
       storiesHeight: 0,
       unsubPrintResources: null,
@@ -1831,6 +1832,7 @@ export const useStore = create(
 
             // A route may have changed while Auth was resolving. Reconcile the
             // current route requirements without creating duplicate listeners.
+            get().checkPageReady(get()._activePath);
             get().startBackgroundListeners();
 
           });
@@ -3401,6 +3403,9 @@ export const useStore = create(
       },
 
       syncUserAccount: async (sgUser, onSyncComplete) => {
+        const authSyncId = get().authSyncId + 1;
+        const isCurrentAuthSync = () => get().authSyncId === authSyncId;
+        set({ authSyncId });
         // console.log("DEBUG: syncUserAccount called with:", sgUser ? sgUser.uid : "null");
         set({ syncStatus: 'Syncing Profile' });
         if (get().unsubUser) get().unsubUser();
@@ -3418,6 +3423,7 @@ export const useStore = create(
         }));
 
         if (!sgUser) {
+          if (!isCurrentAuthSync()) return;
           console.log("DEBUG: No sgUser found, switching to guest mode.");
           // If no public listener has already reported a non-empty local
           // cache, a guest session is a cold start and should remain gated
@@ -3425,12 +3431,12 @@ export const useStore = create(
           get().noteInitialLoadSource('cold');
           const guestProjectVault = JSON.parse(localStorage.getItem('sg_guest_project_vault') || '[]');
           const guestBasket = JSON.parse(localStorage.getItem('sg_guest_basket') || '[]');
-          set({ user: null, isAnonymousUser: false, isAdmin: false, isAdminView: false, usersList: [], orders: [], notifyList: [], projectVault: guestProjectVault, guestBasket, shelf: [], adminShelfSourceKits: [], userOffers: [], userOffersLoaded: true, unsubUser: null, unsubAdmin: null, unsubBasket: null, unsubProjectVault: null, unsubOffers: null, syncStatus: 'Restoring local basket' });
+          set({ user: null, isAnonymousUser: false, isAdmin: false, isAdminView: false, usersList: [], orders: [], notifyList: [], projectVault: guestProjectVault, guestBasket, shelf: [], adminShelfSourceKits: [], userOffers: [], userOffersLoaded: true, unsubUser: null, unsubAdmin: null, unsubBasket: null, unsubProjectVault: null, unsubOffers: null, syncStatus: 'Restoring local basket', isSyncing: false, authRetry: null });
           
           get().markLoaded('userProfile');
           get().markLoaded('basket');
           
-          if (onSyncComplete) onSyncComplete();
+          if (onSyncComplete && isCurrentAuthSync()) onSyncComplete();
           return;
         }
 
@@ -3445,6 +3451,7 @@ export const useStore = create(
           getDoc(userRef),
           getDoc(vaultRef)
         ]);
+        if (!isCurrentAuthSync()) return;
         const adminSnap = adminResult.status === 'fulfilled' ? adminResult.value : null;
         const initialDocSnap = userResult.status === 'fulfilled' ? userResult.value : null;
         const vaultSnap = vaultResult.status === 'fulfilled' ? vaultResult.value : null;
@@ -3467,6 +3474,7 @@ export const useStore = create(
 
         let userData = initialDocSnap?.exists() ? initialDocSnap.data() : null;
         const initialVault = vaultSnap?.exists() ? (vaultSnap.data().items || []) : [];
+        if (!isCurrentAuthSync()) return;
         set({ projectVault: initialVault });
         const authPhotoURL = sgUser.photoURL || '';
         const storedPhotoURL = userData?.photoURL || '';
@@ -3477,6 +3485,7 @@ export const useStore = create(
           userData = { ...(userData || {}), photoURL: authPhotoURL };
         }
         
+        if (!isCurrentAuthSync()) return;
         set({ syncStatus: 'Loading basket' });
 
         // Basket Migration Logic
@@ -3492,6 +3501,7 @@ export const useStore = create(
             }
             void batch.commit()
               .then(() => {
+                if (!isCurrentAuthSync()) return;
                 localStorage.removeItem('sg_guest_basket');
                 set({ guestBasket: [] });
               })
@@ -3509,19 +3519,27 @@ export const useStore = create(
             });
             batch.update(userRef, { basket: deleteField() });
             void batch.commit()
-              .then(() => console.log("DEBUG: Basket map migration completed successfully"))
+              .then(() => {
+                if (!isCurrentAuthSync()) return;
+                console.log("DEBUG: Basket map migration completed successfully");
+              })
               .catch((error) => console.error("SG LOG: Basket map migration failed:", error));
         }
 
+        if (!isCurrentAuthSync()) return;
         set({ syncStatus: 'Loading Projects' });
 
         // Kung may projectVault sa user doc (lumang format), i-migrate at i-delete doon
         if (userData?.projectVault && Array.isArray(userData.projectVault) && userData.projectVault.length > 0) {
           console.log("DEBUG: Migrating projectVault from user doc to projectVaults collection");
           const mergedVault = [...userData.projectVault];
+          if (!isCurrentAuthSync()) return;
           set({ projectVault: mergedVault });
           void setDoc(vaultRef, { items: mergedVault, uid: sgUser.uid }, { merge: true })
-            .then(() => updateDoc(userRef, { projectVault: deleteField() }))
+            .then(() => {
+              if (!isCurrentAuthSync()) return;
+              return updateDoc(userRef, { projectVault: deleteField() });
+            })
             .catch((error) => console.error("SG LOG: Project vault migration failed:", error));
         }
 
@@ -3533,6 +3551,7 @@ export const useStore = create(
           role: isAnonymousUser ? 'guest' : 'customer',
           createdAt: new Date().toISOString()
         };
+        if (!isCurrentAuthSync()) return;
         set({
           user: {
             uid: sgUser.uid,
@@ -3544,7 +3563,9 @@ export const useStore = create(
           isAdmin: isActuallyAdmin,
           isBanned: initialUser.userDetails?.status === 'banned',
           isProfileIncomplete: !isAnonymousUser && !initialUser.userDetails?.welcomeSeen,
-          syncStatus: 'Ready'
+          syncStatus: 'Ready',
+          isSyncing: false,
+          authRetry: null
         });
         // The full kits listener may have emitted before auth established the
         // admin role. Rebuild the derived shelf when that race occurs.
@@ -3552,7 +3573,7 @@ export const useStore = create(
           get().refreshAdminShelf();
         }
         get().markLoaded('userProfile');
-        if (onSyncComplete) onSyncComplete();
+        if (onSyncComplete && isCurrentAuthSync()) onSyncComplete();
 
         // A successful non-anonymous sign-in resets the inactivity lifecycle.
         // Clearing the notice fields cancels an active deletion countdown.
@@ -3587,6 +3608,7 @@ export const useStore = create(
         }
 
         const unsubUser = onSnapshot(userRef, async (docSnap) => {
+            if (!isCurrentAuthSync()) return;
             console.log("DEBUG: User doc snapshot update for UID:", sgUser.uid);
             
             if (docSnap.exists()) {
@@ -3626,16 +3648,19 @@ export const useStore = create(
         set({ syncStatus: 'Loading Basket' });
 
         const unsubBasket = onSnapshot(collection(db, 'users', sgUser.uid, 'basket'), (basketSnap) => {
+            if (!isCurrentAuthSync()) return;
             const basketItems = basketSnap.docs.map(doc => ({ ...doc.data(), basketId: doc.id }));
             set({ basket: basketItems.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()) });
             
             get().markLoaded('basket');
         }, (err) => {
+            if (!isCurrentAuthSync()) return;
             console.error("SG LOG: Basket subscription error:", err);
             get().markLoaded('basket', { status: 'error' });
         });
 
         const unsubProjectVault = onSnapshot(vaultRef, (vaultSnapshot) => {
+          if (!isCurrentAuthSync()) return;
           const items = vaultSnapshot.exists() && Array.isArray(vaultSnapshot.data()?.items)
             ? vaultSnapshot.data().items
             : [];
@@ -3645,8 +3670,10 @@ export const useStore = create(
         });
 
         const unsubOffers = onSnapshot(query(collection(db, 'hunts'), where('uid', '==', sgUser.uid)), (offersSnap) => {
+          if (!isCurrentAuthSync()) return;
           set({ userOffers: docsToArray(offersSnap), userOffersLoaded: true });
         }, (err) => {
+          if (!isCurrentAuthSync()) return;
           console.error("SG LOG: Offers subscription error:", err);
           set({ userOffers: [], userOffersLoaded: true });
         });
@@ -3654,8 +3681,17 @@ export const useStore = create(
         let unsubAdmin = null;
         if (isActuallyAdmin) {
           unsubAdmin = onSnapshot(doc(db, 'admins', sgUser.uid), (snap) => {
+            if (!isCurrentAuthSync()) return;
             set({ adminData: snap.exists() ? snap.data() : null });
           });
+        }
+        if (!isCurrentAuthSync()) {
+          unsubUser();
+          unsubBasket();
+          unsubProjectVault();
+          unsubOffers();
+          unsubAdmin?.();
+          return;
         }
         set({ unsubUser, unsubAdmin, unsubBasket, unsubProjectVault, unsubOffers });
       },

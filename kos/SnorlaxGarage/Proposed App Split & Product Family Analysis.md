@@ -48,12 +48,12 @@ The separation should happen at the experience layer first. The backend, authent
 
 ## 2. Proposed product family
 
-| App | Audience | Primary job | Proposed role |
-|---|---|---|---|
-| **LIQUIKITS** | Model-kit buyers and collectors | Sell available model kits and move inventory | Customer storefront |
-| **KOMIPRINTS** | Customers requesting 3D prints | Quote, schedule, and track printing services | Customer storefront |
-| **GARAGECORE** | Admins and operators | Manage both businesses, orders, inventory, pricing, and fulfillment | Internal operations console |
-| **DAIVEVARGAS** | Prospective customers, collaborators, and visitors | Explain the creator and showcase the apps, work, and services | Public presentation site |
+| App             | Audience                                           | Primary job                                                         | Proposed role               |
+| --------------- | -------------------------------------------------- | ------------------------------------------------------------------- | --------------------------- |
+| **LIQUIKITS**   | Model-kit buyers and collectors                    | Sell available model kits and move inventory                        | Customer storefront         |
+| **KOMIPRINTS**  | Customers requesting 3D prints                     | Quote, schedule, and track printing services                        | Customer storefront         |
+| **GARAGECORE**  | Admins and operators                               | Manage both businesses, orders, inventory, pricing, and fulfillment | Internal operations console |
+| **DAIVEVARGAS** | Prospective customers, collaborators, and visitors | Explain the creator and showcase the apps, work, and services       | Public presentation site    |
 
 The names are treated as working names. The important architectural decision is the separation of customer storefronts from the shared operations console; the names can still change.
 
@@ -222,10 +222,10 @@ This is a logical separation, not necessarily two payment databases. A shared or
 
 The existing collections can remain shared initially, but records should gain explicit domain markers where they do not already have one:
 
-- `orders.domain`: `liquikits`, `commiprints`, or `legacy`.
+- `orders.domain`: `liquikits`, `komiprints`, or `legacy`.
 - `orders.items[].domain`: identifies the owner of each order item.
 - `orders.items[].type`: `kit` or `print-project`.
-- `users/{uid}/baskets/liquikits` and `users/{uid}/baskets/commiprints`, or equivalent separate basket fields.
+- `users/{uid}/baskets/liquikits` and `users/{uid}/baskets/komiprints`, or equivalent separate basket fields.
 - `users/{uid}/projectVault` remains KOMIPRINTS-owned.
 - `hunts` or notification records should include a domain/type so a LIQUIKITS restock alert is not shown as a KOMIPRINTS event.
 
@@ -252,14 +252,14 @@ The proposed apps can each be deployed as separate Vercel projects. Vercel autom
 Possible development or temporary project URLs may look like:
 
 - `liquikits-<team-or-scope>.vercel.app`
-- `commiprints-<team-or-scope>.vercel.app`
+- `komiprints-<team-or-scope>.vercel.app`
 - `garagecore-<team-or-scope>.vercel.app`
 - `daivevargas-<team-or-scope>.vercel.app`
 
 For the public launch, the preferred structure is either one owned root domain with subdomains:
 
 - `liquikits.<owned-domain>`
-- `commiprints.<owned-domain>`
+- `komiprints.<owned-domain>`
 - `garagecore.<owned-domain>`
 - `<owned-domain>` for DAIVEVARGAS
 
@@ -333,6 +333,17 @@ The migration should preserve the existing Firestore document ID and internal re
 - Keep the current SNORLAXGARAGE email, admin access, URL, repository, Firebase project, and historical data.
 - Confirm that no migration step will delete, purge, archive away, or overwrite source records.
 
+#### Phase 0 execution status — 2026-09-29
+
+- **Completed:** The latest calculator behavior is included in the current baseline commit `bf4f566` (`plate and model toggle`).
+- **Completed:** A local annotated baseline tag was created as `snorlaxgarage-pre-migration-phase-0`. It has not been pushed to the remote yet.
+- **Completed:** The repository still points to the existing `snorlaxgarage` Firebase project through `.firebaserc`; no source Firestore or Storage records were changed.
+- **Completed:** The production build passed after the calculator and cost-engine changes.
+- **Completed:** Auth synchronization now invalidates stale logout/login work and clears the loading overlay from the store after successful profile synchronization; the production build passed after this fix.
+- **Pending account-side verification:** confirm the current Vercel deployment, custom domain, current email/admin access, and rollback deployment remain available.
+- **Pending authorized backup:** export or otherwise snapshot the current Firebase configuration and data using the owner-approved Firebase/Google Cloud account before any migration write.
+- **Pending decision record:** confirm the source-data rule remains additive: copied or transformed records may be created, but SNORLAXGARAGE source records must not be deleted, purged, archived away, or overwritten by migration.
+
 **Exit condition:** SNORLAXGARAGE can be restored and operated independently at any time.
 
 ### Phase 1 — Create infrastructure
@@ -348,11 +359,11 @@ The migration should preserve the existing Firestore document ID and internal re
 
 ### Phase 2 — Define shared data contracts
 
-- Define `orders.domain` as `liquikits`, `commiprints`, or `legacy`.
+- Define `orders.domain` as `liquikits`, `komiprints`, or `legacy`.
 - Define item types such as `kit`, `garage-project`, `printed-project`, and `print-service`.
 - Define separate customer baskets while keeping a shared customer profile.
 - Define storefront-filtered customer histories and consolidated GARAGECORE history.
-- Define `LK-...` and `CP-...` display order numbers, with a temporary prefix for mixed or unclassified legacy records.
+- Define `LK-...` and `KP-...` display order numbers, with a temporary prefix for mixed or unclassified legacy records.
 - Define notification ownership and the migration audit/mapping record format.
 
 **Exit condition:** all apps agree on the shared identity, order, item, payment, notification, and legacy-record contracts.

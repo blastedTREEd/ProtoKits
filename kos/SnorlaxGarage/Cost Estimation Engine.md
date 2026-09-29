@@ -20,6 +20,14 @@ The engine supports two primary ways to estimate print costs, defined in `DEFAUL
 - **Focus:** Maximum accuracy.
 - **Workflow:** Imports actual sliced plate-ready file values (precise print time, precise filament weight, and exact color swap counts).
 
+### C. Selective plate/model costing
+- Both STL models and 3MF build plates have an explicit `included` state.
+- Legacy records without `included` remain included for backward compatibility.
+- Tapping the currently selected plate/model toggles that item off or on without deleting its data.
+- Included items are displayed in blue, while excluded items are displayed in gray.
+- An excluded item is omitted from material, labor, electricity, maintenance, print scheduling, and assigned-extra calculations.
+- Extras assigned to an excluded plate/model are also excluded from the project estimate.
+
 ---
 
 ## ⚙️ 2. Rate Sections & Parameters

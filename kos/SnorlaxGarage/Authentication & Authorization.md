@@ -10,6 +10,7 @@ User authentication is managed via **Firebase Authentication**:
 - **Login Triggers:** Available from the navbar/profile flow, account settings, and Google login in checkout.
 - **Session Restoration:** `fetchInitialData()` registers `auth.onAuthStateChanged(...)` and delegates profile, role, basket, and project synchronization to the Zustand store.
 - **Interrupted Popup Recovery:** If a popup is closed or blocked, the authentication overlay remains available with **Retry Login** and **Cancel** actions. Retry starts a fresh provider attempt; cancel invalidates the current attempt so a late popup result cannot continue the app-side login flow.
+- **Auth transition race protection:** The Zustand store assigns each auth synchronization run an `authSyncId`. Stale work from an earlier logout/login transition cannot overwrite the current user, basket, profile, or loading state. Successful account synchronization clears the login overlay from the store and rechecks the active route's dataset gate.
 
 ---
 
