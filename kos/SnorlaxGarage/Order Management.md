@@ -173,8 +173,10 @@ An order may contain:
 Supported fulfillment behavior is configured per shipping method:
 
 - **Self-pickup:** pickup order/pickup pin data.
-- **Seller meetup:** receiver name, mobile number, and meetup location.
-- **Couriers:** address fields and courier branch/drop-off data configured by the admin.
+- **Seller meetup:** receiver name, mobile number, meetup location, and a later buyer-confirmed meetup window.
+- **Couriers:** address fields and a configured suboption such as standard delivery, branch drop-off, self-booking, or pickup-point fulfillment.
+
+Branch drop-off requires the configured courier branch and suppresses pickup-pin collection. It can also use branch-unavailable weekdays and a daily closing time as additional schedule constraints. Self-booking and pickup-point suboptions use the configured pickup location behavior and cannot be combined with branch drop-off.
 
 Pickup points support two address presentation modes:
 
@@ -182,6 +184,10 @@ Pickup points support two address presentation modes:
 - **Actual pin:** the complete pickup location shown when the receipt is validated and the order is ready for pickup.
 
 The Operations shipping configuration determines which fields are required. Checkout consumes the saved configuration rather than assuming every method needs every field.
+
+### Seller meetup window
+
+Checkout stores the first available meetup date in `meetupPreferredDate`. After the order reaches `Ready for Meetup`, the buyer selects a 15-minute slot from the shared `pickupDetails.meetup.meetupStartTime` / `meetupEndTime` window. The saved `meetupSchedule` contains the confirmed date, start time, and end time; the preference fields `meetupPreferredStartTime` and `meetupPreferredEndTime` are also retained for compatibility. Admins can review the schedule but the UI intentionally reserves confirmation to the buyer. On the current day, the first two upcoming slots are excluded as lead time.
 
 ## 8. Status and cleanup behavior
 
@@ -193,8 +199,4 @@ For project orders, the same order record carries project progress and productio
 
 ## 9. Availability delay messaging
 
-The Garage Calendar stores printing and shipping availability in `settings/checkout`. If the relevant service is unavailable for the current day, checkout displays:
-
-> PLEASE EXPECT SHIPPING DELAY
-
-It also shows the next available date. Orders are not automatically re-priced by this notice; it is an expectation-setting message based on the current calendar configuration.
+The Garage Calendar stores printing and shipping availability in `settings/checkout`. If the relevant service is unavailable for the current day, checkout displays a fulfillment-specific availability message and the next available date. The user-facing wording reflects the fulfillment path: same-day, next-day, or `SHIPS BY`, `PICKUP BY`, `MEETUP BY`, or `DROPOFF BY` a specific date. Print projects report their print window separately from the later fulfillment date. Branch drop-off weekday and closing-time restrictions are included in the same calculation. Orders are not automatically re-priced by this notice; it is an expectation-setting message based on the current calendar and shipping configuration.

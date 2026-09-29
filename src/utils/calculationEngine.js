@@ -106,10 +106,28 @@ export const computeProjectCosts = ({
 }) => {
   const sourceItems = Array.isArray(data?.projectDetails) ? data.projectDetails : [];
   if (sourceItems.length === 0 || !storeRates || Object.keys(storeRates).length === 0) return null;
+  // `included` is intentionally backwards-compatible: legacy records without
+  // the field remain included, while an explicit false excludes the item.
+  const includedSourceItems = sourceItems.filter((item) => item?.included !== false);
+  const includedItemIds = new Set(includedSourceItems.map((item) => String(item?.id)).filter(Boolean));
+  const includedAssignmentKeys = new Set();
+  sourceItems.forEach((item, index) => {
+    if (item?.included === false) return;
+    [index, item?.id].forEach((key) => {
+      if (key !== undefined && key !== null) includedAssignmentKeys.add(String(key));
+    });
+    (Array.isArray(item?.productionJobs) ? item.productionJobs : [])
+      .filter((job) => job?.included !== false)
+      .forEach((job) => {
+        [job?.id, job?.parentId, ...(Array.isArray(job?.parentIds) ? job.parentIds.filter((key) => includedItemIds.has(String(key))) : [])].forEach((key) => {
+          if (key !== undefined && key !== null) includedAssignmentKeys.add(String(key));
+        });
+      });
+  });
 
   const getCompatibleFeeders = (printer) => getPrinterFeeders(printer, feeders);
 
-  const items = sourceItems.map((item, index) => {
+  const items = includedSourceItems.map((item, index) => {
     const baseMaterial = getItemMaterial(item);
     const inventoryMatch = (filamentInventory || []).find((f) => String(f.id) === String(baseMaterial?.id));
     const material = baseMaterial ? { ...baseMaterial, ...(inventoryMatch || {}) } : null;
@@ -170,7 +188,8 @@ export const computeProjectCosts = ({
         printerId: item.printerId || printer?.id
       }];
     }
-    return item.productionJobs.map((job, jobIndex) => {
+    const includedJobs = item.productionJobs.filter((job) => job?.included !== false);
+    return includedJobs.map((job, jobIndex) => {
       const jobId = String(job.id || `${item.id}-${jobIndex}`);
       if (seenProductionJobs.has(jobId)) return null;
       seenProductionJobs.add(jobId);
@@ -288,7 +307,9 @@ export const computeProjectCosts = ({
   const activeExtras = Array.isArray(data?.extras) ? data.extras.filter(e => e?.assignments && Object.keys(e.assignments).length > 0) : [];
 
   activeExtras.forEach((extra) => {
-    const entries = Object.entries(extra.assignments || {}).filter(([, q]) => Number(q) > 0);
+    const entries = Object.entries(extra.assignments || {}).filter(([key, q]) => (
+      includedAssignmentKeys.has(String(key)) && Number(q) > 0
+    ));
     const totalQty = entries.reduce((s, [, q]) => s + Number(q), 0);
     if (totalQty <= 0) return;
     const type = (extra.name || '').toLowerCase().includes('magnet') ? 'magnets' : ((extra.name || '').toLowerCase().includes('heatset') ? 'heatsets' : null);

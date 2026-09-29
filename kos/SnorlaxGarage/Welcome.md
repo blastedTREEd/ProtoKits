@@ -4,6 +4,8 @@ SnorlaxGarage is a Firebase-backed React storefront and garage operations system
 
 This vault documents the current application behavior. It helps developers, operators, and future maintainers understand what users can do, what administrators control, and where implementation limitations still exist.
 
+**Last verified:** 2026-09-28
+
 ## Product areas
 
 ### Customer storefront
@@ -22,14 +24,15 @@ This vault documents the current application behavior. It helps developers, oper
 - Shelf management for reserved or admin-held inventory.
 - Supplier Balances for purchase tracking and arrival updates.
 - Sales dashboard, users dashboard, offers, stories, and maintenance settings.
-- Operations modal for shipping methods, payment options, and Garage Calendar availability.
+- Operations modal for shipping methods, payment options, seller-meetup windows, courier branch drop-off rules, and Garage Calendar availability.
 
 ## Core flows
 
 - **Kit purchase:** browse a kit → select a stock variant/deal → add to basket → enter fulfillment details → reserve an exact stock unit during checkout → submit payment/receipt → admin validates and fulfills the order.
 - **3D project:** choose STL or 3MF → configure printer, filament, extras, and services → name the project and provide the required file link → review estimate → save to Project Vault or add to basket → schedule production during checkout.
 - **Mixed order:** kits and projects may share one checkout. Kit stock is reserved while project production status and scheduling data are stored on the same order.
-- **Fulfillment:** select courier, self-pickup, seller meetup, or configured branch/drop-off options → use the configured required fields and pin/location mode → receive shipping or printing delay messaging when the Garage Calendar is unavailable.
+- **Fulfillment:** select courier, self-pickup, seller meetup, or configured branch/drop-off options → use the configured required fields and pin/location mode → receive method-specific same-day, next-day, or date-based availability messaging when the Garage Calendar or branch rules delay fulfillment.
+- **Seller meetup scheduling:** once an order reaches `Ready for Meetup`, the buyer selects a 15-minute meetup window from the configured operating hours. The chosen date and time are saved on the order for the buyer and admin to review.
 - **Administration:** authenticate → pass the dynamic admin whitelist check → use admin-only surfaces to maintain catalog data, orders, rates, fulfillment rules, availability, and content.
 
 ## Documentation map
@@ -50,6 +53,7 @@ This vault documents the current application behavior. It helps developers, oper
 ### Admin operations
 
 - [[Admin Operations & Fulfillment]] — Operations modal, shipping configurations, payment settings, Garage Calendar, and operational dependencies.
+- [[Proposed App Split & Product Family Analysis]] — Brainstorming analysis for LIQUIKITS, KOMIPRINTS, GARAGECORE admin, and the DAIVEVARGAS portfolio app.
 
 ## Important implementation notes
 

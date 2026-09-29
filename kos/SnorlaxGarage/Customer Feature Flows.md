@@ -48,7 +48,11 @@ The basket combines kit and project items. Before finalization, checkout recalcu
 - Project name, source link, license, and service requirements.
 - Maintenance mode and storefront availability.
 
-The checkout can show a shipping or printing availability notice from the Garage Calendar. When the relevant service is unavailable today, the customer sees `PLEASE EXPECT SHIPPING DELAY` and the next available date.
+The checkout can show a shipping or printing availability notice from the Garage Calendar. When the relevant service is unavailable today, the customer sees a fulfillment-specific availability message and the next available date.
+
+The checkout availability banner is specific to the selected fulfillment path. It can show same-day shipping, pickup, meetup, or drop-off; next-day variants; or a dated `SHIPS BY`, `PICKUP BY`, `MEETUP BY`, or `DROPOFF BY` message. For print projects, it separately reports when printing starts and when the resulting item can be shipped, picked up, or met up. Reservation plans identify that shipping begins after the balance is paid. Courier branch weekdays and closing time are applied as additional availability limits.
+
+Shipping options are driven by the admin configuration. Courier suboptions may use standard delivery, branch drop-off, self-booking, or a configured pickup point. Branch drop-off collects the courier branch and does not request a pickup pin; self-booking and pickup-point options use the configured pickup location behavior instead.
 
 ### Pickup pin visibility
 
@@ -62,12 +66,16 @@ The order records the selected plan and method, calculated fees, discounts, ship
 
 The customer can see receipt validation progress and the remaining balance. Administrators validate, decline, request balance, confirm cash payments, or move the order into fulfillment.
 
-## 6. Orders and notifications
+## 6. Seller meetup scheduling
+
+Seller meetup orders store the available meetup date during checkout, but the customer confirms the precise time later. Once the order reaches `Ready for Meetup`, the buyer can choose a 15-minute window within the admin-configured opening and closing times. The confirmed window is saved to the order and shown in Orders. Admin users can review the selection but cannot choose it for the buyer. If the selected date is today, the first two upcoming slots are withheld as lead time; when no eligible slot remains, the customer must use a later available date.
+
+## 7. Orders and notifications
 
 The Orders page displays the user's order records and status-specific actions. Notifications derive from live order updates and relevant commerce events such as restocks, bundle deadlines, and accepted offers.
 
 Notification read state and seen state are separate browser-local concepts. Opening the panel clears the badge counter; opening an individual notification marks that specific event read. A newer order version can make the event visible again.
 
-## 7. Cancellation and inventory release
+## 8. Cancellation and inventory release
 
 Before fulfillment, a customer may be able to cancel an unpaid order depending on its status. Cancelled, declined, or expired reservations are released back to the inventory pool through `releaseOrderStocks`. This may also cause restock notifications or make an accepted offer actionable again.

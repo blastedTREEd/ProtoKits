@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Cost Estimation Engine.md",
+                "file": "Proposed App Split & Product Family Analysis.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "Cost Estimation Engine"
+              "title": "Proposed App Split & Product Family Analysis"
             }
           }
         ]
@@ -190,6 +190,7 @@
   },
   "active": "c0486095255b06ff",
   "lastOpenFiles": [
+    "Cost Estimation Engine.md",
     "Authentication & Authorization.md",
     "Admin Operations & Fulfillment.md",
     "Welcome.md",
@@ -197,7 +198,6 @@
     "Order Management.md",
     "Kits & Inventory Management.md",
     "Data & Store Architecture.md",
-    "Customer Feature Flows.md",
-    "Cost Estimation Engine.md"
+    "Customer Feature Flows.md"
   ]
 }

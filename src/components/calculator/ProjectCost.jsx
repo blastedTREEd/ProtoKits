@@ -393,9 +393,27 @@ export default function ProjectCost({
 
   const checklist = useMemo(() => {
     const allExtras = data?.extras || [];
+    const sourceDetails = Array.isArray(data?.projectDetails) ? data.projectDetails : [];
+    const includedDetailIds = new Set(sourceDetails.filter((detail) => detail?.included !== false).map((detail) => String(detail?.id)).filter(Boolean));
+    const includedAssignmentKeys = new Set();
+    sourceDetails.forEach((detail, detailIndex) => {
+      if (detail?.included === false) return;
+      [detailIndex, detail?.id].forEach((key) => {
+        if (key !== undefined && key !== null) includedAssignmentKeys.add(String(key));
+      });
+      (Array.isArray(detail?.productionJobs) ? detail.productionJobs : [])
+        .filter((job) => job?.included !== false)
+        .forEach((job) => {
+          [job?.id, job?.parentId, ...(Array.isArray(job?.parentIds) ? job.parentIds.filter((key) => includedDetailIds.has(String(key))) : [])].forEach((key) => {
+            if (key !== undefined && key !== null) includedAssignmentKeys.add(String(key));
+          });
+        });
+    });
+    const getIncludedAssignmentEntries = (extra) => Object.entries(extra?.assignments || {})
+      .filter(([key, value]) => includedAssignmentKeys.has(String(key)) && Number(value) > 0);
     const countHardware = (keys) => allExtras
       .filter((extra) => keys.some((key) => (extra?.name || '').toLowerCase().includes(key)))
-      .reduce((sum, extra) => sum + Object.values(extra.assignments || {}).reduce((a, b) => a + Number(b), 0), 0);
+      .reduce((sum, extra) => sum + getIncludedAssignmentEntries(extra).reduce((a, [, value]) => a + Number(value), 0), 0);
 
     const materials = (totals.details?.filament || [])
       .filter((section) => section.title === 'Usage Details')
@@ -411,7 +429,7 @@ export default function ProjectCost({
     const extras = allExtras
       .map((extra) => ({
         label: extra?.name || 'Extra',
-        quantity: Object.values(extra?.assignments || {}).reduce((sum, value) => sum + Number(value || 0), 0)
+        quantity: getIncludedAssignmentEntries(extra).reduce((sum, [, value]) => sum + Number(value || 0), 0)
       }))
       .filter((extra) => extra.quantity > 0);
 
@@ -419,10 +437,10 @@ export default function ProjectCost({
     // Production jobs are used when available so projects with different
     // printers per plate/model are represented separately.
     const printerGroups = new Map();
-    const sourceDetails = Array.isArray(data?.projectDetails) ? data.projectDetails : [];
     sourceDetails.forEach((detail, detailIndex) => {
+      if (detail?.included === false) return;
       const jobs = Array.isArray(detail?.productionJobs) && detail.productionJobs.length > 0
-        ? detail.productionJobs
+        ? detail.productionJobs.filter((job) => job?.included !== false)
         : [detail];
 
       jobs.forEach((job, jobIndex) => {

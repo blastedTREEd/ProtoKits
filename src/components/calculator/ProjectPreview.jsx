@@ -90,6 +90,7 @@ export default function ProjectPreview({
           return {
             id: Date.now() + idx,
             no: idx + 1,
+            included: true,
             weight: f.weight || '',
             days: Math.floor(totalMinutes / 1440) || '',
             hours: Math.floor((totalMinutes % 1440) / 60) || '',
@@ -103,7 +104,7 @@ export default function ProjectPreview({
         setPreviewData(initial);
     } else if ((!previewData || previewData.length === 0) && filaments.length > 0) {
       const defaultId = filaments.find(f => f.status?.toLowerCase() === 'upfront')?.id || filaments[0]?.id;
-      setPreviewData([{ id: Date.now(), no: 1, weight: '', days: '', hours: '', mins: '', secs: '', materialId: String(defaultId), materialSlots: [{ materialId: String(defaultId), weight: '' }], printerId: printers.find(isPrinterAvailableForCostEstimation)?.id || null }]);
+      setPreviewData([{ id: Date.now(), no: 1, included: true, weight: '', days: '', hours: '', mins: '', secs: '', materialId: String(defaultId), materialSlots: [{ materialId: String(defaultId), weight: '' }], printerId: printers.find(isPrinterAvailableForCostEstimation)?.id || null }]);
     }
   }, [selectedFilaments, allFilaments, printers, previewData, setPreviewData]);
 
@@ -284,10 +285,18 @@ export default function ProjectPreview({
     return pWeight > 0 && hasTime;
   };
 
-  const isEverythingValid = plates.every(isPlateValid);
-  const firstIncomplete = plates.find(p => !isPlateValid(p));
-  const isActivePlateValid = activePlate ? isPlateValid(activePlate) : false;
-  const nextIncompletePlate = plates.find(p => !isPlateValid(p) && String(p.id) !== String(activePlate?.id));
+  const isPlateIncluded = (plate) => plate?.included !== false;
+  const includedPlates = plates.filter(isPlateIncluded);
+  const isEverythingValid = includedPlates.length > 0 && includedPlates.every(isPlateValid);
+  const firstIncomplete = includedPlates.find(p => !isPlateValid(p));
+  const isActivePlateValid = activePlate ? !isPlateIncluded(activePlate) || isPlateValid(activePlate) : false;
+  const nextIncompletePlate = includedPlates.find(p => !isPlateValid(p) && String(p.id) !== String(activePlate?.id));
+
+  const togglePlateIncluded = (id) => {
+    setPreviewData(prev => (prev || []).map((plate) => (
+      plate.id === id ? { ...plate, included: !isPlateIncluded(plate) } : plate
+    )));
+  };
 
   const focusFirstMissingPlateInput = () => {
     if (!activePlate?.id) return;
@@ -363,13 +372,14 @@ export default function ProjectPreview({
       }, {});
 
       return {
-        id: p.id, no: p.no,
+        id: p.id, no: p.no, included: isPlateIncluded(p),
         sliced: { weight: Number(p.weight), time, breakdown: { days, hours, mins, secs: Number(p.secs || 0) } },
         printerId: p.printerId,
         useCfs: usesFeeder,
         productionJobs: [{
           id: `${p.id}-bp`,
           parentId: p.id,
+          included: isPlateIncluded(p),
           no: 1,
           printerId: p.printerId,
           printerName: [printer?.brand, printer?.model || printer?.name].filter(Boolean).join(' '),
@@ -408,6 +418,7 @@ export default function ProjectPreview({
     setPreviewData(prev => [...(prev || []), {
       id: newId,
       no: (prev || []).length + 1,
+      included: true,
       weight: '',
       days: '',
       hours: '',
@@ -431,6 +442,7 @@ export default function ProjectPreview({
         ...source,
         id: newId,
         no: (prev || []).length + 1,
+        included: true,
         materialSlots: (source.materialSlots || []).map(slot => ({ ...slot }))
       };
       return [...(prev || []), next];
@@ -508,19 +520,34 @@ export default function ProjectPreview({
         </div>
         <div className="relative w-full h-[90px] flex items-center">
           <div className="flex items-center gap-3 overflow-x-auto no-scrollbar py-4 px-1 w-full h-full snap-x">
-            {plates.map((plate) => (
-              <button 
-                key={plate.id} 
-                onClick={() => { setActivePlateId(plate.id); setIsSelectingMaterial(false); setIsSelectingPrinter(false); }} 
-                className={`relative flex-shrink-0 rounded-[12rem] border-2 transition-all duration-300 flex flex-col items-center justify-center snap-center 
-                  ${effectiveActiveId === plate.id ? 'w-[58px] h-[58px] bg-[var(--color-surface)] border-[var(--color-primary)] text-[var(--color-primary)] scale-110 z-10' : 'w-[50px] h-[50px] bg-black/5 dark:bg-white/5 border-gray-400/30 opacity-40 text-black dark:text-white'}`}
-              >
-                <div className="flex flex-col items-center leading-none">
-                  {isPlateValid(plate) ? <Check size={16} strokeWidth={4} className="mb-0.5 animate-in zoom-in" /> : <Layers size={14} strokeWidth={3} className="mb-0.5" />}
-                  <span className="text-[13px] font-bold uppercase italic">BP{plate.no}</span>
-                </div>
-              </button>
-            ))}
+            {plates.map((plate) => {
+              const isIncluded = isPlateIncluded(plate);
+              const isActive = effectiveActiveId === plate.id;
+              return (
+                <button
+                  key={plate.id}
+                  type="button"
+                  onClick={() => {
+                    if (isActive) togglePlateIncluded(plate.id);
+                    else setActivePlateId(plate.id);
+                    setIsSelectingMaterial(false);
+                    setIsSelectingPrinter(false);
+                  }}
+                  aria-label={`${isIncluded ? 'Exclude' : 'Include'} build plate ${plate.no}`}
+                  title={`${isIncluded ? 'Exclude' : 'Include'} BP${plate.no} from estimate`}
+                  className={`relative flex-shrink-0 rounded-[12rem] border-2 transition-all duration-300 flex flex-col items-center justify-center snap-center
+                    ${isActive ? 'w-[58px] h-[58px] scale-110 z-10' : 'w-[50px] h-[50px]'}
+                    ${isIncluded
+                      ? 'bg-blue-500/10 border-blue-500/60 text-blue-600 dark:text-blue-400'
+                      : 'bg-gray-500/10 border-gray-400/50 text-gray-500 dark:text-gray-400 opacity-60'}`}
+                >
+                  <div className="flex flex-col items-center leading-none">
+                    {!isIncluded ? <X size={15} strokeWidth={4} className="mb-0.5" /> : isPlateValid(plate) ? <Check size={16} strokeWidth={4} className="mb-0.5 animate-in zoom-in" /> : <Layers size={14} strokeWidth={3} className="mb-0.5" />}
+                    <span className="text-[13px] font-bold uppercase italic">BP{plate.no}</span>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>

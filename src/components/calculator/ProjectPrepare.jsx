@@ -246,6 +246,7 @@ export default function ProjectPrepare({
         
         setPrepareData([{
           id: Date.now(), no: 1, length: '', width: '', height: '',
+          included: true,
           unit: 'mm', materialId: defaultId,
           materialSlots: [
             { materialId: defaultId, swapPercent: '100' }
@@ -446,7 +447,7 @@ export default function ProjectPrepare({
   }, [activePrinter, getCfsSwapRate, getLogicalDims, getPurgeWeightPerSwap, printers, selectedPrinter]);
 
   const getBuildPlateEstimate = useCallback((plateModels) => {
-    const validPlateModels = plateModels || [];
+    const validPlateModels = (plateModels || []).filter(model => model?.included !== false);
     const weight = validPlateModels.reduce((sum, model) => (
       sum + getLogicalDims(model).weight + getMulticolorUsage(model).purgeWeight
     ), 0);
@@ -465,7 +466,7 @@ export default function ProjectPrepare({
   }, [models, getLogicalDims]);
 
   const totalRequired = useMemo(() => {
-    return models.reduce((acc, m) => {
+    return models.filter(m => m?.included !== false).reduce((acc, m) => {
       const baseWeight = getLogicalDims(m).weight;
       return acc + baseWeight + getMulticolorUsage(m).purgeWeight;
     }, 0);
@@ -748,6 +749,7 @@ export default function ProjectPrepare({
       {
         id: nid,
         no: (prev || []).length + 1,
+        included: true,
         length: '',
         width: '',
         height: '',
@@ -775,6 +777,7 @@ export default function ProjectPrepare({
         ...activeModel,
         id: nid,
         no: (prev || []).length + 1,
+        included: true,
         quantity: 1,
         materialSlots: activeMaterialSlotsData.map(slot => ({ ...slot })),
         isManualPrinter: activeModel.isManualPrinter || false
@@ -870,9 +873,17 @@ export default function ProjectPrepare({
     return dimsValid && wallsValid && infillValid;
   };
 
-  const isEverythingValid = models.every(isModelValid);
-  const isActiveModelValid = activeModel ? isModelValid(activeModel) : false;
-  const nextIncompleteModel = models.find(m => !isModelValid(m) && String(m.id) !== String(activeModel?.id));
+  const isModelIncluded = (model) => model?.included !== false;
+  const includedModels = models.filter(isModelIncluded);
+  const isEverythingValid = includedModels.length > 0 && includedModels.every(isModelValid);
+  const isActiveModelValid = activeModel ? !isModelIncluded(activeModel) || isModelValid(activeModel) : false;
+  const nextIncompleteModel = includedModels.find(m => !isModelValid(m) && String(m.id) !== String(activeModel?.id));
+
+  const toggleModelIncluded = (id) => {
+    setPrepareData(prev => (prev || []).map((model) => (
+      model.id === id ? { ...model, included: !isModelIncluded(model) } : model
+    )));
+  };
 
   const focusFirstMissingModelInput = () => {
     if (!activeModel?.id) return;
@@ -982,18 +993,26 @@ export default function ProjectPrepare({
         )}
         {group.modelData.map((model) => {
           const isActive = activeModelId === model.id;
+          const isIncluded = isModelIncluded(model);
           const modelQty = Math.max(1, parseInt(model.quantity, 10) || 1);
           const isPlateFull = buildPlateWarningModelIds.has(model.id);
           
           const baseClasses = "relative flex-shrink-0 rounded-[12rem] border-2 transition-all duration-300 flex flex-col items-center justify-center snap-center";
-          const activeClasses = "w-[58px] h-[58px] bg-[var(--color-surface)] border-[var(--color-primary)] text-[var(--color-primary)] scale-110 z-10";
-          const inactiveClasses = `w-[50px] h-[50px] bg-black/5 dark:bg-white/5 border-gray-400/30 opacity-40 hover:opacity-70 ${isPlateFull ? 'text-amber-500 border-amber-500' : 'text-black dark:text-white'}`;
+          const activeClasses = `w-[58px] h-[58px] scale-110 z-10 ${isIncluded ? 'bg-blue-500/10 border-blue-500/60 text-blue-600 dark:text-blue-400' : 'bg-gray-500/10 border-gray-400/50 text-gray-500 dark:text-gray-400 opacity-60'}`;
+          const inactiveClasses = `w-[50px] h-[50px] ${isIncluded ? 'bg-blue-500/10 border-blue-500/50 text-blue-600 dark:text-blue-400' : 'bg-gray-500/10 border-gray-400/50 text-gray-500 dark:text-gray-400 opacity-60'} ${isPlateFull && isIncluded ? 'border-amber-500 text-amber-500' : ''}`;
 
           return (
             <React.Fragment key={model.id}>
               <button
                 type="button"
-                onClick={() => { changeModel(model.id); setIsSelectingMaterial(false); setIsSelectingPrinter(false); }}
+                onClick={() => {
+                  if (isActive) toggleModelIncluded(model.id);
+                  else changeModel(model.id);
+                  setIsSelectingMaterial(false);
+                  setIsSelectingPrinter(false);
+                }}
+                aria-label={`${isIncluded ? 'Exclude' : 'Include'} model ${model.no}`}
+                title={`${isIncluded ? 'Exclude' : 'Include'} M${model.no} from estimate`}
                 className={`${baseClasses} ${isActive ? activeClasses : inactiveClasses}`}
               >
                 {modelQty > 1 && (
@@ -1003,7 +1022,9 @@ export default function ProjectPrepare({
                 )}
                 <div className="flex flex-col items-center leading-none gap-0.5">
                   <div className="w-4 flex items-center justify-center">
-                    {isModelValid(model) 
+                    {!isIncluded
+                      ? <X size={15} strokeWidth={4} className="animate-in zoom-in" />
+                      : isModelValid(model)
                       ? <Check size={15} strokeWidth={4} className="animate-in zoom-in" />
                       : <Box size={15} strokeWidth={3} />}
                   </div>
@@ -1369,7 +1390,7 @@ export default function ProjectPrepare({
                     const multicolorUsage = getMulticolorUsage(m);
                     const filaments = allFilaments || [];
                     const buildPlate = buildPlateGroups.find(group => group.models.includes(m.id));
-                    const plateModels = buildPlate?.modelData || [m];
+                    const plateModels = (buildPlate?.modelData || [m]).filter(isModelIncluded);
                     const plateEstimate = buildPlate?.estimate || getBuildPlateEstimate(plateModels);
                     const platePurgeWeight = plateModels.reduce((sum, model) => sum + getMulticolorUsage(model).purgeWeight, 0);
                     const plateSwapMins = plateModels.reduce((sum, model) => sum + getMulticolorUsage(model).swapMins, 0);
@@ -1445,6 +1466,7 @@ export default function ProjectPrepare({
                         return {
                           id: jobId,
                           parentId: m.id,
+                          included: isModelIncluded(m),
                           parentIds: [m.id],
                           no,
                           buildPlateNo: no,
@@ -1468,6 +1490,7 @@ export default function ProjectPrepare({
                       : [{
                         id: `${buildPlate?.id || `bp-${m.id}`}-print`,
                         parentId: m.id,
+                        included: isModelIncluded(m),
                         parentIds: buildPlate?.models || [m.id],
                         no: reserveBuildPlateNo(`${buildPlate?.id || `bp-${m.id}`}-print`),
                         buildPlateNo: reserveBuildPlateNo(`${buildPlate?.id || `bp-${m.id}`}-print`),
@@ -1489,7 +1512,7 @@ export default function ProjectPrepare({
                       }];
 
                     return {
-                      id: m.id, no: m.no,
+                      id: m.id, no: m.no, included: isModelIncluded(m),
                       quantity,
                       config: { 
                         walls: m.walls !== '' ? Number(m.walls) : 2, 
