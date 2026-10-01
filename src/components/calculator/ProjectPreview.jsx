@@ -2,11 +2,12 @@ import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { 
   Plus, Layers, Disc3, ClockCheck,
   Copy, Trash2, X, Check, AlertTriangle, Search,
-  Printer, WeightTilde
+  Printer, WeightTilde, Ruler
 } from 'lucide-react';
 import MaterialCard from './MaterialCard';
 import { useStore } from '../../store/useStore';
 import { getPrinterCompatibleFilamentTypes, getPrinterFeeders, isFilamentCompatibleWithPrinter, isPrinterAvailableForCostEstimation, normalizePrinterStatus } from '../../utils/printerCompatibility';
+import { filamentLengthMetersToWeightGrams, filamentWeightGramsToLengthMeters, formatFilamentLengthMeters } from '../../utils/filamentMetrics';
 
 export default function ProjectPreview({ 
   allFilaments = [], 
@@ -33,6 +34,8 @@ export default function ProjectPreview({
   const [isSelectingPrinter, setIsSelectingPrinter] = useState(false);
   const [matSearchQuery, setMatSearchQuery] = useState('');
   const [activeMaterialSlot, setActiveMaterialSlot] = useState(0);
+  const [measurementMode, setMeasurementMode] = useState('weight');
+  const [lengthInputs, setLengthInputs] = useState({});
 
   const effectiveActiveId = activePlateId || (plates.length > 0 ? plates[0].id : null);
   
@@ -80,6 +83,25 @@ export default function ProjectPreview({
     return [{ materialId: String(activePlate?.materialId || ''), weight: activePlate?.weight || '' }].filter(slot => slot.materialId);
   }, [activePlate]);
   const currentMaterialId = activeMaterialSlotsData[activeMaterialSlot]?.materialId || activePlate?.materialId;
+  const getLengthDraftKey = (plateId, slotIdx) => `${plateId}:${slotIdx}`;
+
+  const toggleMeasurementMode = () => {
+    if (measurementMode === 'weight') {
+      setLengthInputs((previous) => {
+        const next = { ...previous };
+        activeMaterialSlotsData.forEach((slot, idx) => {
+          const material = (allFilaments || []).find((filament) => String(filament.id) === String(slot.materialId));
+          const key = getLengthDraftKey(effectiveActiveId, idx);
+          next[key] = formatFilamentLengthMeters(filamentWeightGramsToLengthMeters(slot.weight, material));
+        });
+        return next;
+      });
+      setMeasurementMode('length');
+      return;
+    }
+
+    setMeasurementMode('weight');
+  };
 
   // --- 1. INITIALIZATION & SYNC ---
   useEffect(() => {
@@ -238,6 +260,24 @@ export default function ProjectPreview({
       const slots = p.materialSlots?.length ? [...p.materialSlots] : activeMaterialSlotsData.map(slot => ({ ...slot }));
       slots[slotIdx] = { ...(slots[slotIdx] || {}), weight: clean };
       const totalWeight = slots.reduce((sum, slot) => sum + (parseFloat(slot.weight) || 0), 0);
+      return { ...p, weight: totalWeight ? String(Number(totalWeight.toFixed(2))) : '', materialSlots: slots };
+    }));
+  };
+
+  const updateMaterialSlotLength = (slotIdx, value) => {
+    const clean = value.replace(/[^0-9.]/g, '');
+    if ((clean.match(/\./g) || []).length > 1) return;
+
+    const slot = activeMaterialSlotsData[slotIdx];
+    const material = (allFilaments || []).find((filament) => String(filament.id) === String(slot?.materialId));
+    const grams = clean === '' ? '' : Number(filamentLengthMetersToWeightGrams(clean, material).toFixed(2));
+    const key = getLengthDraftKey(effectiveActiveId, slotIdx);
+    setLengthInputs((previous) => ({ ...previous, [key]: clean }));
+    setPreviewData(prev => (prev || []).map(p => {
+      if (p.id !== effectiveActiveId) return p;
+      const slots = p.materialSlots?.length ? [...p.materialSlots] : activeMaterialSlotsData.map(item => ({ ...item }));
+      slots[slotIdx] = { ...(slots[slotIdx] || {}), weight: grams };
+      const totalWeight = slots.reduce((sum, slotValue) => sum + (parseFloat(slotValue.weight) || 0), 0);
       return { ...p, weight: totalWeight ? String(Number(totalWeight.toFixed(2))) : '', materialSlots: slots };
     }));
   };
@@ -681,9 +721,19 @@ export default function ProjectPreview({
           <div className="space-y-3 mt-8">
             <div className="flex gap-4 items-center text-center">
               <div className="w-[43%] flex items-center justify-center">
-                <label className="text-[15px] font-bold uppercase flex items-center justify-center gap-2 text-[var(--color-primary)]">
-                  <WeightTilde size={18} strokeWidth={2.5} />Weight
-                </label>
+                <button
+                  type="button"
+                  onClick={toggleMeasurementMode}
+                  aria-label={`Use filament ${measurementMode === 'weight' ? 'length' : 'weight'} input`}
+                  aria-pressed={measurementMode === 'length'}
+                  title="Tap to switch between weight and filament length"
+                  className="text-[15px] font-bold uppercase flex items-center justify-center gap-2 text-[var(--color-primary)] hover:opacity-75 active:scale-95 transition-all"
+                >
+                  {measurementMode === 'weight'
+                    ? <WeightTilde size={18} strokeWidth={2.5} />
+                    : <Ruler size={18} strokeWidth={2.5} />}
+                  {measurementMode === 'weight' ? 'Weight' : 'Length'}
+                </button>
               </div>
               <div className="w-[57%] flex items-center justify-center">
                 <label className="text-[15px] font-bold uppercase flex items-center justify-center gap-2 text-[var(--color-primary)]">
@@ -700,8 +750,19 @@ export default function ProjectPreview({
                     <div className="w-[43%] flex flex-col items-center text-center">
                       <div className={`w-full min-h-[68px] h-auto bg-transparent rounded-[1.8rem] relative flex flex-col items-center justify-center overflow-hidden transition-all duration-500 py-3 ${containerBorderStyle}`}>
                         <div className="flex items-baseline justify-center">
-                           <input ref={(node) => { inputRefs.weightBySlot.current[idx] = node; }} type="number" inputMode="decimal" value={slot.weight} onFocus={() => updateMaterialSlotWeight(idx, '')} onChange={(e) => updateMaterialSlotWeight(idx, e.target.value)} placeholder="0" className={`w-14 text-center bg-transparent border-none outline-none font-bold text-[18px] italic ${slotMaterial?.isUpfront ? 'text-red-600' : 'text-black dark:text-white'}`} />
-                          <span className={`text-[12px] font-bold italic ${slotMaterial?.isUpfront ? 'text-red-600' : 'text-black dark:text-white'}`}>G</span>
+                           <input
+                             ref={(node) => { inputRefs.weightBySlot.current[idx] = node; }}
+                             type="number"
+                             inputMode="decimal"
+                             value={measurementMode === 'length'
+                               ? (lengthInputs[getLengthDraftKey(effectiveActiveId, idx)] ?? formatFilamentLengthMeters(filamentWeightGramsToLengthMeters(slot.weight, slotMaterial)))
+                               : slot.weight}
+                             onFocus={(event) => measurementMode === 'length' ? event.currentTarget.select() : updateMaterialSlotWeight(idx, '')}
+                             onChange={(event) => measurementMode === 'length' ? updateMaterialSlotLength(idx, event.target.value) : updateMaterialSlotWeight(idx, event.target.value)}
+                             placeholder="0"
+                             className={`w-14 text-center bg-transparent border-none outline-none font-bold text-[18px] italic ${slotMaterial?.isUpfront ? 'text-red-600' : 'text-black dark:text-white'}`}
+                           />
+                          <span className={`text-[12px] font-bold italic ${slotMaterial?.isUpfront ? 'text-red-600' : 'text-black dark:text-white'}`}>{measurementMode === 'length' ? 'M' : 'G'}</span>
                         </div>
                         {slotMaterial?.isUpfront && (
                           <div className="flex items-center gap-1 animate-pulse-subtle mt-0.5">
