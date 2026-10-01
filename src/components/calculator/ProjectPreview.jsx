@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { 
   Plus, Layers, Disc3, ClockCheck,
   Copy, Trash2, X, Check, AlertTriangle, Search,
-  Printer, WeightTilde, Ruler
+  Printer, WeightTilde, Ruler, RefreshCw
 } from 'lucide-react';
 import MaterialCard from './MaterialCard';
 import { useStore } from '../../store/useStore';
@@ -56,18 +56,12 @@ export default function ProjectPreview({
     return getPrinterFeeders(printer, feeders);
   }, [feeders]);
 
-  const compatibleFeeders = useMemo(() => getCompatibleFeeders(selectedPrinter), [getCompatibleFeeders, selectedPrinter]);
   const getPrinterFilamentSlots = useCallback((printer) => {
     if (!printer) return 1;
     const pFeeders = getCompatibleFeeders(printer);
     const feederSlots = pFeeders.reduce((sum, unit) => sum + (Number(unit.filamentSlots) || 0), 0);
     return Math.max(1, feederSlots || Number(printer.filamentSlots) || 1);
   }, [getCompatibleFeeders]);
-  const activeMaterialSlotsLimit = useMemo(() => {
-    return getPrinterFilamentSlots(selectedPrinter);
-  }, [getPrinterFilamentSlots, selectedPrinter]);
-  const selectedPrinterHasFeeder = compatibleFeeders.length > 0;
-  const activeUsesFeeder = selectedPrinterHasFeeder && activePlate?.useCfs !== false;
   const formatPrinterCapacity = useCallback((capacity) => {
     if (!capacity) return '---';
     return [capacity.x, capacity.y, capacity.z]
@@ -83,6 +77,7 @@ export default function ProjectPreview({
     return [{ materialId: String(activePlate?.materialId || ''), weight: activePlate?.weight || '' }].filter(slot => slot.materialId);
   }, [activePlate]);
   const currentMaterialId = activeMaterialSlotsData[activeMaterialSlot]?.materialId || activePlate?.materialId;
+  const activePlatePrinterId = activePlate?.printerId;
   const getLengthDraftKey = (plateId, slotIdx) => `${plateId}:${slotIdx}`;
 
   const toggleMeasurementMode = () => {
@@ -100,6 +95,23 @@ export default function ProjectPreview({
       return;
     }
 
+    setPreviewData(prev => (prev || []).map((plate) => {
+      if (plate.id !== effectiveActiveId) return plate;
+      const sourceSlots = plate.materialSlots?.length ? plate.materialSlots : activeMaterialSlotsData;
+      const slots = sourceSlots.map((slot, idx) => {
+        const material = (allFilaments || []).find((filament) => String(filament.id) === String(slot.materialId));
+        const key = getLengthDraftKey(effectiveActiveId, idx);
+        const lengthValue = lengthInputs[key] ?? formatFilamentLengthMeters(filamentWeightGramsToLengthMeters(slot.weight, material));
+        const grams = lengthValue === '' ? '' : Number(filamentLengthMetersToWeightGrams(lengthValue, material).toFixed(2));
+        return { ...slot, weight: grams };
+      });
+      const totalWeight = slots.reduce((sum, slot) => sum + (parseFloat(slot.weight) || 0), 0);
+      return {
+        ...plate,
+        weight: totalWeight ? String(Number(totalWeight.toFixed(2))) : '',
+        materialSlots: slots
+      };
+    }));
     setMeasurementMode('weight');
   };
 
@@ -282,21 +294,60 @@ export default function ProjectPreview({
     }));
   };
 
-  const addMaterialSlot = () => {
-    if (activeMaterialSlotsData.length >= activeMaterialSlotsLimit) return;
-    
-    // Find unused materials and pick the one with highest stock
-    const usedIds = new Set(activeMaterialSlotsData.map(slot => String(slot.materialId)));
-    const unusedFilaments = (allFilaments || []).filter(f => !usedIds.has(String(f.id)));
-    
-    const fallback = unusedFilaments.length > 0 
-      ? [...unusedFilaments].sort((a, b) => parseFloat(b.remaining || 0) - parseFloat(a.remaining || 0))[0]?.id
-      : (activeMaterialSlotsData[activeMaterialSlotsData.length - 1]?.materialId || activePlate?.materialId || (allFilaments || [])[0]?.id);
+  const getPrinterVolume = useCallback((printer) => {
+    const capacity = printer?.buildCapacity || {};
+    return (Number(capacity.x) || 0) * (Number(capacity.y) || 0) * (Number(capacity.z) || 0);
+  }, []);
 
+  const addMaterialSelection = useMemo(() => {
+    const usedIds = new Set(activeMaterialSlotsData.map(slot => String(slot.materialId)));
+    const unusedFilaments = (allFilaments || [])
+      .filter(f => !usedIds.has(String(f.id)))
+      .sort((a, b) => (parseFloat(b.remaining) || 0) - (parseFloat(a.remaining) || 0));
+    const requiredSlots = activeMaterialSlotsData.length + 1;
+
+    const candidates = (printers || [])
+      .filter(isPrinterAvailableForCostEstimation)
+      .map((printer) => {
+        const printerSupportsCurrentMaterials = activeMaterialSlotsData.every((slot) => {
+          const material = (allFilaments || []).find(f => String(f.id) === String(slot.materialId));
+          return isFilamentCompatibleWithPrinter(printer, material);
+        });
+        if (!printerSupportsCurrentMaterials || getPrinterFilamentSlots(printer) < requiredSlots) return null;
+
+        const nextMaterial = unusedFilaments.find(material => isFilamentCompatibleWithPrinter(printer, material));
+        if (!nextMaterial) return null;
+
+        return { printer, nextMaterial };
+      })
+      .filter(Boolean)
+      .sort((a, b) => {
+        const aIsCurrent = String(a.printer.id) === String(activePlatePrinterId);
+        const bIsCurrent = String(b.printer.id) === String(activePlatePrinterId);
+        if (aIsCurrent !== bIsCurrent) return aIsCurrent ? -1 : 1;
+        return (getPrinterFilamentSlots(a.printer) - getPrinterFilamentSlots(b.printer))
+          || (getPrinterVolume(a.printer) - getPrinterVolume(b.printer));
+      });
+
+    return candidates[0] || null;
+  }, [activeMaterialSlotsData, activePlatePrinterId, allFilaments, getPrinterFilamentSlots, getPrinterVolume, printers]);
+
+  const addMaterialSlot = () => {
+    if (!addMaterialSelection) return;
+
+    const { printer, nextMaterial } = addMaterialSelection;
+    const printerHasFeeder = getCompatibleFeeders(printer).length > 0;
     setPreviewData(prev => (prev || []).map(p => {
       if (p.id !== effectiveActiveId) return p;
-      const slots = [...activeMaterialSlotsData, { materialId: String(fallback), weight: '' }];
-      return { ...p, useCfs: activeUsesFeeder, materialSlots: slots, materialId: slots[0]?.materialId || p.materialId };
+      const existingSlots = p.materialSlots?.length ? p.materialSlots : activeMaterialSlotsData;
+      const slots = [...existingSlots, { materialId: String(nextMaterial.id), weight: '' }];
+      return {
+        ...p,
+        printerId: printer.id,
+        useCfs: printerHasFeeder,
+        materialSlots: slots,
+        materialId: slots[0]?.materialId || p.materialId
+      };
     }));
     setActiveMaterialSlot(activeMaterialSlotsData.length);
   };
@@ -720,21 +771,25 @@ export default function ProjectPreview({
         <div className="space-y-8 transition-all duration-500 relative w-full max-w-2xl mx-auto px-3">
           <div className="space-y-3 mt-8">
             <div className="flex gap-4 items-center text-center">
-              <div className="w-[43%] flex items-center justify-center">
-                <button
-                  type="button"
-                  onClick={toggleMeasurementMode}
-                  aria-label={`Use filament ${measurementMode === 'weight' ? 'length' : 'weight'} input`}
-                  aria-pressed={measurementMode === 'length'}
-                  title="Tap to switch between weight and filament length"
-                  className="text-[15px] font-bold uppercase flex items-center justify-center gap-2 text-[var(--color-primary)] hover:opacity-75 active:scale-95 transition-all"
-                >
+              <button
+                type="button"
+                onClick={toggleMeasurementMode}
+                aria-label={`Switch reference to ${measurementMode === 'weight' ? 'filament length' : 'weight'}`}
+                aria-pressed={measurementMode === 'length'}
+                title="Switch reference"
+                className="w-[43%] flex items-center justify-between gap-2 text-left text-[var(--color-primary)] hover:opacity-75 active:scale-[0.99] transition-all"
+              >
+                <span className="text-[15px] font-bold uppercase flex items-center gap-2">
                   {measurementMode === 'weight'
                     ? <WeightTilde size={18} strokeWidth={2.5} />
                     : <Ruler size={18} strokeWidth={2.5} />}
                   {measurementMode === 'weight' ? 'Weight' : 'Length'}
-                </button>
-              </div>
+                </span>
+                <span className="text-[13px] font-bold uppercase tracking-tight flex items-center gap-1 shrink-0">
+                  <RefreshCw size={16} strokeWidth={3} />
+                  <span className="hidden sm:inline">Switch ref.</span>
+                </span>
+              </button>
               <div className="w-[57%] flex items-center justify-center">
                 <label className="text-[15px] font-bold uppercase flex items-center justify-center gap-2 text-[var(--color-primary)]">
                   <Disc3 size={16} strokeWidth={2.5} />Materials
@@ -791,8 +846,13 @@ export default function ProjectPreview({
                 );
               })}
 
-              {!isSelectingMaterial && activeMaterialSlotsData.length < activeMaterialSlotsLimit && (
-                <button type="button" onClick={addMaterialSlot} className="w-full py-3 rounded-[1.4rem] border-2 border-dashed border-[var(--color-primary)] text-[var(--color-primary)] flex items-center justify-center gap-2 text-[13px] font-bold uppercase tracking-widest">
+              {!isSelectingMaterial && (
+                <button
+                  type="button"
+                  onClick={addMaterialSlot}
+                  disabled={!addMaterialSelection}
+                  className={`w-full py-3 rounded-[1.4rem] border-2 border-dashed flex items-center justify-center gap-2 text-[13px] font-bold uppercase tracking-widest transition-all ${addMaterialSelection ? 'border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary)]/5 active:scale-[0.99]' : 'border-gray-400/30 text-gray-400 opacity-50 cursor-not-allowed'}`}
+                >
                   <Plus size={15} strokeWidth={4} /> Add Material
                 </button>
               )}
