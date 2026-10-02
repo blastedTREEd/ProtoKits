@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Box, CalendarDays, Clock, Zap, Plus, Lock, Edit3, Trash2, PackageMinus,
   X, Weight, Layers, AlertTriangle, Link2, Unlink2, ExternalLink, ChevronRight, ChevronLeft,
-  ShoppingBasket, Play, Pause, FileText, ShieldCheck, CheckCircle2, XCircle, ImagePlus,
+  ShoppingBasket, Play, Pause, FileText, ShieldCheck, CheckCircle2, XCircle, ImagePlus, Bell,
   Settings, Pencil, PencilSparkles, Sparkles
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
@@ -1088,7 +1088,7 @@ export default function ProjectCard({
   reopenRequestToken = null
 }) {
   const { isDarkMode, isSpectralMode } = useTheme();
-  const { shippingSettings, shelf, orders, printers, feeders, filamentInventory, isAdmin, isAdminView, updateBlueprint, updatePrintedProject, updateProjectInVault, rates: storeRates } = useStore();
+  const { shippingSettings, shelf, orders, printers, feeders, filamentInventory, isAdmin, isAdminView, updateBlueprint, updatePrintedProject, updateProjectInVault, huntKit, rates: storeRates } = useStore();
   const navigate = useNavigate();
   const projectId = project?.id || null;
   const projectPath = projectId ? `/prints/${encodeURIComponent(projectId)}` : '/prints';
@@ -1128,6 +1128,7 @@ export default function ProjectCard({
   const [activeVaultPanel, setActiveVaultPanel] = useState('file');
   const [focusRequest, setFocusRequest] = useState(null);
   const [automaticPricingState, setAutomaticPricingState] = useState(null);
+  const [isSubmittingPrintedOffer, setIsSubmittingPrintedOffer] = useState(false);
   const automaticPricing = automaticPricingState?.value || null;
   const automaticRepriceKeyRef = useRef('');
   const automaticRepricePersistedKeyRef = useRef('');
@@ -2094,6 +2095,47 @@ export default function ProjectCard({
     closeProjectModal();
   };
 
+  const handlePrintedProjectOffer = async (e) => {
+    e.stopPropagation();
+    if (!isPrintedProject || isAdminView || !huntKit || isSubmittingPrintedOffer) return;
+
+    const referencePrice = Number(
+      project?.price
+      ?? project?.sellPrice
+      ?? project?.totalPrice
+      ?? project?.finalPrice
+      ?? 0
+    );
+    const enteredPrice = window.prompt(
+      'Enter your offer price for this 3D printed project:',
+      referencePrice > 0 ? String(referencePrice) : ''
+    );
+    if (enteredPrice === null) return;
+
+    const targetPrice = Number(String(enteredPrice).replace(/,/g, '').trim());
+    if (!Number.isFinite(targetPrice) || targetPrice <= 0) {
+      window.alert('Please enter a valid offer price.');
+      return;
+    }
+
+    setIsSubmittingPrintedOffer(true);
+    try {
+      await huntKit({
+        ...project,
+        id: project.id,
+        name: displayProjectTitle,
+        projectName: displayProjectTitle,
+        productType: 'printed-project',
+        isPrintedProject: true
+      }, targetPrice);
+    } catch (error) {
+      console.error('SG LOG: Failed to submit printed project offer:', error);
+      window.alert(error?.message || 'Unable to submit the offer right now.');
+    } finally {
+      setIsSubmittingPrintedOffer(false);
+    }
+  };
+
   const handleModifyProject = (e) => {
     e.stopPropagation();
     if (!onModify) return;
@@ -2126,9 +2168,8 @@ export default function ProjectCard({
     closeProjectModal();
   };
 
-  // Printed projects are already on hand, so they keep purchase actions in
-  // admin view as well; the admin add-to-basket action targets the shelf.
-  const isAdminBlueprintView = isBlueprint && !isPrintedProject && isAdmin && isAdminView && showManagementActions;
+  const isAdminProjectView = isBlueprint && isAdmin && isAdminView && showManagementActions;
+  const isPublicPrintedProjectPaused = isPrintedProject && !isAdminView && !isProductionEnabled;
   const isPublicVaultView = isVault && !(isAdmin && isAdminView);
   const printFulfillmentBanner = (
     <div className="flex items-center justify-center p-1.5">
@@ -2840,8 +2881,8 @@ export default function ProjectCard({
 {/* Footer Actions */}
 {!isReadOnly && (
   <div className={`absolute bottom-0 left-0 right-0 w-full p-2 border-t ${isDarkMode ? 'bg-[var(--color-surface-raised)] border-white/10' : 'bg-white/80 border-black/5'} backdrop-blur-md z-[110]`}>
-    <div className={`flex flex-row items-center gap-2 ${isAdminBlueprintView || isPublicVaultView ? 'justify-end' : ''}`}>
-      {isAdminBlueprintView ? (
+    <div className={`flex flex-row items-center gap-2 ${isAdminProjectView || isPublicVaultView ? 'justify-end' : ''}`}>
+      {isAdminProjectView ? (
         <>
           {onDelete && (
             <button
@@ -2878,6 +2919,22 @@ export default function ProjectCard({
             <span className="truncate">Production</span>
           </button>
         </>
+      ) : isPublicPrintedProjectPaused ? (
+        <div className="flex w-full flex-col gap-2">
+          <button
+            type="button"
+            onClick={handlePrintedProjectOffer}
+            disabled={isSubmittingPrintedOffer}
+            className={`h-12 w-full rounded-full text-white font-black italic uppercase text-[11px] tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all ${
+              isSubmittingPrintedOffer
+                ? 'bg-neutral-400 cursor-wait opacity-70'
+                : 'bg-gradient-to-br from-blue-500 to-blue-600 shadow-blue-500/30'
+            }`}
+          >
+            <Bell size={15} strokeWidth={3} />
+            <span>{isSubmittingPrintedOffer ? 'Sending Offer' : 'Send Offer / Notify Me'}</span>
+          </button>
+        </div>
       ) : isPublicVaultView ? (
         <div className="flex w-full flex-col gap-2">
           {printFulfillmentBanner}

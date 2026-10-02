@@ -3367,6 +3367,7 @@ export const useStore = create(
       huntKit: async (kit, targetPrice) => {
         const { user, notifyList } = get();
         if (!user) { alert("Please login to Hunt this kit!"); return; }
+        const isPrintedProject = kit?.isPrintedProject === true || kit?.productType === 'printed-project';
         const existingHunt = notifyList.find(n => n.uid === user.uid && n.kitId === kit.id);
         const expiresAt = new Date(Date.now() + (14 * 24 * 60 * 60 * 1000)).toISOString();
         const huntData = {
@@ -3375,6 +3376,11 @@ export const useStore = create(
           photoURL: user.photoURL || '',
           kitId: kit.id,
           kitName: kit.name,
+          offerType: isPrintedProject ? 'printed-project' : 'kit',
+          isPrintedProject,
+          projectId: isPrintedProject ? kit.id : null,
+          projectName: isPrintedProject ? (kit.projectName || kit.name) : null,
+          projectImage: isPrintedProject ? (kit.image || '') : null,
           targetPrice: parseFloat(targetPrice) || 0,
           status: 'pending',
           expiresAt,

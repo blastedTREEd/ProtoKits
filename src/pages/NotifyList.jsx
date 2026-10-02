@@ -126,7 +126,8 @@ export default function NotifyList() {
           // Pending offers need a reserved shelf kit before they can be
           // accepted. Released offers remain visible as active customer
           // checkout windows even after the kit leaves the admin shelf.
-          return (status === 'pending' && collectionKitIds.has(item.kitId)) || status === 'released';
+          const isPrintedProjectOffer = item?.offerType === 'printed-project' || item?.isPrintedProject === true;
+          return (status === 'pending' && (collectionKitIds.has(item.kitId) || isPrintedProjectOffer)) || status === 'released';
         })
       : (user ? (userOffers || []).filter((item) => {
           if (item.uid !== user.uid) return false;
@@ -150,7 +151,10 @@ export default function NotifyList() {
   }, [isReleaseMode, kits, notifyList, user, userOffers]);
 
   const offerKitIds = useMemo(() => (
-    [...new Set(myNotifyList.map((item) => item?.kitId).filter(Boolean))]
+    [...new Set(myNotifyList
+      .filter((item) => item?.offerType !== 'printed-project' && item?.isPrintedProject !== true)
+      .map((item) => item?.kitId)
+      .filter(Boolean))]
   ), [myNotifyList]);
 
   useEffect(() => {
@@ -219,6 +223,11 @@ export default function NotifyList() {
   };
 
   const handleBulkRelease = async () => {
+    const selectedOffers = myNotifyList.filter((item) => selectedIds.includes(item.id));
+    if (selectedOffers.some((item) => item?.offerType === 'printed-project' || item?.isPrintedProject === true)) {
+      setToastMessage('Printed project offers require project review before acceptance.');
+      return;
+    }
     if (!window.confirm(`Accept ${selectedIds.length} selected offer(s) using their sent prices?`)) return;
     for (const id of selectedIds) {
       const item = myNotifyList.find(n => n.id === id);
@@ -256,7 +265,14 @@ export default function NotifyList() {
     }
   };
 
-  const hasMissingOfferKit = myNotifyList.some((item) => item?.kitId && !kits.some((kit) => kit.id === item.kitId));
+  const hasMissingOfferKit = myNotifyList.some((item) => {
+    const isPrintedProjectOffer = item?.offerType === 'printed-project' || item?.isPrintedProject === true;
+    return !isPrintedProjectOffer && item?.kitId && !kits.some((kit) => kit.id === item.kitId);
+  });
+  const hasPrintedProjectSelection = selectedIds.some((id) => {
+    const item = myNotifyList.find((offer) => offer.id === id);
+    return item?.offerType === 'printed-project' || item?.isPrintedProject === true;
+  });
   const isOfferRowsLoading = isLoading || hasMissingOfferKit;
   const hasVisibleItems = !isOfferRowsLoading && myNotifyList.length > 0;
 
@@ -281,7 +297,7 @@ export default function NotifyList() {
                       <button onClick={handleBulkDecline} className="flex items-center gap-1 text-red-500 hover:bg-red-500/10 px-3 py-1.5 rounded-lg transition-colors" title="Decline selected">
                         <XCircle size={16} />
                       </button>
-                      <button onClick={handleBulkRelease} className="flex items-center gap-1 text-emerald-600 hover:bg-emerald-500/10 px-3 py-1.5 rounded-lg transition-colors" title="Accept selected">
+                      <button onClick={handleBulkRelease} disabled={hasPrintedProjectSelection} className="flex items-center gap-1 text-emerald-600 hover:bg-emerald-500/10 px-3 py-1.5 rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-30" title={hasPrintedProjectSelection ? 'Printed project offers require project review' : 'Accept selected'}>
                         <CheckCircle2 size={16} />
                       </button>
                     </>
@@ -352,10 +368,13 @@ export default function NotifyList() {
                 }
 
                 const item = row.item;
-                const kit = kits.find(k => k.id === item.kitId);
+                const isPrintedProjectOffer = item?.offerType === 'printed-project' || item?.isPrintedProject === true;
+                const kit = isPrintedProjectOffer ? null : kits.find(k => k.id === item.kitId);
                 const isSelected = selectedIds.includes(item.id);
-                const displayImage = resolveImage(kit?.image, kit?.images);
-                const displayName = item.kitName || kit?.name || 'Unknown Kit';
+                const displayImage = isPrintedProjectOffer
+                  ? resolveImage(item.projectImage, item.projectImages)
+                  : resolveImage(kit?.image, kit?.images);
+                const displayName = item.projectName || item.kitName || kit?.name || 'Unknown Kit';
                 const brand = kit?.brand;
                 const line = kit?.specs?.line;
                 const scale = kit?.specs?.scale;
@@ -387,7 +406,7 @@ export default function NotifyList() {
                       <div className="flex flex-col justify-center">
                         <p className="font-bold text-[14px] leading-tight line-clamp-1 md:line-clamp-2">{displayName}</p>
                         <p className="text-[13px] uppercase font-black opacity-40 tracking-widest leading-tight mt-0.5">
-                          {[brand, line, scale].filter(Boolean).join(' / ')}
+                          {isPrintedProjectOffer ? '3D PRINTED PROJECT OFFER' : [brand, line, scale].filter(Boolean).join(' / ')}
                         </p>
                         {isReleaseMode && item.userName && (
                           <p className="text-[12px] font-black uppercase tracking-widest opacity-40 mt-0.5">{item.userName}</p>
@@ -434,8 +453,8 @@ export default function NotifyList() {
 
                         {isReleaseMode && (
                           <>
-                            <p className={`text-[12px] font-black ${shelfItem ? 'text-emerald-600' : 'text-red-500'}`}>
-                              {shelfItem ? 'Shelf ready' : 'Not on shelf'}
+                            <p className={`text-[12px] font-black ${isPrintedProjectOffer ? 'text-blue-600' : shelfItem ? 'text-emerald-600' : 'text-red-500'}`}>
+                              {isPrintedProjectOffer ? 'Project review' : shelfItem ? 'Shelf ready' : 'Not on shelf'}
                             </p>
                             <p className="text-[12px] font-black text-amber-600">COST PRICE PHP {offerPricing.costPrice.toLocaleString()}</p>
                             <p className="text-[12px] font-black text-emerald-600">SELL PRICE PHP {sellPrice.toLocaleString()}</p>
@@ -474,7 +493,7 @@ export default function NotifyList() {
                       <button onClick={handleBulkDecline} className="px-6 py-3.5 rounded-full font-black uppercase tracking-widest text-[12px] transition-all bg-red-500 text-white shadow-lg shadow-red-500/20 hover:scale-105">
                         Decline
                       </button>
-                      <button onClick={handleBulkRelease} className="px-6 py-3.5 rounded-full font-black uppercase tracking-widest text-[12px] transition-all bg-emerald-600 text-white shadow-lg shadow-emerald-500/20 hover:scale-105">
+                      <button onClick={handleBulkRelease} disabled={hasPrintedProjectSelection} className="px-6 py-3.5 rounded-full font-black uppercase tracking-widest text-[12px] transition-all bg-emerald-600 text-white shadow-lg shadow-emerald-500/20 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100">
                         Accept
                       </button>
                     </div>
