@@ -10,11 +10,10 @@ export const getPrintedProjectModelName = (...sources) => {
   const values = sources.filter(Boolean);
 
   for (const source of values) {
-    const detail = getProjectDetails(source).find((entry) => (
-      String(entry?.itemName || entry?.name || '').trim()
-    ));
-    const detailName = detail?.itemName || detail?.name;
-    if (detailName) return String(detailName).trim();
+    const detailNames = getProjectDetails(source)
+      .map((entry) => String(entry?.itemName || entry?.name || '').trim())
+      .filter(Boolean);
+    if (detailNames.length > 0) return detailNames.join(' + ');
   }
 
   for (const source of values) {

@@ -27,6 +27,7 @@ import { FaQuestion } from 'react-icons/fa';
 import { TbHexagon3D } from 'react-icons/tb';
 import { LuRotate3D } from 'react-icons/lu';
 import UniversalImage from '../common/UniversalImage';
+import { getPrintedProjectModelName } from '../../utils/printedProjectName';
 
 const Gallery = ({
   galleryImages,
@@ -1336,7 +1337,7 @@ export default function ProjectCard({
 
   const isPrintedProject = type === 'printed' || project?.isPrintedProject || project?.productType === 'printed-project';
   const isBlueprint = type === 'blueprint' || isPrintedProject;
-  const canRenameBlueprint = isBlueprint && isAdmin && isAdminView && showManagementActions;
+  const canRenameBlueprint = isBlueprint && !isPrintedProject && isAdmin && isAdminView && showManagementActions;
   const isProductionEnabled = project?.canAddToBasket !== false;
   const printedProjectHasStock = !isPrintedProject || Object.values(project?.stocks || {}).some((stock) => (
     !stock?.isReserved && !stock?.order?.orderId
@@ -1362,9 +1363,7 @@ export default function ProjectCard({
     ? (baseGalleryImages.find((image) => image.isGridImage)?.url || getProjectImageUrl(project.image, project.images))
     : null;
   const printedProjectModelName = isPrintedProject
-    ? (project?.projectDetails || [])
-      .map((detail) => detail?.itemName || detail?.name)
-      .find((name) => String(name || '').trim())
+    ? getPrintedProjectModelName(project)
     : '';
   const displayProjectName = isPrintedProject
     ? (printedProjectModelName || project?.name || project?.projectName)
