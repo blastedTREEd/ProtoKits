@@ -792,6 +792,7 @@ export default function Prints() {
                     }}
                     onModify={isAdmin && isAdminView ? handleEditPrintedProject : undefined}
                     showManagementActions={isAdmin && isAdminView}
+                    openOnMount={routeProjectId === project.id}
                     onDelete={(item) => {
                       if (window.confirm(`Delete printed project "${item.name || item.projectName}"?`)) {
                         deletePrintedProject(item.id).catch((error) => alert(error?.message || 'Unable to delete printed project.'));
