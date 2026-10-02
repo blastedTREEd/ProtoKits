@@ -727,6 +727,10 @@ export const computeProjectCosts = ({
   const profitExtras = extrasBaseSum * (markupMultiplier - 1);
   const totalProjectProfit = profitFilament + profitLabor + profitElectricity + profitExtras;
   const totalTakeHome = laborFinal + profitFilament + profitElectricity + (profitExtras + extrasExcessSum) + filamentExcessSum;
+  // Capital is the actual operating cost basis, before customer-facing
+  // markup and leftover-material/extra charges. Persisting this numeric value
+  // lets order accounting stay accurate even after rates or inventory change.
+  const capitalCost = materialBaseSum + markupableLabor + baseElecTotal + extrasBaseSum + maintFinal;
 
   return {
     total: Math.ceil(grandTotal).toLocaleString(),
@@ -747,6 +751,7 @@ export const computeProjectCosts = ({
     electricityMarkupMultiplier: Number(markupMultiplier),
     maintenance: formatCurrency(maintFinal),
     extras: formatCurrency(extrasFinal),
+    capitalCost: Number(Math.max(0, capitalCost).toFixed(2)),
     totalProfit: formatCurrency(totalProjectProfit),
     totalTakeHome: formatCurrency(totalTakeHome),
     details: {

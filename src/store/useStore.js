@@ -641,6 +641,7 @@ const recomputePersistedProject = (project, resources = {}) => {
     && String(currentTotals.filament) === String(calculated.filament)
     && String(currentTotals.maintenance) === String(calculated.maintenance)
     && String(currentTotals.extras) === String(calculated.extras)
+    && String(currentTotals.capitalCost) === String(calculated.capitalCost)
   ) {
     return null; // No price change, skip writing
   }
@@ -662,6 +663,7 @@ const recomputePersistedProject = (project, resources = {}) => {
     labor: calculated.labor,
     maintenance: calculated.maintenance,
     extras: calculated.extras,
+    capitalCost: calculated.capitalCost ?? currentTotals.capitalCost,
     details: calculated.details
   };
 

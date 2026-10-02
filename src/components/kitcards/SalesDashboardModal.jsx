@@ -2,6 +2,7 @@ import React, { useMemo, useEffect, useRef, useState } from 'react';
 import { X, TrendingUp, DollarSign, Package, Clock, AlertCircle, ShoppingCart, ChevronDown } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import UniversalImage from '../common/UniversalImage';
+import { getProjectCapitalCost, getProjectType } from '../../utils/projectFinancials';
 
 const PENDING_STATUSES = new Set(['Reserved', 'Validating', 'Arrived', 'To Ship', 'Shipped', 'Preparing']);
 
@@ -50,8 +51,14 @@ const getOrderItems = (order) => {
 
 const getItemCapital = (item, kits) => {
   const quantity = getQuantity(item);
+  if (item?.type === 'project' || item?.projectData) {
+    const projectCapital = getProjectCapitalCost(item);
+    return projectCapital === null ? 0 : Math.max(0, projectCapital * quantity);
+  }
+
+  const hasStoredCost = item?.costPrice !== undefined && item?.costPrice !== null && item?.costPrice !== '';
   const storedCost = Number(item?.costPrice);
-  if (Number.isFinite(storedCost)) return Math.max(0, storedCost * quantity);
+  if (hasStoredCost && Number.isFinite(storedCost)) return Math.max(0, storedCost * quantity);
 
   const kit = (kits || []).find((candidate) => String(candidate?.id) === String(item?.id));
   const stock = kit?.stocks?.[item?.stockKey];
@@ -90,6 +97,7 @@ const buildOrderFinancials = (order, kits) => {
       itemRevenue,
       capital,
       profit: itemRevenue - capital,
+      projectType: item?.type === 'project' || item?.projectData ? getProjectType(item) : null,
       feeShare: fees * share,
       discountShare: getItemEmbeddedDiscount(item) + (discount * share),
       quantity: getQuantity(item)
@@ -108,6 +116,13 @@ const buildOrderFinancials = (order, kits) => {
 };
 
 const formatCurrency = (value) => `₱${toAmount(value).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+
+const getOrderTypeSummary = (itemRows) => {
+  const types = [...new Set(itemRows.map((item) => (
+    item.type === 'project' || item.projectData ? `${item.projectType || getProjectType(item)} PROJECT` : 'KIT'
+  )))];
+  return types.join(' · ') || 'ORDER';
+};
 
 export default function SalesDashboardModal({ isOpen, onClose }) {
   const orders = useStore((state) => state.orders);
@@ -275,7 +290,7 @@ export default function SalesDashboardModal({ isOpen, onClose }) {
                           <ShoppingCart size={18} className="shrink-0 text-blue-600" />
                           <div className="min-w-0">
                             <p className="truncate text-[12px] font-black uppercase">{order.orderId || order.id || 'Order'}</p>
-                            <p className="text-[10px] font-bold uppercase tracking-wider opacity-45">{getOrderDate(order).getTime() > 0 ? getOrderDate(order).toLocaleDateString() : 'No date'} · {financials.itemRows.length} item{financials.itemRows.length === 1 ? '' : 's'}</p>
+                            <p className="text-[10px] font-bold uppercase tracking-wider opacity-45">{getOrderDate(order).getTime() > 0 ? getOrderDate(order).toLocaleDateString() : 'No date'} · {financials.itemRows.length} item{financials.itemRows.length === 1 ? '' : 's'} · {getOrderTypeSummary(financials.itemRows)}</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-3">
@@ -303,7 +318,7 @@ export default function SalesDashboardModal({ isOpen, onClose }) {
                                 <UniversalImage src={item.image || item.images?.[0]} alt="" className="h-12 w-12 shrink-0 rounded-lg object-cover" />
                                 <div className="min-w-[150px] flex-1">
                                   <p className="truncate text-[11px] font-black uppercase">{item.name || 'Unnamed item'}</p>
-                                  <p className="text-[9px] font-bold uppercase tracking-wider opacity-45">Qty {item.quantity} · Fees +{formatCurrency(item.feeShare)} · Discount -{formatCurrency(item.discountShare)}</p>
+                                  <p className="text-[9px] font-bold uppercase tracking-wider opacity-45">{item.projectType ? `${item.projectType} project · ` : ''}Qty {item.quantity} · Fees +{formatCurrency(item.feeShare)} · Discount -{formatCurrency(item.discountShare)}</p>
                                 </div>
                                 <div className="grid grid-cols-3 gap-4 text-right text-[10px] font-black uppercase tracking-wider">
                                   <span><span className="block opacity-40">Revenue</span>{formatCurrency(item.itemRevenue)}</span>
@@ -324,7 +339,7 @@ export default function SalesDashboardModal({ isOpen, onClose }) {
 
             <div className="rounded-[2.5rem] border border-dashed border-black/10 bg-black/[0.02] p-6 dark:border-white/10 dark:bg-white/[0.02]">
               <div className="mb-3 flex items-center gap-3"><AlertCircle size={20} className="text-blue-600" /><h4 className="text-[11px] font-black uppercase tracking-widest">Accounting note</h4></div>
-              <p className="text-xs font-medium italic leading-relaxed opacity-60">Modern orders use their final total after handling, installment, transfer fees, and discounts. Legacy orders use the buyer-paid amount so manually entered handling fees are included. Capital comes from the stored stock cost when available, with the current stock cost as a fallback.</p>
+              <p className="text-xs font-medium italic leading-relaxed opacity-60">Modern orders use their final total after handling, installment, transfer fees, and discounts. Legacy orders use the buyer-paid amount so manually entered handling fees are included. Kit capital comes from the stored stock cost when available, with the current stock cost as a fallback. Project capital uses the calculator&apos;s saved material, labor, electricity, extras, and maintenance cost basis, with a historical base-price fallback for older project orders.</p>
             </div>
               </div>
             </div>

@@ -42,6 +42,7 @@ import {
   resolveGridImage
 } from '../../utils/orderPayload';
 import { findFirstAvailable, getOccupiedDates } from '../calculator/GarageCalendar';
+import { getProjectCapitalCost, getProjectType } from '../../utils/projectFinancials';
 
 // --- LEAFLET CSS & ICON FIX ---
 import 'leaflet/dist/leaflet.css';
@@ -3174,7 +3175,11 @@ const handleFinalizeOrder = async () => {
           // FIX: Prevents undefined crash on projects since they don't use shelf stock keys
           stockKey: item.stockKey || null,
           stockSource: item.stockSource || null,
-          costPrice: isProjectCheckoutItem(item) ? 0 : toCheckoutNumber(item.costPrice),
+          costPrice: isProjectCheckoutItem(item)
+            ? Math.max(0, getProjectCapitalCost(item) ?? 0)
+            : toCheckoutNumber(item.costPrice),
+          capitalCost: isProjectCheckoutItem(item) ? Math.max(0, getProjectCapitalCost(item) ?? 0) : null,
+          projectType: isProjectCheckoutItem(item) ? getProjectType(item) : null,
           type: isProjectCheckoutItem(item) ? 'project' : 'kit',
           projectData: isProjectCheckoutItem(item) ? compactOrderProjectData(item.projectData) : null,
           productionJobs: isProjectCheckoutItem(item) ? (item.projectData?.productionJobs || item.projectData?.projectDetails?.flatMap(detail => detail.productionJobs || []) || []) : []

@@ -250,6 +250,7 @@ export default function ProjectCost({
         dp: firstPositiveValue(calculatedTotals.dp, previousTotals.dp, '0'),
         days: calculatedTotals.timeline?.days ?? calculatedTotals.days ?? previousTotals.days ?? 0,
         timeline: calculatedTotals.timeline || previousTotals.timeline || { days: 0, schedule: [] },
+        capitalCost: calculatedTotals.capitalCost ?? previousTotals.capitalCost ?? 0,
         totalProfit: calculatedTotals.totalProfit ?? previousTotals.totalProfit ?? '0',
         electricity: calculatedTotals.electricity ?? previousTotals.electricity ?? '0',
         electricityKwh: calculatedTotals.electricityKwh ?? previousTotals.electricityKwh ?? 0,

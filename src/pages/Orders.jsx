@@ -32,6 +32,12 @@ import PhilippineAddressSuggestions from '../components/common/PhilippineAddress
 import { getProjectScheduleDates } from '../components/calculator/GarageCalendar';
 import { isOrderFreeShipping } from '../utils/shippingUtils';
 import { getNextAvailableDate } from '../utils/availabilitySchedule';
+import {
+  getProjectCapitalCost,
+  getProjectName,
+  getProjectRevenue,
+  getProjectType
+} from '../utils/projectFinancials';
 
 let DefaultIcon = L.icon({ iconUrl: markerIcon, shadowUrl: markerShadow, iconSize: [25, 41], iconAnchor: [12, 41] });
 L.Marker.prototype.options.icon = DefaultIcon;
@@ -100,6 +106,14 @@ const getLegacyStockDetails = (stock, stockKey) => ({
 
 const getLegacyItemCapital = (item, kits) => {
   const quantity = Math.max(1, Number(item?.quantity) || 1);
+  if (item?.type === 'project' || item?.projectData) {
+    const projectCost = getProjectCapitalCost(item);
+    return {
+      amount: projectCost === null ? 0 : Math.max(0, projectCost * quantity),
+      known: projectCost !== null
+    };
+  }
+
   const kit = (kits || []).find((candidate) => String(candidate?.id) === String(item?.kitId || item?.id));
   const stock = kit?.stocks?.[item?.stockKey];
   const rawCost = stock?.costPrice ?? item?.costPrice ?? kit?.costPrice;
@@ -854,7 +868,7 @@ export default function Orders() {
   const location = useLocation();
   const navigate = useNavigate();
   const { orderId: routeOrderId } = useParams();
-  const { user, isAdmin, isAdminView, kits, shelf, assignStockToOrder, cancelOrder, confirmOrderPayment, uploadReceipt, updateOrderDetails, updateOrderStatus, scrubFinalizedOrders, rates, orders, usersList, createOrder, deleteOrder, reverseCompletedOrder, reverseLegacyOrder, migrateLegacyOrderIds, isLoading, subscribeOrders, subscribeUsersList, loadPrintResources, shippingSettings, garageInfo, cleanUpCancelledOrders, setToastMessage, markOrderStocksReceiptValidated } = useStore();
+  const { user, isAdmin, isAdminView, kits, printedProjects, projectVault, blueprints, shelf, assignStockToOrder, cancelOrder, confirmOrderPayment, uploadReceipt, updateOrderDetails, updateOrderStatus, scrubFinalizedOrders, rates, orders, usersList, createOrder, deleteOrder, reverseCompletedOrder, reverseLegacyOrder, migrateLegacyOrderIds, isLoading, subscribeOrders, subscribeUsersList, loadPrintResources, shippingSettings, garageInfo, cleanUpCancelledOrders, setToastMessage, markOrderStocksReceiptValidated } = useStore();
   const isAdminMode = isAdmin && isAdminView;
   
   // Dynamically get the QR for whatever payment method the selected order uses
@@ -1032,6 +1046,7 @@ export default function Orders() {
   const legacyAddressLookupSequence = useRef(0);
   const getEmptyLegacyOrderData = () => ({
     search: '',
+    searchType: 'kits',
     selectedItems: [],
     shippingMethod: '',
     shippingSuboption: '',
@@ -1389,6 +1404,70 @@ export default function Orders() {
       .map(([stockKey, stock]) => ({ kit, stockKey, stock }))
   )), [kits, collectionStockIds]);
 
+  const legacyProjectChoices = useMemo(() => {
+    const choices = [];
+    const seen = new Set();
+
+    const addProjectChoice = (rawProject, source) => {
+      if (!rawProject) return;
+      const rawData = rawProject?.projectData && typeof rawProject.projectData === 'object'
+        ? rawProject.projectData
+        : rawProject;
+      const isPrintedProduct = rawProject?.productType === 'printed-project'
+        || rawData?.productType === 'printed-project'
+        || rawProject?.isPrintedProject === true;
+      const projectData = isPrintedProduct
+        ? (() => {
+          const { images: _images, stocks: _stocks, ...compactPrintedProject } = rawData;
+          return {
+            ...compactPrintedProject,
+            projectName: getProjectName(rawProject),
+            productType: 'printed-project',
+            method: { name: '3D PRINTED' }
+          };
+        })()
+        : rawData;
+      const type = getProjectType({ ...rawProject, projectData });
+      const identity = String(
+        rawProject?.vaultId
+          || rawProject?.id
+          || rawProject?.adminShelfBasketId
+          || `${source}:${getProjectName({ ...rawProject, projectData })}:${type}`
+      );
+      const key = `${type}:${identity}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+
+      const imageSource = projectData?.image || rawProject?.image;
+      const image = typeof imageSource === 'string'
+        ? (resolveImage(imageSource, projectData?.images || rawProject?.images) || '/snorlaxgarage.png')
+        : '/snorlaxgarage.png';
+      const projectItem = { ...rawProject, projectData };
+      const capital = getProjectCapitalCost(projectItem);
+      const revenue = getProjectRevenue(projectItem);
+
+      choices.push({
+        kind: 'project',
+        projectId: identity,
+        projectData,
+        name: getProjectName(projectItem),
+        image,
+        type,
+        originalPrice: Math.max(0, revenue),
+        capitalPrice: capital,
+        meta: [type, source, capital !== null ? `CAPITAL ₱${capital.toLocaleString()}` : 'CAPITAL NOT RECORDED']
+          .filter(Boolean)
+          .join(' • ')
+      });
+    };
+
+    (blueprints || []).forEach((project) => addProjectChoice(project, 'BLUEPRINT'));
+    (projectVault || []).forEach((project) => addProjectChoice(project, 'VAULT'));
+    (shelf || []).filter((item) => item?.type === 'project' || item?.projectData).forEach((project) => addProjectChoice(project, 'SHELF'));
+    (printedProjects || []).forEach((project) => addProjectChoice(project, 'CATALOG'));
+    return choices;
+  }, [blueprints, printedProjects, projectVault, shelf]);
+
   const filteredLegacyStockChoices = useMemo(() => {
     const search = String(manualOrderData.search || '').trim().toLowerCase();
     const matches = search
@@ -1414,6 +1493,28 @@ export default function Orders() {
 
     return orderedMatches.slice(0, 24);
   }, [legacyStockChoices, manualOrderData.search]);
+
+  const filteredLegacyProjectChoices = useMemo(() => {
+    const search = String(manualOrderData.search || '').trim().toLowerCase();
+    const matches = search
+      ? legacyProjectChoices.filter((choice) => (
+        [choice.name, choice.type, choice.meta, choice.projectData?.method?.name, choice.projectData?.projectName]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+          .includes(search)
+      ))
+      : legacyProjectChoices;
+
+    return matches
+      .map((choice, index) => ({ choice, index }))
+      .sort((a, b) => {
+        const typeDelta = a.choice.type.localeCompare(b.choice.type);
+        return typeDelta || a.index - b.index;
+      })
+      .map(({ choice }) => choice)
+      .slice(0, 24);
+  }, [legacyProjectChoices, manualOrderData.search]);
 
   const legacyShippingOptions = useMemo(() => Object.entries(shippingSettings?.shippingMethods || {})
     .filter(([, config]) => config !== false && config?.active !== false)
@@ -1745,10 +1846,18 @@ export default function Orders() {
       return;
     }
     const liveItems = selectedItems.map((entry) => {
+      if (entry.kind === 'project') {
+        return {
+          ...entry,
+          originalPrice: Math.max(0, Number(entry.originalPrice || 0)),
+          capitalPrice: hasRecordedAmount(entry.capitalPrice) ? Math.max(0, Number(entry.capitalPrice)) : null
+        };
+      }
+
       const kit = (kits || []).find((candidate) => candidate.id === entry.kitId);
       const stock = kit?.stocks?.[entry.stockKey];
       if (!kit || !stock || stock.order?.orderId || stock.isReserved || collectionStockIds.has(`${entry.kitId}:${entry.stockKey}`)) {
-        throw new Error(`${entry.name || 'A selected stock'} is no longer available.`);
+        throw new Error(`${entry.name || 'A selected item'} is no longer available.`);
       }
       return { ...entry, kit, stock, originalPrice: Number(stock.sellPrice || kit.sellPrice || 0) };
     });
@@ -1762,10 +1871,11 @@ export default function Orders() {
       remaining -= allocatedPrice;
       return { ...entry, allocatedPrice };
     });
-    const transactionFinancials = calculateLegacyFinancials(totalPaid, allocatedItems.map(({ stock, ...entry }) => ({
-      ...entry,
-      costPrice: stock.costPrice
-    })), kits);
+    const transactionFinancials = calculateLegacyFinancials(totalPaid, allocatedItems.map((entry) => (
+      entry.kind === 'project'
+        ? { ...entry, type: 'project', costPrice: entry.capitalPrice, projectData: entry.projectData }
+        : { ...entry, costPrice: entry.stock.costPrice }
+    )), kits);
 
     const orderId = generateSgOrderId(orders);
     const suboption = legacyShippingConfig?.suboptions?.[manualOrderData.shippingSuboption];
@@ -1773,7 +1883,31 @@ export default function Orders() {
       ? `${manualOrderData.shippingMethod} (${suboption?.label || manualOrderData.shippingSuboption})`
       : manualOrderData.shippingMethod;
     const createdTime = new Date().toISOString();
-    const orderItems = await Promise.all(allocatedItems.map(async ({ kit, stock, stockKey, originalPrice, allocatedPrice }) => {
+    const orderItems = await Promise.all(allocatedItems.map(async (entry) => {
+      if (entry.kind === 'project') {
+        const projectData = {
+          ...(entry.projectData || {}),
+          sellPrice: entry.originalPrice,
+          displayPrice: entry.originalPrice,
+          capitalCost: entry.capitalPrice
+        };
+        return {
+          id: entry.projectId,
+          name: entry.name,
+          price: entry.allocatedPrice,
+          sellPrice: entry.allocatedPrice,
+          originalSellPrice: entry.originalPrice,
+          costPrice: entry.capitalPrice,
+          capitalCost: entry.capitalPrice,
+          projectType: entry.type,
+          projectData,
+          type: 'project',
+          quantity: 1,
+          image: entry.image
+        };
+      }
+
+      const { kit, stock, stockKey, originalPrice, allocatedPrice } = entry;
       const gridImage = resolveGridImage(kit);
       const image = isEmbeddedImage(gridImage)
         ? await compressImage(gridImage, 640, 640, 0.65)
@@ -1801,7 +1935,7 @@ export default function Orders() {
         status: stock.status || 'ONHAND',
          type: 'kit'
        };
-     }));
+       }));
 
     let legacyOrderZipCoordinates = {};
     try {
@@ -1820,16 +1954,16 @@ export default function Orders() {
       isManualOrder: false,
       orderSource: 'legacy',
       items: orderItems,
-      kitId: allocatedItems[0]?.kit.id,
-      productId: allocatedItems[0]?.kit.id,
+      kitId: allocatedItems[0]?.kit?.id,
+      productId: allocatedItems[0]?.kit?.id,
       selectedStockKey: allocatedItems[0]?.stockKey,
-      item: allocatedItems.map(({ kit }) => kit.name).join(', '),
+      item: allocatedItems.map((entry) => entry.kind === 'project' ? entry.name : entry.kit.name).join(', '),
       // Legacy sales are historical transactions, so they are complete as
       // soon as they are recorded. Admins can still reverse them while the
       // completed-order reversal window is open.
       status: 'Completed',
       completedAt: createdTime,
-      isPreOrder: allocatedItems.some(({ stock }) => String(stock.status).toUpperCase() === 'PRE-ORDER'),
+      isPreOrder: allocatedItems.some((entry) => entry.kind !== 'project' && String(entry.stock.status).toUpperCase() === 'PRE-ORDER'),
       shippingMethodKey: manualOrderData.shippingMethod,
       shippingSuboptionKey: manualOrderData.shippingSuboption || null,
       shippingMethod,
@@ -1857,9 +1991,11 @@ export default function Orders() {
 
     try {
       const docId = await createOrder(orderData);
-      await Promise.all(allocatedItems.map(({ kit, stockKey }) => (
-        assignStockToOrder(kit.id, stockKey, orderId, { isLegacyOrder: true, legacyOrder: true, orderDocId: docId })
-      )));
+      await Promise.all(allocatedItems
+        .filter((entry) => entry.kind !== 'project')
+        .map(({ kit, stockKey }) => (
+          assignStockToOrder(kit.id, stockKey, orderId, { isLegacyOrder: true, legacyOrder: true, orderDocId: docId })
+        )));
       setToastMessage(`Legacy order ${orderId} created.`);
       setShowManualOrderModal(false);
       setManualOrderData(getEmptyLegacyOrderData());
@@ -4284,7 +4420,7 @@ export default function Orders() {
             <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-black/5 px-5 py-4 pr-16 shadow-sm dark:border-white/5 sm:px-6 sm:pr-16 lg:pr-6">
               <div className="flex items-center gap-3">
                 <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-600/25"><ClipboardList size={20} /></span>
-                <div><h2 className="text-[19px] font-black italic uppercase tracking-tight sm:text-[22px]">Legacy <span className="text-blue-600">Order</span></h2><p className="text-[10px] font-black uppercase tracking-[0.16em] opacity-40">Record paid orders and assign stock</p></div>
+                <div><h2 className="text-[19px] font-black italic uppercase tracking-tight sm:text-[22px]">Legacy <span className="text-blue-600">Order</span></h2><p className="text-[10px] font-black uppercase tracking-[0.16em] opacity-40">Record paid kit and project orders</p></div>
               </div>
               <button type="button" onClick={() => setShowManualOrderModal(false)} className="hidden h-10 w-10 items-center justify-center rounded-full bg-black/5 transition hover:bg-black/10 dark:bg-white/10 lg:flex" aria-label="Close legacy order"><X size={20} /></button>
             </header>
@@ -4295,22 +4431,45 @@ export default function Orders() {
                   <section>
                     <div className="mb-3 flex items-center justify-between"><h3 className="text-[12px] font-black uppercase tracking-widest opacity-45">Included items</h3><span className="text-[11px] font-black uppercase tracking-widest text-blue-600">{manualOrderData.selectedItems.length} selected</span></div>
                     <div className="rounded-2xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.03]">
-                      <input value={manualOrderData.search} onChange={(event) => setManualOrderData(prev => ({ ...prev, search: event.target.value }))} placeholder="Search kits, brand, line, or stock…" className="mb-3 w-full rounded-xl border border-black/10 bg-white px-4 py-3 text-[13px] font-bold outline-none focus:border-blue-500 dark:border-white/10 dark:bg-[var(--color-surface-raised)]" />
+                      <div className="mb-3 flex flex-wrap gap-2">
+                        {[
+                          { value: 'kits', label: 'Kits' },
+                          { value: 'projects', label: 'Projects · STL / 3MF / 3D Printed' }
+                        ].map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => setManualOrderData((prev) => ({ ...prev, searchType: option.value, search: '' }))}
+                            className={`rounded-full border px-3 py-2 text-[10px] font-black uppercase tracking-widest transition ${manualOrderData.searchType === option.value ? 'border-blue-600 bg-blue-600 text-white' : 'border-black/10 bg-white/70 opacity-60 hover:border-blue-400 dark:border-white/10 dark:bg-white/[0.04]'}`}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                      <input value={manualOrderData.search} onChange={(event) => setManualOrderData(prev => ({ ...prev, search: event.target.value }))} placeholder={manualOrderData.searchType === 'projects' ? 'Search project name or STL, 3MF, 3D Printed…' : 'Search kits, brand, line, or stock…'} className="mb-3 w-full rounded-xl border border-black/10 bg-white px-4 py-3 text-[13px] font-bold outline-none focus:border-blue-500 dark:border-white/10 dark:bg-[var(--color-surface-raised)]" />
                       <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
-                        {filteredLegacyStockChoices.map(({ kit, stockKey, stock }) => {
-                          const selected = manualOrderData.selectedItems.some(item => item.kitId === kit.id && item.stockKey === stockKey);
+                        {manualOrderData.searchType === 'projects' ? filteredLegacyProjectChoices.map((choice) => {
+                          const selected = manualOrderData.selectedItems.some(item => item.kind === 'project' && item.projectId === choice.projectId);
+                          return <button key={`project:${choice.projectId}`} type="button" disabled={selected} onClick={() => setManualOrderData(prev => ({ ...prev, selectedItems: [...prev.selectedItems, choice] }))} className="flex w-full items-center gap-3 rounded-xl border border-black/5 bg-white p-2 text-left transition hover:border-blue-400 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/5 dark:bg-white/[0.03]">
+                            <img src={choice.image} alt="" className="h-12 w-16 rounded-lg object-cover" /><span className="min-w-0 flex-1"><span className="block truncate text-[12px] font-black uppercase">{choice.name}</span><span className="block truncate text-[10px] font-bold uppercase tracking-wider opacity-45">{choice.meta}</span></span><span className="shrink-0 text-right leading-tight"><span className="block text-[12px] font-black text-emerald-600">SELL ₱{choice.originalPrice.toLocaleString()}</span><span className="block text-[10px] font-black opacity-50">{choice.capitalPrice === null ? 'CAPITAL —' : `CAPITAL ₱${choice.capitalPrice.toLocaleString()}`}</span></span>
+                          </button>;
+                        }) : filteredLegacyStockChoices.map(({ kit, stockKey, stock }) => {
+                          const selected = manualOrderData.selectedItems.some(item => item.kind !== 'project' && item.kitId === kit.id && item.stockKey === stockKey);
                           const image = resolveImage(kit.image, kit.images) || '/snorlaxgarage.png';
-                          return <button key={`${kit.id}:${stockKey}`} type="button" disabled={selected} onClick={() => setManualOrderData(prev => ({ ...prev, selectedItems: [...prev.selectedItems, { kitId: kit.id, stockKey, name: kit.name, image, costPrice: Number(stock.costPrice || 0), meta: [kit.brand, kit.specs?.line, stock.status].filter(Boolean).join(' • '), kitDetails: getLegacyKitDetails(kit), stockDetails: getLegacyStockDetails(stock, stockKey) }] }))} className="flex w-full items-center gap-3 rounded-xl border border-black/5 bg-white p-2 text-left transition hover:border-blue-400 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/5 dark:bg-white/[0.03]">
+                          return <button key={`${kit.id}:${stockKey}`} type="button" disabled={selected} onClick={() => setManualOrderData(prev => ({ ...prev, selectedItems: [...prev.selectedItems, { kind: 'kit', kitId: kit.id, stockKey, name: kit.name, image, costPrice: Number(stock.costPrice || 0), meta: [kit.brand, kit.specs?.line, stock.status].filter(Boolean).join(' • '), kitDetails: getLegacyKitDetails(kit), stockDetails: getLegacyStockDetails(stock, stockKey) }] }))} className="flex w-full items-center gap-3 rounded-xl border border-black/5 bg-white p-2 text-left transition hover:border-blue-400 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/5 dark:bg-white/[0.03]">
                             <img src={image} alt="" className="h-12 w-16 rounded-lg object-cover" /><span className="min-w-0 flex-1"><span className="block truncate text-[12px] font-black uppercase">{kit.name}</span><span className="block truncate text-[10px] font-bold uppercase tracking-wider opacity-45">{[kit.brand, kit.specs?.line, stock.status, getStockEta(stock)].filter(Boolean).join(' • ')}</span></span><span className="shrink-0 text-right leading-tight"><span className="block text-[12px] font-black text-emerald-600">SELL ₱{Number(stock.sellPrice || kit.sellPrice || 0).toLocaleString()}</span><span className="block text-[10px] font-black opacity-50">COST ₱{Number(stock.costPrice || 0).toLocaleString()}</span></span>
                           </button>;
                         })}
-                        {filteredLegacyStockChoices.length === 0 && <p className="p-5 text-center text-[11px] font-black uppercase tracking-widest opacity-40">No available non-collection stock found</p>}
+                        {((manualOrderData.searchType === 'projects' && filteredLegacyProjectChoices.length === 0) || (manualOrderData.searchType !== 'projects' && filteredLegacyStockChoices.length === 0)) && <p className="p-5 text-center text-[11px] font-black uppercase tracking-widest opacity-40">{manualOrderData.searchType === 'projects' ? 'No STL, 3MF, or 3D printed projects found' : 'No available non-collection stock found'}</p>}
                       </div>
                     </div>
                   </section>
 
                   <section className="space-y-3">
-                    {manualOrderData.selectedItems.length === 0 ? <div className="rounded-2xl border border-dashed border-black/15 p-8 text-center text-[11px] font-black uppercase tracking-widest opacity-40 dark:border-white/15">Select specific stocks to include</div> : manualOrderData.selectedItems.map((item) => <div key={`${item.kitId}:${item.stockKey}`} className="grid grid-cols-[5rem_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border border-black/5 bg-white p-3 shadow-sm dark:border-white/5 dark:bg-white/[0.03]"><img src={item.image || '/snorlaxgarage.png'} alt="" className="h-16 w-20 rounded-xl object-cover" /><div className="min-w-0"><p className="truncate text-[13px] font-black uppercase">{item.name}</p><p className="mt-1 truncate text-[11px] font-black uppercase tracking-wider opacity-45">{item.meta}</p><p className="mt-1 text-[10px] font-black uppercase tracking-wider opacity-60">COST ₱{Number(item.costPrice || 0).toLocaleString()}</p></div><button type="button" onClick={() => setManualOrderData(prev => ({ ...prev, selectedItems: prev.selectedItems.filter(entry => !(entry.kitId === item.kitId && entry.stockKey === item.stockKey)) }))} className="rounded-full p-2 text-red-500 hover:bg-red-500/10" aria-label={`Remove ${item.name}`}><Trash2 size={16} /></button></div>)}
+                    {manualOrderData.selectedItems.length === 0 ? <div className="rounded-2xl border border-dashed border-black/15 p-8 text-center text-[11px] font-black uppercase tracking-widest opacity-40 dark:border-white/15">Select kits or projects to include</div> : manualOrderData.selectedItems.map((item) => {
+                      const key = item.kind === 'project' ? `project:${item.projectId}` : `kit:${item.kitId}:${item.stockKey}`;
+                      return <div key={key} className="grid grid-cols-[5rem_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border border-black/5 bg-white p-3 shadow-sm dark:border-white/5 dark:bg-white/[0.03]"><img src={item.image || '/snorlaxgarage.png'} alt="" className="h-16 w-20 rounded-xl object-cover" /><div className="min-w-0"><p className="truncate text-[13px] font-black uppercase">{item.name}</p><p className="mt-1 truncate text-[11px] font-black uppercase tracking-wider opacity-45">{item.meta}</p><p className="mt-1 text-[10px] font-black uppercase tracking-wider opacity-60">CAPITAL {item.capitalPrice === null || item.capitalPrice === undefined ? (item.kind === 'project' ? '—' : `₱${Number(item.costPrice || 0).toLocaleString()}`) : `₱${Number(item.capitalPrice).toLocaleString()}`}</p></div><button type="button" onClick={() => setManualOrderData(prev => ({ ...prev, selectedItems: prev.selectedItems.filter(entry => (entry.kind === 'project' ? `project:${entry.projectId}` : `kit:${entry.kitId}:${entry.stockKey}`) !== key) }))} className="rounded-full p-2 text-red-500 hover:bg-red-500/10" aria-label={`Remove ${item.name}`}><Trash2 size={16} /></button></div>;
+                    })}
                   </section>
                 </div>
 
