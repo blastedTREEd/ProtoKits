@@ -23,7 +23,6 @@ import {
 } from '../../utils/printerCompatibility';
 import CostBreakdown from './CostBreakdown';
 import { LiaGoogleDrive } from 'react-icons/lia';
-import { FaQuestion } from 'react-icons/fa';
 import { TbHexagon3D } from 'react-icons/tb';
 import { LuRotate3D } from 'react-icons/lu';
 import UniversalImage from '../common/UniversalImage';
@@ -1129,6 +1128,7 @@ export default function ProjectCard({
   const [focusRequest, setFocusRequest] = useState(null);
   const [automaticPricingState, setAutomaticPricingState] = useState(null);
   const [isSubmittingPrintedOffer, setIsSubmittingPrintedOffer] = useState(false);
+  const [printedOfferPrice, setPrintedOfferPrice] = useState('');
   const automaticPricing = automaticPricingState?.value || null;
   const automaticRepriceKeyRef = useRef('');
   const automaticRepricePersistedKeyRef = useRef('');
@@ -2099,22 +2099,9 @@ export default function ProjectCard({
     e.stopPropagation();
     if (!isPrintedProject || isAdminView || !huntKit || isSubmittingPrintedOffer) return;
 
-    const referencePrice = Number(
-      project?.price
-      ?? project?.sellPrice
-      ?? project?.totalPrice
-      ?? project?.finalPrice
-      ?? 0
-    );
-    const enteredPrice = window.prompt(
-      'Enter your offer price for this 3D printed project:',
-      referencePrice > 0 ? String(referencePrice) : ''
-    );
-    if (enteredPrice === null) return;
-
-    const targetPrice = Number(String(enteredPrice).replace(/,/g, '').trim());
+    const targetPrice = Number(String(printedOfferPrice).replace(/,/g, '').trim());
     if (!Number.isFinite(targetPrice) || targetPrice <= 0) {
-      window.alert('Please enter a valid offer price.');
+      window.alert('Enter your preferred price before sending the deal.');
       return;
     }
 
@@ -2332,11 +2319,8 @@ export default function ProjectCard({
                     </div>
                     <div className="flex flex-row items-baseline gap-1.5">
                         {printedProjectUnavailable ? (
-                          <span className="inline-flex items-center text-[15px] font-bold leading-none text-red-600">
-                            <span className="mr-[1px]">₱</span>
-                            <FaQuestion size={9} />
-                            <FaQuestion size={9} />
-                            <FaQuestion size={9} />
+                          <span className="text-[15px] font-bold italic tracking-tighter leading-none text-red-600">
+                            LET&apos;S DEAL
                           </span>
                         ) : (
                           <span className="text-[15px] font-bold italic tracking-tighter text-blue-600 leading-none">
@@ -2921,19 +2905,34 @@ export default function ProjectCard({
         </>
       ) : isPublicPrintedProjectPaused ? (
         <div className="flex w-full flex-col gap-2">
+          <div className="flex w-full flex-row items-center gap-2">
+            <input
+              type="number"
+              min="1"
+              step="1"
+              inputMode="decimal"
+              value={printedOfferPrice}
+              onChange={(event) => setPrintedOfferPrice(event.target.value)}
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => event.stopPropagation()}
+              placeholder="ENTER PREFERRED PRICE"
+              aria-label="Preferred offer price"
+              className="h-12 w-1/2 min-w-0 rounded-full border border-red-500/40 bg-red-500/10 px-5 text-[11px] font-black italic uppercase tracking-widest text-white outline-none placeholder:text-white/50 focus:border-red-400 focus:ring-2 focus:ring-red-500/20"
+            />
           <button
             type="button"
             onClick={handlePrintedProjectOffer}
             disabled={isSubmittingPrintedOffer}
-            className={`h-12 w-full rounded-full text-white font-black italic uppercase text-[11px] tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all ${
+            className={`h-12 w-1/2 min-w-0 rounded-full text-white font-black italic uppercase text-[11px] tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all ${
               isSubmittingPrintedOffer
                 ? 'bg-neutral-400 cursor-wait opacity-70'
-                : 'bg-gradient-to-br from-blue-500 to-blue-600 shadow-blue-500/30'
+                : 'bg-gradient-to-br from-red-400 to-red-500 shadow-red-500/30'
             }`}
           >
             <Bell size={15} strokeWidth={3} />
-            <span>{isSubmittingPrintedOffer ? 'Sending Offer' : 'Send Offer / Notify Me'}</span>
+            <span className="truncate">{isSubmittingPrintedOffer ? 'Sending Deal' : 'Send Deal'}</span>
           </button>
+          </div>
         </div>
       ) : isPublicVaultView ? (
         <div className="flex w-full flex-col gap-2">
