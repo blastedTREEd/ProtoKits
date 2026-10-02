@@ -2412,7 +2412,7 @@ export default function ProjectCard({
       </div>
 
       {isModalOpen && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-0 lg:p-12 bg-white dark:bg-[#0a0a0a] lg:bg-white/30 lg:dark:bg-black/30 backdrop-blur-md lg:backdrop-blur-sm animate-in fade-in duration-200 overflow-hidden touch-action-none">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-0 lg:p-12 bg-white/40 dark:bg-black/45 backdrop-blur-sm animate-in fade-in duration-200 overflow-hidden touch-action-none">
           <div className={`relative w-full h-full lg:h-[70vh] lg:max-w-7xl flex flex-col lg:rounded-[2.5rem] lg:border lg:shadow-2xl overflow-hidden overscroll-none ${isDarkMode ? 'bg-[var(--color-bg)] border-white/10 text-white' : 'bg-white border-black/5 text-neutral-900'}`}>
             {canManageGallery && (
               <input
