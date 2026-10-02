@@ -731,6 +731,13 @@ export const computeProjectCosts = ({
   // markup and leftover-material/extra charges. Persisting this numeric value
   // lets order accounting stay accurate even after rates or inventory change.
   const capitalCost = materialBaseSum + markupableLabor + baseElecTotal + extrasBaseSum + maintFinal;
+  const capitalBreakdown = {
+    materials: Number(Math.max(0, materialBaseSum).toFixed(2)),
+    labor: Number(Math.max(0, markupableLabor).toFixed(2)),
+    electricity: Number(Math.max(0, baseElecTotal).toFixed(2)),
+    extras: Number(Math.max(0, extrasBaseSum).toFixed(2)),
+    maintenance: Number(Math.max(0, maintFinal).toFixed(2))
+  };
 
   return {
     total: Math.ceil(grandTotal).toLocaleString(),
@@ -752,6 +759,7 @@ export const computeProjectCosts = ({
     maintenance: formatCurrency(maintFinal),
     extras: formatCurrency(extrasFinal),
     capitalCost: Number(Math.max(0, capitalCost).toFixed(2)),
+    capitalBreakdown,
     totalProfit: formatCurrency(totalProjectProfit),
     totalTakeHome: formatCurrency(totalTakeHome),
     details: {

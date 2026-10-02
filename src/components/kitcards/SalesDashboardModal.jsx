@@ -2,7 +2,7 @@ import React, { useMemo, useEffect, useRef, useState } from 'react';
 import { X, TrendingUp, DollarSign, Package, Clock, AlertCircle, ShoppingCart, ChevronDown } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import UniversalImage from '../common/UniversalImage';
-import { getProjectCapitalCost, getProjectType } from '../../utils/projectFinancials';
+import { getProjectCapitalCost, getProjectCapitalBreakdown, getProjectType } from '../../utils/projectFinancials';
 
 const PENDING_STATUSES = new Set(['Reserved', 'Validating', 'Arrived', 'To Ship', 'Shipped', 'Preparing']);
 
@@ -91,11 +91,20 @@ const buildOrderFinancials = (order, kits) => {
     const share = totalBasis > 0 ? getItemBasis(item) / totalBasis : 1 / Math.max(1, items.length);
     const itemRevenue = totalBasis > 0 ? revenue * share : fallbackShare;
     const capital = getItemCapital(item, kits);
+    const projectCapitalBreakdown = item?.type === 'project' || item?.projectData
+      ? (() => {
+        const breakdown = getProjectCapitalBreakdown(item);
+        return breakdown
+          ? Object.fromEntries(Object.entries(breakdown).map(([key, value]) => [key, value * getQuantity(item)]))
+          : null;
+      })()
+      : null;
 
     return {
       ...item,
       itemRevenue,
       capital,
+      capitalBreakdown: projectCapitalBreakdown,
       profit: itemRevenue - capital,
       projectType: item?.type === 'project' || item?.projectData ? getProjectType(item) : null,
       feeShare: fees * share,
@@ -311,6 +320,38 @@ export default function SalesDashboardModal({ isOpen, onClose }) {
                             <div><span className="block opacity-40">Discounts</span><span>-{formatCurrency(financials.discount)}</span></div>
                             <div><span className="block opacity-40">Capital</span><span>{formatCurrency(financials.capital)}</span></div>
                           </div>
+
+                          {financials.itemRows.some((item) => item.projectType) && (
+                            <div className="space-y-3 rounded-xl border border-violet-500/15 bg-violet-500/[0.04] p-3">
+                              <div>
+                                <p className="text-[10px] font-black uppercase tracking-widest text-violet-600 dark:text-violet-400">Project capital breakdown</p>
+                                <p className="mt-1 text-[9px] font-medium italic opacity-50">Base operating costs before markup and leftover-material charges.</p>
+                              </div>
+                              {financials.itemRows.filter((item) => item.projectType).map((item, index) => (
+                                <div key={`${orderId}-capital-${item.id || index}`} className="space-y-2">
+                                  {financials.itemRows.filter((row) => row.projectType).length > 1 && <p className="truncate text-[10px] font-black uppercase opacity-60">{item.name} · {item.projectType}</p>}
+                                  {item.capitalBreakdown ? (
+                                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                                      {[
+                                        ['Materials', 'materials'],
+                                        ['Labor', 'labor'],
+                                        ['Electricity', 'electricity'],
+                                        ['Extras', 'extras'],
+                                        ['Maintenance', 'maintenance']
+                                      ].map(([label, key]) => (
+                                        <div key={key} className="rounded-lg border border-violet-500/10 bg-white/40 p-2 dark:bg-white/[0.03]">
+                                          <span className="block text-[8px] font-black uppercase tracking-wider opacity-45">{label}</span>
+                                          <span className="mt-1 block text-[11px] font-black">{formatCurrency(item.capitalBreakdown[key])}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <p className="text-[10px] font-medium italic opacity-50">Component breakdown was not saved for this older project order.</p>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
 
                           <div className="space-y-2">
                             {financials.itemRows.map((item, index) => (

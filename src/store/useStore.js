@@ -664,6 +664,7 @@ const recomputePersistedProject = (project, resources = {}) => {
     maintenance: calculated.maintenance,
     extras: calculated.extras,
     capitalCost: calculated.capitalCost ?? currentTotals.capitalCost,
+    capitalBreakdown: calculated.capitalBreakdown ?? currentTotals.capitalBreakdown,
     details: calculated.details
   };
 

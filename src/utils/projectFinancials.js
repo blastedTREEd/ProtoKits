@@ -66,6 +66,26 @@ export const getProjectRevenue = (item) => {
   );
 };
 
+const CAPITAL_COMPONENTS = ['materials', 'labor', 'electricity', 'extras', 'maintenance'];
+
+export const getProjectCapitalBreakdown = (item) => {
+  const project = getProjectData(item);
+  const totals = project?.totals || {};
+  const originalTotals = project?.originalTotals || {};
+  const source = [
+    item?.capitalBreakdown,
+    project?.capitalBreakdown,
+    totals.capitalBreakdown,
+    originalTotals.capitalBreakdown
+  ].find((candidate) => CAPITAL_COMPONENTS.every((key) => hasValue(candidate?.[key])));
+
+  if (!source) return null;
+  return CAPITAL_COMPONENTS.reduce((result, key) => {
+    result[key] = Math.max(0, parseProjectAmount(source[key]));
+    return result;
+  }, {});
+};
+
 // New project snapshots carry this exact cost basis. Older snapshots are
 // reconstructed from the calculator's base price and markup profit so their
 // historical dashboard numbers remain useful instead of reporting zero cost.
@@ -81,6 +101,11 @@ export const getProjectCapitalCost = (item) => {
   ].find(hasValue);
 
   if (hasValue(explicitCapital)) return Math.max(0, parseProjectAmount(explicitCapital));
+
+  const breakdown = getProjectCapitalBreakdown(item);
+  if (breakdown) {
+    return CAPITAL_COMPONENTS.reduce((sum, key) => sum + breakdown[key], 0);
+  }
 
   // A zero project cost was written by older checkout builds before project
   // capital was persisted. Only use a legacy costPrice when it is positive;
