@@ -561,7 +561,7 @@ export default function ProjectPreview({
   };
 
   return (
-    <div className="project-preview-flow w-full min-h-[calc(100dvh-210px)] lg:min-h-[calc(90dvh-210px)] flex flex-col gap-8 pb-[160px] sm:pb-32 md:pb-32 lg:pb-32 animate-in fade-in slide-in-from-bottom-4 duration-500 text-black dark:text-white text-left">
+    <div className="project-preview-flow w-full min-h-[calc(100dvh-210px)] lg:min-h-[calc(90dvh-210px)] flex flex-col gap-8 pb-[180px] sm:pb-[200px] md:pb-[220px] lg:pb-32 animate-in fade-in slide-in-from-bottom-4 duration-500 text-black dark:text-white text-left">
       <style>{`
         @keyframes pulse-subtle { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
         .animate-pulse-subtle { animation: pulse-subtle 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
