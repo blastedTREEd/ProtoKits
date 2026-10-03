@@ -1279,6 +1279,9 @@ export const useStore = create(
       unsubHomeKits: null,
       unsubHomeBlueprints: null,
       unsubKits: null,
+      unsubPrintedProjects: null,
+      unsubPrints: null,
+      unsubDeals: null,
       unsubProjectVault: null,
       unsubOffers: null,
       _syncAllDealsPromise: null,
@@ -1499,6 +1502,24 @@ export const useStore = create(
             _datasetListenerKeys: { ...state._datasetListenerKeys, [key]: isActive }
           }));
         };
+        const stopRouteListener = (key, unsubscribeKey, clearedState = {}) => {
+          const unsubscribe = get()[unsubscribeKey];
+          if (!unsubscribe) return;
+
+          unsubscribe();
+          set((state) => ({
+            [unsubscribeKey]: null,
+            _bgUnsubs: state._bgUnsubs.filter((candidate) => candidate !== unsubscribe),
+            _datasetListenerKeys: {
+              ...state._datasetListenerKeys,
+              [key]: false,
+              ...(key === 'kits' ? { kitsMode: null } : {})
+            },
+            _loadedDatasets: { ...state._loadedDatasets, [key]: false },
+            _datasetStatus: { ...state._datasetStatus, [key]: 'loading' },
+            ...clearedState
+          }));
+        };
         if (!req.stories && get().unsubStories) {
           get().unsubStories();
           set((state) => ({
@@ -1523,9 +1544,33 @@ export const useStore = create(
             _loadedDatasets: { ...state._loadedDatasets, homeBlueprints: false }
           }));
         }
+        if (!req.kits) {
+          stopRouteListener('kits', 'unsubKits', {
+            kits: [],
+            adminShelfSourceKits: [],
+            shelf: []
+          });
+        }
+        if (!req.printedProjects) {
+          stopRouteListener('printedProjects', 'unsubPrintedProjects', {
+            printedProjects: []
+          });
+        }
+        if (!req.prints) {
+          stopRouteListener('prints', 'unsubPrints', {
+            blueprints: []
+          });
+        }
+        if (!req.deals) {
+          stopRouteListener('deals', 'unsubDeals', {
+            deals: []
+          });
+        }
         const hydrateHomeDealKits = async (availableDeals = []) => {
           const currentPath = get()._activePath;
-          if (!['/', '/kits'].includes(currentPath) || !Array.isArray(availableDeals)) return;
+          // /kits already has the complete live kits listener. Hydrating the
+          // same deal kit IDs again would double-read those documents.
+          if (currentPath !== '/' || !Array.isArray(availableDeals)) return;
 
           const dealKitIds = [...new Set(
             availableDeals
@@ -1539,9 +1584,13 @@ export const useStore = create(
           )];
           if (dealKitIds.length === 0) return;
 
+          const existingHomeKitIds = new Set((get().homeKits || []).map((kit) => String(kit.id)));
+          const missingDealKitIds = dealKitIds.filter((kitId) => !existingHomeKitIds.has(kitId));
+          if (missingDealKitIds.length === 0) return;
+
           const fetchedKits = [];
-          for (let index = 0; index < dealKitIds.length; index += 30) {
-            const batchIds = dealKitIds.slice(index, index + 30);
+          for (let index = 0; index < missingDealKitIds.length; index += 30) {
+            const batchIds = missingDealKitIds.slice(index, index + 30);
             try {
               const snap = await getDocs(query(
                 collection(db, 'kits'),
@@ -1553,7 +1602,7 @@ export const useStore = create(
             }
           }
 
-          if (fetchedKits.length === 0 || !['/', '/kits'].includes(get()._activePath)) return;
+          if (fetchedKits.length === 0 || get()._activePath !== '/') return;
           set((state) => {
             const stateKey = get()._activePath === '/' ? 'homeKits' : 'kits';
             const kitsById = new Map((state[stateKey] || []).map((kit) => [String(kit.id), kit]));
@@ -1704,6 +1753,7 @@ export const useStore = create(
             markListener('printedProjects', false);
             get().markLoaded('printedProjects', { status: 'error' });
           });
+          set({ unsubPrintedProjects: unsub });
           markListener('printedProjects');
           unsubs.push(unsub);
         }
@@ -1721,6 +1771,7 @@ export const useStore = create(
             markListener('prints', false);
             get().markLoaded('prints', { status: 'error' });
           });
+          set({ unsubPrints: unsub });
           markListener('prints');
           unsubs.push(unsub);
         }
@@ -1738,6 +1789,7 @@ export const useStore = create(
             markListener('deals', false);
             get().markLoaded('deals', { status: 'error' });
           });
+          set({ unsubDeals });
           markListener('deals');
           unsubs.push(unsubDeals);
         }
@@ -1766,6 +1818,9 @@ export const useStore = create(
           _prioUnsubs: [],
           _bgUnsubs: [],
           unsubKits: null,
+          unsubPrintedProjects: null,
+          unsubPrints: null,
+          unsubDeals: null,
           _datasetListenerKeys: {},
           _backgroundListenersStarted: false,
           _isInitialAuthChecked: false,
@@ -1880,7 +1935,10 @@ export const useStore = create(
           unsubStories: null,
           unsubHomeKits: null,
           unsubHomeBlueprints: null,
-          unsubKits: null
+          unsubKits: null,
+          unsubPrintedProjects: null,
+          unsubPrints: null,
+          unsubDeals: null
           });
 
           const bundleDealRestartTimer = get()._bundleDealRestartTimer;

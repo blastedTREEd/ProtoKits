@@ -262,10 +262,30 @@ export default function Prints() {
     ? 'shadow-[0_8px_30px_rgba(0,0,0,0.5)]' 
     : 'shadow-[0_4px_12px_rgba(0,0,0,0.05)]';
 
+  // The public prints catalog only needs blueprints and printed projects.
+  // Printer/inventory/rate listeners are opened when the calculator or an
+  // admin resource tool is actually used, which avoids six always-on reads
+  // for every guest who visits /prints.
+  const shouldLoadPrintResources = (
+    (isAdmin && isAdminView)
+    || viewMode !== 'idle'
+    || showFilamentModal
+    || showPrinterModal
+    || showRatesModal
+  );
+  const printResourcesCleanupRef = useRef(null);
+
   useEffect(() => {
     loadBlueprints();
-    return loadPrintResources();
-  }, [loadBlueprints, loadPrintResources]);
+    if (shouldLoadPrintResources && !printResourcesCleanupRef.current) {
+      printResourcesCleanupRef.current = loadPrintResources();
+    }
+  }, [loadBlueprints, loadPrintResources, shouldLoadPrintResources]);
+
+  useEffect(() => () => {
+    printResourcesCleanupRef.current?.();
+    printResourcesCleanupRef.current = null;
+  }, []);
 
   useEffect(() => {
     if (!user?.uid) return undefined;
