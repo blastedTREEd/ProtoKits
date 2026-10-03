@@ -12,6 +12,8 @@ import { getPrintedProjectModelName } from '../../utils/printedProjectName';
 import UniversalImage from '../common/UniversalImage';
 import { isFlexiBundleDeal, isPerKitClearanceDeal, getActiveClearanceKitIds, getClearanceDisplayLabel } from '../../utils/dealTypes';
 import { getBundleDisplayTotals } from '../../utils/bundleDisplayPricing';
+import { APP_CONFIG } from '../../appConfig';
+import { isCombinedMarket } from '../../utils/marketVisibility';
 
 const BUNDLE_TYPES = new Set(['bundle_only', 'bundle_discount']);
 
@@ -180,6 +182,8 @@ function randomizeFeedCards(cards, limit = 10) {
 }
 
 export default function BundleHighlights() {
+  const showKitHighlights = isCombinedMarket(APP_CONFIG.market) || APP_CONFIG.market === 'kits';
+  const showPrintHighlights = isCombinedMarket(APP_CONFIG.market) || APP_CONFIG.market === 'prints';
   const deals = useStore((state) => state.deals);
   const activePath = useStore((state) => state._activePath);
   const kits = useStore((state) => (
@@ -216,6 +220,7 @@ export default function BundleHighlights() {
     const kitMap = new Map((kits || []).map((kit) => [String(kit.id), kit]));
     return (deals || [])
       .filter((deal) => {
+        if (!showKitHighlights) return false;
         if (!BUNDLE_TYPES.has(deal?.type) || deal.isActive === false) return false;
         const endDate = getDealEndDate(deal.validUntil);
         if (endDate && endDate.getTime() <= now) return false;
@@ -244,7 +249,7 @@ export default function BundleHighlights() {
         const bEnd = getDealEndDate(b.validUntil)?.getTime() || Number.MAX_SAFE_INTEGER;
         return aEnd - bEnd;
       });
-  }, [deals, kits, now]);
+  }, [deals, kits, now, showKitHighlights]);
 
   const fillerCards = useMemo(() => {
     const usedKitIds = new Set();
@@ -376,15 +381,26 @@ export default function BundleHighlights() {
         });
       });
 
-    return cards;
-  }, [activeBundles, blueprints, deals, kits, now, printedProjects]);
+    // The shared catalog is intentionally loaded once for the home feed, but
+    // each product-family app gets a strict market slice of that feed:
+    // LIQUIKITS sees kits, KOMIPRINTS sees print projects, and GARAGECORE
+    // (plus the legacy combined app) sees both.
+    return cards.filter((card) => (
+      (showKitHighlights && card.type === 'kit')
+      || (showPrintHighlights && card.type === 'project')
+    ));
+  }, [activeBundles, blueprints, deals, kits, now, printedProjects, showKitHighlights, showPrintHighlights]);
 
   const displayCards = useMemo(() => {
     // Keep priority selection, then randomize the presentation while using
     // kit/other cards as separators between project cards.
     return randomizeFeedCards(fillerCards, 10);
   }, [fillerCards]);
-  const bundleDataLoading = ['homeKits', 'homeBlueprints', 'printedProjects', 'deals'].some((key) => (
+  const requiredBundleDatasets = [
+    ...(showKitHighlights ? ['homeKits', 'deals'] : []),
+    ...(showPrintHighlights ? ['homeBlueprints', 'printedProjects'] : [])
+  ];
+  const bundleDataLoading = requiredBundleDatasets.some((key) => (
     (_datasetStatus?.[key] || 'loading') === 'loading'
   ));
   const bundleDataReady = !bundleDataLoading;
