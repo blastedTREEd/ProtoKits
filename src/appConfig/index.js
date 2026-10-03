@@ -64,9 +64,26 @@ const APP_CONFIGS = Object.freeze({
   }
 });
 
-const requestedAppId = String(import.meta.env.VITE_APP_ID || 'snorlaxgarage')
+const configuredAppId = String(import.meta.env.VITE_APP_ID || '')
   .trim()
   .toLowerCase();
+
+// Vercel preview builds can be created without the project-specific VITE_APP_ID
+// variable. Resolve the app from its Vercel hostname in that case so a preview
+// or promoted deployment keeps the same identity as its production domain.
+const hostnameAppId = typeof window !== 'undefined'
+  ? APP_IDS.find((appId) => {
+    const hostname = String(window.location.hostname || '').toLowerCase();
+    return hostname === `${appId}.vercel.app`
+      || (hostname.startsWith(`${appId}-`) && hostname.endsWith('.vercel.app'));
+  })
+  : null;
+
+const requestedAppId = (
+  configuredAppId && configuredAppId !== 'snorlaxgarage'
+    ? configuredAppId
+    : (hostnameAppId || configuredAppId || 'snorlaxgarage')
+);
 
 export const APP_CONFIG = APP_CONFIGS[requestedAppId] || APP_CONFIGS.snorlaxgarage;
 export const APP_ID = APP_CONFIG.id;
