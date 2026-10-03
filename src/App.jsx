@@ -12,6 +12,7 @@ import { useStore } from './store/useStore';
 import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { RefreshCw, X } from 'lucide-react';
 import { preloadLanding, preloadKits, preloadPrints, preloadOrders, preloadCart } from './routePreloads';
+import { APP_CONFIG, isLegacyApp, isPathAllowedForApp, isPortfolioApp } from './appConfig';
 
 const Landing = lazy(preloadLanding);
 const Kits = lazy(preloadKits);
@@ -30,8 +31,17 @@ const ShippingPolicy = lazy(() => import('./pages/ShippingPolicy'));
 const PaymentAndRefundPolicy = lazy(() => import('./pages/PaymentAndRefundPolicy'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
+const AppHome = () => {
+  if (isPortfolioApp) return <AboutUs />;
+  if (APP_CONFIG.homePath === '/kits') return <Navigate to="/kits" replace />;
+  if (APP_CONFIG.homePath === '/prints') return <Navigate to="/prints" replace />;
+  if (APP_CONFIG.homePath === '/users-dashboard') return <Navigate to="/users-dashboard" replace />;
+  return <Landing />;
+};
+
 const getPageLoadingLabel = (pathname, { isAdminView = false } = {}) => {
-  if (pathname === '/') return 'Loading SnorlaxGarage';
+  const appLoadingLabel = `Loading ${APP_CONFIG.label}`;
+  if (pathname === '/') return appLoadingLabel;
   if (pathname.startsWith('/kits')) return 'Loading Kits';
   if (pathname.startsWith('/prints') || pathname === '/blueprints') return 'Loading Prints';
   if (pathname === '/orders' || pathname.startsWith('/orders/')) return 'Loading Orders';
@@ -41,7 +51,7 @@ const getPageLoadingLabel = (pathname, { isAdminView = false } = {}) => {
   if ((pathname === '/cart' || pathname === '/basket') && isAdminView) return 'Loading Collection';
   if (pathname === '/cart' || pathname === '/basket') return 'Loading Cart';
   if (pathname === '/checkout') return 'Loading Checkout';
-  return 'Loading SnorlaxGarage';
+  return appLoadingLabel;
 };
 
 const getLoadingDetails = ({ pathname, isAdminView = false }) => {
@@ -63,7 +73,10 @@ const getSyncMessage = (syncStatus, pathname, { isAdminView = false } = {}) => {
 };
 
 const getInitialLoadDatasetKeys = (pathname) => {
+  if (isPortfolioApp) return [];
+
   const isHome = pathname === '/' || pathname === '';
+  const isLegacyHome = isLegacyApp && isHome;
   const isKitsPath = pathname.startsWith('/kits');
   const isPrintsPath = pathname === '/prints' || pathname.startsWith('/prints/');
   const isOrdersPath = pathname === '/orders' || pathname.startsWith('/orders/');
@@ -71,9 +84,9 @@ const getInitialLoadDatasetKeys = (pathname) => {
 
   return [
     'userProfile',
-    ...(isHome ? ['stories', 'homeKits', 'homeBlueprints'] : []),
+    ...(isLegacyHome ? ['stories', 'homeKits', 'homeBlueprints'] : []),
     ...(isKitsPath || isCartPath ? ['kits'] : []),
-    ...(isHome || isKitsPath ? ['deals'] : []),
+    ...((isLegacyHome || isKitsPath) ? ['deals'] : []),
     ...(isOrdersPath ? ['orders'] : []),
     ...(isCartPath ? ['basket'] : []),
     ...(isPrintsPath || pathname === '/blueprints' || isCartPath ? ['prints'] : [])
@@ -88,6 +101,12 @@ if (typeof window !== 'undefined' && 'scrollRestoration' in window.history) {
 // Known route prefixes — used to skip loading/auth gating on 404 pages
 const KNOWN_PATHS = ['/', '/kits', '/prints', '/blueprints', '/about-us', '/orders', '/cart', '/basket', '/checkout', '/shelf', '/notify-list', '/users-dashboard', '/privacy-policy', '/terms-of-use', '/data-deletion', '/delete-account', '/shipping-policy', '/payment-and-refund-policy'];
 const isKnownRoute = (pathname) => KNOWN_PATHS.some(p => p === '/' ? pathname === '/' : pathname === p || pathname.startsWith(p + '/'));
+
+const AppRouteGate = ({ children }) => {
+  const location = useLocation();
+  if (isPathAllowedForApp(location.pathname)) return children;
+  return <Navigate to={APP_CONFIG.homePath} replace />;
+};
 
 const Layout = ({ children }) => {
   const location = useLocation();
@@ -173,8 +192,9 @@ const RouterContent = () => {
               <Kits isActive={isKitsPath} />
             </div>
           )}
+          <AppRouteGate>
           <Routes>
-            <Route path="/" element={<Landing />} />
+            <Route path="/" element={<AppHome />} />
             <Route path="/kits" element={null} />
             <Route path="/kits/:kitId" element={null} />
             <Route path="/prints" element={<Prints />} />
@@ -212,6 +232,7 @@ const RouterContent = () => {
             <Route path="/payment-and-refund-policy" element={<PaymentAndRefundPolicy />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
+          </AppRouteGate>
         </Suspense>
     </>
   );
@@ -279,18 +300,18 @@ const InitialLoadOverlay = () => {
   const location = useLocation();
   const isLoading = useStore((state) => state.isLoading);
   const loadedDatasets = useStore((state) => state._loadedDatasets);
-  const shippingSettings = useStore((state) => state.shippingSettings);
-  const hasCheckoutSettings = shippingSettings !== null;
 
   // Match the Landing page's status wording: the loading screen remains
-  // visible while the garage is still "OPENING", regardless of local cache.
-  const isGarageOpening = isLoading || !hasCheckoutSettings;
+  // visible while the route-required listeners are still settling. Checkout
+  // settings remain optional so guest/local catalog pages cannot be blocked by
+  // a missing or delayed settings/checkout snapshot.
+  const isGarageOpening = isLoading;
   if (!isGarageOpening) return null;
 
   const requiredKeys = getInitialLoadDatasetKeys(location.pathname);
   const completedDatasetCount = requiredKeys.filter((key) => loadedDatasets?.[key]).length;
-  const completedCount = completedDatasetCount + (hasCheckoutSettings ? 1 : 0);
-  const totalCount = Math.max(requiredKeys.length + 1, 1);
+  const completedCount = completedDatasetCount;
+  const totalCount = Math.max(requiredKeys.length, 1);
   const progress = Math.round((completedCount / totalCount) * 100);
 
   return (
@@ -311,6 +332,10 @@ const InitialLoadOverlay = () => {
 
 export default function App() {
   const { fetchInitialData, setToastMessage } = useStore();
+
+  useEffect(() => {
+    document.title = APP_CONFIG.label;
+  }, []);
 
   useEffect(() => {
     // Prevent the mouse wheel from incrementing/decrementing number fields.

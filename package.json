@@ -5,6 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host --port 5173",
+    "dev:snorlaxgarage": "vite --host --port 5173 --mode snorlaxgarage",
+    "dev:liquikits": "vite --host --port 5174 --mode liquikits",
+    "dev:komiprints": "vite --host --port 5175 --mode komiprints",
+    "dev:garagecore": "vite --host --port 5176 --mode garagecore",
+    "dev:daivevargas": "vite --host --port 5177 --mode daivevargas",
+    "dev:all": "concurrently \"npm run dev:snorlaxgarage\" \"npm run dev:liquikits\" \"npm run dev:komiprints\" \"npm run dev:garagecore\" \"npm run dev:daivevargas\"",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",

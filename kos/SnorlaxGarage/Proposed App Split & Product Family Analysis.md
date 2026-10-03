@@ -4,6 +4,8 @@
 
 This is a brainstorming document, not an approved product or implementation plan. It describes a possible product family based on the current SnorlaxGarage application and should be revisited before any irreversible data, domain, or branding changes.
 
+The implementation guidance in this document is superseded by [Forked Product Family Implementation Plan](Forked%20Product%20Family%20Implementation%20Plan.md). Keep this document as the product-boundary and risk background reference; use the newer plan for sequencing and source-architecture decisions.
+
 **Last updated:** 2026-09-29
 
 **Working proposal:** separate the customer-facing businesses into **LIQUIKITS** for model-kit liquidation and **KOMIPRINTS** for 3D-printing services, use **GARAGECORE** as the shared administrative and operations console, and create **DAIVEVARGAS** as the public portfolio app that presents the whole product family. **SNORLAXGARAGE** remains the current combined app and migration starting point.

@@ -18,6 +18,7 @@ import { preloadRoute } from '../../routePreloads';
 import { signOut, signInWithPopup } from 'firebase/auth'; 
 import { getReadableAuthErrorMessage } from '../../utils/authUtils';
 import { auth, fbProvider, googleProvider } from '../../firebase/firebase';
+import { APP_CONFIG, isLegacyApp } from '../../appConfig';
 import NotificationModal from './NotificationModal';
 import {
   buildCommerceNotifications,
@@ -840,9 +841,11 @@ useEffect(() => {
 }, [isAdminView]);
 
 const navLinks = [
-  { to: "/kits", icon: <Box />, label: "KITS" },
-  { to: "/prints", icon: <Printer />, label: "PRINTS" },
-  ...(user ? [{ to: "/orders", icon: <ClipboardList />, label: "ORDERS" }] : [])
+  ...(APP_CONFIG.nav.includes('kits') ? [{ to: "/kits", icon: <Box />, label: "KITS" }] : []),
+  ...(APP_CONFIG.nav.includes('prints') ? [{ to: "/prints", icon: <Printer />, label: "PRINTS" }] : []),
+  ...(APP_CONFIG.nav.includes('orders') && user ? [{ to: "/orders", icon: <ClipboardList />, label: "ORDERS" }] : []),
+  ...(APP_CONFIG.nav.includes('dashboard') ? [{ to: "/users-dashboard", icon: <ShieldCheck />, label: "CORE" }] : []),
+  ...(APP_CONFIG.nav.includes('about') ? [{ to: "/about-us", icon: <ContactRound />, label: "ABOUT" }] : [])
 ];
 const maintenanceMode = shippingSettings?.paymentSettings?.maintenanceMode === true;
 const maintenanceInvalidTypes = shippingSettings?.paymentSettings?.maintenanceInvalidTypes || {};
@@ -868,6 +871,7 @@ const displayImg = isFallbackLogo
   : `https://graph.facebook.com/${garageInfo.fbPageId}/picture?type=large`;
 
 const getPageTitle = () => {
+  if (!isLegacyApp) return { line1: APP_CONFIG.brandLines[0], line2: APP_CONFIG.brandLines[1] };
   if (!isMobile) return { line1: 'SNORLAX', line2: 'GARAGE' };
   
   switch (location.pathname) {
@@ -995,8 +999,8 @@ return (
             </div>
             <div className={`transition-all duration-500 z-[140] ${specs.contentML}`}>
               <div className="flex flex-col uppercase font-black tracking-tighter leading-[0.85] select-none">
-                <span style={{ fontSize: specs.brandSize }} className="text-neutral-900 dark:text-white">SNORLAX</span>
-                <span style={{ fontSize: specs.brandSize }} className="text-garage-blue">GARAGE</span>
+                <span style={{ fontSize: specs.brandSize }} className="text-neutral-900 dark:text-white">{APP_CONFIG.brandLines[0]}</span>
+                <span style={{ fontSize: specs.brandSize }} className="text-garage-blue">{APP_CONFIG.brandLines[1]}</span>
               </div>
             </div>
           </Link>

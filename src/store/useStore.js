@@ -16,6 +16,7 @@ import { getStockEta } from '../utils/stockDates';
 import { getPrintedProjectModelName } from '../utils/printedProjectName';
 import { compactOrderPayload, getPayloadByteSize } from '../utils/orderPayload';
 import { isFlexiBundleDeal, isPerKitClearanceDeal } from '../utils/dealTypes';
+import { APP_CONFIG, getGuestBasketStorageKey, isLegacyApp } from '../appConfig';
 
 const FINALIZED_ORDER_SHIPPING_DELETE_FIELDS = [
   'buyerName',
@@ -179,6 +180,28 @@ const withNetworkTimeout = (promise, ms = 4000, label = 'write') => (
 );
 
 const DATASET_KEYS = ['userProfile', 'stories', 'homeKits', 'homeBlueprints', 'kits', 'printedProjects', 'deals', 'orders', 'basket', 'shelf', 'prints'];
+
+const getUserBasketCollection = (uid) => (
+  isLegacyApp
+    ? collection(db, 'users', uid, 'basket')
+    : collection(db, 'users', uid, 'baskets', APP_CONFIG.basketScope)
+);
+
+const getUserBasketDocument = (uid, basketId) => (
+  isLegacyApp
+    ? doc(db, 'users', uid, 'basket', basketId)
+    : doc(db, 'users', uid, 'baskets', APP_CONFIG.basketScope, basketId)
+);
+
+const isPrintedProjectRecord = (record) => (
+  record?.productType === 'printed-project' || record?.isPrintedProject === true
+);
+
+const getVisibleKitCatalog = (records = []) => {
+  if (APP_CONFIG.market === 'admin') return records;
+  if (APP_CONFIG.market === 'prints') return records.filter(isPrintedProjectRecord);
+  return records.filter((record) => !isPrintedProjectRecord(record) && !record?.isAdminShelfProject);
+};
 
 const createInitialDatasetState = (value) => DATASET_KEYS.reduce((result, key) => {
   result[key] = value;
@@ -1011,6 +1034,12 @@ const isLegacyOrderRecord = (order) => Boolean(
   || String(order?.orderId || '').toUpperCase().startsWith('#LG-')
 );
 
+const isOrderVisibleToCurrentApp = (order) => {
+  if (isLegacyApp || APP_CONFIG.market === 'admin' || !APP_CONFIG.orderDomain) return true;
+  return order?.domain === APP_CONFIG.orderDomain
+    || (Array.isArray(order?.items) && order.items.some((item) => item?.domain === APP_CONFIG.orderDomain));
+};
+
 const generateSgOrderId = (usedIds) => {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const candidate = `#SG-${Math.floor(Math.random() * 9000) + 1000}`;
@@ -1407,18 +1436,22 @@ export const useStore = create(
 
       // Helper: determines which datasets a given pathname needs
       _getPageRequirements: (pathname) => {
+        const canUseKits = APP_CONFIG.market === 'all' || APP_CONFIG.market === 'kits' || APP_CONFIG.market === 'admin';
+        const canUsePrints = APP_CONFIG.market === 'all' || APP_CONFIG.market === 'prints' || APP_CONFIG.market === 'admin';
+        const isPortfolio = APP_CONFIG.market === 'portfolio';
+        const isLegacyHome = isLegacyApp && (pathname === '/' || pathname === '');
         return {
-          stories: pathname === '/' || pathname === '',
+          stories: isLegacyHome,
           // Landing highlights use bounded public slices plus sellable printed
           // projects so the home route does not need the complete catalog.
-          homeKits: pathname === '/' || pathname === '',
-          homeBlueprints: pathname === '/' || pathname === '',
-          kits: pathname.startsWith('/kits') || pathname === '/cart' || pathname === '/basket' || pathname === '/shelf',
-          printedProjects: pathname === '/' || pathname === '' || pathname === '/prints' || pathname.startsWith('/prints/'),
-          deals: pathname === '/' || pathname === '' || pathname.startsWith('/kits'),
-          orders: pathname === '/orders' || pathname.startsWith('/orders/'),
-          basket: pathname === '/cart' || pathname === '/basket' || pathname === '/shelf',
-          prints: pathname === '/prints' || pathname.startsWith('/prints/') || pathname === '/blueprints' || pathname === '/cart' || pathname === '/basket' || pathname === '/shelf'
+          homeKits: isLegacyHome && canUseKits,
+          homeBlueprints: isLegacyHome && canUsePrints,
+          kits: canUseKits && (pathname.startsWith('/kits') || pathname === '/cart' || pathname === '/basket' || pathname === '/shelf'),
+          printedProjects: canUsePrints && (isLegacyHome || pathname === '/prints' || pathname.startsWith('/prints/')),
+          deals: canUseKits && (isLegacyHome || pathname.startsWith('/kits')),
+          orders: !isPortfolio && (pathname === '/orders' || pathname.startsWith('/orders/')),
+          basket: !isPortfolio && (pathname === '/cart' || pathname === '/basket' || pathname === '/shelf'),
+          prints: canUsePrints && (pathname === '/prints' || pathname.startsWith('/prints/') || pathname === '/blueprints' || pathname === '/cart' || pathname === '/basket' || pathname === '/shelf')
         };
       },
 
@@ -1700,12 +1733,7 @@ export const useStore = create(
           const kitsQuery = query(collection(db, 'kits'), orderBy('lastUpdated', 'desc'));
           const unsub = onSnapshot(kitsQuery, { includeMetadataChanges: true }, (snap) => {
             const sourceKits = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            const allKits = sourceKits
-              .filter((kit) => (
-                kit.productType !== 'printed-project'
-                && kit.isPrintedProject !== true
-                && kit.isAdminShelfProject !== true
-              ));
+            const allKits = getVisibleKitCatalog(sourceKits);
             const sortedKits = sortKitsByAvailability(allKits);
             const nextState = {
               kits: sortedKits,
@@ -1991,9 +2019,9 @@ export const useStore = create(
         get().setDatasetStatus('kits', 'loading');
         try {
           const snap = await getDocs(query(collection(db, 'kits'), orderBy('lastUpdated', 'desc')));
-          const allKits = sortKitsByAvailability(snap.docs
-            .map(kitDoc => ({ id: kitDoc.id, ...kitDoc.data() }))
-            .filter((kit) => kit.productType !== 'printed-project' && kit.isPrintedProject !== true));
+          const allKits = sortKitsByAvailability(getVisibleKitCatalog(
+            snap.docs.map(kitDoc => ({ id: kitDoc.id, ...kitDoc.data() }))
+          ));
           if (get().unsubKits) get().unsubKits();
           set((state) => ({
             kits: allKits,
@@ -2294,7 +2322,7 @@ export const useStore = create(
         set({ orders: [] });
         subscription.unsubscribe = onSnapshot(ordersQuery, (snap) => {
           const docs = docsToArray(snap).filter((order) => (
-            isAdminMode || !isLegacyOrderRecord(order)
+            isAdminMode || (!isLegacyOrderRecord(order) && isOrderVisibleToCurrentApp(order))
           ));
           console.log("SG LOG: Orders fetched:", docs.length, "for UID:", uid, "Admin:", isAdminMode);
           set({ orders: docs });
@@ -2389,7 +2417,7 @@ export const useStore = create(
         const { user, isAnonymousUser, isAdmin, isAdminView } = get();
 
         if (!user || isAnonymousUser) {
-          const guestBasket = JSON.parse(localStorage.getItem('sg_guest_basket') || '[]');
+          const guestBasket = JSON.parse(localStorage.getItem(getGuestBasketStorageKey()) || '[]');
           set({ guestBasket });
           return;
         }
@@ -2407,7 +2435,7 @@ export const useStore = create(
           return;
         }
 
-        const basketSnap = await getDocs(collection(db, 'users', user.uid, 'basket'));
+        const basketSnap = await getDocs(getUserBasketCollection(user.uid));
         const refreshedItems = basketSnap.docs.map((basketDoc) => ({ ...basketDoc.data(), basketId: basketDoc.id }));
         refreshedItems.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
         set({ basket: refreshedItems });
@@ -2434,7 +2462,7 @@ export const useStore = create(
             const kit = kits.find(k => k.id === item.id) || await getDoc(doc(db, "kits", item.id)).then(s => s.exists() ? s.data() : null);
             if (kit && kit.image) {
                 if (!isAdminContext) {
-                    batch.update(doc(db, 'users', user.uid, 'basket', item.basketId), { image: kit.image });
+                    batch.update(getUserBasketDocument(user.uid, item.basketId), { image: kit.image });
                     hasChanges = true;
                 }
             }
@@ -3497,7 +3525,7 @@ export const useStore = create(
           // until the required public datasets finish loading.
           get().noteInitialLoadSource('cold');
           const guestProjectVault = JSON.parse(localStorage.getItem('sg_guest_project_vault') || '[]');
-          const guestBasket = JSON.parse(localStorage.getItem('sg_guest_basket') || '[]');
+          const guestBasket = JSON.parse(localStorage.getItem(getGuestBasketStorageKey()) || '[]');
           set({ user: null, isAnonymousUser: false, isAdmin: false, isAdminView: false, usersList: [], orders: [], notifyList: [], projectVault: guestProjectVault, guestBasket, shelf: [], adminShelfSourceKits: [], userOffers: [], userOffersLoaded: true, unsubUser: null, unsubAdmin: null, unsubBasket: null, unsubProjectVault: null, unsubOffers: null, syncStatus: 'Restoring local basket', isSyncing: false, authRetry: null });
           
           get().markLoaded('userProfile');
@@ -3556,7 +3584,8 @@ export const useStore = create(
         set({ syncStatus: 'Loading basket' });
 
         // Basket Migration Logic
-        const rawGuestBasket = localStorage.getItem('sg_guest_basket');
+        const guestBasketStorageKey = getGuestBasketStorageKey();
+        const rawGuestBasket = localStorage.getItem(guestBasketStorageKey);
         const guestBasket = JSON.parse(rawGuestBasket || '[]');
         
         if (guestBasket && guestBasket.length > 0) {
@@ -3564,12 +3593,12 @@ export const useStore = create(
             const batch = writeBatch(db);
             for (const item of guestBasket) {
                 const bId = item.basketId || `b_kit_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-                batch.set(doc(db, 'users', sgUser.uid, 'basket', bId), { ...item, basketId: bId });
+                batch.set(getUserBasketDocument(sgUser.uid, bId), { ...item, basketId: bId, ...(APP_CONFIG.orderDomain ? { domain: APP_CONFIG.orderDomain } : {}) });
             }
             void batch.commit()
               .then(() => {
                 if (!isCurrentAuthSync()) return;
-                localStorage.removeItem('sg_guest_basket');
+                localStorage.removeItem(guestBasketStorageKey);
                 set({ guestBasket: [] });
               })
               .catch((error) => console.error("SG LOG: Guest basket migration failed:", error));
@@ -3581,7 +3610,7 @@ export const useStore = create(
             const batch = writeBatch(db);
             Object.entries(userData.basket).forEach(([bId, item]) => {
                 if (item) {
-                    batch.set(doc(db, 'users', sgUser.uid, 'basket', bId), { ...item, basketId: bId });
+                    batch.set(getUserBasketDocument(sgUser.uid, bId), { ...item, basketId: bId, ...(APP_CONFIG.orderDomain ? { domain: APP_CONFIG.orderDomain } : {}) });
                 }
             });
             batch.update(userRef, { basket: deleteField() });
@@ -3714,7 +3743,7 @@ export const useStore = create(
 
         set({ syncStatus: 'Loading Basket' });
 
-        const unsubBasket = onSnapshot(collection(db, 'users', sgUser.uid, 'basket'), (basketSnap) => {
+        const unsubBasket = onSnapshot(getUserBasketCollection(sgUser.uid), (basketSnap) => {
             if (!isCurrentAuthSync()) return;
             const basketItems = basketSnap.docs.map(doc => ({ ...doc.data(), basketId: doc.id }));
             set({ basket: basketItems.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()) });
@@ -4250,6 +4279,7 @@ export const useStore = create(
         const itemTransferFee = isBundleItem ? 0 : tFee;
         const clean = {
           id: kit.id, 
+          ...(APP_CONFIG.orderDomain ? { domain: APP_CONFIG.orderDomain } : {}),
           ...(isAdminContext ? { kitId: kit.id } : {}),
           name: (isPrintedProject
             ? getPrintedProjectModelName(itemData, kit)
@@ -4292,7 +4322,7 @@ export const useStore = create(
 
         if (!user) { 
           const newList = [...(guestBasket || []), clean].sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()); 
-          localStorage.setItem('sg_guest_basket', JSON.stringify(newList)); 
+          localStorage.setItem(getGuestBasketStorageKey(), JSON.stringify(newList));
           set({ guestBasket: newList }); 
           return; 
         }
@@ -4336,13 +4366,13 @@ export const useStore = create(
               };
             });
         } else {
-            await setDoc(doc(db, 'users', user.uid, 'basket', basketId), clean);
+            await setDoc(getUserBasketDocument(user.uid, basketId), clean);
         }
       },
 
       clearBasket: async () => {
         const { user, isAdmin, isAdminView, shelf, basket } = get();
-        if (!user) { localStorage.removeItem('sg_guest_basket'); set({ guestBasket: [] }); return; }
+        if (!user) { localStorage.removeItem(getGuestBasketStorageKey()); set({ guestBasket: [] }); return; }
         const field = (isAdmin && isAdminView) ? 'shelf' : 'basket';
         const removedItems = (isAdmin && isAdminView) ? shelf : basket;
         set({ [field]: [] });
@@ -4382,7 +4412,7 @@ export const useStore = create(
           });
         } else {
           basket.forEach(item => {
-            batch.delete(doc(db, 'users', user.uid, 'basket', item.basketId));
+            batch.delete(getUserBasketDocument(user.uid, item.basketId));
           });
         }
         await batch.commit();
@@ -4409,7 +4439,7 @@ export const useStore = create(
         
         if (!user) { 
           const newList = (guestBasket || []).filter(i => i.basketId !== basketId); 
-          localStorage.setItem('sg_guest_basket', JSON.stringify(newList)); 
+          localStorage.setItem(getGuestBasketStorageKey(), JSON.stringify(newList));
           set({ guestBasket: newList }); 
           return; 
         }
@@ -4464,7 +4494,7 @@ export const useStore = create(
             set({ adminShelfSourceKits: [] });
             await get().refreshBasket();
           } else {
-            await deleteDoc(doc(db, 'users', user.uid, 'basket', basketId));
+            await deleteDoc(getUserBasketDocument(user.uid, basketId));
           }
 
           try {
@@ -4482,8 +4512,13 @@ export const useStore = create(
       createOrder: async (oData) => {
         const { user } = get();
         const ref = doc(collection(db, "orders"));
+        const orderDomain = oData.domain || APP_CONFIG.orderDomain;
+        const orderItems = Array.isArray(oData.items) && orderDomain
+          ? oData.items.map((item) => ({ ...item, domain: item.domain || orderDomain }))
+          : oData.items;
         let order = compactOrderPayload({
           ...oData, 
+          ...(orderDomain ? { domain: orderDomain, items: orderItems } : {}),
           userId: oData.userId || user?.uid || null, 
           id: ref.id, 
           createdAt: oData.createdAt || serverTimestamp(), 
@@ -5366,7 +5401,7 @@ export const useStore = create(
             );
             
             if (!user && !isAdminView) {
-                localStorage.setItem('sg_guest_basket', JSON.stringify(updatedList));
+                localStorage.setItem(getGuestBasketStorageKey(), JSON.stringify(updatedList));
                 set({ guestBasket: updatedList });
             } else {
                 set({ [field]: updatedList });
@@ -5379,7 +5414,7 @@ export const useStore = create(
                           });
                         }
                     } else {
-                        await updateDoc(doc(db, 'users', user.uid, 'basket', basketId), { quantity: (item.quantity || 1) - 1 });
+                        await updateDoc(getUserBasketDocument(user.uid, basketId), { quantity: (item.quantity || 1) - 1 });
                     }
                   } catch (error) {
                     console.error("SG LOG: Failed to update basket quantity:", error);
@@ -5979,7 +6014,7 @@ export const useStore = create(
             );
             
             if (!user && !isAdminView) {
-                localStorage.setItem('sg_guest_basket', JSON.stringify(updatedList));
+                localStorage.setItem(getGuestBasketStorageKey(), JSON.stringify(updatedList));
                 set({ guestBasket: updatedList });
             } else {
                 set({ [field]: updatedList });
@@ -5992,7 +6027,7 @@ export const useStore = create(
                         }
                         set({ shelf: updatedList });
                     } else {
-                        await updateDoc(doc(db, 'users', user.uid, 'basket', existingProject.basketId), { quantity: (existingProject.quantity || 1) + 1 });
+                        await updateDoc(getUserBasketDocument(user.uid, existingProject.basketId), { quantity: (existingProject.quantity || 1) + 1 });
                     }
                 }
             }
@@ -6027,6 +6062,7 @@ export const useStore = create(
         const newItem = {
           id: `project_${bId}`,
           basketId: bId,
+          ...(APP_CONFIG.orderDomain ? { domain: APP_CONFIG.orderDomain } : {}),
           type: 'project',
           quantity: 1,
           isFinalized: pData.method?.name === '3MF',
@@ -6043,7 +6079,7 @@ export const useStore = create(
         
         if (!user) {
           const newGuestBasket = [...(guestBasket || []), newItem].sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-          localStorage.setItem('sg_guest_basket', JSON.stringify(newGuestBasket));
+          localStorage.setItem(getGuestBasketStorageKey(), JSON.stringify(newGuestBasket));
           set({ guestBasket: newGuestBasket });
           return;
         }
@@ -6096,7 +6132,7 @@ export const useStore = create(
             });
           } else {
             set({ [field]: [...list, newItem] });
-            await setDoc(doc(db, 'users', user.uid, 'basket', bId), newItem);
+            await setDoc(getUserBasketDocument(user.uid, bId), newItem);
           }
         } catch (e) {
           set({ [field]: list });

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { FaFacebook } from 'react-icons/fa';
 import { useStore } from '../../store/useStore';
 import PolicyModal from './PolicyModal';
+import { APP_CONFIG } from '../../appConfig';
 
 const openFacebookPage = (pageId) => {
   if (!pageId) return;
@@ -44,8 +45,18 @@ export default function Footer() {
       <footer id="site-footer" className="border-t border-black/5 bg-neutral-100 px-6 pb-20 pt-6 dark:border-white/5 dark:bg-[#111] md:pb-12">
         <div className="container mx-auto grid max-w-7xl grid-cols-1 gap-8 md:grid-cols-4">
           <div className="col-span-1 md:col-span-2">
-              <h3 className="mb-2 text-[13px] font-black uppercase tracking-widest">SnorlaxGarage</h3>
-              <p className="mb-2 text-[13px] opacity-60">Your trusted source for garage kits and collectibles.</p>
+              <h3 className="mb-2 text-[13px] font-black uppercase tracking-widest">{APP_CONFIG.label}</h3>
+              <p className="mb-2 text-[13px] opacity-60">
+                {APP_CONFIG.market === 'kits'
+                  ? 'Your trusted source for curated kits and collectibles.'
+                  : APP_CONFIG.market === 'prints'
+                    ? 'Custom projects, 3D prints, and ready-to-print designs.'
+                    : APP_CONFIG.market === 'admin'
+                      ? 'Operations console for the SnorlaxGarage product family.'
+                      : APP_CONFIG.market === 'portfolio'
+                        ? 'A developer portfolio by Daivevargas.'
+                        : 'Your trusted source for garage kits and collectibles.'}
+              </p>
               <div className="flex items-center gap-4">
                   <Link to="/about-us" className="text-[13px] uppercase tracking-widest transition-colors hover:text-blue-600">About Us</Link>
                   {fbPageId && (
