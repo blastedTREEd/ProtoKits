@@ -944,7 +944,14 @@ return (
     <nav ref={navbarRef} style={{ height: specs.h }} className={`${isStoriesManagerOpen ? (isDesktop ? 'fixed left-0 right-0 top-0 z-[400]' : 'hidden') : 'sticky top-0 z-[110]'} w-full transition-all duration-500 border-b ${location.pathname === '/checkout' ? 'hidden lg:block' : ''} ${isDarkMode ? 'bg-[var(--color-surface-raised)] border-white/10' : 'bg-white border-black/10'}`}>
       <div className="h-full mx-auto flex items-center px-4 lg:px-10 relative max-w-[1440px]">
         {isMobile ? (
-          <div className="flex items-center h-full z-[120] shrink-0 relative">
+          <Link
+            to="/"
+            onPointerEnter={() => preloadRoute('/')}
+            onPointerDown={() => preloadRoute('/')}
+            onTouchStart={() => preloadRoute('/')}
+            onClick={(e) => handleNavClick('/', e)}
+            className="flex items-center h-full z-[120] shrink-0 relative"
+          >
             <div 
               style={{ width: specs.logoSize, height: specs.logoSize, padding: specs.ringPadding }} 
               className="relative rounded-full flex items-center justify-center bg-gradient-to-br from-[#0866FF] to-[#00CFFF] shadow-xl transition-all duration-500"
@@ -975,7 +982,7 @@ return (
                 </span>
               </h1>
             </div>
-          </div>
+          </Link>
         ) : (
           <Link to="/" onPointerEnter={() => preloadRoute('/')} onPointerDown={() => preloadRoute('/')} onTouchStart={() => preloadRoute('/')} onClick={(e) => handleNavClick('/', e)} className="flex items-center h-full z-[120] shrink-0 relative">
             <div 
