@@ -397,10 +397,13 @@ export default function BundleHighlights() {
     return randomizeFeedCards(fillerCards, 10);
   }, [fillerCards]);
   const requiredBundleDatasets = [
-    ...(showKitHighlights ? ['homeKits', 'deals'] : []),
-    ...(showPrintHighlights ? ['homeBlueprints', 'printedProjects'] : [])
+    // The primary catalog is enough to render the first highlight cards.
+    // Deals and printed projects are secondary enrichments that can arrive
+    // afterward without blocking the market feed.
+    ...(showKitHighlights ? ['homeKits'] : []),
+    ...(showPrintHighlights ? ['homeBlueprints'] : [])
   ];
-  const bundleDataLoading = requiredBundleDatasets.some((key) => (
+  const bundleDataLoading = displayCards.length === 0 && requiredBundleDatasets.some((key) => (
     (_datasetStatus?.[key] || 'loading') === 'loading'
   ));
   const bundleDataReady = !bundleDataLoading;
