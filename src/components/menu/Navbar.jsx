@@ -18,7 +18,7 @@ import { preloadRoute } from '../../routePreloads';
 import { signOut, signInWithPopup } from 'firebase/auth'; 
 import { getReadableAuthErrorMessage } from '../../utils/authUtils';
 import { auth, fbProvider, googleProvider } from '../../firebase/firebase';
-import { APP_CONFIG, isLegacyApp } from '../../appConfig';
+import { APP_CONFIG, isLegacyApp, isPortfolioApp } from '../../appConfig';
 import NotificationModal from './NotificationModal';
 import {
   buildCommerceNotifications,
@@ -845,7 +845,7 @@ const navLinks = [
   ...(APP_CONFIG.nav.includes('prints') ? [{ to: "/prints", icon: <Printer />, label: "PRINTS" }] : []),
   ...(APP_CONFIG.nav.includes('orders') && user ? [{ to: "/orders", icon: <ClipboardList />, label: "ORDERS" }] : []),
   ...(APP_CONFIG.nav.includes('dashboard') && isAdmin ? [{ to: "/users-dashboard", icon: <ShieldCheck />, label: "CORE" }] : []),
-  ...(APP_CONFIG.nav.includes('about') ? [{ to: "/about-us", icon: <ContactRound />, label: "ABOUT" }] : [])
+  ...(APP_CONFIG.nav.includes('about') ? [{ to: "/about-us", icon: <ContactRound />, label: isPortfolioApp ? "ME" : "ABOUT" }] : [])
 ];
 const maintenanceMode = shippingSettings?.paymentSettings?.maintenanceMode === true;
 const maintenanceInvalidTypes = shippingSettings?.paymentSettings?.maintenanceInvalidTypes || {};

@@ -3,9 +3,12 @@ import PageTemplate from './PageTemplate';
 import { useTheme } from '../context/ThemeContext';
 import { FaLinkedin, FaFacebook, FaGithub } from 'react-icons/fa';
 import { APP_CONFIG, isPortfolioApp } from '../appConfig';
+import PortfolioProfile from './PortfolioProfile';
 
 export default function AboutUs() {
   const { isDarkMode } = useTheme();
+
+  if (isPortfolioApp) return <PortfolioProfile />;
 
   const cardClass = isDarkMode
     ? 'bg-neutral-900 border-neutral-800'

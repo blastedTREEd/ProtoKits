@@ -25,7 +25,7 @@ const APP_CONFIGS = Object.freeze({
     market: 'kits',
     basketScope: 'liquikits',
     orderDomain: 'liquikits',
-    homePath: '/kits',
+    homePath: '/',
     nav: ['home', 'kits', 'orders'],
     allowedMarkets: ['kits']
   },
@@ -36,7 +36,7 @@ const APP_CONFIGS = Object.freeze({
     market: 'prints',
     basketScope: 'komiprints',
     orderDomain: 'komiprints',
-    homePath: '/prints',
+    homePath: '/',
     nav: ['home', 'prints', 'orders'],
     allowedMarkets: ['prints']
   },
@@ -47,7 +47,7 @@ const APP_CONFIGS = Object.freeze({
     market: 'admin',
     basketScope: 'legacy',
     orderDomain: null,
-    homePath: '/users-dashboard',
+    homePath: '/',
     nav: ['home', 'kits', 'prints', 'orders', 'dashboard'],
     allowedMarkets: ['kits', 'prints', 'admin']
   },
@@ -58,7 +58,7 @@ const APP_CONFIGS = Object.freeze({
     market: 'portfolio',
     basketScope: 'legacy',
     orderDomain: null,
-    homePath: '/about-us',
+    homePath: '/',
     nav: ['home', 'about'],
     allowedMarkets: []
   }

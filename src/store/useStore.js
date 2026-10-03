@@ -1440,16 +1440,16 @@ export const useStore = create(
         const canUseKits = APP_CONFIG.market === 'all' || APP_CONFIG.market === 'kits' || APP_CONFIG.market === 'admin';
         const canUsePrints = APP_CONFIG.market === 'all' || APP_CONFIG.market === 'prints' || APP_CONFIG.market === 'admin';
         const isPortfolio = APP_CONFIG.market === 'portfolio';
-        const isLegacyHome = isLegacyApp && (pathname === '/' || pathname === '');
+        const isStorefrontHome = !isPortfolio && (pathname === '/' || pathname === '');
         return {
-          stories: isLegacyHome,
+          stories: isStorefrontHome,
           // Landing highlights use bounded public slices plus sellable printed
           // projects so the home route does not need the complete catalog.
-          homeKits: isLegacyHome && canUseKits,
-          homeBlueprints: isLegacyHome && canUsePrints,
+          homeKits: isStorefrontHome && canUseKits,
+          homeBlueprints: isStorefrontHome && canUsePrints,
           kits: canUseKits && (pathname.startsWith('/kits') || pathname === '/cart' || pathname === '/basket' || pathname === '/shelf'),
-          printedProjects: canUsePrints && (isLegacyHome || pathname === '/prints' || pathname.startsWith('/prints/')),
-          deals: canUseKits && (isLegacyHome || pathname.startsWith('/kits')),
+          printedProjects: canUsePrints && (isStorefrontHome || pathname === '/prints' || pathname.startsWith('/prints/')),
+          deals: canUseKits && (isStorefrontHome || pathname.startsWith('/kits')),
           orders: !isPortfolio && (pathname === '/orders' || pathname.startsWith('/orders/')),
           basket: !isPortfolio && (pathname === '/cart' || pathname === '/basket' || pathname === '/shelf'),
           prints: canUsePrints && (pathname === '/prints' || pathname.startsWith('/prints/') || pathname === '/blueprints' || pathname === '/cart' || pathname === '/basket' || pathname === '/shelf')

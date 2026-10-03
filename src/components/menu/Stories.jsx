@@ -4,6 +4,8 @@ import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../../store/useStore';
 import UniversalImage from '../common/UniversalImage';
+import { APP_CONFIG } from '../../appConfig';
+import { isCombinedMarket, isStoryForMarket } from '../../utils/marketVisibility';
 
 const SYNC_GLOW_COLORS = ['#0066ff', '#ff3b30', '#34c759', '#ffcc00', '#af52de', '#ff7a00', '#00c7be'];
 const STORY_CARD_WIDTH = 112;
@@ -70,6 +72,7 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
       ? (state.homeBlueprints || [])
       : (state.blueprints || [])
   ));
+  const printedProjects = useStore((state) => state.printedProjects || []);
   const storiesStatus = useStore((state) => state._datasetStatus?.stories || 'loading');
   const navigate = useNavigate();
   const containerRef = useRef(null);
@@ -125,7 +128,9 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
 
   // Filter out draft stories for non-admin viewers
   const activeStories = React.useMemo(() => {
-    return (stories || []).filter(story => !story.isDraft);
+    return (stories || []).filter((story) => (
+      !story.isDraft && isStoryForMarket(story, APP_CONFIG.market)
+    ));
   }, [stories]);
 
   const getTimestamp = useCallback((value) => {
@@ -184,7 +189,9 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
         story
       }));
 
-    const kitItems = (kits || []).map((kit) => {
+    const showKits = isCombinedMarket(APP_CONFIG.market) || APP_CONFIG.market === 'kits';
+    const showPrints = isCombinedMarket(APP_CONFIG.market) || APP_CONFIG.market === 'prints';
+    const kitItems = showKits ? (kits || []).map((kit) => {
       const stocks = getKitStocks(kit);
       const availablePreOrders = stocks.filter((stock) => isAvailableStock(stock) && isPreOrderStock(stock));
       const availableOnhand = stocks.filter((stock) => isAvailableStock(stock) && isOnhandStock(stock));
@@ -206,7 +213,7 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
         restockTimestamp,
         latestTimestamp
       };
-    });
+    }) : [];
 
     const usedKitLinks = new Set();
     const selectUniqueKits = (entries, limit) => entries
@@ -253,7 +260,7 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
         label: kit.name || 'Back in Stock'
       }));
 
-    const projectCandidates = (blueprints || [])
+    const projectCandidates = (showPrints ? [...(blueprints || []), ...(printedProjects || [])] : [])
       .filter((project) => (
         project?.isPublished !== false
         && project?.status !== 'Draft'
@@ -271,7 +278,7 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
         targetId: project.id,
         // Match the image used by ProjectCard's public grid card.
         image: project.image || '/snorlaxgarage.png',
-        label: project.projectName || 'Garage Project'
+        label: project.projectName || project.name || 'Garage Project'
       }));
 
     // Keep the strip full when there are fewer than five public projects or a
@@ -343,7 +350,7 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
     }
 
     return [firstHighlightCard, ...separatedItems];
-  }, [activeStories, blueprints, getKitImage, getKitStocks, getTimestamp, isAdmin, isAdminView, isAvailableStock, isOnhandStock, isPreOrderStock, kits]);
+  }, [activeStories, blueprints, getKitImage, getKitStocks, getTimestamp, isAdmin, isAdminView, isAvailableStock, isOnhandStock, isPreOrderStock, kits, printedProjects]);
 
   // Open a story directly when a highlight tile is selected in the homepage grid.
   useEffect(() => {

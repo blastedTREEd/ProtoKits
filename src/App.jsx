@@ -12,9 +12,10 @@ import { useStore } from './store/useStore';
 import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { RefreshCw, X } from 'lucide-react';
 import { preloadLanding, preloadKits, preloadPrints, preloadOrders, preloadCart } from './routePreloads';
-import { APP_CONFIG, isLegacyApp, isPathAllowedForApp, isPortfolioApp } from './appConfig';
+import { APP_CONFIG, isPathAllowedForApp, isPortfolioApp } from './appConfig';
 
 const Landing = lazy(preloadLanding);
+const PortfolioHome = lazy(() => import('./pages/PortfolioHome'));
 const Kits = lazy(preloadKits);
 const Prints = lazy(preloadPrints);
 const Blueprints = lazy(() => import('./pages/Blueprints'));
@@ -32,12 +33,7 @@ const PaymentAndRefundPolicy = lazy(() => import('./pages/PaymentAndRefundPolicy
 const NotFound = lazy(() => import('./pages/NotFound'));
 
 const AppHome = () => {
-  if (isPortfolioApp) return <AboutUs />;
-  if (APP_CONFIG.homePath === '/kits') return <Navigate to="/kits" replace />;
-  if (APP_CONFIG.homePath === '/prints') return <Navigate to="/prints" replace />;
-  // Keep the operations app useful in guest mode. The dashboard remains
-  // protected, while the catalog pages expose the read-only admin surface.
-  if (APP_CONFIG.homePath === '/users-dashboard') return <Navigate to="/kits" replace />;
+  if (isPortfolioApp) return <PortfolioHome />;
   return <Landing />;
 };
 
@@ -78,7 +74,7 @@ const getInitialLoadDatasetKeys = (pathname) => {
   if (isPortfolioApp) return [];
 
   const isHome = pathname === '/' || pathname === '';
-  const isLegacyHome = isLegacyApp && isHome;
+  const isStorefrontHome = !isPortfolioApp && isHome;
   const isKitsPath = pathname.startsWith('/kits');
   const isPrintsPath = pathname === '/prints' || pathname.startsWith('/prints/');
   const isOrdersPath = pathname === '/orders' || pathname.startsWith('/orders/');
@@ -86,9 +82,9 @@ const getInitialLoadDatasetKeys = (pathname) => {
 
   return [
     'userProfile',
-    ...(isLegacyHome ? ['stories', 'homeKits', 'homeBlueprints'] : []),
+    ...(isStorefrontHome ? ['stories', 'homeKits', 'homeBlueprints', 'printedProjects'] : []),
     ...(isKitsPath || isCartPath ? ['kits'] : []),
-    ...((isLegacyHome || isKitsPath) ? ['deals'] : []),
+    ...((isStorefrontHome || isKitsPath) ? ['deals'] : []),
     ...(isOrdersPath ? ['orders'] : []),
     ...(isCartPath ? ['basket'] : []),
     ...(isPrintsPath || pathname === '/blueprints' || isCartPath ? ['prints'] : [])

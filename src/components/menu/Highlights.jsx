@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Circle, Sparkles, Image as ImageIcon, Plus, BookImage, ChevronDown, ChevronUp, NotebookPen, Trash2 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import UniversalImage from '../common/UniversalImage';
+import { APP_CONFIG } from '../../appConfig';
+import { isStoryForMarket } from '../../utils/marketVisibility';
 
 function getStoryTime(value) {
   if (!value) return 0;
@@ -40,6 +42,10 @@ export default function Highlights() {
   const deleteStory = useStore((state) => state.deleteStory);
   const storiesStatus = useStore((state) => state._datasetStatus?.stories || 'loading');
   const canManageStories = isAdmin && isAdminView;
+  const marketStories = useMemo(
+    () => (stories || []).filter((story) => isStoryForMarket(story, APP_CONFIG.market)),
+    [stories]
+  );
   const sectionRef = useRef(null);
   const headerRef = useRef(null);
   const storiesScrollLockTopRef = useRef(null);
@@ -135,24 +141,24 @@ export default function Highlights() {
   }, [isHighlightsExpanded]);
 
   const highlights = useMemo(() => (
-    (stories || [])
+    marketStories
       .filter((story) => !story.isDraft)
       .sort((a, b) => {
         const timeDifference = getStoryTime(b.storyDate || b.createdAt || b.lastUpdated)
           - getStoryTime(a.storyDate || a.createdAt || a.lastUpdated);
         return timeDifference || Number(b.order || 0) - Number(a.order || 0);
       })
-  ), [stories]);
+  ), [marketStories]);
 
   const drafts = useMemo(() => (
-    (stories || [])
+    marketStories
       .filter((story) => story.isDraft)
       .sort((a, b) => {
         const timeDifference = getStoryTime(b.storyDate || b.createdAt || b.lastUpdated)
           - getStoryTime(a.storyDate || a.createdAt || a.lastUpdated);
         return timeDifference || Number(b.order || 0) - Number(a.order || 0);
       })
-  ), [stories]);
+  ), [marketStories]);
 
   const visibleStories = isDraftView ? drafts : highlights;
   // This section follows the Stories dataset only. A slow listener may release

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { FaFacebook } from 'react-icons/fa';
 import { useStore } from '../../store/useStore';
 import PolicyModal from './PolicyModal';
-import { APP_CONFIG } from '../../appConfig';
+import { APP_CONFIG, isPortfolioApp } from '../../appConfig';
 
 const openFacebookPage = (pageId) => {
   if (!pageId) return;
@@ -58,7 +58,7 @@ export default function Footer() {
                         : 'Your trusted source for garage kits and collectibles.'}
               </p>
               <div className="flex items-center gap-4">
-                  <Link to="/about-us" className="text-[13px] uppercase tracking-widest transition-colors hover:text-blue-600">About Us</Link>
+                  <Link to="/about-us" className="text-[13px] uppercase tracking-widest transition-colors hover:text-blue-600">{isPortfolioApp ? 'ME' : 'About Us'}</Link>
                   {fbPageId && (
                     <button onClick={() => openFacebookPage(fbPageId)} className="text-blue-600 transition-colors hover:text-blue-700">
                         <FaFacebook size={18} />
