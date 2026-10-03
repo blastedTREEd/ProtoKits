@@ -71,6 +71,10 @@ const requestedAppId = String(import.meta.env.VITE_APP_ID || 'snorlaxgarage')
 export const APP_CONFIG = APP_CONFIGS[requestedAppId] || APP_CONFIGS.snorlaxgarage;
 export const APP_ID = APP_CONFIG.id;
 export const isLegacyApp = APP_ID === 'snorlaxgarage';
+// Garagecore is an operations surface: its catalog pages keep the admin
+// layout for guests, but mutations remain protected by the real admin flag.
+export const isOperationsApp = APP_ID === 'garagecore';
+export const isAdminSurfaceApp = isLegacyApp || isOperationsApp;
 
 export const getGuestBasketStorageKey = () => (
   isLegacyApp ? 'sg_guest_basket' : `sg_guest_basket:${APP_CONFIG.basketScope}`
@@ -91,7 +95,8 @@ export const isPathAllowedForApp = (pathname) => {
     || pathname.startsWith('/shipping-policy') || pathname.startsWith('/payment-and-refund-policy')) {
     return true;
   }
-  if (pathname.startsWith('/kits') || pathname === '/shelf') return isMarketEnabled('kits');
+  if (pathname === '/shelf') return APP_ID === 'snorlaxgarage' || APP_ID === 'garagecore';
+  if (pathname.startsWith('/kits')) return isMarketEnabled('kits');
   if (pathname.startsWith('/prints') || pathname.startsWith('/blueprints')) return isMarketEnabled('prints');
   if (pathname.startsWith('/orders') || pathname.startsWith('/cart') || pathname.startsWith('/basket')
     || pathname.startsWith('/checkout') || pathname.startsWith('/notify-list')) {

@@ -16,7 +16,7 @@ import { getStockEta } from '../utils/stockDates';
 import { getPrintedProjectModelName } from '../utils/printedProjectName';
 import { compactOrderPayload, getPayloadByteSize } from '../utils/orderPayload';
 import { isFlexiBundleDeal, isPerKitClearanceDeal } from '../utils/dealTypes';
-import { APP_CONFIG, getGuestBasketStorageKey, isLegacyApp } from '../appConfig';
+import { APP_CONFIG, getGuestBasketStorageKey, isAdminSurfaceApp, isLegacyApp, isOperationsApp } from '../appConfig';
 
 const FINALIZED_ORDER_SHIPPING_DELETE_FIELDS = [
   'buyerName',
@@ -197,8 +197,8 @@ const isPrintedProjectRecord = (record) => (
   record?.productType === 'printed-project' || record?.isPrintedProject === true
 );
 
-const getVisibleKitCatalog = (records = []) => {
-  if (APP_CONFIG.market === 'admin') return records;
+const getVisibleKitCatalog = (records = [], canManage = false) => {
+  if (APP_CONFIG.market === 'admin' && canManage) return records;
   if (APP_CONFIG.market === 'prints') return records.filter(isPrintedProjectRecord);
   return records.filter((record) => !isPrintedProjectRecord(record) && !record?.isAdminShelfProject);
 };
@@ -1286,7 +1286,7 @@ export const useStore = create(
       isBanned: false,
       isAnonymousUser: false,
       isProfileIncomplete: false,
-      isAdminView: false,
+      isAdminView: isOperationsApp,
       user: null,
       basket: [],
       guestBasket: [],
@@ -1409,13 +1409,14 @@ export const useStore = create(
       },
       setAdminView: (isEnabled) => {
         console.log("SG LOG: setAdminView called with:", isEnabled, "Current:", get().isAdminView);
-        if (get().isAdminView === isEnabled) return;
-        set({ isAdminView: isEnabled });
+        const nextView = isOperationsApp ? true : (isAdminSurfaceApp ? isEnabled : false);
+        if (get().isAdminView === nextView) return;
+        set({ isAdminView: nextView });
         queueMicrotask(() => {
           // Kits can finish loading before the admin toggle is enabled. In
           // that case the derived shelf will not receive another kits snapshot
           // to rebuild it, leaving Collection visible but /shelf empty.
-          get().refreshAdminShelf();
+          if (get().isAdmin) get().refreshAdminShelf();
           get().startBackgroundListeners();
         });
       },
@@ -1733,7 +1734,7 @@ export const useStore = create(
           const kitsQuery = query(collection(db, 'kits'), orderBy('lastUpdated', 'desc'));
           const unsub = onSnapshot(kitsQuery, { includeMetadataChanges: true }, (snap) => {
             const sourceKits = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            const allKits = getVisibleKitCatalog(sourceKits);
+            const allKits = getVisibleKitCatalog(sourceKits, get().isAdmin && get().isAdminView);
             const sortedKits = sortKitsByAvailability(allKits);
             const nextState = {
               kits: sortedKits,
@@ -2020,7 +2021,8 @@ export const useStore = create(
         try {
           const snap = await getDocs(query(collection(db, 'kits'), orderBy('lastUpdated', 'desc')));
           const allKits = sortKitsByAvailability(getVisibleKitCatalog(
-            snap.docs.map(kitDoc => ({ id: kitDoc.id, ...kitDoc.data() }))
+            snap.docs.map(kitDoc => ({ id: kitDoc.id, ...kitDoc.data() })),
+            get().isAdmin && get().isAdminView
           ));
           if (get().unsubKits) get().unsubKits();
           set((state) => ({
@@ -3526,7 +3528,8 @@ export const useStore = create(
           get().noteInitialLoadSource('cold');
           const guestProjectVault = JSON.parse(localStorage.getItem('sg_guest_project_vault') || '[]');
           const guestBasket = JSON.parse(localStorage.getItem(getGuestBasketStorageKey()) || '[]');
-          set({ user: null, isAnonymousUser: false, isAdmin: false, isAdminView: false, usersList: [], orders: [], notifyList: [], projectVault: guestProjectVault, guestBasket, shelf: [], adminShelfSourceKits: [], userOffers: [], userOffersLoaded: true, unsubUser: null, unsubAdmin: null, unsubBasket: null, unsubProjectVault: null, unsubOffers: null, syncStatus: 'Restoring local basket', isSyncing: false, authRetry: null });
+          const guestKits = sortKitsByAvailability(getVisibleKitCatalog(get().adminShelfSourceKits || [], false));
+          set({ user: null, isAnonymousUser: false, isAdmin: false, isAdminView: isOperationsApp, kits: guestKits, usersList: [], orders: [], notifyList: [], projectVault: guestProjectVault, guestBasket, shelf: [], adminShelfSourceKits: [], userOffers: [], userOffersLoaded: true, unsubUser: null, unsubAdmin: null, unsubBasket: null, unsubProjectVault: null, unsubOffers: null, syncStatus: 'Restoring local basket', isSyncing: false, authRetry: null });
           
           get().markLoaded('userProfile');
           get().markLoaded('basket');
@@ -3657,6 +3660,7 @@ export const useStore = create(
           },
           isAnonymousUser,
           isAdmin: isActuallyAdmin,
+          isAdminView: isOperationsApp ? true : (isAdminSurfaceApp ? get().isAdminView : false),
           isBanned: initialUser.userDetails?.status === 'banned',
           isProfileIncomplete: !isAnonymousUser && !initialUser.userDetails?.welcomeSeen,
           syncStatus: 'Ready',
@@ -3665,8 +3669,14 @@ export const useStore = create(
         });
         // The full kits listener may have emitted before auth established the
         // admin role. Rebuild the derived shelf when that race occurs.
+        const sourceKits = get().adminShelfSourceKits || [];
         if (isActuallyAdmin && get().isAdminView) {
+          if (sourceKits.length > 0) {
+            set({ kits: sortKitsByAvailability(getVisibleKitCatalog(sourceKits, true)) });
+          }
           get().refreshAdminShelf();
+        } else if (sourceKits.length > 0) {
+          set({ kits: sortKitsByAvailability(getVisibleKitCatalog(sourceKits, false)) });
         }
         get().markLoaded('userProfile');
         if (onSyncComplete && isCurrentAuthSync()) onSyncComplete();
@@ -3720,6 +3730,7 @@ export const useStore = create(
                 }, 
               isAnonymousUser,
               isAdmin: isActuallyAdmin,
+              isAdminView: isOperationsApp ? true : (isAdminSurfaceApp ? get().isAdminView : false),
               isBanned: data.userDetails?.status === 'banned',
               isProfileIncomplete: !isAnonymousUser && !data.userDetails?.welcomeSeen
               });
@@ -3737,7 +3748,7 @@ export const useStore = create(
               };
               void setDoc(userRef, initial, { merge: true })
                 .catch((error) => console.error("SG LOG: Initial profile creation failed:", error));
-              set({ user: { ...initial, createdAt: new Date().toISOString() }, isAdmin: isActuallyAdmin });
+              set({ user: { ...initial, createdAt: new Date().toISOString() }, isAdmin: isActuallyAdmin, isAdminView: isOperationsApp ? true : (isAdminSurfaceApp ? get().isAdminView : false) });
             }
         }, (error) => console.error("SG LOG: User profile subscription error:", error));
 
@@ -6143,6 +6154,16 @@ export const useStore = create(
     {
       name: 'sg-storage',
       storage: createJSONStorage(() => localStorage),
+      merge: (persistedState, currentState) => ({
+        ...currentState,
+        ...persistedState,
+        // Product storefronts never inherit the legacy admin toggle from a
+        // previous session. Garagecore is intentionally always operations-
+        // oriented, but its write actions still check isAdmin separately.
+        isAdminView: isOperationsApp
+          ? true
+          : (isAdminSurfaceApp ? persistedState?.isAdminView === true : false)
+      }),
       partialize: (state) => ({
         garageInfo: state.garageInfo,
         rates: state.rates,

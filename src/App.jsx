@@ -35,7 +35,9 @@ const AppHome = () => {
   if (isPortfolioApp) return <AboutUs />;
   if (APP_CONFIG.homePath === '/kits') return <Navigate to="/kits" replace />;
   if (APP_CONFIG.homePath === '/prints') return <Navigate to="/prints" replace />;
-  if (APP_CONFIG.homePath === '/users-dashboard') return <Navigate to="/users-dashboard" replace />;
+  // Keep the operations app useful in guest mode. The dashboard remains
+  // protected, while the catalog pages expose the read-only admin surface.
+  if (APP_CONFIG.homePath === '/users-dashboard') return <Navigate to="/kits" replace />;
   return <Landing />;
 };
 

@@ -844,7 +844,7 @@ const navLinks = [
   ...(APP_CONFIG.nav.includes('kits') ? [{ to: "/kits", icon: <Box />, label: "KITS" }] : []),
   ...(APP_CONFIG.nav.includes('prints') ? [{ to: "/prints", icon: <Printer />, label: "PRINTS" }] : []),
   ...(APP_CONFIG.nav.includes('orders') && user ? [{ to: "/orders", icon: <ClipboardList />, label: "ORDERS" }] : []),
-  ...(APP_CONFIG.nav.includes('dashboard') ? [{ to: "/users-dashboard", icon: <ShieldCheck />, label: "CORE" }] : []),
+  ...(APP_CONFIG.nav.includes('dashboard') && isAdmin ? [{ to: "/users-dashboard", icon: <ShieldCheck />, label: "CORE" }] : []),
   ...(APP_CONFIG.nav.includes('about') ? [{ to: "/about-us", icon: <ContactRound />, label: "ABOUT" }] : [])
 ];
 const maintenanceMode = shippingSettings?.paymentSettings?.maintenanceMode === true;
@@ -1250,7 +1250,7 @@ return (
                       </div>
                       <div>
                         <h4 className="font-black italic uppercase tracking-tighter text-lg leading-none text-neutral-900 dark:text-white transition-all duration-300">
-                          {(isAdmin && isPhotoHovered && !isAdminView) ? 'ENTER ADMIN MODE' : (isAdmin && isPhotoHovered && isAdminView) ? 'EXIT ADMIN MODE' : isAdminView ? 'ADMINISTRATOR MODE' : (user?.displayName || 'Guest')}
+                          {(isAdmin && isPhotoHovered && !isAdminView) ? 'ENTER ADMIN MODE' : (isAdmin && isPhotoHovered && isAdminView) ? 'EXIT ADMIN MODE' : (isAdmin && isAdminView) ? 'ADMINISTRATOR MODE' : (user?.displayName || 'Guest')}
                         </h4>
                       </div>
                     </div>

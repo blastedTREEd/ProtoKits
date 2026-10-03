@@ -453,6 +453,7 @@ export default function Kits({ isActive = true }) {
   }, []);
 
   const userId = user?.uid;
+  const isAuthorizedAdminView = isAdmin && isAdminView;
 
   useEffect(() => {
     if (!isActive || !isAdmin || !isAdminView) return undefined;
@@ -461,26 +462,26 @@ export default function Kits({ isActive = true }) {
   }, [isActive, isAdmin, isAdminView, subscribeOrders]);
 
   useEffect(() => {
-    if (!isActive || !isAdminView) return undefined;
+    if (!isActive || !isAuthorizedAdminView) return undefined;
     const unsubscribe = subscribeNotifyList({ isAdminMode: true });
     return () => unsubscribe && unsubscribe();
-  }, [isActive, isAdminView, subscribeNotifyList]);
+  }, [isActive, isAuthorizedAdminView, subscribeNotifyList]);
 
   const activeOfferKitIds = useMemo(() => {
-    if (!isAdminView && !userId) return new Set();
+    if (!isAuthorizedAdminView && !userId) return new Set();
 
-    const offers = isAdminView ? notifyList : userOffers;
+    const offers = isAuthorizedAdminView ? notifyList : userOffers;
 
     return new Set((offers || [])
       .filter(offer => (
-        (isAdminView || offer?.uid === userId)
+        (isAuthorizedAdminView || offer?.uid === userId)
         && offer?.kitId
         && offer?.releasedStockKey
         && offer?.status === 'released'
         && isOfferCheckoutActive(offer, offerClock)
       ))
       .map(offer => offer.kitId));
-  }, [isAdminView, notifyList, offerClock, userId, userOffers]);
+  }, [isAuthorizedAdminView, notifyList, offerClock, userId, userOffers]);
 
 // --- Stable sort: hindi mag-re-sort ang cards kapag nagbago lang ang stock count sa real-time ---
   const [stableSortCache, setStableSortCache] = useState({ criteria: '', ids: [] });
