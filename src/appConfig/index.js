@@ -5,6 +5,7 @@ const APP_IDS = Object.freeze([
   'garagecore',
   'daivevargas'
 ]);
+const DEFAULT_APP_ID = 'liquikits';
 
 const APP_CONFIGS = Object.freeze({
   snorlaxgarage: {
@@ -82,7 +83,7 @@ const hostnameAppId = typeof window !== 'undefined'
 const requestedAppId = (
   configuredAppId && configuredAppId !== 'snorlaxgarage'
     ? configuredAppId
-    : (hostnameAppId || configuredAppId || 'snorlaxgarage')
+    : (hostnameAppId || configuredAppId || DEFAULT_APP_ID)
 );
 
 export const APP_CONFIG = APP_CONFIGS[requestedAppId] || APP_CONFIGS.snorlaxgarage;

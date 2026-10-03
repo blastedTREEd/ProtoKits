@@ -9,11 +9,12 @@ const APP_MODES = {
   garagecore: 'garagecore',
   daivevargas: 'daivevargas'
 };
+const DEFAULT_APP_ID = 'liquikits';
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const appId = env.VITE_APP_ID || APP_MODES[mode] || 'snorlaxgarage';
+  const appId = env.VITE_APP_ID || APP_MODES[mode] || DEFAULT_APP_ID;
 
   return {
   plugins: [
