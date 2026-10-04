@@ -49,11 +49,24 @@ export default function Highlights() {
   );
   const sectionRef = useRef(null);
   const storiesScrollLockTopRef = useRef(null);
+  const storyOrderRef = useRef({ published: [], drafts: [] });
   const [isDraftView, setIsDraftView] = useState(false);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedStoryIds, setSelectedStoryIds] = useState(() => new Set());
   const [isDeletingStories, setIsDeletingStories] = useState(false);
   const isStoriesFocusMode = canManageStories && (isSelectionMode || isDraftView);
+  const getStableStoryOrder = useCallback((items, key) => {
+    const incomingById = new Map(items.map((story) => [story.id, story]));
+    const previousIds = storyOrderRef.current[key] || [];
+    const retained = previousIds
+      .map((id) => incomingById.get(id))
+      .filter(Boolean);
+    const retainedIds = new Set(retained.map((story) => story.id));
+    const additions = items.filter((story) => !retainedIds.has(story.id));
+    const ordered = [...retained, ...additions];
+    storyOrderRef.current[key] = ordered.map((story) => story.id);
+    return ordered;
+  }, []);
 
   const focusStoriesSection = useCallback(() => {
     const sectionTop = sectionRef.current?.getBoundingClientRect().top;
@@ -89,24 +102,24 @@ export default function Highlights() {
   }, [focusStoriesSection, isStoriesFocusMode]);
 
   const highlights = useMemo(() => (
-    marketStories
+    getStableStoryOrder(marketStories
       .filter((story) => !story.isDraft)
       .sort((a, b) => {
         const timeDifference = getStoryTime(b.storyDate || b.createdAt || b.lastUpdated)
           - getStoryTime(a.storyDate || a.createdAt || a.lastUpdated);
         return timeDifference || Number(b.order || 0) - Number(a.order || 0);
-      })
-  ), [marketStories]);
+      }), 'published')
+  ), [getStableStoryOrder, marketStories]);
 
   const drafts = useMemo(() => (
-    marketStories
+    getStableStoryOrder(marketStories
       .filter((story) => story.isDraft)
       .sort((a, b) => {
         const timeDifference = getStoryTime(b.storyDate || b.createdAt || b.lastUpdated)
           - getStoryTime(a.storyDate || a.createdAt || a.lastUpdated);
         return timeDifference || Number(b.order || 0) - Number(a.order || 0);
-      })
-  ), [marketStories]);
+      }), 'drafts')
+  ), [getStableStoryOrder, marketStories]);
 
   const visibleStories = isDraftView ? drafts : highlights;
   // This section follows the Stories dataset only. A slow listener may release

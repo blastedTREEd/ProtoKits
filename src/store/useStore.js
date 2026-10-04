@@ -1441,15 +1441,23 @@ export const useStore = create(
         const canUsePrints = APP_CONFIG.market === 'all' || APP_CONFIG.market === 'prints' || APP_CONFIG.market === 'admin';
         const isPortfolio = APP_CONFIG.market === 'portfolio';
         const isStorefrontHome = !isPortfolio && (pathname === '/' || pathname === '');
+        const isStandaloneKitsRoute = canUseKits
+          && pathname.startsWith('/kits')
+          && APP_CONFIG.id !== 'liquikits';
         return {
           stories: isStorefrontHome,
           // Landing highlights use bounded public slices plus sellable printed
           // projects so the home route does not need the complete catalog.
           homeKits: isStorefrontHome && canUseKits,
           homeBlueprints: isStorefrontHome && canUsePrints,
-          kits: canUseKits && (pathname.startsWith('/kits') || pathname === '/cart' || pathname === '/basket' || pathname === '/shelf' || (isStorefrontHome && APP_CONFIG.market === 'kits')),
+          // LiquiKits renders its catalog inside the merged homepage. Keep
+          // the first paint on the bounded home slice and hydrate the full
+          // catalog only when the user searches or reaches the catalog.
+          kits: canUseKits && (isStandaloneKitsRoute || pathname === '/cart' || pathname === '/basket' || pathname === '/shelf'),
           printedProjects: canUsePrints && (isStorefrontHome || pathname === '/prints' || pathname.startsWith('/prints/')),
-          deals: canUseKits && (isStorefrontHome || pathname.startsWith('/kits')),
+          // Deals are optional for the merged LiquiKits homepage. They can
+          // hydrate below the fold without blocking the first catalog paint.
+          deals: canUseKits && ((isStorefrontHome && APP_CONFIG.id !== 'liquikits') || pathname.startsWith('/kits')),
           orders: !isPortfolio && (pathname === '/orders' || pathname.startsWith('/orders/')),
           basket: !isPortfolio && (pathname === '/cart' || pathname === '/basket' || pathname === '/shelf'),
           prints: canUsePrints && (pathname === '/prints' || pathname.startsWith('/prints/') || pathname === '/blueprints' || pathname === '/cart' || pathname === '/basket' || pathname === '/shelf')
@@ -1529,6 +1537,8 @@ export const useStore = create(
 
         const ds = get()._loadedDatasets;
         const req = get()._getPageRequirements(get()._activePath);
+        const needsDealsListener = req.deals
+          || (APP_CONFIG.id === 'liquikits' && get()._activePath === '/');
         const listenerKeys = get()._datasetListenerKeys || {};
         const unsubs = [];
         const markListener = (key, isActive = true) => {
@@ -1595,7 +1605,7 @@ export const useStore = create(
             blueprints: []
           });
         }
-        if (!req.deals) {
+        if (!needsDealsListener) {
           stopRouteListener('deals', 'unsubDeals', {
             deals: []
           });
@@ -1639,9 +1649,7 @@ export const useStore = create(
           if (fetchedKits.length === 0 || get()._activePath !== '/') return;
           set((state) => {
             const stateKey = get()._activePath === '/' ? 'homeKits' : 'kits';
-            const kitsById = new Map((state[stateKey] || []).map((kit) => [String(kit.id), kit]));
-            fetchedKits.forEach((kit) => kitsById.set(String(kit.id), kit));
-            return { [stateKey]: sortKitsByAvailability([...kitsById.values()]) };
+            return { [stateKey]: mergeKitsStable(state[stateKey] || [], fetchedKits) };
           });
         };
 
@@ -1692,10 +1700,10 @@ export const useStore = create(
               .filter((kit) => kit.productType !== 'printed-project' && kit.isPrintedProject !== true);
             const boundedIds = new Set(boundedKits.map((kit) => String(kit.id)));
             set((state) => ({
-              homeKits: sortKitsByAvailability([
-                ...boundedKits,
-                ...(state.homeKits || []).filter((kit) => !boundedIds.has(String(kit.id)))
-              ])
+              homeKits: mergeKitsStable(
+                (state.homeKits || []).filter((kit) => !boundedIds.has(String(kit.id))),
+                boundedKits
+              )
             }));
             updateSnapshotDatasetStatus(get, 'homeKits', snap);
           }, (err) => {
@@ -1806,7 +1814,7 @@ export const useStore = create(
         }
 
         // 6. Deals (if not already prioritized)
-        if (req.deals && !ds.deals && !listenerKeys.deals) {
+        if (needsDealsListener && !ds.deals && !listenerKeys.deals) {
           const unsubDeals = onSnapshot(collection(db, "deals"), { includeMetadataChanges: true }, (snap) => {
             const deals = docsToArray(snap);
             set({ deals });
@@ -2025,12 +2033,13 @@ export const useStore = create(
             get().isAdmin && get().isAdminView
           ));
           if (get().unsubKits) get().unsubKits();
+          const isMergedHomeCatalog = get()._activePath === '/' && APP_CONFIG.id === 'liquikits';
           set((state) => ({
             kits: allKits,
             unsubKits: null,
             _datasetListenerKeys: { ...state._datasetListenerKeys, kits: false, kitsMode: null },
-            _loadedDatasets: { ...state._loadedDatasets, kits: false },
-            _datasetStatus: { ...state._datasetStatus, kits: 'loading' }
+            _loadedDatasets: { ...state._loadedDatasets, kits: isMergedHomeCatalog },
+            _datasetStatus: { ...state._datasetStatus, kits: isMergedHomeCatalog ? 'ready' : 'loading' }
           }));
           get().startBackgroundListeners();
           return allKits;

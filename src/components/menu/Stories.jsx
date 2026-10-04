@@ -80,6 +80,7 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
   const storiesStatus = useStore((state) => state._datasetStatus?.stories || 'loading');
   const navigate = useNavigate();
   const containerRef = useRef(null);
+  const activeStoryOrderRef = useRef([]);
 
   // Preview modal state
   const [activeStoryIndex, setActiveStoryIndex] = useState(null);
@@ -131,9 +132,18 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
 
   // Filter out draft stories for non-admin viewers
   const activeStories = React.useMemo(() => {
-    return (stories || []).filter((story) => (
+    const incomingStories = (stories || []).filter((story) => (
       !story.isDraft && isStoryForMarket(story, APP_CONFIG.market)
     ));
+    const storiesById = new Map(incomingStories.map((story) => [story.id, story]));
+    const retained = activeStoryOrderRef.current
+      .map((id) => storiesById.get(id))
+      .filter(Boolean);
+    const retainedIds = new Set(retained.map((story) => story.id));
+    const additions = incomingStories.filter((story) => !retainedIds.has(story.id));
+    const orderedStories = [...retained, ...additions];
+    activeStoryOrderRef.current = orderedStories.map((story) => story.id);
+    return orderedStories;
   }, [stories]);
 
   const getTimestamp = useCallback((value) => {
@@ -177,6 +187,8 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
   ), []);
 
   const highlightItems = React.useMemo(() => {
+    if (!SHOW_STORIES_STRIP) return [];
+
     const recentStories = [...activeStories]
       .sort((a, b) => (
         getTimestamp(b.storyDate || b.createdAt || b.publishedAt || b.updatedAt) -

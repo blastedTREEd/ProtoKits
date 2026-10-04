@@ -21,6 +21,7 @@ import { getStockEta } from '../utils/stockDates';
 import { isFlexiBundleDeal, isPerKitClearanceDeal, isWildSaleDeal, getActiveClearanceKitIds, getClearanceDisplayLabel } from '../utils/dealTypes';
 import UniversalImage from '../components/common/UniversalImage';
 import { getBundleDisplayTotals } from '../utils/bundleDisplayPricing';
+import { APP_CONFIG } from '../appConfig';
 
 // --- Spectral gradient helpers (mirrored from ProductCard) ---
 const SPECTRAL_GRADIENTS = [
@@ -266,7 +267,15 @@ export default function Kits({ isActive = true, embedded = false }) {
   const isAdmin = useStore((state) => state.isAdmin);
   const isAdminView = useStore((state) => state.isAdminView);
   const shelf = useStore((state) => state.shelf);
-  const storeKits = useStore((state) => state.kits);
+  const isMergedHomeCatalog = APP_CONFIG.id === 'liquikits';
+  const storeKits = useStore((state) => {
+    if (isMergedHomeCatalog && state._activePath === '/' && !state._loadedDatasets?.kits) {
+      return state.homeKits || [];
+    }
+    return state.kits || [];
+  });
+  const isFullCatalogLoaded = useStore((state) => Boolean(state._loadedDatasets?.kits));
+  const loadAllKits = useStore((state) => state.loadAllKits);
   const loadKitById = useStore((state) => state.loadKitById);
   const deals = useStore((state) => state.deals);
   const addKit = useStore((state) => state.addKit);
@@ -306,6 +315,7 @@ export default function Kits({ isActive = true, embedded = false }) {
   const [isAdminToolsOpen, setIsAdminToolsOpen] = useState(false);
   const kitCardRefs = useRef(new Map());
   const pendingRestoreRef = useRef(null);
+  const fullCatalogLoadRef = useRef(false);
   const location = useLocation();
   const navigate = useNavigate();
   // Kits is kept mounted outside the matching <Route> for faster tab
@@ -395,8 +405,13 @@ export default function Kits({ isActive = true, embedded = false }) {
 
   // Catalog loading state
   const kitsStatus = useStore((state) => state._datasetStatus?.kits || 'loading');
+  const homeKitsStatus = useStore((state) => state._datasetStatus?.homeKits || 'loading');
   const dealsStatus = useStore((state) => state._datasetStatus?.deals || 'loading');
-  const isKitsDataLoading = kitsStatus === 'loading' || dealsStatus === 'loading';
+  const isMergedHomeRoute = embedded && isMergedHomeCatalog && location.pathname === '/';
+  const catalogStatus = isMergedHomeRoute && !isFullCatalogLoaded ? homeKitsStatus : kitsStatus;
+  const isKitsDataLoading = isMergedHomeRoute
+    ? catalogStatus === 'loading' && storeKits.length === 0
+    : catalogStatus === 'loading' || dealsStatus === 'loading';
   const [isContentHeaderHidden, setIsContentHeaderHidden] = useState(false);
   const contentHeaderRef = useRef(null);
   const contentHeaderScrollRef = useRef({ previousY: window.scrollY, frame: 0, hidden: false, direction: 0, distance: 0 });
@@ -447,6 +462,42 @@ export default function Kits({ isActive = true, embedded = false }) {
       window.requestAnimationFrame(focusKitsSection);
     });
   }, [focusKitsSection]);
+
+  const requestFullCatalog = useCallback(() => {
+    if (!embedded || !isMergedHomeCatalog || location.pathname !== '/' || isFullCatalogLoaded || fullCatalogLoadRef.current) {
+      return;
+    }
+
+    fullCatalogLoadRef.current = true;
+    void loadAllKits()
+      .catch((error) => {
+        console.error('SG LOG: Deferred home catalog load failed:', error);
+      })
+      .finally(() => {
+        fullCatalogLoadRef.current = false;
+      });
+  }, [embedded, isFullCatalogLoaded, isMergedHomeCatalog, loadAllKits, location.pathname]);
+
+  // Search needs the complete catalog, but the first homepage paint only
+  // needs the bounded home slice. Hydrate the remaining catalog on demand.
+  useEffect(() => {
+    if (searchTerm.trim()) requestFullCatalog();
+  }, [requestFullCatalog, searchTerm]);
+
+  // Prefetch the complete catalog when the visitor reaches the lower
+  // storefront instead of making the cold homepage wait for it.
+  useEffect(() => {
+    if (!embedded || !isMergedHomeCatalog || location.pathname !== '/' || isFullCatalogLoaded) return undefined;
+
+    const handleScroll = () => {
+      const scrollBottom = window.scrollY + window.innerHeight;
+      const nearPageEnd = document.documentElement.scrollHeight - scrollBottom < 700;
+      if (nearPageEnd) requestFullCatalog();
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [embedded, isFullCatalogLoaded, isMergedHomeCatalog, location.pathname, requestFullCatalog]);
 
   useEffect(() => {
     const previousSearchTerm = previousSearchTermRef.current;
@@ -823,24 +874,6 @@ export default function Kits({ isActive = true, embedded = false }) {
       ? processedKits.filter(kit => kit._statusOrder === 2 || publicClearanceKitIds.has(String(kit.id)))
       : processedKits;
 
-    // Latest view follows public availability events. Newly stocked kits and
-    // stocks returned from the admin shelf move to the front immediately.
-    if (!searchTerm && sortType === 'latest') {
-      return [...displayableKits].sort((a, b) => {
-        if (a._statusOrder !== b._statusOrder) return b._statusOrder - a._statusOrder;
-        if (a._statusOrder === 2 && a._isPreOrderOnly !== b._isPreOrderOnly) {
-          return Number(b._isPreOrderOnly) - Number(a._isPreOrderOnly);
-        }
-        if (a._statusOrder === 2 && a._isNewlyAdded !== b._isNewlyAdded) {
-          return Number(b._isNewlyAdded) - Number(a._isNewlyAdded);
-        }
-        if (a._statusOrder === 2 && a._availabilityEventTime !== b._availabilityEventTime) {
-          return b._availabilityEventTime - a._availabilityEventTime;
-        }
-        return b._time - a._time;
-      });
-    }
-
     // --- Stable sort logic: mag-re-sort lang kapag nagbago ang sort criteria (search, sortType, view) ---
     const currentSortCriteria = `${searchTerm}||${sortType}||${isAdminView}`;
     const sortCriteriaChanged = currentSortCriteria !== stableSortCache.criteria;
@@ -850,6 +883,19 @@ export default function Kits({ isActive = true, embedded = false }) {
     const hasNewKits = displayableKits.some(k => !cachedIds.has(k.id));
     const hasRemovedKits = stableSortCache.ids.some(id => !currentFilteredIds.has(id));
     const needsResort = sortCriteriaChanged || hasNewKits || hasRemovedKits || stableSortCache.ids.length === 0;
+
+    // A snapshot can add more cards after the first paint. Keep the cards that
+    // are already visible in place and append only the newly arrived records;
+    // an explicit search/sort change still performs a full resort below.
+    if (!sortCriteriaChanged && !hasRemovedKits && stableSortCache.ids.length > 0 && hasNewKits) {
+      const kitMap = new Map(displayableKits.map((kit) => [kit.id, kit]));
+      const existingInOrder = stableSortCache.ids
+        .map((id) => kitMap.get(id))
+        .filter(Boolean);
+      const existingIds = new Set(stableSortCache.ids);
+      const additions = displayableKits.filter((kit) => !existingIds.has(kit.id));
+      return [...existingInOrder, ...additions];
+    }
 
     if (needsResort) {
       // Kailangan mag-sort: either nagbago ang criteria o may bago/nawala na kit
