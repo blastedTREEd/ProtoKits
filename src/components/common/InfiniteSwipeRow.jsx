@@ -106,7 +106,8 @@ export default function InfiniteSwipeRow({ children, className = '', ariaLabel }
   };
 
   const handlePointerDown = (event) => {
-    // Touch scrolling is handled natively by `touch-pan-x`. Keeping the
+    // Touch scrolling is handled natively by `touch-pan-x touch-pan-y`.
+    // Keeping the
     // custom drag path to a mouse prevents a mobile tap from being treated as
     // a drag and swallowing the card's click handler.
     if (event.pointerType !== 'mouse' || event.button !== 0) return;
@@ -202,7 +203,7 @@ export default function InfiniteSwipeRow({ children, className = '', ariaLabel }
         onPointerCancel={finishPointerDrag}
         onClickCapture={handleClickCapture}
         onDragStart={(event) => event.preventDefault()}
-        className={`w-full cursor-grab select-none overflow-x-auto overflow-y-hidden overscroll-x-contain touch-pan-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${scrollState.atStart ? 'pl-5 sm:pl-8 lg:pl-12' : ''}`}
+        className={`w-full cursor-grab select-none overflow-x-auto overflow-y-hidden overscroll-x-contain touch-pan-x touch-pan-y [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${scrollState.atStart ? 'pl-5 sm:pl-8 lg:pl-12' : ''}`}
       >
         <div ref={trackRef} className="flex w-max flex-nowrap items-start gap-3">
           {items.map((item, itemIndex) => {

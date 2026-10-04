@@ -28,6 +28,46 @@ service cloud.firestore {
       return signedIn() && resource.data.uid == request.auth.uid;
     }
 
+    function validUserProfileCreate(userId) {
+      return request.resource.data.uid == userId
+        && (!('role' in request.resource.data)
+          || request.resource.data.role in ['customer', 'guest']);
+    }
+
+    function validUserProfileUpdate() {
+      return request.resource.data.uid == resource.data.uid
+        && (!('role' in resource.data)
+          || request.resource.data.role == resource.data.role);
+    }
+
+    function validVaultWrite(userId) {
+      return request.resource.data.uid == userId
+        && request.resource.data.items is list
+        && request.resource.data.items.size() <= 100;
+    }
+
+    function validHuntCreate() {
+      return request.resource.data.uid == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.kitId is string
+        && request.resource.data.kitId.size() <= 200
+        && request.resource.data.targetPrice is number
+        && request.resource.data.targetPrice >= 0
+        && request.resource.data.targetPrice <= 100000000
+        && request.resource.data.expiresAt is string
+        && request.resource.data.expiresAt.size() <= 64;
+    }
+
+    function validHuntUpdate() {
+      return request.resource.data.uid == resource.data.uid
+        && request.resource.data.kitId == resource.data.kitId
+        && request.resource.data.targetPrice is number
+        && request.resource.data.targetPrice >= 0
+        && request.resource.data.targetPrice <= 100000000
+        && request.resource.data.expiresAt is string
+        && request.resource.data.expiresAt.size() <= 64;
+    }
+
     // --- PUBLIC COLLECTIONS ---
     match /settings/garage {
       allow read: if true;
@@ -95,13 +135,10 @@ service cloud.firestore {
     // --- HUNTS / OFFERS ---
     match /hunts/{huntId} {
       allow get, list: if isAdmin() || ownsHunt();
-      allow create: if signedIn()
-        && request.resource.data.uid == request.auth.uid
-        && request.resource.data.status == 'pending';
+      allow create: if signedIn() && validHuntCreate();
       allow update: if isAdmin() || (
         ownsHunt()
-        && request.resource.data.uid == resource.data.uid
-        && request.resource.data.kitId == resource.data.kitId
+        && validHuntUpdate()
         && request.resource.data.status == 'pending'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'targetPrice', 'status', 'expiresAt', 'updatedAt', 'declinedAt', 'declinedBy'
@@ -114,7 +151,9 @@ service cloud.firestore {
     match /users/{userId} {
       allow get: if isOwner(userId) || isAdmin();
       allow list: if isAdmin();
-      allow write: if isOwner(userId);
+      allow create: if isAdmin() || (isOwner(userId) && validUserProfileCreate(userId));
+      allow update: if isAdmin() || (isOwner(userId) && validUserProfileUpdate());
+      allow delete: if isAdmin();
 
       match /basket/{basketId} {
         allow read: if isOwner(userId) || isAdmin();
@@ -134,7 +173,8 @@ service cloud.firestore {
     match /projectVaults/{uid} {
       allow read: if isOwner(uid) || isAdmin();
       // Admin rate changes reprice saved estimates across all vaults.
-      allow write: if isOwner(uid) || isAdmin();
+      allow create, update: if isAdmin() || (isOwner(uid) && validVaultWrite(uid));
+      allow delete: if isOwner(uid) || isAdmin();
     }
 
     // --- ORDERS ---

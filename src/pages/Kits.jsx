@@ -58,6 +58,20 @@ const getSpectralGradient = (id) => {
 const getShadowColor = (gradientClass) => GRADIENT_COLORS[gradientClass] || 'rgba(8,102,255,0.2)';
 const KIT_RETURN_STORAGE_KEY = 'sg:kits:returnTarget';
 
+const finishSearchInput = (input) => {
+  input?.blur();
+
+  if (typeof window === 'undefined') return;
+
+  // iOS Safari can finish dismissing the keyboard one frame after blur. Blur
+  // again after the viewport settles so the temporary input zoom is released.
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      if (document.activeElement === input) input?.blur();
+    });
+  });
+};
+
 function getTimestampMs(value) {
   if (!value) return 0;
   if (typeof value.toMillis === 'function') return value.toMillis();
@@ -1481,20 +1495,21 @@ export default function Kits({ isActive = true, embedded = false }) {
                       onChange={(e) => setInputValue(e.target.value)}
                       onFocus={() => { setIsAdminToolsOpen(false); scheduleKitsSectionFocus(); }}
                       onClick={() => { setIsAdminToolsOpen(false); scheduleKitsSectionFocus(); }}
+                      enterKeyHint="search"
                       onKeyDown={(e) => {
                         if (e.key === 'Escape') {
                           e.preventDefault();
                           setInputValue('');
-                          e.currentTarget.blur();
+                          finishSearchInput(e.currentTarget);
                         } else if (e.key === 'Enter') {
-                          e.currentTarget.blur();
+                          finishSearchInput(e.currentTarget);
                         }
                       }}
                       placeholder="SEARCH KITS OR SERIES..."
                       className="w-full pl-12 pr-12 py-3 bg-white dark:bg-white/5 border border-black/5 dark:border-white/10 rounded-2xl text-[12px] font-bold uppercase tracking-widest placeholder:font-medium outline-none focus:border-blue-500 transition-all"
                       />
                       {inputValue && (
-                        <button onClick={() => setInputValue("")} className="absolute right-4 top-1/2 -translate-y-1/2 p-1 rounded-full bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20 transition-colors">
+                        <button onClick={() => { setInputValue(""); finishSearchInput(searchInputRef.current); }} className="absolute right-4 top-1/2 -translate-y-1/2 p-1 rounded-full bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20 transition-colors">
                            <X size={12} className="opacity-50" />
                         </button>
                       )}

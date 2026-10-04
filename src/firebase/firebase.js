@@ -47,8 +47,12 @@ setPersistence(auth, browserLocalPersistence)
 
 export const fbProvider = new FacebookAuthProvider();
 export const googleProvider = new GoogleAuthProvider();
+const FIRESTORE_CACHE_SIZE_BYTES = 40 * 1024 * 1024;
 export const db = initializeFirestore(app, {
   localCache: persistentLocalCache({
+    // Keep the shared catalog cache bounded while retaining offline-first
+    // startup and multi-tab synchronization.
+    cacheSizeBytes: FIRESTORE_CACHE_SIZE_BYTES,
     tabManager: persistentMultipleTabManager()
   })
 });
