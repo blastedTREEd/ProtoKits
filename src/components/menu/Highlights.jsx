@@ -244,7 +244,10 @@ export default function Highlights() {
 
         {visibleStories.length > 0 || canManageStories || isLoadingHighlights ? (
           <>
-            <InfiniteSwipeRow ariaLabel="Garage stories" className="pb-2">
+            <InfiniteSwipeRow
+              ariaLabel="Garage stories"
+              className="-mx-5 w-[calc(100%+2.5rem)] pb-2 sm:-mx-8 sm:w-[calc(100%+4rem)] lg:-mx-12 lg:w-[calc(100%+6rem)]"
+            >
               {isLoadingHighlights && Array.from({ length: 5 }).map((_, index) => (
                 <div key={`highlight-skeleton-${index}`} className="relative aspect-[3/4] w-40 shrink-0 self-start overflow-hidden rounded-[1.5rem] border border-black/[0.05] bg-neutral-200 p-1 shadow-xl animate-pulse sm:w-44 md:w-48 lg:w-56 dark:border-2 dark:border-neutral-500 dark:bg-neutral-900">
                   <div className="relative h-full w-full overflow-hidden rounded-[1.3rem] bg-black/5 dark:bg-white/5">

@@ -21,7 +21,7 @@ const APP_CONFIGS = Object.freeze({
   },
   liquikits: {
     id: 'liquikits',
-    label: 'LIQUIKITS',
+    label: 'LiquiKits',
     brandLines: ['LIQUI', 'KITS'],
     market: 'kits',
     basketScope: 'liquikits',
@@ -32,7 +32,7 @@ const APP_CONFIGS = Object.freeze({
   },
   komiprints: {
     id: 'komiprints',
-    label: 'KOMIPRINTS',
+    label: 'KomiPrints',
     brandLines: ['KOMI', 'PRINTS'],
     market: 'prints',
     basketScope: 'komiprints',
@@ -43,7 +43,7 @@ const APP_CONFIGS = Object.freeze({
   },
   garagecore: {
     id: 'garagecore',
-    label: 'GARAGECORE',
+    label: 'GarageCore',
     brandLines: ['GARAGE', 'CORE'],
     market: 'admin',
     basketScope: 'legacy',
@@ -54,7 +54,7 @@ const APP_CONFIGS = Object.freeze({
   },
   daivevargas: {
     id: 'daivevargas',
-    label: 'DAIVEVARGAS',
+    label: 'DaiveVargas',
     brandLines: ['DAIVE', 'VARGAS'],
     market: 'portfolio',
     basketScope: 'legacy',
