@@ -88,15 +88,16 @@ export default function InfiniteSwipeRow({ children, className = '', ariaLabel }
   const cycleCount = shouldLoop ? 3 : 1;
   return (
     <div className={`relative w-full ${className}`}>
-      <button
-        hidden={isInitialInsetActive}
-        type="button"
-        aria-label={`Previous ${ariaLabel || 'items'}`}
-        onClick={() => scrollByItems(-1)}
-        className="absolute left-1 top-1/2 z-10 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-black/10 bg-white/90 text-neutral-800 shadow-lg backdrop-blur transition hover:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-white/10 dark:bg-neutral-900/90 dark:text-white dark:hover:bg-neutral-800 sm:left-2 sm:h-10 sm:w-10"
-      >
-        <ChevronLeft size={20} strokeWidth={2.5} aria-hidden="true" />
-      </button>
+      {!isInitialInsetActive && (
+        <button
+          type="button"
+          aria-label={`Previous ${ariaLabel || 'items'}`}
+          onClick={() => scrollByItems(-1)}
+          className="absolute left-1 top-1/2 z-10 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-black/10 bg-white/90 text-neutral-800 shadow-lg backdrop-blur transition hover:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-white/10 dark:bg-neutral-900/90 dark:text-white dark:hover:bg-neutral-800 sm:left-2 sm:h-10 sm:w-10"
+        >
+          <ChevronLeft size={20} strokeWidth={2.5} aria-hidden="true" />
+        </button>
+      )}
       <div
         ref={viewportRef}
         role="region"
