@@ -414,7 +414,7 @@ export default function BundleHighlights() {
             handleOpenBundle(deal);
           }
         }}
-        className={`${visibilityClass} w-40 shrink-0 group relative rounded-[2.2rem] p-[2px] sm:w-44 md:w-48 lg:w-56 ${isSpectralMode ? `bg-gradient-to-br ${dealGradient}` : 'bg-black/5 dark:bg-white/5'} transition-all duration-500 lg:hover:-translate-y-1 cursor-pointer overflow-hidden`}
+        className={`${visibilityClass} carousel-row-card shrink-0 group relative rounded-[2.2rem] p-[2px] ${isSpectralMode ? `bg-gradient-to-br ${dealGradient}` : 'bg-black/5 dark:bg-white/5'} transition-all duration-500 lg:hover:-translate-y-1 cursor-pointer overflow-hidden`}
         style={{
           boxShadow: isDarkMode
             ? isSpectralMode
@@ -633,7 +633,7 @@ export default function BundleHighlights() {
         : (item?.name || 'Untitled Kit');
 
     return (
-      <div key={card.id} className={`${visibilityClass} relative w-40 shrink-0 sm:w-44 md:w-48 lg:w-56`}>
+      <div key={card.id} className={`${visibilityClass} carousel-row-card relative shrink-0 rounded-[1.5rem]`}>
         {isProject ? (
           <ProjectCard
             project={item}
@@ -665,9 +665,9 @@ export default function BundleHighlights() {
   };
 
   return (
-    <section className="relative overflow-visible border-t border-black/[0.06] bg-neutral-50 px-5 pb-10 dark:border-white/[0.08] dark:bg-[#111111] sm:px-8 lg:px-12">
+    <section className="relative w-full overflow-x-hidden border-t border-black/[0.06] bg-neutral-50 pb-10 dark:border-white/[0.08] dark:bg-[#111111]">
       <div className="mx-auto max-w-7xl">
-        <div className="-mx-5 mb-4 flex flex-nowrap items-center justify-between gap-2 border-b border-black/5 bg-neutral-50 px-5 py-4 sm:-mx-8 sm:gap-4 sm:px-8 lg:-mx-12 lg:px-12 dark:border-white/5 dark:bg-[#111111]">
+        <div className="mb-4 flex flex-nowrap items-center justify-between gap-2 border-b border-black/5 bg-neutral-50 px-5 py-4 sm:gap-4 sm:px-8 lg:px-12 dark:border-white/5 dark:bg-[#111111]">
           <h2 className="inline-flex min-w-0 items-center gap-1 whitespace-nowrap text-[clamp(18px,6vw,25px)] font-black italic uppercase leading-none tracking-[-0.06em] text-neutral-950 dark:text-white">
             <span className="text-garage-blue">Garage</span>
             <span>Highlights</span>
@@ -679,10 +679,10 @@ export default function BundleHighlights() {
         {isLoadingBundles ? (
           <InfiniteSwipeRow
             ariaLabel="Garage highlights loading"
-            className="-mx-5 w-[calc(100%+2.5rem)] sm:-mx-8 sm:w-[calc(100%+4rem)] lg:-mx-12 lg:w-[calc(100%+6rem)]"
+            className="w-full"
           >
             {Array.from({ length: 5 }).map((_, index) => (
-              <div key={`bundle-skeleton-${index}`} className="relative aspect-[3/4] w-40 shrink-0 overflow-hidden rounded-2xl border border-black/[0.05] bg-neutral-200 p-1 shadow-sm animate-pulse sm:w-44 md:w-48 lg:w-56 dark:border-2 dark:border-neutral-500 dark:bg-neutral-900">
+              <div key={`bundle-skeleton-${index}`} className="carousel-row-card relative aspect-[3/4] shrink-0 overflow-hidden rounded-2xl border border-black/[0.05] bg-neutral-200 p-1 shadow-sm animate-pulse dark:border-2 dark:border-neutral-500 dark:bg-neutral-900">
                 <div className="relative h-full w-full overflow-hidden rounded-[1.3rem] bg-black/5 dark:bg-white/5">
                   <UniversalImage src="" alt="" aria-hidden="true" className="h-full w-full object-contain p-8 opacity-30" />
                   <div className="absolute inset-x-3 bottom-3 space-y-2">
@@ -696,7 +696,7 @@ export default function BundleHighlights() {
         ) : (
           <InfiniteSwipeRow
             ariaLabel="Garage highlights"
-            className="-mx-5 w-[calc(100%+2.5rem)] sm:-mx-8 sm:w-[calc(100%+4rem)] lg:-mx-12 lg:w-[calc(100%+6rem)]"
+            className="w-full"
           >
             {displayCards.map((card, index) => {
               const visibilityClass = getFeedVisibility(index);

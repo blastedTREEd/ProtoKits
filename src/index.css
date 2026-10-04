@@ -196,6 +196,74 @@
   border-color: var(--color-border);
 }
 
+/*
+ * Home carousel cards use the same responsive column math as the catalog
+ * ProductCard/ProjectCard image frames. The catalog card has a 2px outer shell
+ * and 12px inner padding on each side, so the reference image width is 28px
+ * narrower than the grid cell. The row is an inline-size container so these
+ * values continue to work inside the app shell as well as a full browser.
+ */
+.carousel-row {
+  container-type: inline-size;
+  --catalog-card-width: calc((100cqw - 3rem) / 2);
+  --carousel-card-width: calc(var(--catalog-card-width) - 1.75rem);
+}
+
+.carousel-row-card {
+  width: var(--carousel-card-width) !important;
+}
+
+.carousel-row-card[data-carousel-dimmed='true'] {
+  isolation: isolate;
+}
+
+.carousel-row-card[data-carousel-dimmed='true']::after {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  border-radius: inherit;
+  background: rgba(0, 0, 0, 0.2);
+  content: '';
+  pointer-events: none;
+}
+
+@media (min-width: 640px) {
+  .carousel-row {
+    --catalog-card-width: calc((100cqw - 5rem) / 4);
+  }
+}
+
+@media (min-width: 640px) and (orientation: portrait) {
+  .carousel-row {
+    --catalog-card-width: calc((100cqw - 4rem) / 3);
+  }
+}
+
+@media (min-width: 768px) {
+  .carousel-row {
+    --catalog-card-width: calc((100cqw - 6.25rem) / 4);
+  }
+}
+
+@media (min-width: 768px) and (orientation: portrait) {
+  .carousel-row {
+    --catalog-card-width: calc((100cqw - 5.5rem) / 3);
+  }
+}
+
+/* LiquiKits catalog switches to five product columns at the lg breakpoint. */
+@media (min-width: 1024px) {
+  .carousel-row {
+    --catalog-card-width: calc((100cqw - 7rem) / 5);
+  }
+}
+
+@media (min-width: 1280px) {
+  .carousel-row {
+    --catalog-card-width: calc((100cqw - 7rem) / 5);
+  }
+}
+
 :root {
   /* CONTROL CENTER: Dito mo baguhin ang roundness */
   --garage-radius: 1.5rem; /* Default: 24px. Gawing 9999px kung gusto mong pill-shaped */

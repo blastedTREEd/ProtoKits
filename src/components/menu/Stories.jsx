@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { X, ChevronLeft, ChevronRight, MapPin, Package } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, MapPin, Pause, Play } from 'lucide-react';
 import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../../store/useStore';
@@ -53,7 +53,8 @@ function formatStoryDate(value) {
 }
 
 function getStoryDestination(story) {
-  return story?.destination || [story?.city || story?.town, story?.province].filter(Boolean).join(', ');
+  const structuredDestination = [story?.city || story?.town, story?.province].filter(Boolean).join(', ');
+  return structuredDestination || String(story?.destination || '').trim();
 }
 
 function getStoryItems(items) {
@@ -82,6 +83,7 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
 
   // Preview modal state
   const [activeStoryIndex, setActiveStoryIndex] = useState(null);
+  const [isStoryPaused, setIsStoryPaused] = useState(false);
   const [syncingStoryCount, setSyncingStoryCount] = useState(() => (
     getStoryCardCount(window.innerWidth)
   ));
@@ -342,6 +344,37 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
     setActiveStoryIndex((prev) => (prev >= activeStories.length - 1 ? 0 : prev + 1));
   }, [activeStories]);
 
+  const storyPointerStart = useRef(null);
+  const handleStoryPointerDown = useCallback((event) => {
+    if (event.pointerType === 'mouse') return;
+    storyPointerStart.current = { x: event.clientX, y: event.clientY };
+  }, []);
+  const handleStoryPointerUp = useCallback((event) => {
+    const start = storyPointerStart.current;
+    storyPointerStart.current = null;
+    if (!start) return;
+
+    const deltaX = event.clientX - start.x;
+    const deltaY = event.clientY - start.y;
+    if (Math.abs(deltaX) < 48 || Math.abs(deltaX) <= Math.abs(deltaY)) return;
+    if (deltaX > 0) handlePrev();
+    else handleNext();
+  }, [handleNext, handlePrev]);
+  const handleStoryPointerCancel = useCallback(() => {
+    storyPointerStart.current = null;
+  }, []);
+
+  useEffect(() => {
+    if (activeStoryIndex === null) {
+      setIsStoryPaused(false);
+      return undefined;
+    }
+    if (isStoryPaused || activeStories.length <= 1) return undefined;
+
+    const timer = window.setTimeout(handleNext, 4000);
+    return () => window.clearTimeout(timer);
+  }, [activeStoryIndex, activeStories.length, handleNext, isStoryPaused]);
+
   // Close preview on Escape key
   useEffect(() => {
     const handleKey = (e) => {
@@ -491,9 +524,14 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.92 }}
               transition={{ type: "spring", damping: 30, stiffness: 400 }}
-              className="story-card glass-card relative h-[min(92vh,44rem)] w-[min(92vw,33rem)] overflow-hidden rounded-[1.5rem] p-1 shadow-2xl"
+              className="story-card glass-card relative h-[min(96vh,56rem)] w-[min(92vw,36rem)] overflow-hidden rounded-[1.5rem] p-1 shadow-2xl"
             >
-              <div className="story-card-media relative h-full w-full overflow-hidden rounded-[1.3rem] bg-neutral-950">
+              <div
+                className="story-card-media relative h-full w-full select-none overflow-hidden rounded-[1.3rem] bg-neutral-950 touch-pan-y"
+                onPointerDown={handleStoryPointerDown}
+                onPointerUp={handleStoryPointerUp}
+                onPointerCancel={handleStoryPointerCancel}
+              >
                 {/* Story Image / Background */}
                 {activeStory.backgroundImage ? (
                   <UniversalImage
@@ -517,10 +555,8 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
                     style={{ background: `linear-gradient(135deg, ${activeStory.value}40 0%, ${activeStory.value}10 50%, ${activeStory.value}30 100%)` }}
                   />
                 )}
-                {/* Gradients keep the header and story details readable over the image. */}
-                <div className="absolute inset-0 z-[5] bg-gradient-to-b from-black/75 via-black/10 to-transparent" />
-                <div className="absolute inset-0 z-[5] bg-gradient-to-t from-black via-black/75 via-30% to-transparent" />
-
+                <div className="pointer-events-none absolute inset-x-0 top-0 z-[5] h-28 bg-gradient-to-b from-black/45 via-black/15 to-transparent" />
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[5] h-2/5 bg-gradient-to-t from-black/80 via-black/35 to-transparent" />
                 {/* Overlays Container (Stickers, Masks, Texts) */}
                 {/* Render Stickers (Polaroids & Masks) */}
                 {(activeStory.stickers || []).map((st) => {
@@ -612,78 +648,58 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
                 >
                   <X size={20} />
                 </button>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setIsStoryPaused((paused) => !paused); }}
+                  className="absolute right-16 top-4 z-40 rounded-full border border-white/50 bg-black/25 p-2 text-white shadow-lg backdrop-blur-md transition-all hover:scale-105 hover:bg-black/50 focus:outline-none focus:ring-2 focus:ring-white/80"
+                  aria-label={isStoryPaused ? 'Resume stories' : 'Pause stories'}
+                >
+                  {isStoryPaused ? <Play size={20} /> : <Pause size={20} />}
+                </button>
 
                 {/* Progress Bars */}
-                <div className="absolute left-5 right-5 top-[92px] z-30 flex gap-1">
+                <div className="absolute left-5 right-5 top-2 z-30 flex gap-1">
                 {activeStories.map((_, idx) => (
                   <button 
                     key={idx}
                     onClick={(e) => { e.stopPropagation(); setActiveStoryIndex(idx); }}
-                    className={`h-0.5 flex-1 rounded-full transition-all duration-300 cursor-pointer hover:h-1 ${idx === activeStoryIndex ? 'bg-white md:bg-garage-blue' : 'bg-white/20 hover:bg-white/40 md:bg-neutral-200 md:hover:bg-neutral-300 md:dark:bg-white/20 md:dark:hover:bg-white/40'}`}
+                    className={`h-1 flex-1 rounded-full transition-all duration-300 cursor-pointer hover:h-1.5 ${idx === activeStoryIndex ? 'bg-white md:bg-garage-blue' : 'bg-white/20 hover:bg-white/40 md:bg-neutral-200 md:hover:bg-neutral-300 md:dark:bg-white/20 md:dark:hover:bg-white/40'}`}
                   />
                 ))}
                 </div>
 
-                {/* Story navigation */}
-                <div className="absolute left-4 top-1/2 z-30 -translate-y-1/2">
-                <button
-                  onClick={(e) => { e.stopPropagation(); handlePrev(); }}
-                  disabled={activeStories.length <= 1}
-                  className={`w-11 h-11 flex items-center justify-center rounded-full bg-black/15 backdrop-blur-md border border-white/30 shadow-lg text-white/90 hover:bg-black/25 hover:border-white/50 hover:scale-105 transition-all duration-200 active:scale-95 ${
-                    activeStories.length <= 1 ? "opacity-30 cursor-not-allowed" : ""
-                  }`}
-                  aria-label="Previous story"
-                >
-                  <ChevronLeft size={20} strokeWidth={2.5} />
-                </button>
-                </div>
-                <div className="absolute right-4 top-1/2 z-30 -translate-y-1/2">
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleNext(); }}
-                  disabled={activeStories.length <= 1}
-                  className={`w-11 h-11 flex items-center justify-center rounded-full bg-black/15 backdrop-blur-md border border-white/30 shadow-lg text-white/90 hover:bg-black/25 hover:border-white/50 hover:scale-105 transition-all duration-200 active:scale-95 ${
-                    activeStories.length <= 1 ? "opacity-30 cursor-not-allowed" : ""
-                  }`}
-                  aria-label="Next story"
-                >
-                  <ChevronRight size={20} strokeWidth={2.5} />
-                </button>
-                </div>
-
-                {/* Bottom Content — description and story details over the image */}
-                <div className="absolute bottom-0 left-0 right-0 z-20 max-h-[48%] overflow-y-auto p-5 pb-6 text-white">
-                {activeStory.description && (
-                  <p className="max-w-sm text-sm font-medium leading-relaxed text-white/90 drop-shadow-md">
-                    {activeStory.description}
-                  </p>
-                )}
-                {(getStoryDestination(activeStory) || getStoryItems(activeStory.items).length > 0) && (
-                  <dl className="mt-4 space-y-3 border-t border-white/30 pt-4">
-                    {getStoryDestination(activeStory) && (
-                      <div className="flex items-start gap-3">
-                        <MapPin size={16} className="mt-0.5 shrink-0 text-garage-blue" />
-                        <div className="min-w-0">
-                          <dt className="text-[9px] font-black uppercase tracking-[0.18em] text-white/60">Destination</dt>
-                          <dd className="mt-0.5 text-sm font-semibold leading-snug text-white">{getStoryDestination(activeStory)}</dd>
-                        </div>
+                {/* Bottom Content — destination only; the public description and item list are hidden. */}
+                {getStoryDestination(activeStory) && (
+                  <div className="absolute bottom-0 left-0 right-0 z-20 p-5 pb-6 text-white">
+                    <div className="flex items-center gap-3">
+                      <MapPin size={18} className="shrink-0 text-garage-blue" />
+                      <div className="min-w-0">
+                        <div className="text-[13px] font-bold uppercase tracking-widest text-white/60 drop-shadow-md">Destination</div>
+                        <div className="mt-0.5 text-[13px] font-bold uppercase tracking-widest leading-tight text-white drop-shadow-md">{getStoryDestination(activeStory)}</div>
                       </div>
-                    )}
-                    {getStoryItems(activeStory.items).length > 0 && (
-                      <div className="flex items-start gap-3">
-                        <Package size={16} className="mt-0.5 shrink-0 text-garage-blue" />
-                        <div className="min-w-0">
-                          <dt className="text-[9px] font-black uppercase tracking-[0.18em] text-white/60">Items</dt>
-                          <dd className="mt-0.5 space-y-1 text-sm font-semibold leading-snug text-white">
-                            {getStoryItems(activeStory.items).map((item, index) => <div key={`${item}-${index}`}>{item}</div>)}
-                          </dd>
-                        </div>
-                      </div>
-                    )}
-                  </dl>
+                    </div>
+                  </div>
                 )}
-                </div>
               </div>
             </Motion.div>
+            <div className="pointer-events-none absolute inset-x-0 top-1/2 z-[510] hidden -translate-y-1/2 justify-between md:left-1/2 md:right-auto md:flex md:w-[min(calc(92vw+8rem),44rem)] md:-translate-x-1/2">
+              <button
+                onClick={(e) => { e.stopPropagation(); handlePrev(); }}
+                disabled={activeStories.length <= 1}
+                className={`pointer-events-auto flex h-11 w-11 items-center justify-center rounded-full border border-white/40 bg-black/30 text-white/90 shadow-lg backdrop-blur-md transition-all duration-200 hover:scale-105 hover:border-white/60 hover:bg-black/45 active:scale-95 ${activeStories.length <= 1 ? 'cursor-not-allowed opacity-30' : ''}`}
+                aria-label="Previous story"
+              >
+                <ChevronLeft size={20} strokeWidth={2.5} />
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); handleNext(); }}
+                disabled={activeStories.length <= 1}
+                className={`pointer-events-auto flex h-11 w-11 items-center justify-center rounded-full border border-white/40 bg-black/30 text-white/90 shadow-lg backdrop-blur-md transition-all duration-200 hover:scale-105 hover:border-white/60 hover:bg-black/45 active:scale-95 ${activeStories.length <= 1 ? 'cursor-not-allowed opacity-30' : ''}`}
+                aria-label="Next story"
+              >
+                <ChevronRight size={20} strokeWidth={2.5} />
+              </button>
+            </div>
           </div>
         )}
       </AnimatePresence>

@@ -276,6 +276,7 @@ export default function Kits({ isActive = true, embedded = false }) {
   const [isSortOpen, setIsSortOpen] = useState(false);
   const sortRef = useRef(null);
   const searchInputRef = useRef(null);
+  const previousSearchTermRef = useRef('');
   
   const [isAddKitModalOpen, setIsAddKitModalOpen] = useState(false); 
   const [isAddDealModalOpen, setIsAddDealModalOpen] = useState(false);
@@ -352,7 +353,6 @@ export default function Kits({ isActive = true, embedded = false }) {
   useEffect(() => {
     const handler = setTimeout(() => {
         setSearchTerm(inputValue);
-        window.scrollTo({ top: 0, behavior: 'smooth' });
     }, 250);
     return () => clearTimeout(handler);
   }, [inputValue]);
@@ -429,8 +429,31 @@ export default function Kits({ isActive = true, embedded = false }) {
   }, [focusKitsSection]);
 
   const scheduleKitsSectionFocus = useCallback(() => {
-    window.requestAnimationFrame(focusKitsSection);
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(focusKitsSection);
+    });
   }, [focusKitsSection]);
+
+  useEffect(() => {
+    const previousSearchTerm = previousSearchTermRef.current;
+    previousSearchTermRef.current = searchTerm;
+
+    if (embedded) {
+      // Wait for the debounced results to render before measuring the merged
+      // storefront anchor. Measuring on every keystroke can capture the old
+      // layout and leave the search row below the sticky navbar.
+      if (!searchTerm && previousSearchTerm === searchTerm) return undefined;
+      const frame = window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(focusKitsSection);
+      });
+      return () => window.cancelAnimationFrame(frame);
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [embedded, focusKitsSection, searchTerm]);
 
   useEffect(() => {
     const scrollState = contentHeaderScrollRef.current;
@@ -1500,11 +1523,10 @@ export default function Kits({ isActive = true, embedded = false }) {
                           {sortOptions.filter(option => !option.active).map((option) => (
                             <button
                               key={option.id}
-                               onClick={() => {
+                               onClick={() => runAfterKitsSectionFocus(() => {
                                   setSortType(option.nextSort);
                                   setIsSortOpen(false);
-                                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                               }}
+                               })}
                               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-[12px] font-bold uppercase tracking-widest transition-all ${
                                 option.active
                                   ? 'bg-blue-600 text-white' 
