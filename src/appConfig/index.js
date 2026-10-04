@@ -114,7 +114,7 @@ export const isPathAllowedForApp = (pathname) => {
     return true;
   }
   if (pathname === '/shelf') return APP_ID === 'snorlaxgarage' || APP_ID === 'garagecore';
-  if (pathname.startsWith('/kits')) return isMarketEnabled('kits');
+  if (pathname.startsWith('/kits')) return false;
   if (pathname.startsWith('/prints') || pathname.startsWith('/blueprints')) return isMarketEnabled('prints');
   if (pathname.startsWith('/orders') || pathname.startsWith('/cart') || pathname.startsWith('/basket')
     || pathname.startsWith('/checkout') || pathname.startsWith('/notify-list')) {

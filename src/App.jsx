@@ -147,7 +147,7 @@ const RouterContent = () => {
   const location = useLocation();
   const checkPageReady = useStore((state) => state.checkPageReady);
   const isAdminView = useStore((state) => state.isAdminView);
-  const isKitsPath = location.pathname === '/kits' || location.pathname.startsWith('/kits/');
+  const isKitsPath = false;
   const [hasVisitedKits, setHasVisitedKits] = useState(() => isKitsPath);
 
   // Keep the Kits tree mounted after its first visit. Switching away then
@@ -193,8 +193,8 @@ const RouterContent = () => {
           <AppRouteGate>
           <Routes>
             <Route path="/" element={<AppHome />} />
-            <Route path="/kits" element={null} />
-            <Route path="/kits/:kitId" element={null} />
+            <Route path="/kits" element={<Navigate to="/" replace />} />
+            <Route path="/kits/:kitId" element={<Navigate to="/" replace />} />
             <Route path="/prints" element={<Prints />} />
             <Route path="/prints/:projectId" element={<Prints />} />
             <Route path="/blueprints" element={<Blueprints />} />

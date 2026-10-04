@@ -1,4 +1,5 @@
 import React, { useMemo, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Gift, Zap, ArrowRight, Settings, Package } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { getBundleDealPricing, getClearanceBundlePricing, getFlexiBundlePreviewPricing, getHighestCostStock } from '../../utils/bundlePricing';
@@ -164,8 +165,8 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onAd
 
   if (!isOpen || !deal) return null;
 
-  return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center p-0 lg:p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300 overflow-hidden touch-action-none">
+  return createPortal((
+                <div onClick={(event) => event.stopPropagation()} className="fixed inset-0 z-[300] flex items-center justify-center p-0 lg:p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300 overflow-hidden touch-action-none">
       <div className="bg-[var(--color-surface)] border-0 lg:border border-[var(--color-border)] w-full h-full lg:max-h-[85vh] lg:max-w-2xl rounded-none lg:rounded-[2.5rem] flex flex-col shadow-2xl overflow-hidden overscroll-none text-[var(--color-text-main)]">
         
         {/* Mobile sticky close button */}
@@ -297,5 +298,5 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onAd
         </div>
       </div>
     </div>
-  );
+  ), document.body);
 }

@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { 
   Box, CalendarDays, Clock, Zap, Plus, Lock, Edit3, Trash2, PackageMinus,
@@ -2411,8 +2412,8 @@ export default function ProjectCard({
         </div>
       </div>
 
-      {isModalOpen && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-0 lg:p-12 bg-white/40 dark:bg-black/45 backdrop-blur-sm animate-in fade-in duration-200 overflow-hidden touch-action-none">
+      {isModalOpen && createPortal((
+                <div onClick={(event) => event.stopPropagation()} className="fixed inset-0 z-[200] flex items-center justify-center p-0 lg:p-12 bg-white/40 dark:bg-black/45 backdrop-blur-sm animate-in fade-in duration-200 overflow-hidden touch-action-none">
           <div className={`relative w-full h-full lg:h-[70vh] lg:max-w-7xl flex flex-col lg:rounded-[2.5rem] lg:border lg:shadow-2xl overflow-hidden overscroll-none ${isDarkMode ? 'bg-[var(--color-bg)] border-white/10 text-white' : 'bg-white border-black/5 text-neutral-900'}`}>
             {canManageGallery && (
               <input
@@ -3015,7 +3016,7 @@ export default function ProjectCard({
             </div>
           </div>
         </div>
-      )}
+      ), document.body)}
     </>
   );
 }

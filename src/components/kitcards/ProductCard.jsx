@@ -1,5 +1,6 @@
 /* eslint-disable react-hooks/preserve-manual-memoization */
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { 
   X, Clock, Package, ShelvingUnit, PackageMinus, PackagePlus, PackageX, Calendar, UserCheck, Info,
@@ -630,6 +631,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
 
   const productPath = kitId ? `/kits/${encodeURIComponent(kitId)}` : '/kits';
   const isRouteSelectedProduct = !!kitId && routeKitId === kitId;
+  const isLocalHomeModal = homePreview || location.pathname === '/';
 
   const publicReleasableStocks = useMemo(() => {
     return stockList.filter(s => {
@@ -1238,7 +1240,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     setTargetPrice("");
     setGalleryIndex(0);
     lastManualActionTime.current = Date.now();
-    if (includedKit.id) {
+    if (includedKit.id && !isLocalHomeModal) {
       // Keep React Router in sync with the address bar so Kits can select and
       // render the included kit's own ProductCard.
       navigate(`/kits/${encodeURIComponent(includedKit.id)}`, {
@@ -1249,7 +1251,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
         }
       });
     }
-  }, [kit, kitId, navigate]);
+  }, [isLocalHomeModal, kit, kitId, navigate]);
 
   const handlePreviousModalKit = useCallback((event) => {
     event?.stopPropagation();
@@ -1271,6 +1273,12 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   }, []);
 
   const closeProductModal = useCallback(() => {
+    if (isLocalHomeModal) {
+      resetProductModalState();
+      modalHistoryOwnerRef.current = false;
+      return;
+    }
+
     if (window.location.pathname === productPath) {
       const historyState = window.history.state || {};
       const routeState = historyState.usr || {};
@@ -1292,11 +1300,11 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     }
     resetProductModalState();
     modalHistoryOwnerRef.current = false;
-  }, [kitId, navigate, productPath, resetProductModalState]);
+  }, [isLocalHomeModal, kitId, navigate, productPath, resetProductModalState]);
 
-  const previousProductModalId = location.state?.productModalParentId
+  const previousProductModalId = !isLocalHomeModal && (location.state?.productModalParentId
     || window.history.state?.usr?.productModalParentId
-    || null;
+    || null);
   const hasPreviousProductModal = modalKitHistory.length > 0 || Boolean(previousProductModalId);
 
   const handleProductModalBack = useCallback((event) => {
@@ -1426,7 +1434,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
         onClick();
         return;
     }
-    if (kitId && window.location.pathname !== productPath) {
+    if (!isLocalHomeModal && kitId && window.location.pathname !== productPath) {
         window.history.pushState({ modal: 'product', kitId }, '', productPath);
         modalHistoryOwnerRef.current = true;
     }
@@ -2104,8 +2112,8 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
         </div>
       </div>
 
-      {isModalOpen && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-0 lg:p-12 bg-white/40 dark:bg-black/45 backdrop-blur-sm animate-in fade-in duration-200 overflow-hidden overscroll-none touch-action-none">
+      {isModalOpen && createPortal((
+                <div onClick={(event) => event.stopPropagation()} className="fixed inset-0 z-[200] flex items-center justify-center p-0 lg:p-12 bg-white/40 dark:bg-black/45 backdrop-blur-sm animate-in fade-in duration-200 overflow-hidden overscroll-none touch-action-none">
           <div className={`relative w-full h-full lg:h-[70vh] lg:max-w-7xl flex flex-col lg:rounded-[2.5rem] lg:border lg:shadow-2xl overflow-hidden overscroll-none ${isDarkMode ? 'bg-[var(--color-bg)] border-white/10 text-white' : 'bg-white border-black/5 text-neutral-900'}`}>
             <div className="h-full max-h-full flex flex-col portrait:flex-col landscape:sm:flex-row items-stretch overflow-hidden">
               <div className="sticky top-0 z-[220] w-full h-0 overflow-visible sm:hidden">
@@ -2697,7 +2705,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
             </div>
           </div>
         </div>
-      )}
+      ), document.body)}
     </>
   );
 }
