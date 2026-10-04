@@ -193,8 +193,8 @@ const RouterContent = () => {
           <AppRouteGate>
           <Routes>
             <Route path="/" element={<AppHome />} />
-            <Route path="/kits" element={<Navigate to="/" replace />} />
-            <Route path="/kits/:kitId" element={<Navigate to="/" replace />} />
+            <Route path="/kits" element={<Landing />} />
+            <Route path="/kits/:kitId" element={<Landing />} />
             <Route path="/prints" element={<Prints />} />
             <Route path="/prints/:projectId" element={<Prints />} />
             <Route path="/blueprints" element={<Blueprints />} />

@@ -27,6 +27,7 @@ import { getStockEta } from '../../utils/stockDates';
 import { getNextAvailableDate, toDateKey } from '../../utils/availabilitySchedule';
 import { isFlexiBundleDeal, isPerKitClearanceDeal, isWildSaleDeal, isClearanceKitActive, getActiveClearanceKitIds, getClearanceDisplayLabel } from '../../utils/dealTypes';
 import { getValidatedOrderStockSet, filterActiveKitStocks } from '../../utils/stockOrderUtils';
+import { APP_CONFIG } from '../../appConfig';
 import UniversalImage from '../common/UniversalImage';
 
 // Resolves an image ID to its URL from the images array.
@@ -630,8 +631,10 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   }, [isAdmin, now]);
 
   const productPath = kitId ? `/kits/${encodeURIComponent(kitId)}` : '/kits';
+  const isMergedHomeRoute = APP_CONFIG.id === 'liquikits';
   const isRouteSelectedProduct = !!kitId && routeKitId === kitId;
   const isLocalHomeModal = homePreview || location.pathname === '/';
+  const usesLocalModal = isLocalHomeModal || isMergedHomeRoute;
 
   const publicReleasableStocks = useMemo(() => {
     return stockList.filter(s => {
@@ -1227,8 +1230,12 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     } else if (selectableAvailabilityGroups.length > 0) {
         handleSelectGroup(selectableAvailabilityGroups[0]);
     }
+    if (isMergedHomeRoute && cardKit?.id && window.location.pathname !== productPath) {
+      window.history.pushState({ modal: 'product', kitId: cardKit.id, mergedHomeModal: true }, '', productPath);
+      modalHistoryOwnerRef.current = true;
+    }
     setIsProfileOpen(true);
-  }, [acceptedOfferGroup, cardKit, handleSelectGroup, selectableAvailabilityGroups, setToastMessage]);
+  }, [acceptedOfferGroup, cardKit, handleSelectGroup, isMergedHomeRoute, productPath, selectableAvailabilityGroups, setToastMessage]);
 
   const handleOpenIncludedKit = useCallback((includedKit, event) => {
     event?.stopPropagation();
@@ -1240,7 +1247,9 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     setTargetPrice("");
     setGalleryIndex(0);
     lastManualActionTime.current = Date.now();
-    if (includedKit.id && !isLocalHomeModal) {
+    if (includedKit.id && isMergedHomeRoute) {
+      window.history.replaceState({ modal: 'product', kitId: includedKit.id, mergedHomeModal: true }, '', `/kits/${encodeURIComponent(includedKit.id)}`);
+    } else if (includedKit.id && !usesLocalModal) {
       // Keep React Router in sync with the address bar so Kits can select and
       // render the included kit's own ProductCard.
       navigate(`/kits/${encodeURIComponent(includedKit.id)}`, {
@@ -1251,7 +1260,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
         }
       });
     }
-  }, [isLocalHomeModal, kit, kitId, navigate]);
+  }, [isMergedHomeRoute, isLocalHomeModal, kit, kitId, navigate, usesLocalModal]);
 
   const handlePreviousModalKit = useCallback((event) => {
     event?.stopPropagation();
@@ -1273,7 +1282,15 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   }, []);
 
   const closeProductModal = useCallback(() => {
-    if (isLocalHomeModal) {
+    const shouldSyncMergedHomeRoute = isMergedHomeRoute && window.location.pathname !== APP_CONFIG.homePath;
+    if (shouldSyncMergedHomeRoute) {
+      window.history.replaceState({}, document.title, APP_CONFIG.homePath);
+      if (location.pathname.startsWith('/kits/')) {
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      }
+    }
+
+    if (usesLocalModal) {
       resetProductModalState();
       modalHistoryOwnerRef.current = false;
       return;
@@ -1294,15 +1311,18 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
       } else {
         resetProductModalState();
         modalHistoryOwnerRef.current = false;
-        navigate('/kits', { replace: true });
+        navigate(isMergedHomeRoute ? APP_CONFIG.homePath : '/kits', {
+          replace: true,
+          state: isMergedHomeRoute ? null : undefined
+        });
       }
       return;
     }
     resetProductModalState();
     modalHistoryOwnerRef.current = false;
-  }, [isLocalHomeModal, kitId, navigate, productPath, resetProductModalState]);
+  }, [APP_CONFIG.homePath, isMergedHomeRoute, isLocalHomeModal, kitId, location.pathname, navigate, productPath, resetProductModalState, usesLocalModal]);
 
-  const previousProductModalId = !isLocalHomeModal && (location.state?.productModalParentId
+  const previousProductModalId = !usesLocalModal && (location.state?.productModalParentId
     || window.history.state?.usr?.productModalParentId
     || null);
   const hasPreviousProductModal = modalKitHistory.length > 0 || Boolean(previousProductModalId);
@@ -1434,7 +1454,10 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
         onClick();
         return;
     }
-    if (!isLocalHomeModal && kitId && window.location.pathname !== productPath) {
+    if (isMergedHomeRoute && kitId && window.location.pathname !== productPath) {
+        window.history.pushState({ modal: 'product', kitId, mergedHomeModal: true }, '', productPath);
+        modalHistoryOwnerRef.current = true;
+    } else if (!usesLocalModal && kitId && window.location.pathname !== productPath) {
         window.history.pushState({ modal: 'product', kitId }, '', productPath);
         modalHistoryOwnerRef.current = true;
     }
