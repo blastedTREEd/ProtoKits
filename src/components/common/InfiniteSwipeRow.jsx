@@ -92,9 +92,17 @@ export default function InfiniteSwipeRow({ children, className = '', ariaLabel }
         className={`w-full overflow-x-auto overflow-y-hidden overscroll-x-contain touch-pan-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${scrollState.atStart ? 'pl-5 sm:pl-8 lg:pl-12' : ''}`}
       >
         <div className="flex w-max flex-nowrap items-start gap-3">
-          {items.map((item, itemIndex) => React.cloneElement(item, {
-            key: `swipe-item-${item.key || itemIndex}`
-          }))}
+          {items.map((item, itemIndex) => {
+            const itemWithKey = React.cloneElement(item, {
+              key: `swipe-item-${item.key || itemIndex}`
+            });
+
+            return itemIndex === items.length - 1 ? (
+              <div key={`swipe-item-wrapper-${item.key || itemIndex}`} className="w-max shrink-0 pr-5 sm:pr-8 lg:pr-12">
+                {itemWithKey}
+              </div>
+            ) : itemWithKey;
+          })}
         </div>
       </div>
       {scrollState.canScroll && !scrollState.atEnd && (
