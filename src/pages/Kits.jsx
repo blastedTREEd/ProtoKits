@@ -248,7 +248,7 @@ function getRouteKitStatus(kit, isAdmin, isAdminView, shelf = []) {
   };
 }
 
-export default function Kits({ isActive = true }) {
+export default function Kits({ isActive = true, embedded = false }) {
   const isAdmin = useStore((state) => state.isAdmin);
   const isAdminView = useStore((state) => state.isAdminView);
   const shelf = useStore((state) => state.shelf);
@@ -384,7 +384,53 @@ export default function Kits({ isActive = true }) {
   const dealsStatus = useStore((state) => state._datasetStatus?.deals || 'loading');
   const isKitsDataLoading = kitsStatus === 'loading' || dealsStatus === 'loading';
   const [isContentHeaderHidden, setIsContentHeaderHidden] = useState(false);
+  const contentHeaderRef = useRef(null);
   const contentHeaderScrollRef = useRef({ previousY: window.scrollY, frame: 0, hidden: false, direction: 0, distance: 0 });
+  const preserveContentHeaderRef = useRef(false);
+  const preserveContentHeaderTargetRef = useRef(null);
+  const preserveContentHeaderTimerRef = useRef(0);
+
+  const focusKitsSection = useCallback(() => {
+    const sectionTop = contentHeaderRef.current?.getBoundingClientRect().top;
+    if (typeof sectionTop !== 'number') return false;
+
+    const navbarHeight = window.innerWidth >= 640 ? 60 : 56;
+    const desiredScrollTop = Math.max(0, Math.round(window.scrollY + sectionTop - navbarHeight));
+    const maxScrollTop = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+    const nextScrollTop = Math.min(desiredScrollTop, maxScrollTop);
+    if (Math.abs(nextScrollTop - window.scrollY) <= 1) return false;
+
+    preserveContentHeaderRef.current = true;
+    preserveContentHeaderTargetRef.current = nextScrollTop;
+    if (preserveContentHeaderTimerRef.current) window.clearTimeout(preserveContentHeaderTimerRef.current);
+    contentHeaderScrollRef.current.hidden = false;
+    contentHeaderScrollRef.current.direction = 0;
+    contentHeaderScrollRef.current.distance = 0;
+    window.scrollTo({ top: nextScrollTop, left: 0, behavior: 'auto' });
+    preserveContentHeaderTimerRef.current = window.setTimeout(() => {
+      preserveContentHeaderRef.current = false;
+      preserveContentHeaderTargetRef.current = null;
+      preserveContentHeaderTimerRef.current = 0;
+      contentHeaderScrollRef.current.previousY = window.scrollY;
+      contentHeaderScrollRef.current.hidden = false;
+      contentHeaderScrollRef.current.direction = 0;
+      contentHeaderScrollRef.current.distance = 0;
+      setIsContentHeaderHidden(false);
+    }, 1500);
+    return true;
+  }, []);
+
+  const runAfterKitsSectionFocus = useCallback((action) => {
+    if (!focusKitsSection()) {
+      action();
+      return;
+    }
+    window.requestAnimationFrame(() => window.requestAnimationFrame(action));
+  }, [focusKitsSection]);
+
+  const scheduleKitsSectionFocus = useCallback(() => {
+    window.requestAnimationFrame(focusKitsSection);
+  }, [focusKitsSection]);
 
   useEffect(() => {
     const scrollState = contentHeaderScrollRef.current;
@@ -393,31 +439,39 @@ export default function Kits({ isActive = true }) {
 
       scrollState.frame = window.requestAnimationFrame(() => {
         const currentScrollY = window.scrollY;
-        const previousScrollY = scrollState.previousY;
-        const delta = currentScrollY - previousScrollY;
-        const direction = delta > 0 ? 1 : delta < 0 ? -1 : scrollState.direction;
 
-        if (direction !== scrollState.direction) {
-          scrollState.distance = Math.abs(delta);
-        } else if (direction !== 0) {
-          scrollState.distance += Math.abs(delta);
-        }
-        scrollState.direction = direction;
+        if (preserveContentHeaderRef.current) {
+          const anchorTarget = preserveContentHeaderTargetRef.current;
+          const movedAwayFromAnchor = Number.isFinite(anchorTarget)
+            && Math.abs(currentScrollY - anchorTarget) > 2;
 
-        let nextHidden = scrollState.hidden;
-        if (window.innerWidth >= 768 || currentScrollY <= 8) {
-          nextHidden = false;
-        } else if (direction === 1 && scrollState.distance >= 2) {
-          nextHidden = true;
-        } else if (direction === -1 && scrollState.distance >= 12) {
-          nextHidden = false;
+          if (!movedAwayFromAnchor) {
+            scrollState.previousY = currentScrollY;
+            scrollState.direction = 0;
+            scrollState.distance = 0;
+            scrollState.hidden = false;
+            scrollState.frame = 0;
+            setIsContentHeaderHidden(false);
+            return;
+          }
+
+          preserveContentHeaderRef.current = false;
+          preserveContentHeaderTargetRef.current = null;
+          if (preserveContentHeaderTimerRef.current) {
+            window.clearTimeout(preserveContentHeaderTimerRef.current);
+            preserveContentHeaderTimerRef.current = 0;
+          }
         }
 
-        if (nextHidden !== scrollState.hidden) {
-          scrollState.hidden = nextHidden;
-          setIsContentHeaderHidden(nextHidden);
-        }
+        setIsSortOpen(false);
+        // Keep the search row stable once it reaches the navbar. Hiding it on
+        // downward scroll while moving the section headers to a second offset
+        // created a temporary gap when the scroll direction changed.
         scrollState.previousY = currentScrollY;
+        scrollState.direction = 0;
+        scrollState.distance = 0;
+        scrollState.hidden = false;
+        setIsContentHeaderHidden(false);
         scrollState.frame = 0;
       });
     };
@@ -444,6 +498,12 @@ export default function Kits({ isActive = true }) {
     });
     return () => window.cancelAnimationFrame(frame);
   }, [location.pathname]);
+
+  useEffect(() => () => {
+    if (preserveContentHeaderTimerRef.current) {
+      window.clearTimeout(preserveContentHeaderTimerRef.current);
+    }
+  }, []);
 
   const [offerClock, setOfferClock] = useState(() => Date.now());
 
@@ -1267,25 +1327,17 @@ export default function Kits({ isActive = true }) {
   ];
   const activeSortOption = sortOptions.find(option => option.active) || sortOptions[0];
 
-  const sectionHeaderPosition = isContentHeaderHidden
-    ? 'top-[56px] sm:top-[60px] md:top-[120px]'
-    : 'top-[116px] sm:top-[120px] md:top-[120px]';
+  const sectionHeaderPosition = 'top-[116px] sm:top-[120px] md:top-[120px]';
   const contentHeaderMotion = 'transition-transform duration-400 ease-in-out motion-reduce:transition-none will-change-transform';
   const sectionHeaderMotion = 'transition-[top] duration-400 ease-in-out motion-reduce:transition-none will-change-[top]';
 
   const focusKitsSearch = () => {
-    if (window.innerWidth < 768 && isContentHeaderHidden) {
-      const scrollState = contentHeaderScrollRef.current;
-      scrollState.hidden = false;
-      scrollState.direction = 0;
-      scrollState.distance = 0;
-      scrollState.previousY = window.scrollY;
-      setIsContentHeaderHidden(false);
+    const focusInput = () => searchInputRef.current?.focus({ preventScroll: true });
+    if (!focusKitsSection()) {
+      focusInput();
+      return;
     }
-
-    window.requestAnimationFrame(() => {
-      searchInputRef.current?.focus({ preventScroll: true });
-    });
+    window.requestAnimationFrame(() => window.requestAnimationFrame(focusInput));
   };
 
   const renderDealCard = (deal) => {
@@ -1385,10 +1437,16 @@ export default function Kits({ isActive = true }) {
     || activeOfferKits.length > 0
     || kitGroups.clearance.length > 0;
 
-  return (
-    <PageTemplate isDarkMode={isDarkMode}>
-      <div className="min-h-screen w-full bg-neutral-50 dark:bg-[#0a0a0a] transition-colors duration-500 pb-20 font-sans text-left">
-        <div className={`sticky top-[56px] sm:top-[60px] z-[100] h-[60px] overflow-visible bg-neutral-50 dark:bg-[#0a0a0a] backdrop-blur-md border-b border-black/5 dark:border-white/5 ${contentHeaderMotion} ${isContentHeaderHidden ? '-translate-y-full md:translate-y-0' : 'translate-y-0'}`}>
+  const kitsContent = (
+      <div className={`${embedded ? '' : 'min-h-screen'} w-full bg-neutral-50 dark:bg-[#0a0a0a] transition-colors duration-500 pb-20 font-sans text-left`}>
+        <div
+          ref={contentHeaderRef}
+          onClick={(event) => {
+            if (event.target.closest('button, input')) return;
+            focusKitsSection();
+          }}
+          className={`sticky top-[56px] sm:top-[60px] z-[100] h-[60px] overflow-visible bg-neutral-50 dark:bg-[#0a0a0a] backdrop-blur-md border-b border-black/5 dark:border-white/5 ${contentHeaderMotion} ${isContentHeaderHidden ? '-translate-y-full md:translate-y-0' : 'translate-y-0'}`}
+        >
           <div className="h-full w-full px-4 md:px-8 flex items-center gap-4">
             <div className="flex min-w-0 flex-1 items-center gap-4">
                   <div className="relative min-w-0 flex-1">
@@ -1398,8 +1456,8 @@ export default function Kits({ isActive = true }) {
                       type="text"
                       value={inputValue}
                       onChange={(e) => setInputValue(e.target.value)}
-                      onFocus={() => setIsAdminToolsOpen(false)}
-                      onClick={() => setIsAdminToolsOpen(false)}
+                      onFocus={() => { setIsAdminToolsOpen(false); scheduleKitsSectionFocus(); }}
+                      onClick={() => { setIsAdminToolsOpen(false); scheduleKitsSectionFocus(); }}
                       onKeyDown={(e) => {
                         if (e.key === 'Escape') {
                           e.preventDefault();
@@ -1421,10 +1479,10 @@ export default function Kits({ isActive = true }) {
                   <div className="relative" ref={sortRef}>
                     <button 
                       onFocus={() => setIsAdminToolsOpen(false)}
-                      onClick={() => {
+                      onClick={() => runAfterKitsSectionFocus(() => {
                         setIsAdminToolsOpen(false);
-                        setIsSortOpen(!isSortOpen);
-                      }}
+                        setIsSortOpen((isOpen) => !isOpen);
+                      })}
                       className={`flex items-center gap-2 px-4 py-3 rounded-2xl border shrink-0 z-10 transition-all active:scale-95 group ${isSortOpen ? 'bg-blue-600 text-white border-blue-600' : 'bg-black/5 dark:bg-white/5 border-black/5 dark:border-white/10 hover:bg-blue-600 hover:text-white'}`}
                     >
                         {React.createElement(activeSortOption.icon, {
@@ -1859,6 +1917,11 @@ export default function Kits({ isActive = true }) {
             )}
           </Suspense>
       </div>
+  );
+
+  return embedded ? kitsContent : (
+    <PageTemplate isDarkMode={isDarkMode}>
+      {kitsContent}
     </PageTemplate>
   );
 }

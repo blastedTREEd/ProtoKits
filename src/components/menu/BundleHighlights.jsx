@@ -10,6 +10,7 @@ import { getDealGrabLabel } from '../../utils/dealSavings';
 import { getCheckoutPaymentFees } from '../../utils/paymentSettings';
 import { getPrintedProjectModelName } from '../../utils/printedProjectName';
 import UniversalImage from '../common/UniversalImage';
+import InfiniteSwipeRow from '../common/InfiniteSwipeRow';
 import { isFlexiBundleDeal, isPerKitClearanceDeal, getActiveClearanceKitIds, getClearanceDisplayLabel } from '../../utils/dealTypes';
 import { getBundleDisplayTotals } from '../../utils/bundleDisplayPricing';
 import { APP_CONFIG } from '../../appConfig';
@@ -48,16 +49,6 @@ function isPurchasableStock(stock, source = 'onhand') {
   return source === 'preorder' ? isPreOrder : isOnhand;
 }
 
-function getGridImageMeta(kit) {
-  const images = Array.isArray(kit?.images) ? kit.images : [];
-  const gridImage = kit?.image;
-  const imageId = typeof gridImage === 'string' ? gridImage : gridImage?.id;
-  const imageUrl = typeof gridImage === 'string' ? gridImage : gridImage?.url;
-
-  return images.find((image) => image?.id === imageId || image?.url === imageUrl)
-    || (typeof gridImage === 'object' ? gridImage : null);
-}
-
 function resolveKitImage(kit) {
   const gridImage = kit?.image;
   if (typeof gridImage === 'string' && gridImage) return gridImage;
@@ -67,11 +58,6 @@ function resolveKitImage(kit) {
     .map((image) => typeof image === 'string' ? image : image?.url)
     .find(Boolean)
     || '/snorlaxgarage.png';
-}
-
-function isBoxArtKitCard(card) {
-  return card?.type === 'kit'
-    && String(getGridImageMeta(card.kit)?.type || '').trim().toUpperCase() === 'BOX ART';
 }
 
 function isNamedProjectWithDisplayImage(project) {
@@ -142,43 +128,6 @@ function getShadowColor(gradientClass) {
     'from-violet-500 to-purple-500': 'rgba(139, 92, 246, 0.2)'
   };
   return colors[gradientClass] || 'rgba(8,102,255,0.2)';
-}
-
-function stableHash(value) {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-
-function randomizeFeedCards(cards, limit = 10) {
-  const projectCards = cards.filter((card) => card.type === 'project');
-  const nonProjectCards = cards.filter((card) => card.type !== 'project');
-  const projectLimit = Math.min(projectCards.length, nonProjectCards.length + 1, limit);
-  const selectedProjects = projectCards.slice(0, projectLimit);
-  const selectedNonProjects = nonProjectCards.slice(0, Math.max(0, limit - selectedProjects.length));
-  const shuffle = (items, salt) => [...items].sort((a, b) => (
-    stableHash(`${salt}:${a.id}`) - stableHash(`${salt}:${b.id}`)
-  ));
-  const remainingCards = shuffle([...selectedProjects, ...selectedNonProjects], 'cards');
-  const reorderedCards = [];
-
-  while (remainingCards.length > 0) {
-    const previousCard = reorderedCards[reorderedCards.length - 1];
-    const validCards = remainingCards.filter((card) => {
-      if (!previousCard) return true;
-      if (card.type === 'project' && previousCard.type === 'project') return false;
-      return !(isBoxArtKitCard(card) && isBoxArtKitCard(previousCard));
-    });
-    const candidates = validCards.length > 0 ? validCards : remainingCards;
-    const nextCard = candidates[0];
-    reorderedCards.push(nextCard);
-    remainingCards.splice(remainingCards.indexOf(nextCard), 1);
-  }
-
-  return reorderedCards;
 }
 
 export default function BundleHighlights() {
@@ -392,9 +341,21 @@ export default function BundleHighlights() {
   }, [activeBundles, blueprints, deals, kits, now, printedProjects, showKitHighlights, showPrintHighlights]);
 
   const displayCards = useMemo(() => {
-    // Keep priority selection, then randomize the presentation while using
-    // kit/other cards as separators between project cards.
-    return randomizeFeedCards(fillerCards, 10);
+    const getCardTimestamp = (card) => {
+      if (card?.type === 'project') {
+        return getTimestamp(card.project?.lastUpdated || card.project?.createdAt || card.project?.updatedAt);
+      }
+      return getTimestamp(
+        card?.stock?.lastUpdated
+          || card?.stock?.createdAt
+          || card?.kit?.lastUpdated
+          || card?.kit?.createdAt
+      );
+    };
+
+    return [...fillerCards]
+      .sort((a, b) => getCardTimestamp(b) - getCardTimestamp(a))
+      .slice(0, 10);
   }, [fillerCards]);
   const requiredBundleDatasets = [
     // The primary catalog is enough to render the first highlight cards.
@@ -415,12 +376,7 @@ export default function BundleHighlights() {
   if (bundleDataReady && displayCards.length === 0) return null;
 
   const getFeedVisibility = (index) => {
-    // Mobile uses three rows (3 columns). md keeps two rows (4 columns),
-    // while sm and lg use two rows (5 columns).
-    if (index < 8) return '';
-    if (index === 8) return 'md:hidden lg:block';
-    if (index === 9) return 'hidden sm:block md:hidden lg:block';
-    return 'hidden';
+    return index >= 0 ? '' : 'hidden';
   };
 
   const handleOpenBundle = (deal) => {
@@ -458,7 +414,7 @@ export default function BundleHighlights() {
             handleOpenBundle(deal);
           }
         }}
-        className={`${visibilityClass} w-full group relative rounded-[2.2rem] p-[2px] ${isSpectralMode ? `bg-gradient-to-br ${dealGradient}` : 'bg-black/5 dark:bg-white/5'} transition-all duration-500 lg:hover:-translate-y-1 cursor-pointer overflow-hidden`}
+        className={`${visibilityClass} w-40 shrink-0 group relative rounded-[2.2rem] p-[2px] sm:w-44 md:w-48 lg:w-56 ${isSpectralMode ? `bg-gradient-to-br ${dealGradient}` : 'bg-black/5 dark:bg-white/5'} transition-all duration-500 lg:hover:-translate-y-1 cursor-pointer overflow-hidden`}
         style={{
           boxShadow: isDarkMode
             ? isSpectralMode
@@ -677,7 +633,7 @@ export default function BundleHighlights() {
         : (item?.name || 'Untitled Kit');
 
     return (
-      <div key={card.id} className={`${visibilityClass} relative w-full`}>
+      <div key={card.id} className={`${visibilityClass} relative w-40 shrink-0 sm:w-44 md:w-48 lg:w-56`}>
         {isProject ? (
           <ProjectCard
             project={item}
@@ -711,7 +667,7 @@ export default function BundleHighlights() {
   return (
     <section className="relative overflow-visible border-t border-black/[0.06] bg-neutral-50 px-5 pb-10 dark:border-white/[0.08] dark:bg-[#111111] sm:px-8 lg:px-12">
       <div className="mx-auto max-w-7xl">
-        <div className="sticky top-[56px] z-[80] -mx-5 mb-4 flex flex-nowrap items-center justify-between gap-2 border-b border-black/5 bg-neutral-50/95 px-5 py-4 backdrop-blur-md sm:top-[60px] sm:-mx-8 sm:gap-4 sm:px-8 lg:-mx-12 lg:px-12 dark:border-white/5 dark:bg-[#111111]/95">
+        <div className="-mx-5 mb-4 flex flex-nowrap items-center justify-between gap-2 border-b border-black/5 bg-neutral-50 px-5 py-4 sm:-mx-8 sm:gap-4 sm:px-8 lg:-mx-12 lg:px-12 dark:border-white/5 dark:bg-[#111111]">
           <h2 className="inline-flex min-w-0 items-center gap-1 whitespace-nowrap text-[clamp(18px,6vw,25px)] font-black italic uppercase leading-none tracking-[-0.06em] text-neutral-950 dark:text-white">
             <span className="text-garage-blue">Garage</span>
             <span>Highlights</span>
@@ -721,9 +677,9 @@ export default function BundleHighlights() {
         </div>
 
         {isLoadingBundles ? (
-          <div className="grid min-h-[300px] grid-cols-3 items-start gap-2 sm:grid-cols-5 sm:gap-4 md:grid-cols-4 lg:grid-cols-5">
+          <InfiniteSwipeRow ariaLabel="Garage highlights loading">
             {Array.from({ length: 5 }).map((_, index) => (
-              <div key={`bundle-skeleton-${index}`} className="relative aspect-[3/4] overflow-hidden rounded-2xl border border-black/[0.05] bg-neutral-200 p-1 shadow-sm animate-pulse dark:border-2 dark:border-neutral-500 dark:bg-neutral-900">
+              <div key={`bundle-skeleton-${index}`} className="relative aspect-[3/4] w-40 shrink-0 overflow-hidden rounded-2xl border border-black/[0.05] bg-neutral-200 p-1 shadow-sm animate-pulse sm:w-44 md:w-48 lg:w-56 dark:border-2 dark:border-neutral-500 dark:bg-neutral-900">
                 <div className="relative h-full w-full overflow-hidden rounded-[1.3rem] bg-black/5 dark:bg-white/5">
                   <UniversalImage src="" alt="" aria-hidden="true" className="h-full w-full object-contain p-8 opacity-30" />
                   <div className="absolute inset-x-3 bottom-3 space-y-2">
@@ -733,16 +689,16 @@ export default function BundleHighlights() {
                 </div>
               </div>
             ))}
-          </div>
+          </InfiniteSwipeRow>
         ) : (
-          <div className="grid min-h-[300px] content-start grid-cols-3 items-start gap-2 sm:min-h-[300px] sm:grid-cols-5 sm:gap-4 md:min-h-[460px] md:grid-cols-4 lg:min-h-[500px] lg:grid-cols-5 xl:min-h-[620px] 2xl:min-h-[664px]">
+          <InfiniteSwipeRow ariaLabel="Garage highlights">
             {displayCards.map((card, index) => {
               const visibilityClass = getFeedVisibility(index);
               return card.type === 'deal'
                 ? renderDealCard(card.deal, visibilityClass)
                 : renderFillerCard(card, visibilityClass);
             })}
-          </div>
+          </InfiniteSwipeRow>
         )}
 
         {!isLoadingBundles && displayCards.length === 0 && (

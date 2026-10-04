@@ -1447,7 +1447,7 @@ export const useStore = create(
           // projects so the home route does not need the complete catalog.
           homeKits: isStorefrontHome && canUseKits,
           homeBlueprints: isStorefrontHome && canUsePrints,
-          kits: canUseKits && (pathname.startsWith('/kits') || pathname === '/cart' || pathname === '/basket' || pathname === '/shelf'),
+          kits: canUseKits && (pathname.startsWith('/kits') || pathname === '/cart' || pathname === '/basket' || pathname === '/shelf' || (isStorefrontHome && APP_CONFIG.market === 'kits')),
           printedProjects: canUsePrints && (isStorefrontHome || pathname === '/prints' || pathname.startsWith('/prints/')),
           deals: canUseKits && (isStorefrontHome || pathname.startsWith('/kits')),
           orders: !isPortfolio && (pathname === '/orders' || pathname.startsWith('/orders/')),

@@ -83,7 +83,7 @@ const getInitialLoadDatasetKeys = (pathname) => {
   return [
     'userProfile',
     ...(isStorefrontHome ? ['stories', 'homeKits', 'homeBlueprints', 'printedProjects'] : []),
-    ...(isKitsPath || isCartPath ? ['kits'] : []),
+    ...(isKitsPath || isCartPath || (isStorefrontHome && APP_CONFIG.market === 'kits') ? ['kits'] : []),
     ...((isStorefrontHome || isKitsPath) ? ['deals'] : []),
     ...(isOrdersPath ? ['orders'] : []),
     ...(isCartPath ? ['basket'] : []),

@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Circle, Sparkles, Image as ImageIcon, Plus, BookImage, ChevronDown, ChevronUp, NotebookPen, Trash2 } from 'lucide-react';
+import { Circle, Sparkles, Image as ImageIcon, Plus, BookImage, NotebookPen, Trash2 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import UniversalImage from '../common/UniversalImage';
+import InfiniteSwipeRow from '../common/InfiniteSwipeRow';
 import { APP_CONFIG } from '../../appConfig';
 import { isStoryForMarket } from '../../utils/marketVisibility';
 
@@ -47,11 +48,7 @@ export default function Highlights() {
     [stories]
   );
   const sectionRef = useRef(null);
-  const headerRef = useRef(null);
   const storiesScrollLockTopRef = useRef(null);
-  const expandedStoriesLastScrollYRef = useRef(0);
-  const [isHeaderStuck, setIsHeaderStuck] = useState(false);
-  const [isHighlightsExpanded, setIsHighlightsExpanded] = useState(false);
   const [isDraftView, setIsDraftView] = useState(false);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedStoryIds, setSelectedStoryIds] = useState(() => new Set());
@@ -91,55 +88,6 @@ export default function Highlights() {
     };
   }, [focusStoriesSection, isStoriesFocusMode]);
 
-  useEffect(() => {
-    let animationFrame;
-
-    const updateStickyState = () => {
-      window.cancelAnimationFrame(animationFrame);
-      animationFrame = window.requestAnimationFrame(() => {
-        if (!headerRef.current) return;
-        const navbarHeight = window.innerWidth >= 640 ? 60 : 56;
-        setIsHeaderStuck(headerRef.current.getBoundingClientRect().top <= navbarHeight + 1);
-      });
-    };
-
-    updateStickyState();
-    window.addEventListener('scroll', updateStickyState, { passive: true });
-    window.addEventListener('resize', updateStickyState);
-
-    return () => {
-      window.cancelAnimationFrame(animationFrame);
-      window.removeEventListener('scroll', updateStickyState);
-      window.removeEventListener('resize', updateStickyState);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!isHighlightsExpanded) return undefined;
-
-    expandedStoriesLastScrollYRef.current = window.scrollY;
-
-    const handleExpandedStoriesScroll = () => {
-      if (!sectionRef.current) return;
-
-      const currentScrollY = window.scrollY;
-      const previousScrollY = expandedStoriesLastScrollYRef.current;
-      expandedStoriesLastScrollYRef.current = currentScrollY;
-
-      // Only collapse after the user scrolls upward above Stories.
-      if (currentScrollY >= previousScrollY) return;
-
-      const navbarHeight = window.innerWidth >= 640 ? 60 : 56;
-      const sectionDocumentTop = currentScrollY + sectionRef.current.getBoundingClientRect().top;
-      if (currentScrollY < sectionDocumentTop - navbarHeight) {
-        setIsHighlightsExpanded(false);
-      }
-    };
-
-    window.addEventListener('scroll', handleExpandedStoriesScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleExpandedStoriesScroll);
-  }, [isHighlightsExpanded]);
-
   const highlights = useMemo(() => (
     marketStories
       .filter((story) => !story.isDraft)
@@ -165,13 +113,8 @@ export default function Highlights() {
   // the route-level gate, but it must not turn this shell into an empty state.
   const isLoadingHighlights = visibleStories.length === 0 && storiesStatus === 'loading';
   const isStoriesError = visibleStories.length === 0 && storiesStatus === 'error';
-  const hasMoreHighlights = highlights.length > 6;
-
   const getCollapsedStoryVisibility = (index) => {
-    if (canManageStories || isHighlightsExpanded || index < 6) return '';
-    if (index < 8) return 'hidden sm:block';
-    if (index < 10) return 'hidden sm:block md:hidden lg:block';
-    return 'hidden';
+    return index >= 0 ? '' : 'hidden';
   };
 
   const handleCreateHighlight = () => {
@@ -244,36 +187,17 @@ export default function Highlights() {
       className="relative overflow-visible border-t border-black/[0.06] bg-neutral-50 px-5 pb-10 dark:border-white/[0.08] dark:bg-[#111111] sm:px-8 lg:px-12"
     >
       <div className="mx-auto max-w-7xl">
-        <div ref={headerRef} className="sticky top-[56px] z-[80] -mx-5 mb-4 flex flex-nowrap items-center justify-between gap-2 border-b border-black/5 bg-neutral-50/95 px-5 py-4 backdrop-blur-md transition-all duration-300 dark:border-white/5 dark:bg-[#111111]/95 sm:top-[60px] sm:-mx-8 sm:gap-4 sm:px-8 lg:-mx-12 lg:px-12">
+        <div className="-mx-5 mb-4 flex flex-nowrap items-center justify-between gap-2 border-b border-black/5 bg-neutral-50 px-5 py-4 sm:-mx-8 sm:gap-4 sm:px-8 lg:-mx-12 lg:px-12 dark:border-white/5 dark:bg-[#111111]">
           <div className="min-w-0 flex-1 text-left">
-            <h2 className={`${isHeaderStuck ? 'text-[18px]' : 'text-[clamp(18px,6vw,25px)]'} inline-flex min-w-0 items-center gap-1 whitespace-nowrap font-black italic uppercase leading-none tracking-[-0.06em] text-neutral-950 transition-[font-size] duration-300 dark:text-white`}>
+            <h2 className="inline-flex min-w-0 items-center gap-1 whitespace-nowrap text-[clamp(18px,6vw,25px)] font-black italic uppercase leading-none tracking-[-0.06em] text-neutral-950 dark:text-white">
               <span className="text-garage-blue">Garage</span>
               <span>{isDraftView ? 'Drafts' : 'Stories'}</span>
               <Sparkles className="shrink-0" size={16} strokeWidth={2} aria-hidden="true" />
             </h2>
           </div>
 
-          {(canManageStories || hasMoreHighlights) && (
+          {canManageStories && (
             <div className="flex shrink-0 items-center gap-2">
-              {!canManageStories && hasMoreHighlights && (
-                <button
-                  type="button"
-                  onClick={() => setIsHighlightsExpanded((expanded) => !expanded)}
-                  className={`inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-garage-blue text-[9px] font-black uppercase tracking-[0.12em] text-white shadow-lg shadow-blue-500/25 transition-all hover:-translate-y-0.5 hover:bg-blue-600 hover:shadow-xl active:scale-95 sm:text-[10px] ${isHighlightsExpanded ? 'w-9 px-0' : 'px-3 sm:px-4'}`}
-                  aria-expanded={isHighlightsExpanded}
-                  aria-controls="garage-highlights-grid"
-                  aria-label={isHighlightsExpanded ? 'Collapse stories' : 'Show all stories'}
-                  title={isHighlightsExpanded ? 'Collapse stories' : 'Show all stories'}
-                >
-                  {isHighlightsExpanded ? <ChevronUp size={14} strokeWidth={2.5} aria-hidden="true" /> : (
-                    <>
-                      Show all
-                      <ChevronDown size={14} strokeWidth={2.5} aria-hidden="true" />
-                    </>
-                  )}
-                </button>
-              )}
-
               {canManageStories && (
                 <>
                   <button
@@ -320,9 +244,9 @@ export default function Highlights() {
 
         {visibleStories.length > 0 || canManageStories || isLoadingHighlights ? (
           <>
-            <div id="garage-highlights-grid" className="grid min-h-[300px] content-start grid-cols-3 items-start gap-2 sm:min-h-[300px] sm:grid-cols-5 sm:gap-4 md:min-h-[460px] md:grid-cols-4 lg:min-h-[500px] lg:grid-cols-5 xl:min-h-[620px] 2xl:min-h-[664px]">
+            <InfiniteSwipeRow ariaLabel="Garage stories" className="pb-2">
               {isLoadingHighlights && Array.from({ length: 5 }).map((_, index) => (
-                <div key={`highlight-skeleton-${index}`} className="relative aspect-[3/4] self-start overflow-hidden rounded-[1.5rem] border border-black/[0.05] bg-neutral-200 p-1 shadow-xl animate-pulse dark:border-2 dark:border-neutral-500 dark:bg-neutral-900">
+                <div key={`highlight-skeleton-${index}`} className="relative aspect-[3/4] w-40 shrink-0 self-start overflow-hidden rounded-[1.5rem] border border-black/[0.05] bg-neutral-200 p-1 shadow-xl animate-pulse sm:w-44 md:w-48 lg:w-56 dark:border-2 dark:border-neutral-500 dark:bg-neutral-900">
                   <div className="relative h-full w-full overflow-hidden rounded-[1.3rem] bg-black/5 dark:bg-white/5">
                     <UniversalImage src="" alt="" aria-hidden="true" className="h-full w-full object-contain p-8 opacity-30" />
                     <div className="absolute inset-x-3 bottom-3 space-y-2">
@@ -343,7 +267,7 @@ export default function Highlights() {
                 return (
                   <div
                     key={story.id}
-                    className={`${getCollapsedStoryVisibility(index)} story-card glass-card group relative aspect-[3/4] w-full cursor-pointer overflow-hidden rounded-[1.5rem] p-1 shadow-xl transition-all duration-500 lg:hover:-translate-y-1 ${isSelected ? 'border-2 border-garage-blue ring-2 ring-garage-blue/30' : ''}`}
+                    className={`${getCollapsedStoryVisibility(index)} story-card glass-card group relative aspect-[3/4] w-40 shrink-0 cursor-pointer overflow-hidden rounded-[1.5rem] p-1 shadow-xl transition-all duration-500 sm:w-44 md:w-48 lg:w-56 ${isSelected ? 'border-2 border-garage-blue ring-2 ring-garage-blue/30' : ''}`}
                   >
                     <div className="story-card-media relative h-full w-full overflow-hidden rounded-[1.3rem]">
                       <button
@@ -411,7 +335,7 @@ export default function Highlights() {
                   </div>
                 );
               })}
-            </div>
+            </InfiniteSwipeRow>
 
             {!isLoadingHighlights && visibleStories.length === 0 && (
               <div className="col-span-full flex min-h-64 flex-col items-center justify-center rounded-3xl border border-dashed border-black/10 bg-white/70 px-6 text-center dark:border-white/10 dark:bg-white/[0.03]">

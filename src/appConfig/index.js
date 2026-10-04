@@ -27,7 +27,7 @@ const APP_CONFIGS = Object.freeze({
     basketScope: 'liquikits',
     orderDomain: 'liquikits',
     homePath: '/',
-    nav: ['home', 'kits', 'orders'],
+    nav: ['orders'],
     allowedMarkets: ['kits']
   },
   komiprints: {

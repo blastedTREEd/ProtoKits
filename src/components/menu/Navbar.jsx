@@ -143,6 +143,7 @@ export default function Navbar({ isCompact: scrolledCompact }) {
 
   const [authError, setAuthError] = useState(null);
   const [showBottomNav, setShowBottomNav] = useState(true);
+  const isMobileMiniNavbarEnabled = false;
   const [forceHide, setForceHide] = useState(false); 
   const [isPastScrollThreshold, setIsPastScrollThreshold] = useState(() => window.scrollY > 40);
   const lastScrollYRef = useRef(window.scrollY);
@@ -516,9 +517,9 @@ useEffect(() => {
   // Keep pages with mobile sticky footers aligned with the animated mini navbar.
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('bottomNavVisibilityChange', {
-      detail: { visible: showBottomNav }
+      detail: { visible: isMobileMiniNavbarEnabled && showBottomNav }
     }));
-  }, [showBottomNav]);
+  }, [isMobileMiniNavbarEnabled, showBottomNav]);
 
   // Highlight cards open their full card modal while the landing page remains
   // mounted. Keep the navbar compact even though the router location stays on
@@ -1014,10 +1015,10 @@ return (
         )}
 
         <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 hidden sm:flex items-center gap-6 lg:gap-8">
-          <Link to="/" onPointerEnter={() => preloadRoute('/')} onPointerDown={() => preloadRoute('/')} onTouchStart={() => preloadRoute('/')} onClick={(e) => handleNavClick('/', e)} className="relative flex flex-col md:flex-row items-center justify-center gap-1 font-bold transition-colors group">
+          {APP_CONFIG.nav.includes('home') && <Link to="/" onPointerEnter={() => preloadRoute('/')} onPointerDown={() => preloadRoute('/')} onTouchStart={() => preloadRoute('/')} onClick={(e) => handleNavClick('/', e)} className="relative flex flex-col md:flex-row items-center justify-center gap-1 font-bold transition-colors group">
             <Home size={specs.utilIcon} className={location.pathname === '/' ? 'text-blue-500' : 'text-neutral-400 dark:text-neutral-400 group-hover:text-blue-500'} />
             <span className={`text-[11px] md:text-[14px] font-bold uppercase tracking-[0.005em] ${location.pathname === '/' ? 'bg-gradient-to-br from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent' : 'text-neutral-400 dark:text-neutral-400 group-hover:bg-gradient-to-br group-hover:from-[#0866FF] group-hover:to-[#00CFFF] group-hover:bg-clip-text group-hover:text-transparent'}`}>HOME</span>
-          </Link>
+          </Link>}
           {navLinks.map((link) => {
             const isActive = location.pathname === link.to;
             const iconClass = isActive
@@ -1420,7 +1421,7 @@ return (
     )}
 
  {/* Mini Navbar */}
-        {isMobile && !isStoriesManagerOpen && !isProfileOpen && !isNotificationModalOpen && location.pathname !== '/checkout' && (
+        {isMobileMiniNavbarEnabled && isMobile && !isStoriesManagerOpen && !isProfileOpen && !isNotificationModalOpen && location.pathname !== '/checkout' && (
           <div className={`fixed bottom-0 left-0 right-0 z-[100] transition-transform duration-300 ${showBottomNav ? 'translate-y-0' : 'translate-y-full'}`}>
             <div style={{ height: specs.h }} className={`flex items-center justify-around px-2 border-t ${isDarkMode ? 'bg-[var(--color-surface-raised)] border-white/10' : 'bg-white border-black/5'} shadow-2xl`}>
               <button onClick={(e) => handleNavClick('/', e)} className={`flex flex-col items-center justify-center gap-1 transition-colors ${location.pathname === '/' ? 'text-garage-blue' : 'text-neutral-600 dark:text-neutral-400'}`}>

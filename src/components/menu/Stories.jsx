@@ -4,13 +4,16 @@ import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../../store/useStore';
 import UniversalImage from '../common/UniversalImage';
+import InfiniteSwipeRow from '../common/InfiniteSwipeRow';
 import { APP_CONFIG } from '../../appConfig';
 import { isCombinedMarket, isStoryForMarket } from '../../utils/marketVisibility';
 
 const SYNC_GLOW_COLORS = ['#0066ff', '#ff3b30', '#34c759', '#ffcc00', '#af52de', '#ff7a00', '#00c7be'];
 const STORY_CARD_WIDTH = 112;
 const STORY_CARD_GAP = 12;
-// Stories strip above the navbar.
+// The labeled Garage Highlights and Garage Stories rows are the storefront
+// presentation for Liquikits. Keep this legacy strip's modal/data behavior,
+// but do not render a duplicate third row below the storefront sections.
 const SHOW_STORIES_STRIP = false;
 
 function isNamedProjectWithDisplayImage(project) {
@@ -186,6 +189,7 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
         targetId: story.id,
         image: story.backgroundImage || story.image || '/snorlaxgarage.png',
         label: story.label || 'Garage Story',
+        timestamp: getTimestamp(story.storyDate || story.createdAt || story.publishedAt || story.updatedAt),
         story
       }));
 
@@ -232,7 +236,8 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
         type: 'kit',
         targetId: kit.id,
         image: getKitImage(kit),
-        label: kit.name || 'Pre-order Kit'
+        label: kit.name || 'Pre-order Kit',
+        timestamp: getTimestamp(kit.lastUpdated || kit.createdAt)
       }));
 
     const onhandItems = selectUniqueKits([...kitItems]
@@ -246,7 +251,8 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
         type: 'kit',
         targetId: kit.id,
         image: getKitImage(kit),
-        label: kit.name || 'Onhand Kit'
+        label: kit.name || 'Onhand Kit',
+        timestamp: getTimestamp(kit.lastUpdated || kit.createdAt)
       }));
 
     const recentlyBackInStockItems = selectUniqueKits([...kitItems]
@@ -257,7 +263,8 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
         type: 'kit',
         targetId: kit.id,
         image: getKitImage(kit),
-        label: kit.name || 'Back in Stock'
+        label: kit.name || 'Back in Stock',
+        timestamp: getTimestamp(kit.lastRestockedAt || kit.lastAvailableAt || kit.lastUpdated || kit.createdAt)
       }));
 
     const projectCandidates = (showPrints ? [...(blueprints || []), ...(printedProjects || [])] : [])
@@ -278,7 +285,8 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
         targetId: project.id,
         // Match the image used by ProjectCard's public grid card.
         image: project.image || '/snorlaxgarage.png',
-        label: project.projectName || project.name || 'Garage Project'
+        label: project.projectName || project.name || 'Garage Project',
+        timestamp: getTimestamp(project.lastUpdated || project.createdAt || project.updatedAt)
       }));
 
     // Keep the strip full when there are fewer than five public projects or a
@@ -295,61 +303,22 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
         type: 'kit',
         targetId: kit.id,
         image: getKitImage(kit),
-        label: kit.name || 'Available Kit'
+        label: kit.name || 'Available Kit',
+        timestamp: getTimestamp(kit.lastUpdated || kit.createdAt)
       }));
 
-    // Mirror the lead Garage Highlights kit as the first item in the animated
-    // strip, then keep the remaining stories/content unique after it.
-    const leadHighlightItem = preOrderItems[0] || onhandItems[0] || recentlyBackInStockItems[0] || replacementKits[0] || null;
-    const leadHighlightTargetId = leadHighlightItem?.targetId || null;
-    const firstHighlightCard = leadHighlightItem
-      ? { ...leadHighlightItem, id: `highlight:${leadHighlightItem.targetId}` }
-      : null;
     const mixedItems = [
-      firstHighlightCard,
       ...recentStories,
-      ...preOrderItems.filter((item) => item.targetId !== leadHighlightTargetId),
-      ...onhandItems.filter((item) => item.targetId !== leadHighlightTargetId),
-      ...recentlyBackInStockItems.filter((item) => item.targetId !== leadHighlightTargetId),
+      ...preOrderItems,
+      ...onhandItems,
+      ...recentlyBackInStockItems,
       ...recentProjects,
-      ...replacementKits.filter((item) => item.targetId !== leadHighlightTargetId)
+      ...replacementKits
     ].filter(Boolean);
 
-    // Keep categories visually interleaved without reshuffling on every render.
-    // The item IDs provide a stable, random-looking order until the data changes.
-    const stableHash = (value) => {
-      let hash = 2166136261;
-      for (let index = 0; index < value.length; index += 1) {
-        hash ^= value.charCodeAt(index);
-        hash = Math.imul(hash, 16777619);
-      }
-      return hash >>> 0;
-    };
-
-    const randomizedItems = mixedItems.slice(1).sort((a, b) => stableHash(a.id) - stableHash(b.id));
-    if (!firstHighlightCard) return randomizedItems;
-
-    const storyItems = randomizedItems.filter((item) => item.type === 'story');
-    const nonStoryItems = randomizedItems.filter((item) => item.type !== 'story');
-
-    // Keep the random-looking order, but never place two story cards beside
-    // each other. Non-story cards are reused only when there are more stories
-    // than separators, and the result always ends with a non-story card so
-    // the repeated marquee also joins without a story/story pair.
-    if (storyItems.length === 0 || nonStoryItems.length === 0) return [firstHighlightCard, ...randomizedItems];
-
-    const separatedItems = [];
-    const itemCount = Math.max(storyItems.length, nonStoryItems.length);
-    for (let index = 0; index < itemCount; index += 1) {
-      if (storyItems[index]) separatedItems.push(storyItems[index]);
-      if (nonStoryItems[index]) {
-        separatedItems.push(nonStoryItems[index]);
-      } else {
-        separatedItems.push(nonStoryItems[index % nonStoryItems.length]);
-      }
-    }
-
-    return [firstHighlightCard, ...separatedItems];
+    return mixedItems.sort((a, b) => (
+      b.timestamp - a.timestamp || String(a.id).localeCompare(String(b.id))
+    ));
   }, [activeStories, blueprints, getKitImage, getKitStocks, getTimestamp, isAdmin, isAdminView, isAvailableStock, isOnhandStock, isPreOrderStock, kits, printedProjects]);
 
   // Open a story directly when a highlight tile is selected in the homepage grid.
@@ -401,22 +370,18 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
   ), [syncingStoryCount]);
 
   const isShowingPlaceholders = highlightItems.length === 0 && storiesStatus === 'loading';
-  const shouldAnimateStories = storiesStatus !== 'loading' && !isShowingPlaceholders && highlightItems.length > 0;
   const filledHighlightItems = React.useMemo(() => {
     if (highlightItems.length === 0) return [];
 
     // Match the loading placeholder count so the strip stays full when the
     // real highlight data replaces the placeholders on small and medium
     // viewports.
-    const itemCount = Math.max(syncingStoryCount, highlightItems.length);
-    return Array.from({ length: itemCount }, (_, index) => highlightItems[index % highlightItems.length]);
-  }, [highlightItems, syncingStoryCount]);
+    return highlightItems;
+  }, [highlightItems]);
   const displayStories = isShowingPlaceholders
     ? syncingStories
     : highlightItems.length > 0
-      ? (shouldAnimateStories
-        ? [...filledHighlightItems, ...filledHighlightItems, ...filledHighlightItems]
-        : filledHighlightItems)
+      ? filledHighlightItems
       : [];
   const isStoriesStripHidden = isCompact || hideAnimatedCards;
 
@@ -455,10 +420,9 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
           <div className="hidden lg:block absolute left-0 top-0 bottom-0 w-24 bg-gradient-to-r from-white dark:from-neutral-900 via-white/80 dark:via-neutral-900/80 to-transparent z-50 pointer-events-none" />
           <div className="hidden lg:block absolute right-0 top-0 bottom-0 w-24 bg-gradient-to-l from-white dark:from-neutral-900 via-white/80 dark:via-neutral-900/80 to-transparent z-50 pointer-events-none" />
 
-          <div
-            aria-hidden={hideAnimatedCards}
-            className={`flex w-max gap-3 ${shouldAnimateStories ? 'animate-infinite-scroll' : ''} ${hideAnimatedCards ? 'invisible' : ''}`}
-            style={{ '--scroll-speed': '50s' }}
+          <InfiniteSwipeRow
+            ariaLabel="Garage highlight carousel"
+            className={hideAnimatedCards ? 'invisible' : ''}
           >
             {displayStories.map((highlight, index) => (
               (() => {
@@ -505,7 +469,7 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
                 );
               })()
             ))}
-          </div>
+          </InfiniteSwipeRow>
         </div>
       </div>}
 

@@ -1,11 +1,12 @@
 import React, { useEffect, useRef } from 'react';
-import { useLocation, Link } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
 import { useStore } from '../store/useStore';
 import Highlights from '../components/menu/Highlights';
 import BundleHighlights from '../components/menu/BundleHighlights';
 import Stories from '../components/menu/Stories';
+import Kits from './Kits';
 // eslint-disable-next-line no-unused-vars
 import { motion, useScroll, useTransform } from 'framer-motion';
 
@@ -132,15 +133,15 @@ export default function Home() {
               leading-relaxed
             "
           >
-            From backlogs to custom builds. We provide
-            high-quality 3D prints, curated kits, and tools to
-            help you finish your next masterpiece.
+            BUILT, UNBUILT &amp; EVERYTHING BETWEEN.
+            <br />
+            Explore transparently tagged Gunpla options from my backlog—tailored for every budget, condition, and build style.
           </p>
 
         </div>
       </section>
 
-      {/* SECTION 2: BUNDLE DEALS */}
+      {/* SECTION 2: GARAGE HIGHLIGHTS */}
       <BundleHighlights />
 
       {/* SECTION 3: GARAGE STORIES */}
@@ -148,6 +149,11 @@ export default function Home() {
 
       {/* Highlights dispatches story-open events; Stories owns the preview modal. */}
       <Stories />
+
+      {/* SECTION 4: STOREFRONT */}
+      <section aria-label="Storefront">
+        <Kits embedded />
+      </section>
       </div>
     </PageTemplate>
   );
