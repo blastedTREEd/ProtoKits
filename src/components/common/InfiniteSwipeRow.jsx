@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 const getGap = (element) => {
@@ -17,8 +17,8 @@ export default function InfiniteSwipeRow({ children, className = '', ariaLabel }
   const trackRef = useRef(null);
   const cycleRef = useRef(null);
   const cycleSpanRef = useRef(0);
-  const edgePeekRef = useRef(0);
   const frameRef = useRef(0);
+  const [isInitialInsetActive, setIsInitialInsetActive] = useState(true);
   const itemCount = items.length;
   const shouldLoop = itemCount > 1;
 
@@ -29,11 +29,10 @@ export default function InfiniteSwipeRow({ children, className = '', ariaLabel }
     if (!viewport || !track || !cycle) return;
 
     cycleSpanRef.current = cycle.offsetWidth + getGap(track);
-    edgePeekRef.current = shouldLoop
-      ? Math.min(72, Math.max(18, viewport.clientWidth * 0.05))
-      : 0;
     if (placeAtMiddle && shouldLoop) {
-      viewport.scrollLeft = cycleSpanRef.current + edgePeekRef.current;
+      // Start on the first item of the middle cycle. The temporary viewport
+      // inset keeps that first card fully visible until the user navigates.
+      viewport.scrollLeft = cycleSpanRef.current;
     }
   }, [shouldLoop]);
 
@@ -75,6 +74,7 @@ export default function InfiniteSwipeRow({ children, className = '', ariaLabel }
     const viewport = viewportRef.current;
     if (!viewport) return;
 
+    setIsInitialInsetActive(false);
     const amount = Math.max(
       cycleSpanRef.current * 0.55,
       viewport.clientWidth * 0.75,
@@ -89,6 +89,7 @@ export default function InfiniteSwipeRow({ children, className = '', ariaLabel }
   return (
     <div className={`relative w-full ${className}`}>
       <button
+        hidden={isInitialInsetActive}
         type="button"
         aria-label={`Previous ${ariaLabel || 'items'}`}
         onClick={() => scrollByItems(-1)}
@@ -101,7 +102,7 @@ export default function InfiniteSwipeRow({ children, className = '', ariaLabel }
         role="region"
         aria-label={ariaLabel}
         onScroll={handleScroll}
-        className="w-full overflow-x-auto overflow-y-hidden overscroll-x-contain touch-pan-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className={`w-full overflow-x-auto overflow-y-hidden overscroll-x-contain touch-pan-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${isInitialInsetActive ? 'pl-5 sm:pl-8 lg:pl-12' : ''}`}
       >
         <div ref={trackRef} className="flex w-max flex-nowrap items-start gap-3">
           {Array.from({ length: cycleCount }, (_, copyIndex) => (
