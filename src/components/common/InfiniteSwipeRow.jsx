@@ -17,6 +17,7 @@ export default function InfiniteSwipeRow({ children, className = '', ariaLabel }
   const trackRef = useRef(null);
   const cycleRef = useRef(null);
   const cycleSpanRef = useRef(0);
+  const edgePeekRef = useRef(0);
   const frameRef = useRef(0);
   const itemCount = items.length;
   const shouldLoop = itemCount > 1;
@@ -28,8 +29,11 @@ export default function InfiniteSwipeRow({ children, className = '', ariaLabel }
     if (!viewport || !track || !cycle) return;
 
     cycleSpanRef.current = cycle.offsetWidth + getGap(track);
+    edgePeekRef.current = shouldLoop
+      ? Math.min(72, Math.max(18, viewport.clientWidth * 0.05))
+      : 0;
     if (placeAtMiddle && shouldLoop) {
-      viewport.scrollLeft = cycleSpanRef.current;
+      viewport.scrollLeft = cycleSpanRef.current + edgePeekRef.current;
     }
   }, [shouldLoop]);
 
