@@ -82,7 +82,6 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
 
   // Preview modal state
   const [activeStoryIndex, setActiveStoryIndex] = useState(null);
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [syncingStoryCount, setSyncingStoryCount] = useState(() => (
     getStoryCardCount(window.innerWidth)
   ));
@@ -111,7 +110,6 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
   // Track mobile breakpoint and fill the whole strip while stories load.
   useEffect(() => {
     const handleResize = () => {
-      setIsMobile(window.innerWidth < 768);
       setSyncingStoryCount(getStoryCardCount(window.innerWidth));
     };
     window.addEventListener('resize', handleResize);
@@ -493,18 +491,10 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.92 }}
               transition={{ type: "spring", damping: 30, stiffness: 400 }}
-              style={isMobile ? undefined : {
-                width: 'min(92vw, 92vh, 796px)',
-                aspectRatio: '1 / 1'
-              }}
-              className={
-                isMobile
-                  ? "relative w-full h-full bg-neutral-950 flex flex-col"
-                  : "relative rounded-3xl overflow-hidden shadow-2xl bg-white dark:bg-neutral-950"
-              }
+              className="story-card glass-card relative h-[min(92vh,44rem)] w-[min(92vw,33rem)] overflow-hidden rounded-[1.5rem] p-1 shadow-2xl"
             >
-              {/* Story Image / Background */}
-              <div className="absolute inset-0 overflow-hidden md:right-[43.75%] md:w-[56.25%]">
+              <div className="story-card-media relative h-full w-full overflow-hidden rounded-[1.3rem] bg-neutral-950">
+                {/* Story Image / Background */}
                 {activeStory.backgroundImage ? (
                   <UniversalImage
                     src={activeStory.backgroundImage} 
@@ -527,14 +517,11 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
                     style={{ background: `linear-gradient(135deg, ${activeStory.value}40 0%, ${activeStory.value}10 50%, ${activeStory.value}30 100%)` }}
                   />
                 )}
-                {/* Top gradient for header readability */}
-                <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-transparent to-transparent z-[5] md:hidden" />
-                {/* Bottom gradient — heavier dark shadow for description */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 via-30% to-transparent z-[5] md:hidden" />
-              </div>
+                {/* Gradients keep the header and story details readable over the image. */}
+                <div className="absolute inset-0 z-[5] bg-gradient-to-b from-black/75 via-black/10 to-transparent" />
+                <div className="absolute inset-0 z-[5] bg-gradient-to-t from-black via-black/75 via-30% to-transparent" />
 
-              {/* Overlays Container (Stickers, Masks, Texts) */}
-              <div className="absolute inset-0 pointer-events-none overflow-hidden z-10 md:right-[43.75%] md:w-[56.25%]">
+                {/* Overlays Container (Stickers, Masks, Texts) */}
                 {/* Render Stickers (Polaroids & Masks) */}
                 {(activeStory.stickers || []).map((st) => {
                   const isPolaroid = st.type === 'mask' ? false : true;
@@ -601,42 +588,33 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
                     {t.text}
                   </div>
                 ))}
-              </div>
-
-              {/* Close Button — z-30 so it stays ABOVE navigation zones */}
-              <button 
-                onClick={(e) => { e.stopPropagation(); setActiveStoryIndex(null); }}
-                className={`absolute top-5 right-5 z-30 p-2 rounded-full backdrop-blur-md border transition-all shadow-lg ${
-                  isMobile
-                    ? 'bg-black/40 border-white/10 text-white/80 hover:text-white hover:bg-black/60'
-                    : 'bg-white/90 border-black/10 text-neutral-600 hover:text-neutral-950 hover:bg-white dark:bg-[var(--color-surface-raised)] dark:border-white/10 dark:text-white/80 dark:hover:text-white dark:hover:bg-[var(--color-surface-raised)]'
-                }`}
-              >
-                <X size={20} />
-              </button>
-
-              {/* Top Header — profile pic, page name */}
-              <div className="relative z-20 flex items-center gap-3 p-5 pt-6 pr-14 md:absolute md:left-[56.25%] md:top-0 md:w-[43.75%]">
-                <div className="w-10 h-10 rounded-full border-2 border-white/60 bg-white/20 backdrop-blur-md overflow-hidden shadow-lg flex-shrink-0 md:border-garage-blue/50">
-                  <img 
-                    src="/snorlaxgarage.png"
-                    alt="SG" 
-                    className="w-full h-full object-cover"
-                  />
+                {/* Header row stays on the image pane: brand logo, story title, and date. */}
+                <div className="absolute left-0 right-0 top-0 z-30 flex items-center gap-3 p-5 pr-16">
+                  <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full border-2 border-white/70 bg-white/20 shadow-lg backdrop-blur-md">
+                    <img src="/snorlaxgarage.png" alt="SnorlaxGarage" className="h-full w-full object-cover" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="line-clamp-2 text-base font-black italic uppercase leading-tight tracking-tight text-white drop-shadow-lg">
+                      {activeStory.label || 'Garage Story'}
+                    </h3>
+                    <span className="text-[13px] font-bold uppercase tracking-widest text-white/80 drop-shadow-md">
+                      {formatStoryDate(activeStory.storyDate || activeStory.createdAt || activeStory.lastUpdated)}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-md font-black italic uppercase tracking-tight leading-none drop-shadow-lg truncate">
-                    <span className="text-neutral-950 dark:text-white">SNORLAX</span>
-                    <span className="text-garage-blue">GARAGE</span>
-                  </h3>
-                  <span className="text-[13px] font-bold text-white uppercase tracking-widest md:text-neutral-500 md:dark:text-neutral-400">
-                    {formatStoryDate(activeStory.storyDate || activeStory.createdAt || activeStory.lastUpdated)}
-                  </span>
-                </div>
-              </div>
 
-              {/* Progress Bars */}
-              <div className="relative z-20 flex gap-1 px-5 mb-auto md:absolute md:left-[56.25%] md:top-[90px] md:w-[43.75%] md:mb-0">
+                {/* Sticky close control stays pinned to the story card's upper-right corner. */}
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setActiveStoryIndex(null); }}
+                  className="absolute right-4 top-4 z-40 rounded-full border border-white/50 bg-black/25 p-2 text-white shadow-lg backdrop-blur-md transition-all hover:scale-105 hover:bg-black/50 focus:outline-none focus:ring-2 focus:ring-white/80"
+                  aria-label="Close story"
+                >
+                  <X size={20} />
+                </button>
+
+                {/* Progress Bars */}
+                <div className="absolute left-5 right-5 top-[92px] z-30 flex gap-1">
                 {activeStories.map((_, idx) => (
                   <button 
                     key={idx}
@@ -644,10 +622,10 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
                     className={`h-0.5 flex-1 rounded-full transition-all duration-300 cursor-pointer hover:h-1 ${idx === activeStoryIndex ? 'bg-white md:bg-garage-blue' : 'bg-white/20 hover:bg-white/40 md:bg-neutral-200 md:hover:bg-neutral-300 md:dark:bg-white/20 md:dark:hover:bg-white/40'}`}
                   />
                 ))}
-              </div>
+                </div>
 
-              {/* Always-Visible Navigation Buttons — ProductCard style matching */}
-              <div className="absolute left-4 top-1/2 -translate-y-1/2 z-20">
+                {/* Story navigation */}
+                <div className="absolute left-4 top-1/2 z-30 -translate-y-1/2">
                 <button
                   onClick={(e) => { e.stopPropagation(); handlePrev(); }}
                   disabled={activeStories.length <= 1}
@@ -658,8 +636,8 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
                 >
                   <ChevronLeft size={20} strokeWidth={2.5} />
                 </button>
-              </div>
-              <div className="absolute right-4 top-1/2 -translate-y-1/2 z-20 md:right-[calc(43.75%+1rem)]">
+                </div>
+                <div className="absolute right-4 top-1/2 z-30 -translate-y-1/2">
                 <button
                   onClick={(e) => { e.stopPropagation(); handleNext(); }}
                   disabled={activeStories.length <= 1}
@@ -670,26 +648,23 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
                 >
                   <ChevronRight size={20} strokeWidth={2.5} />
                 </button>
-              </div>
+                </div>
 
-              {/* Bottom Content — title, description with strong dark gradient */}
-              <div className="relative z-10 p-6 pb-8 mt-auto md:absolute md:inset-y-0 md:right-0 md:mt-0 md:flex md:w-[43.75%] md:flex-col md:justify-start md:overflow-y-auto md:border-l md:border-black/5 md:bg-white md:p-6 md:pt-[108px] md:dark:border-white/10 md:dark:bg-neutral-950">
-                <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white leading-tight drop-shadow-lg md:text-neutral-950 dark:text-white">
-                  {activeStory.label}
-                </h2>
+                {/* Bottom Content — description and story details over the image */}
+                <div className="absolute bottom-0 left-0 right-0 z-20 max-h-[48%] overflow-y-auto p-5 pb-6 text-white">
                 {activeStory.description && (
-                  <p className="text-sm text-white/80 mt-2 leading-relaxed font-medium max-w-sm drop-shadow-md md:text-neutral-600 dark:text-white/80">
+                  <p className="max-w-sm text-sm font-medium leading-relaxed text-white/90 drop-shadow-md">
                     {activeStory.description}
                   </p>
                 )}
                 {(getStoryDestination(activeStory) || getStoryItems(activeStory.items).length > 0) && (
-                  <dl className="mt-4 space-y-3 border-t border-white/20 pt-4 md:border-black/10 md:dark:border-white/10">
+                  <dl className="mt-4 space-y-3 border-t border-white/30 pt-4">
                     {getStoryDestination(activeStory) && (
                       <div className="flex items-start gap-3">
                         <MapPin size={16} className="mt-0.5 shrink-0 text-garage-blue" />
                         <div className="min-w-0">
-                          <dt className="text-[9px] font-black uppercase tracking-[0.18em] text-white/50 md:text-neutral-400 md:dark:text-white/50">Destination</dt>
-                          <dd className="mt-0.5 text-sm font-semibold leading-snug text-white md:text-neutral-700 md:dark:text-white">{getStoryDestination(activeStory)}</dd>
+                          <dt className="text-[9px] font-black uppercase tracking-[0.18em] text-white/60">Destination</dt>
+                          <dd className="mt-0.5 text-sm font-semibold leading-snug text-white">{getStoryDestination(activeStory)}</dd>
                         </div>
                       </div>
                     )}
@@ -697,8 +672,8 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
                       <div className="flex items-start gap-3">
                         <Package size={16} className="mt-0.5 shrink-0 text-garage-blue" />
                         <div className="min-w-0">
-                          <dt className="text-[9px] font-black uppercase tracking-[0.18em] text-white/50 md:text-neutral-400 md:dark:text-white/50">Items</dt>
-                          <dd className="mt-0.5 space-y-1 text-sm font-semibold leading-snug text-white md:text-neutral-700 md:dark:text-white">
+                          <dt className="text-[9px] font-black uppercase tracking-[0.18em] text-white/60">Items</dt>
+                          <dd className="mt-0.5 space-y-1 text-sm font-semibold leading-snug text-white">
                             {getStoryItems(activeStory.items).map((item, index) => <div key={`${item}-${index}`}>{item}</div>)}
                           </dd>
                         </div>
@@ -706,6 +681,7 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
                     )}
                   </dl>
                 )}
+                </div>
               </div>
             </Motion.div>
           </div>
