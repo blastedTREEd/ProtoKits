@@ -1973,6 +1973,7 @@ export default function Kits({ isActive = true, embedded = false }) {
                 isOpen={Boolean(selectedDeal)}
                 onClose={() => setSelectedDeal(null)}
                 deal={selectedDeal}
+                isCatalogLoading={isMergedHomeCatalog && !isFullCatalogLoaded}
                 onBuyNow={handleDealCheckout}
                 onAddToBasket={handleDealAddToBasket}
                 onOpenKit={handleOpenDealKit}

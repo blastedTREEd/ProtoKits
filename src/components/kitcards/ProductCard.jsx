@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { 
   X, Clock, Package, ShelvingUnit, PackageMinus, PackagePlus, PackageX, Calendar, UserCheck, Info,
-  ChevronRight, ChevronLeft, Bike, Pencil, Trash2, Bell, Plane, Plus, ArrowBigUpDash, Gift, Zap, Forward
+  ChevronRight, ChevronLeft, Bike, Pencil, Trash2, Bell, Plane, Plus, ArrowBigUpDash, Gift, Zap, Forward, LoaderCircle
   } from 'lucide-react';
 import { FaQuestion } from 'react-icons/fa';
 import { useStore } from '../../store/useStore';
@@ -478,6 +478,8 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     shippingSettings,
     setToastMessage
   } = useStore();
+  const isFullCatalogLoaded = useStore((state) => Boolean(state._loadedDatasets?.kits));
+  const dealsStatus = useStore((state) => state._datasetStatus?.deals || 'loading');
 
   useEffect(() => {
     if (!isAdmin || !isAdminView) return undefined;
@@ -499,6 +501,20 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   }, [rawKit, validatedOrderStockData]);
 
   const kitId = kit?.id;
+
+  const hasPotentialBundleDeal = Array.isArray(deals) && deals.some((deal) => {
+    const isClearanceDeal = isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal);
+    const isBundleDeal = deal?.type === 'bundle_only' || deal?.type === 'bundle_discount' || isClearanceDeal;
+    const dealKitIds = isClearanceDeal && deal.clearanceKitIds?.length
+      ? deal.clearanceKitIds
+      : (deal?.kitIds || []);
+    return isBundleDeal && dealKitIds.some((dealKitId) => String(dealKitId) === String(kitId));
+  });
+
+  const isDealCatalogLoading = APP_CONFIG.id === 'liquikits'
+    && !isFullCatalogLoaded
+    && !isAdminView
+    && (dealsStatus === 'loading' || hasPotentialBundleDeal);
 
   const handleDealCheckout = (deal, targetKitId) => {
     if (typeof onDealCheckout === 'function') {
@@ -2346,12 +2362,21 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                         </div>
                       )}
 
-                      {!isAdminView && nonWildSaleDealDetails.length > 0 && (
+                      {!isAdminView && (nonWildSaleDealDetails.length > 0 || isDealCatalogLoading) && (
                         <div className="pt-4 space-y-2">
                           <h4 className="text-[14px] font-bold uppercase tracking-[0.1em] text-neutral-600 dark:text-neutral-300 flex items-center gap-2 text-left">
                             <Gift size={18} /> DEALS
                           </h4>
-                          <div className="space-y-4">
+                          {isDealCatalogLoading ? (
+                            <div className="flex min-h-28 flex-col items-center justify-center gap-3 rounded-2xl border-2 border-emerald-500/20 bg-emerald-500/5 px-4 py-6 text-emerald-600/70">
+                              <LoaderCircle size={24} className="animate-spin" aria-hidden="true" />
+                              <span className="text-[11px] font-black uppercase tracking-[0.18em]">Loading bundle deals...</span>
+                              <div className="w-full space-y-2" aria-hidden="true">
+                                <div className="h-3 animate-pulse rounded-full bg-emerald-500/15" />
+                                <div className="h-3 w-2/3 animate-pulse rounded-full bg-emerald-500/15" />
+                              </div>
+                            </div>
+                          ) : <div className="space-y-4">
                             {nonWildSaleDealDetails.map(({ deal, includedKits, displayName }) => {
                               const isSelectedBundlePanel = selectedBundleDealDetails?.deal?.id === deal.id;
                               const bundleGroup = bundleDealGroups.find(group => group.deal?.id === deal.id);
@@ -2597,7 +2622,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
                               </div>
                               );
                             })}
-                          </div>
+                          </div>}
                         </div>
                       )}
                     </div>

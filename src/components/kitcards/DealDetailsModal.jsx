@@ -1,6 +1,6 @@
 import React, { useMemo, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Gift, Zap, ArrowRight, Settings, Package } from 'lucide-react';
+import { X, Gift, Zap, ArrowRight, Settings, Package, LoaderCircle } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { getBundleDealPricing, getClearanceBundlePricing, getFlexiBundlePreviewPricing, getHighestCostStock } from '../../utils/bundlePricing';
 import { isFlexiBundleDeal, isPerKitClearanceDeal, getActiveClearanceKitIds, getClearanceDisplayLabel } from '../../utils/dealTypes';
@@ -50,7 +50,7 @@ function getDealSourceStock(kit, source = 'onhand') {
     || null;
 }
 
-export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onAddToBasket, onOpenKit, isEditMode = false, onEditDeal }) {
+export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onAddToBasket, onOpenKit, isEditMode = false, onEditDeal, isCatalogLoading = false }) {
   const { kits } = useStore();
   const onCloseRef = useRef(onClose);
   const isEditable = isEditMode && typeof onEditDeal === 'function';
@@ -67,6 +67,21 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onAd
     ];
     return getOrderedKits(kits, orderedKitIds);
   }, [deal, kits]);
+
+  const expectedKitCount = useMemo(() => {
+    if (!deal) return 0;
+    const dealKitIds = getDealKitIds(deal);
+    return new Set([
+      ...(deal.previewKitIds || []),
+      ...dealKitIds
+    ].map(id => String(id))).size;
+  }, [deal]);
+
+  // The merged LiquiKits home can open a deal before the full catalog has
+  // arrived. Treat a partial resolution as loading too, otherwise the modal
+  // briefly presents an empty bundle and misleading zero totals.
+  const isDealCatalogLoading = isCatalogLoading
+    && (expectedKitCount === 0 || includedKits.length < expectedKitCount);
 
   // Compute clearance-style pricing for pre-bundled deals.
   const { normalTotal, bundlePrice, savings, kitPricing } = useMemo(() => {
@@ -200,22 +215,32 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onAd
            <div className="grid grid-cols-2 gap-3 shrink-0">
               <div className="bg-black/5 dark:bg-white/5 rounded-3xl p-5 text-left border border-white/5">
                  <span className="text-[12px] font-black uppercase opacity-40 tracking-widest block mb-1 text-left">Original Total</span>
-                 <span className="text-lg font-black italic line-through opacity-30">₱{normalTotal.toLocaleString()}</span>
+                 <span className="text-lg font-black italic line-through opacity-30">{isDealCatalogLoading ? '—' : `₱${normalTotal.toLocaleString()}`}</span>
               </div>
               <div className="bg-emerald-600/10 rounded-3xl p-5 text-left border border-emerald-500/20">
                  <span className="text-[12px] font-black uppercase text-emerald-500 tracking-widest block mb-1 text-left">Save Up To</span>
-                 <span className="text-lg font-black italic text-emerald-500">₱{savings.toLocaleString()}</span>
+                 <span className="text-lg font-black italic text-emerald-500">{isDealCatalogLoading ? '—' : `₱${savings.toLocaleString()}`}</span>
               </div>
            </div>
 
            {/* Kit List */}
            <div className="space-y-3">
               <div className="flex justify-between items-end mb-1 px-2">
-                 <h4 className="text-[13px] font-black uppercase tracking-[0.2em] opacity-30 text-left">Bundle Inclusions ({includedKits.length})</h4>
+                 <h4 className="text-[13px] font-black uppercase tracking-[0.2em] opacity-30 text-left">Bundle Inclusions{isDealCatalogLoading ? '' : ` (${includedKits.length})`}</h4>
               </div>
               
               <div className={`rounded-2xl border px-4 dark:bg-emerald-500/10 ${(isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)) ? 'border-amber-500/30 bg-amber-500/10' : 'border-emerald-500/20 bg-emerald-500/10'}`}>
-                {includedKits.map((kit, kitIndex) => {
+                {isDealCatalogLoading ? (
+                  <div className="flex min-h-40 flex-col items-center justify-center gap-3 py-8 text-emerald-600/70">
+                    <LoaderCircle size={28} className="animate-spin" aria-hidden="true" />
+                    <span className="text-[11px] font-black uppercase tracking-[0.18em]">Loading bundle kits...</span>
+                    <div className="w-full max-w-md space-y-2" aria-hidden="true">
+                      {[0, 1, 2].map((row) => (
+                        <div key={row} className="h-3 animate-pulse rounded-full bg-emerald-500/15" />
+                      ))}
+                    </div>
+                  </div>
+                ) : includedKits.map((kit, kitIndex) => {
                   const pricing = kitPricing.find(p => p.kitId === kit.id) || {};
                   const { refPrice = 0, distributedPrice = 0 } = pricing;
                   const imageUrl = resolveImage(kit.image, kit.images);
@@ -274,24 +299,25 @@ export default function DealDetailsModal({ isOpen, onClose, deal, onBuyNow, onAd
            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 w-full">
               <div className="text-left">
                  <span className="text-[8px] md:text-[10px] font-black uppercase tracking-widest opacity-40 block mb-0.5 leading-none">Lowest {(isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)) ? getClearanceDisplayLabel(deal) : 'Deal'} Price</span>
-                 <span className="text-xl lg:text-3xl font-black italic text-emerald-500 tracking-tighter leading-none">₱{bundlePrice.toLocaleString()}</span>
+                 <span className="text-xl lg:text-3xl font-black italic text-emerald-500 tracking-tighter leading-none">{isDealCatalogLoading ? '—' : `₱${bundlePrice.toLocaleString()}`}</span>
                </div>
               <div className="flex w-full sm:w-auto flex-col sm:flex-row items-stretch sm:items-center gap-3">
               <button 
+                disabled={isDealCatalogLoading}
                 onClick={() => isEditable
                   ? onEditDeal(deal)
                   : (isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)) && typeof onAddToBasket === 'function'
                     ? onAddToBasket(deal)
                     : onBuyNow(deal)}
-                className={`w-full sm:w-auto px-5 py-3.5 lg:px-10 lg:py-5 rounded-[1.5rem] lg:rounded-[2rem] text-white font-black italic uppercase text-[10px] lg:text-[12px] tracking-[0.1em] lg:tracking-[0.15em] shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2 lg:gap-3 group shrink-0 ${
+                className={`w-full sm:w-auto px-5 py-3.5 lg:px-10 lg:py-5 rounded-[1.5rem] lg:rounded-[2rem] text-white font-black italic uppercase text-[10px] lg:text-[12px] tracking-[0.1em] lg:tracking-[0.15em] shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2 lg:gap-3 group shrink-0 disabled:cursor-wait disabled:opacity-60 ${
                   isEditable
                     ? 'bg-blue-600 shadow-blue-600/20'
                     : (isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)) ? 'bg-amber-500 shadow-amber-500/20' : 'bg-emerald-600 shadow-emerald-600/20'
                 }`}
               >
-                {isEditable ? <Settings size={14} /> : <Zap size={14} fill="currentColor" />}
-                {isEditable ? 'Edit Deal' : (isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)) ? 'Add to Cart' : 'Grab Deal'}
-                <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" strokeWidth={3} />
+                {isDealCatalogLoading ? <LoaderCircle size={14} className="animate-spin" /> : isEditable ? <Settings size={14} /> : <Zap size={14} fill="currentColor" />}
+                {isDealCatalogLoading ? 'Loading deal' : isEditable ? 'Edit Deal' : (isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)) ? 'Add to Cart' : 'Grab Deal'}
+                {!isDealCatalogLoading && <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" strokeWidth={3} />}
               </button>
               </div>
            </div>
