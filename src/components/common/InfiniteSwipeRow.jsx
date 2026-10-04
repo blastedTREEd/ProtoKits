@@ -97,7 +97,7 @@ export default function InfiniteSwipeRow({ children, className = '', ariaLabel }
         role="region"
         aria-label={ariaLabel}
         onScroll={handleScroll}
-        className="w-full overflow-x-auto overflow-y-hidden overscroll-x-contain px-10 touch-pan-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:px-12"
+        className="w-full overflow-x-auto overflow-y-hidden overscroll-x-contain touch-pan-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         <div ref={trackRef} className="flex w-max flex-nowrap items-start gap-3">
           {Array.from({ length: cycleCount }, (_, copyIndex) => (
