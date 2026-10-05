@@ -4,8 +4,8 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion as Motion, useDragControls, useMotionValue } from 'framer-motion';
 import { 
   Sun, Moon, ShoppingCart, Home, X, ShelvingUnit,
-  CircleUserRound, Settings, LogOut, ContactRound,
-  Shield, ShieldCheck, Box, Printer, ClipboardList, UserPlus, Truck, Bell, FileText
+  CircleUserRound, UserRoundPen, LogOut, ContactRound,
+  Shield, ShieldCheck, Box, Printer, UserPlus, Truck, Bell, FileText
 } from 'lucide-react';
 import { FcGoogle } from 'react-icons/fc';
 import { FaFacebook } from 'react-icons/fa';
@@ -844,7 +844,6 @@ useEffect(() => {
 const navLinks = [
   ...(APP_CONFIG.nav.includes('kits') ? [{ to: "/kits", icon: <Box />, label: "KITS" }] : []),
   ...(APP_CONFIG.nav.includes('prints') ? [{ to: "/prints", icon: <Printer />, label: "PRINTS" }] : []),
-  ...(APP_CONFIG.nav.includes('orders') && user ? [{ to: "/orders", icon: <ClipboardList />, label: "ORDERS" }] : []),
   ...(APP_CONFIG.nav.includes('dashboard') && isAdmin ? [{ to: "/users-dashboard", icon: <ShieldCheck />, label: "CORE" }] : []),
   ...(APP_CONFIG.nav.includes('about') ? [{ to: "/about-us", icon: <ContactRound />, label: isPortfolioApp ? "ME" : "ABOUT" }] : [])
 ];
@@ -1284,10 +1283,14 @@ return (
                             </>
                           ) : (
                             <button onClick={() => { if (!user) setLoginModalOpen(true); else setIsSettingsModalOpen(true); setIsProfileOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-colors ${isDarkMode ? 'hover:bg-white/5 text-white' : 'hover:bg-black/5 text-neutral-900'}`}>
-                              <Settings size={18} className="opacity-40" />
-                              <span className="text-[12px] font-black uppercase tracking-widest">Account Settings</span>
+                              <UserRoundPen size={18} className="opacity-40" />
+                              <span className="text-[12px] font-black uppercase tracking-widest">My Account</span>
                             </button>
                           )}
+                          <button onClick={() => { navigate('/orders'); setIsProfileOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-colors ${isDarkMode ? 'hover:bg-white/5 text-white' : 'hover:bg-black/5 text-neutral-900'}`}>
+                            <Truck size={18} className="opacity-40" />
+                            <span className="text-[12px] font-black uppercase tracking-widest">My Orders</span>
+                          </button>
                           {user && (
                             <button onClick={() => { navigate('/notify-list'); setIsProfileOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-colors ${isDarkMode ? 'hover:bg-white/5 text-white' : 'hover:bg-black/5 text-neutral-900'}`}>
                               <Bell size={18} className="opacity-40" />

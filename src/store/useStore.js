@@ -2333,7 +2333,7 @@ export const useStore = create(
         set({ orders: [] });
         subscription.unsubscribe = onSnapshot(ordersQuery, (snap) => {
           const docs = docsToArray(snap).filter((order) => (
-            isAdminMode || (!isLegacyOrderRecord(order) && isOrderVisibleToCurrentApp(order))
+            !isLegacyOrderRecord(order) && isOrderVisibleToCurrentApp(order)
           ));
           console.log("SG LOG: Orders fetched:", docs.length, "for UID:", uid, "Admin:", isAdminMode);
           set({ orders: docs });
