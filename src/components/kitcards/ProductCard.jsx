@@ -572,7 +572,13 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     });
 
     if (!user) { setLoginModalOpen(true); return; }
-    navigate('/checkout', { state: { items, isGuestPreview: false } });
+    navigate('/checkout', {
+      state: {
+        items,
+        isGuestPreview: false,
+        returnToKitsSection: APP_CONFIG.id === 'liquikits'
+      }
+    });
   };
 
   const handleEditSelectedDeal = () => {

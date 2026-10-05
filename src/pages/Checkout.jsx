@@ -15,6 +15,7 @@ export default function Checkout() {
   const items = Array.isArray(location.state?.items) ? location.state.items : [];
   const isGuestPreview = !user || isAnonymousUser;
   const returnPath = location.state?.returnPath;
+  const returnToKitsSection = location.state?.returnToKitsSection === true;
 
   const handleClose = () => {
     const restoreSelectionIds = Array.from(new Set(
@@ -31,6 +32,14 @@ export default function Checkout() {
           restoreSelectionIds,
           scrollToBasketId: restoreSelectionIds[0]
         }
+      });
+      return;
+    }
+
+    if (returnToKitsSection) {
+      navigate('/', {
+        replace: true,
+        state: { focusKitsSection: true }
       });
       return;
     }

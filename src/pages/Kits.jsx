@@ -336,7 +336,13 @@ export default function Kits({ isActive = true, embedded = false }) {
   }, [location.pathname]);
 
   const openCheckoutPage = (items, isGuestPreview = !user || isAnonymousUser) => {
-    navigate('/checkout', { state: { items, isGuestPreview } });
+    navigate('/checkout', {
+      state: {
+        items,
+        isGuestPreview,
+        returnToKitsSection: isMergedHomeCatalog
+      }
+    });
   };
 
   useEffect(() => {
@@ -498,6 +504,21 @@ export default function Kits({ isActive = true, embedded = false }) {
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, [embedded, isFullCatalogLoaded, isMergedHomeCatalog, location.pathname, requestFullCatalog]);
+
+  useEffect(() => {
+    if (!embedded || !isMergedHomeCatalog || location.pathname !== '/' || !location.state?.focusKitsSection) {
+      return undefined;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        focusKitsSection();
+        navigate('/', { replace: true, state: null });
+      });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [embedded, focusKitsSection, isMergedHomeCatalog, location.pathname, location.state, navigate]);
 
   useEffect(() => {
     const previousSearchTerm = previousSearchTermRef.current;

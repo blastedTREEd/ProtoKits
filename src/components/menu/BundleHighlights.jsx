@@ -573,7 +573,13 @@ export default function BundleHighlights() {
   const handleProjectOrderNow = (project) => {
     const checkoutItems = [buildCheckoutProjectItem(project)];
     if (!(isAdmin && isAdminView)) {
-      navigate('/checkout', { state: { items: checkoutItems, isGuestPreview: !user || isAnonymousUser } });
+      navigate('/checkout', {
+        state: {
+          items: checkoutItems,
+          isGuestPreview: !user || isAnonymousUser,
+          returnToKitsSection: APP_CONFIG.id === 'liquikits'
+        }
+      });
     }
   };
 
@@ -616,7 +622,8 @@ export default function BundleHighlights() {
     navigate('/checkout', {
       state: {
         items: [buildPrintedProjectItem(project, stock)],
-        isGuestPreview: !user || isAnonymousUser
+        isGuestPreview: !user || isAnonymousUser,
+        returnToKitsSection: APP_CONFIG.id === 'liquikits'
       }
     });
   };

@@ -133,9 +133,9 @@ export default function Home() {
               leading-relaxed
             "
           >
-            BUILT, UNBUILT &amp; EVERYTHING BETWEEN.
+            SEALED, BUILT, &amp; EVERYTHING BETWEEN.
             <br />
-            Explore transparently tagged Gunpla options from my backlog—tailored for every budget, condition, and build style.
+            Explore transparently tagged Gunpla options from a collector's personal backlog—tailored for every budget, condition, and build style.
           </p>
 
         </div>
