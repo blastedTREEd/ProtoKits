@@ -53,6 +53,7 @@ export default function Home() {
           items-center
           justify-center
           overflow-hidden
+          w-full
           px-6
           pt-20
           pb-24
@@ -60,47 +61,37 @@ export default function Home() {
       >
         {/* BACKGROUND WORD */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none select-none z-0">
-          <motion.div
-            style={{ x }}
-            className="
-              absolute
-              top-[15%]
-              left-0
-              w-[170%]
-              md:w-[150%]
-              lg:w-[135%]
-            "
-          >
-            <h1
-              className="
-                whitespace-nowrap
-                font-black
-                italic
-                uppercase
-                tracking-[-0.09em]
-                leading-none
-                scale-y-110
-                text-[14rem]
-                sm:text-[14rem]
-                md:text-[22rem]
-                lg:text-[30rem]
-                xl:text-[30rem]
-                opacity-[0.1]
-                -translate-x-[8%]
-                md:-translate-x-[10%]
-                lg:-translate-x-[12%]
-              "
+          <div className="absolute left-0 top-1/2 w-full -translate-y-1/2">
+            <motion.div
+              style={{ x }}
+              className="w-[135%]"
             >
-              SNORLAX
-            </h1>
-          </motion.div>
+              <h1
+                className="
+                  whitespace-nowrap
+                  font-black
+                  italic
+                  uppercase
+                  tracking-[-0.09em]
+                  leading-none
+                  scale-y-110
+                  text-[clamp(15rem,38vw,30rem)]
+                  opacity-[0.1]
+                  -translate-x-[12%]
+                "
+              >
+                SNORLAX
+              </h1>
+            </motion.div>
+          </div>
         </div>
 
         {/* HERO CONTENT */}
-        <div className="relative z-10 max-w-5xl mx-auto text-center">
+        <div className="relative z-10 w-full max-w-5xl mx-auto flex flex-col items-center text-center">
 
           <h1
             className="
+              w-full
               mt-8
               font-black
               italic
@@ -123,14 +114,16 @@ export default function Home() {
 
           <p
             className="
-              mt-8
+              w-full
+              mt-[clamp(1rem,2vw,2rem)]
               max-w-xl
               mx-auto
+              px-2
               text-sm
               md:text-base
               font-medium
               text-black-400
-              leading-relaxed
+              leading-[clamp(1.25rem,2.4vw,1.625rem)]
             "
           >
             SEALED, BUILT, &amp; EVERYTHING BETWEEN.
