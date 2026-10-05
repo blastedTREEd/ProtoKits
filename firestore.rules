@@ -163,7 +163,7 @@ service cloud.firestore {
       // New market-specific baskets used by LIQUIKITS and KOMIPRINTS.
       // The legacy /basket collection above remains unchanged for
       // SnorlaxGarage compatibility and GARAGECORE's admin shelf workflows.
-      match /baskets/{market}/{basketId} {
+      match /baskets/{market}/items/{basketId} {
         allow read: if market in ['liquikits', 'komiprints'] && (isOwner(userId) || isAdmin());
         allow write: if market in ['liquikits', 'komiprints'] && isOwner(userId);
       }

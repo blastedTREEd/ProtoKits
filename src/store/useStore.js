@@ -184,13 +184,13 @@ const DATASET_KEYS = ['userProfile', 'stories', 'homeKits', 'homeBlueprints', 'k
 const getUserBasketCollection = (uid) => (
   isLegacyApp
     ? collection(db, 'users', uid, 'basket')
-    : collection(db, 'users', uid, 'baskets', APP_CONFIG.basketScope)
+    : collection(db, 'users', uid, 'baskets', APP_CONFIG.basketScope, 'items')
 );
 
 const getUserBasketDocument = (uid, basketId) => (
   isLegacyApp
     ? doc(db, 'users', uid, 'basket', basketId)
-    : doc(db, 'users', uid, 'baskets', APP_CONFIG.basketScope, basketId)
+    : doc(db, 'users', uid, 'baskets', APP_CONFIG.basketScope, 'items', basketId)
 );
 
 const isPrintedProjectRecord = (record) => (
