@@ -125,7 +125,7 @@ export default function Home() {
             <div className="flex-none overflow-visible">
               {storefrontWelcomeContent}
             </div>
-            <div className="flex shrink-0 justify-center bg-white/95 p-4 dark:bg-[#0a0a0a]/95 sm:p-5">
+            <div className="flex shrink-0 justify-center p-4 sm:p-5">
               <button
                 type="button"
                 onClick={handleCloseStorefrontWelcome}
