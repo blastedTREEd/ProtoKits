@@ -1294,7 +1294,7 @@ return (
                           {user && (
                             <button onClick={() => { navigate('/notify-list'); setIsProfileOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-colors ${isDarkMode ? 'hover:bg-white/5 text-white' : 'hover:bg-black/5 text-neutral-900'}`}>
                               <Bell size={18} className="opacity-40" />
-                              <span className="text-[12px] font-black uppercase tracking-widest">{isAdminView ? 'OFFERS LIST' : 'SENT OFFERS'}</span>
+                              <span className="text-[12px] font-black uppercase tracking-widest">{isAdminView ? 'OFFERS LIST' : 'MY OFFERS'}</span>
                             </button>
                           )}
                           <button

@@ -474,7 +474,7 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
                 return (
                   <div
                     key={`${highlight.id}-${index}`}
-                    className={`story-card glass-card w-40 sm:w-44 md:w-48 lg:w-56 aspect-[3/4] flex-shrink-0 self-start relative overflow-hidden rounded-[1.5rem] p-1 shadow-xl transition-all duration-500 lg:hover:-translate-y-1 ${isLoadingCard
+                    className={`story-card glass-card w-40 sm:w-44 md:w-48 lg:w-56 aspect-[3/4] flex-shrink-0 self-start relative overflow-hidden rounded-[1.5rem] p-1 transition-all duration-500 lg:hover:-translate-y-1 ${isLoadingCard
                       ? 'cursor-default bg-gradient-to-br from-[#0866FF] to-[#00CFFF]'
                       : 'cursor-pointer'
                     }`}

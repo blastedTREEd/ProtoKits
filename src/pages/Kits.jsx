@@ -298,6 +298,7 @@ export default function Kits({ isActive = true, embedded = false }) {
   const [sortType, setSortType] = useState("latest"); // Default sort
   const [isSortOpen, setIsSortOpen] = useState(false);
   const sortRef = useRef(null);
+  const sortButtonRef = useRef(null);
   const searchInputRef = useRef(null);
   const previousSearchTermRef = useRef('');
   
@@ -398,10 +399,23 @@ export default function Kits({ isActive = true, embedded = false }) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    if (isSortOpen) return undefined;
+
+    const frame = window.requestAnimationFrame(() => {
+      if (sortButtonRef.current === document.activeElement) {
+        sortButtonRef.current.blur();
+      }
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [isSortOpen]);
+
   // Keep scrolling focused on the search and filter controls instead of the
   // temporary admin action floater.
   useEffect(() => {
     const closeFloatingControlsOnScroll = () => {
+      if (preserveContentHeaderRef.current) return;
       setIsAdminToolsOpen(false);
       setIsSortOpen(false);
     };
@@ -441,7 +455,7 @@ export default function Kits({ isActive = true, embedded = false }) {
     contentHeaderScrollRef.current.hidden = false;
     contentHeaderScrollRef.current.direction = 0;
     contentHeaderScrollRef.current.distance = 0;
-    window.scrollTo({ top: nextScrollTop, left: 0, behavior: 'auto' });
+    window.scrollTo({ top: nextScrollTop, left: 0, behavior: 'smooth' });
     preserveContentHeaderTimerRef.current = window.setTimeout(() => {
       preserveContentHeaderRef.current = false;
       preserveContentHeaderTargetRef.current = null;
@@ -550,26 +564,13 @@ export default function Kits({ isActive = true, embedded = false }) {
         const currentScrollY = window.scrollY;
 
         if (preserveContentHeaderRef.current) {
-          const anchorTarget = preserveContentHeaderTargetRef.current;
-          const movedAwayFromAnchor = Number.isFinite(anchorTarget)
-            && Math.abs(currentScrollY - anchorTarget) > 2;
-
-          if (!movedAwayFromAnchor) {
-            scrollState.previousY = currentScrollY;
-            scrollState.direction = 0;
-            scrollState.distance = 0;
-            scrollState.hidden = false;
-            scrollState.frame = 0;
-            setIsContentHeaderHidden(false);
-            return;
-          }
-
-          preserveContentHeaderRef.current = false;
-          preserveContentHeaderTargetRef.current = null;
-          if (preserveContentHeaderTimerRef.current) {
-            window.clearTimeout(preserveContentHeaderTimerRef.current);
-            preserveContentHeaderTimerRef.current = 0;
-          }
+          scrollState.previousY = currentScrollY;
+          scrollState.direction = 0;
+          scrollState.distance = 0;
+          scrollState.hidden = false;
+          scrollState.frame = 0;
+          setIsContentHeaderHidden(false);
+          return;
         }
 
         setIsSortOpen(false);
@@ -1583,6 +1584,7 @@ export default function Kits({ isActive = true, embedded = false }) {
                   </div>
                   <div className="relative" ref={sortRef}>
                     <button 
+                      ref={sortButtonRef}
                       onFocus={() => setIsAdminToolsOpen(false)}
                       onClick={() => runAfterKitsSectionFocus(() => {
                         setIsAdminToolsOpen(false);

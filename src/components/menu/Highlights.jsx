@@ -262,7 +262,7 @@ export default function Highlights() {
               className="w-full pb-2"
             >
               {isLoadingHighlights && Array.from({ length: 5 }).map((_, index) => (
-                <div key={`highlight-skeleton-${index}`} className="carousel-row-card relative aspect-[3/4] shrink-0 self-start overflow-hidden rounded-[1.5rem] border border-black/[0.05] bg-neutral-200 p-1 shadow-xl animate-pulse dark:border-2 dark:border-neutral-500 dark:bg-neutral-900">
+                <div key={`highlight-skeleton-${index}`} className="carousel-row-card relative aspect-[3/4] shrink-0 self-start overflow-hidden rounded-[1.5rem] border border-black/[0.05] bg-neutral-200 p-1 animate-pulse dark:border-2 dark:border-neutral-500 dark:bg-neutral-900">
                   <div className="relative h-full w-full overflow-hidden rounded-[1.3rem] bg-black/5 dark:bg-white/5">
                     <UniversalImage src="" alt="" aria-hidden="true" className="h-full w-full object-contain p-8 opacity-30" />
                     <div className="absolute inset-x-3 bottom-3 space-y-2">
@@ -283,7 +283,7 @@ export default function Highlights() {
                 return (
                   <div
                     key={story.id}
-                    className={`${getCollapsedStoryVisibility(index)} carousel-row-card story-card glass-card group relative aspect-[3/4] shrink-0 cursor-pointer overflow-hidden rounded-[1.5rem] p-1 shadow-xl transition-all duration-500 ${isSelected ? 'border-2 border-garage-blue ring-2 ring-garage-blue/30' : ''}`}
+                    className={`${getCollapsedStoryVisibility(index)} carousel-row-card story-card glass-card group relative aspect-[3/4] shrink-0 cursor-pointer overflow-hidden rounded-[1.5rem] p-1 transition-all duration-500 ${isSelected ? 'border-2 border-garage-blue ring-2 ring-garage-blue/30' : ''}`}
                   >
                     <div className="story-card-media relative h-full w-full overflow-hidden rounded-[1.3rem]">
                       <button

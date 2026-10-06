@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
@@ -12,9 +12,11 @@ import { motion, useScroll, useTransform } from 'framer-motion';
 
 export default function Home() {
   const { isDarkMode } = useTheme();
-  const { shippingSettings, isLoading } = useStore();
+  const { shippingSettings, isLoading, user, isAnonymousUser, setToastMessage } = useStore();
   const location = useLocation();
   const containerRef = useRef(null);
+  const isHome = location.pathname === '/';
+  const [isStorefrontWelcomeOpen, setIsStorefrontWelcomeOpen] = useState(() => isHome);
   
   const paymentSettings = shippingSettings?.paymentSettings;
   const maintenanceInvalidTypes = paymentSettings?.maintenanceInvalidTypes || {};
@@ -40,99 +42,65 @@ export default function Home() {
     window.history.replaceState({}, document.title);
   }, [location]);
 
+  useEffect(() => {
+    if (!isStorefrontWelcomeOpen) return undefined;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isStorefrontWelcomeOpen]);
+
+  const handleCloseStorefrontWelcome = () => {
+    setIsStorefrontWelcomeOpen(false);
+    setToastMessage(user && !isAnonymousUser ? 'Welcome back!' : 'Welcome guest!');
+  };
+
+  const storefrontContent = (
+    <section aria-label="Storefront">
+      <Kits embedded />
+    </section>
+  );
+
+  const storefrontWelcomeContent = (
+    <section
+      className="relative min-h-[min(75vh,calc(100dvh-8rem))] flex items-center justify-center overflow-hidden w-full px-6 pt-20 pb-24"
+    >
+      <div className="absolute inset-0 overflow-hidden pointer-events-none select-none z-0">
+        <div className="absolute left-0 top-1/2 w-full -translate-y-1/2">
+          <motion.div style={{ x }} className="w-[135%]">
+            <h1 className="whitespace-nowrap font-black italic uppercase tracking-[-0.09em] leading-none scale-y-110 text-[clamp(15rem,38vw,30rem)] opacity-[0.1] -translate-x-[12%]">
+              SNORLAX
+            </h1>
+          </motion.div>
+        </div>
+      </div>
+
+      <div className="relative z-10 w-full max-w-5xl mx-auto flex flex-col items-center text-center">
+        <h1 className="w-full mt-8 font-black italic uppercase tracking-tighter leading-[0.88] text-5xl sm:text-6xl md:text-7xl lg:text-8xl">
+          THE GARAGE IS
+          <br />
+          <span className={isOpeningOrOpen ? "text-garage-blue" : "text-red-500 text-4xl sm:text-5xl md:text-6xl lg:text-7xl"}>
+            {garageStatusText}
+          </span>
+        </h1>
+
+        <p className="w-full mt-[clamp(1rem,2vw,2rem)] max-w-xl mx-auto px-2 text-sm md:text-base font-medium text-black-400 leading-[clamp(1.25rem,2.4vw,1.625rem)]">
+          SEALED, BUILT, &amp; EVERYTHING BETWEEN.
+          <br />
+          Explore transparently tagged Gunpla options from a collector's personal backlog—tailored for every budget, condition, and build style.
+        </p>
+      </div>
+    </section>
+  );
+
   return (
     <PageTemplate isDarkMode={isDarkMode}>
       <div ref={containerRef} className={`flex flex-col min-h-screen transition-colors duration-300 ${isDarkMode ? 'bg-[#0a0a0a] text-white' : 'bg-white text-neutral-900'}`}>
         
-      {/* SECTION 1: HERO */}
-      <section
-        className="
-          relative
-          min-h-[82vh]
-          flex
-          items-center
-          justify-center
-          overflow-hidden
-          w-full
-          px-6
-          pt-20
-          pb-24
-        "
-      >
-        {/* BACKGROUND WORD */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none select-none z-0">
-          <div className="absolute left-0 top-1/2 w-full -translate-y-1/2">
-            <motion.div
-              style={{ x }}
-              className="w-[135%]"
-            >
-              <h1
-                className="
-                  whitespace-nowrap
-                  font-black
-                  italic
-                  uppercase
-                  tracking-[-0.09em]
-                  leading-none
-                  scale-y-110
-                  text-[clamp(15rem,38vw,30rem)]
-                  opacity-[0.1]
-                  -translate-x-[12%]
-                "
-              >
-                SNORLAX
-              </h1>
-            </motion.div>
-          </div>
-        </div>
-
-        {/* HERO CONTENT */}
-        <div className="relative z-10 w-full max-w-5xl mx-auto flex flex-col items-center text-center">
-
-          <h1
-            className="
-              w-full
-              mt-8
-              font-black
-              italic
-              uppercase
-              tracking-tighter
-              leading-[0.88]
-
-              text-5xl
-              sm:text-6xl
-              md:text-7xl
-              lg:text-8xl
-            "
-          >
-            THE GARAGE IS
-            <br />
-            <span className={isOpeningOrOpen ? "text-garage-blue" : "text-red-500 text-4xl sm:text-5xl md:text-6xl lg:text-7xl"}>
-              {garageStatusText}
-            </span>
-          </h1>
-
-          <p
-            className="
-              w-full
-              mt-[clamp(1rem,2vw,2rem)]
-              max-w-xl
-              mx-auto
-              px-2
-              text-sm
-              md:text-base
-              font-medium
-              text-black-400
-              leading-[clamp(1.25rem,2.4vw,1.625rem)]
-            "
-          >
-            SEALED, BUILT, &amp; EVERYTHING BETWEEN.
-            <br />
-            Explore transparently tagged Gunpla options from a collector's personal backlog—tailored for every budget, condition, and build style.
-          </p>
-
-        </div>
-      </section>
+      {/* SECTION 1: STOREFRONT WELCOME */}
+      {!isHome && storefrontWelcomeContent}
 
       {/* SECTION 2: GARAGE HIGHLIGHTS */}
       <BundleHighlights />
@@ -144,9 +112,31 @@ export default function Home() {
       <Stories />
 
       {/* SECTION 4: STOREFRONT */}
-      <section aria-label="Storefront">
-        <Kits embedded />
-      </section>
+      {storefrontContent}
+
+      {isHome && isStorefrontWelcomeOpen && (
+        <div className="fixed inset-0 z-[9000] flex items-center justify-center bg-black/45 p-3 backdrop-blur-sm sm:p-6">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Explore the storefront"
+            className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-7xl flex-col overflow-hidden rounded-[2rem] border border-black/10 bg-white shadow-2xl dark:border-white/10 dark:bg-[#0a0a0a]"
+          >
+            <div className="flex-none overflow-visible">
+              {storefrontWelcomeContent}
+            </div>
+            <div className="flex shrink-0 justify-center border-t border-black/10 bg-white/95 p-4 dark:border-white/10 dark:bg-[#0a0a0a]/95 sm:p-5">
+              <button
+                type="button"
+                onClick={handleCloseStorefrontWelcome}
+                className="inline-flex min-w-48 items-center justify-center rounded-full bg-blue-600 px-8 py-3 text-xs font-black uppercase tracking-[0.18em] text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-[#0a0a0a]"
+              >
+                Explore Now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </div>
     </PageTemplate>
   );

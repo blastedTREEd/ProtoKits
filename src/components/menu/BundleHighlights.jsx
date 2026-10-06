@@ -689,7 +689,7 @@ export default function BundleHighlights() {
             className="w-full"
           >
             {Array.from({ length: 5 }).map((_, index) => (
-              <div key={`bundle-skeleton-${index}`} className="carousel-row-card relative aspect-[3/4] shrink-0 overflow-hidden rounded-2xl border border-black/[0.05] bg-neutral-200 p-1 shadow-sm animate-pulse dark:border-2 dark:border-neutral-500 dark:bg-neutral-900">
+              <div key={`bundle-skeleton-${index}`} className="carousel-row-card relative aspect-[3/4] shrink-0 overflow-hidden rounded-2xl border border-black/[0.05] bg-neutral-200 p-1 animate-pulse dark:border-2 dark:border-neutral-500 dark:bg-neutral-900">
                 <div className="relative h-full w-full overflow-hidden rounded-[1.3rem] bg-black/5 dark:bg-white/5">
                   <UniversalImage src="" alt="" aria-hidden="true" className="h-full w-full object-contain p-8 opacity-30" />
                   <div className="absolute inset-x-3 bottom-3 space-y-2">
