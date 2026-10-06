@@ -301,6 +301,15 @@ export default function Kits({ isActive = true, embedded = false }) {
   const sortButtonRef = useRef(null);
   const searchInputRef = useRef(null);
   const previousSearchTermRef = useRef('');
+  const closeSortMenu = useCallback(() => {
+    setIsSortOpen(false);
+    window.requestAnimationFrame(() => {
+      const activeElement = document.activeElement;
+      if (sortRef.current?.contains(activeElement) && typeof activeElement.blur === 'function') {
+        activeElement.blur();
+      }
+    });
+  }, []);
   
   const [isAddKitModalOpen, setIsAddKitModalOpen] = useState(false); 
   const [isAddDealModalOpen, setIsAddDealModalOpen] = useState(false);
@@ -361,11 +370,11 @@ export default function Kits({ isActive = true, embedded = false }) {
       setIsSalesDashboardModalOpen(false);
       setIsKitDataQualityModalOpen(false);
       setIsAdminToolsOpen(false);
-      setIsSortOpen(false);
+      closeSortMenu();
     }, 0);
 
     return () => window.clearTimeout(cleanupTimer);
-  }, [isActive]);
+  }, [closeSortMenu, isActive]);
 
   // Home bundle cards can hand off a selected deal to the Kits page so the
   // same deal modal remains the single source of truth for deal actions.
@@ -392,7 +401,7 @@ export default function Kits({ isActive = true, embedded = false }) {
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (sortRef.current && !sortRef.current.contains(event.target)) {
-        setIsSortOpen(false);
+        closeSortMenu();
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -417,11 +426,11 @@ export default function Kits({ isActive = true, embedded = false }) {
     const closeFloatingControlsOnScroll = () => {
       if (preserveContentHeaderRef.current) return;
       setIsAdminToolsOpen(false);
-      setIsSortOpen(false);
+      closeSortMenu();
     };
     window.addEventListener('scroll', closeFloatingControlsOnScroll, { passive: true });
     return () => window.removeEventListener('scroll', closeFloatingControlsOnScroll);
-  }, []);
+  }, [closeSortMenu]);
 
   // Catalog loading state
   const kitsStatus = useStore((state) => state._datasetStatus?.kits || 'loading');
@@ -438,6 +447,31 @@ export default function Kits({ isActive = true, embedded = false }) {
   const preserveContentHeaderRef = useRef(false);
   const preserveContentHeaderTargetRef = useRef(null);
   const preserveContentHeaderTimerRef = useRef(0);
+
+  useEffect(() => {
+    const handleManualScrollStart = (event) => {
+      if (sortRef.current?.contains(event.target)) return;
+
+      closeSortMenu();
+      if (preserveContentHeaderTimerRef.current) {
+        window.clearTimeout(preserveContentHeaderTimerRef.current);
+      }
+      preserveContentHeaderRef.current = false;
+      preserveContentHeaderTargetRef.current = null;
+      preserveContentHeaderTimerRef.current = 0;
+      contentHeaderScrollRef.current.previousY = window.scrollY;
+      contentHeaderScrollRef.current.hidden = false;
+      contentHeaderScrollRef.current.direction = 0;
+      contentHeaderScrollRef.current.distance = 0;
+    };
+
+    window.addEventListener('wheel', handleManualScrollStart, { passive: true });
+    window.addEventListener('touchstart', handleManualScrollStart, { passive: true });
+    return () => {
+      window.removeEventListener('wheel', handleManualScrollStart);
+      window.removeEventListener('touchstart', handleManualScrollStart);
+    };
+  }, [closeSortMenu]);
 
   const focusKitsSection = useCallback(() => {
     const sectionTop = contentHeaderRef.current?.getBoundingClientRect().top;
@@ -573,7 +607,7 @@ export default function Kits({ isActive = true, embedded = false }) {
           return;
         }
 
-        setIsSortOpen(false);
+        closeSortMenu();
         // Keep the search row stable once it reaches the navbar. Hiding it on
         // downward scroll while moving the section headers to a second offset
         // created a temporary gap when the scroll direction changed.
@@ -596,7 +630,7 @@ export default function Kits({ isActive = true, embedded = false }) {
       window.removeEventListener('scroll', handleContentHeaderScroll);
       window.removeEventListener('resize', handleContentHeaderScroll);
     };
-  }, []);
+  }, [closeSortMenu]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -1586,19 +1620,23 @@ export default function Kits({ isActive = true, embedded = false }) {
                     <button 
                       ref={sortButtonRef}
                       onFocus={() => setIsAdminToolsOpen(false)}
-                      onClick={() => runAfterKitsSectionFocus(() => {
-                        setIsAdminToolsOpen(false);
-                        setIsSortOpen((isOpen) => !isOpen);
-                      })}
-                      className={`flex items-center gap-2 px-4 py-3 rounded-2xl border shrink-0 z-10 transition-all active:scale-95 group ${isSortOpen ? 'bg-blue-600 text-white border-blue-600' : 'bg-black/5 dark:bg-white/5 border-black/5 dark:border-white/10 hover:bg-blue-600 hover:text-white'}`}
+                      onClick={() => {
+                        const nextIsSortOpen = !isSortOpen;
+                        runAfterKitsSectionFocus(() => {
+                          setIsAdminToolsOpen(false);
+                          if (nextIsSortOpen) setIsSortOpen(true);
+                          else closeSortMenu();
+                        });
+                      }}
+                      className={`flex items-center gap-2 px-4 py-3 rounded-2xl border shrink-0 z-10 transition-all active:scale-95 group ${isSortOpen ? 'bg-blue-600 text-white border-blue-600' : 'bg-black/5 dark:bg-white/5 border-black/5 dark:border-white/10 md:hover:bg-blue-600 md:hover:text-white'}`}
                     >
                         {React.createElement(activeSortOption.icon, {
                           size: 20,
                           strokeWidth: 2.5,
-                          className: `transition-all ${isSortOpen ? 'text-white' : 'text-black dark:text-white opacity-70'} group-hover:text-white group-hover:opacity-100`
+                          className: `transition-all ${isSortOpen ? 'text-white' : 'text-black dark:text-white opacity-70'} md:group-hover:text-white md:group-hover:opacity-100`
                         })}
-                        <span className={`text-[12px] font-bold uppercase tracking-widest hidden sm:inline ${isSortOpen ? 'text-white' : 'text-black dark:text-white'} group-hover:text-white group-hover:opacity-100`}>{activeSortOption.label}</span>
-                        <ChevronDown size={12} className={`${isSortOpen ? 'text-white opacity-100' : 'text-black dark:text-white opacity-40'} transition-transform ${isSortOpen ? 'rotate-180' : ''} group-hover:text-white group-hover:opacity-100`} />
+                        <span className={`text-[12px] font-bold uppercase tracking-widest hidden sm:inline ${isSortOpen ? 'text-white' : 'text-black dark:text-white'} md:group-hover:text-white md:group-hover:opacity-100`}>{activeSortOption.label}</span>
+                        <ChevronDown size={12} className={`${isSortOpen ? 'text-white opacity-100' : 'text-black dark:text-white opacity-40'} transition-transform ${isSortOpen ? 'rotate-180' : ''} md:group-hover:text-white md:group-hover:opacity-100`} />
                     </button>
 
                     {isSortOpen && (
@@ -1609,7 +1647,7 @@ export default function Kits({ isActive = true, embedded = false }) {
                               key={option.id}
                                onClick={() => runAfterKitsSectionFocus(() => {
                                   setSortType(option.nextSort);
-                                  setIsSortOpen(false);
+                                  closeSortMenu();
                                })}
                               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-[12px] font-bold uppercase tracking-widest transition-all ${
                                 option.active
