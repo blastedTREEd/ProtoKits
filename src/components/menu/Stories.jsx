@@ -65,7 +65,10 @@ function getStoryItems(items) {
 
 export default function Stories({ isCompact, hideImmediately = false, hideAnimatedCards = false }) {
   // Kunin ang actual data mula sa Zustand store (DB)
-  const { stories, isAdmin, isAdminView, setStoriesHeight } = useStore();
+  const { stories, isAdmin, isAdminView, setStoriesHeight, garageInfo } = useStore();
+  const brandLogoSrc = garageInfo?.fbPageId
+    ? `https://graph.facebook.com/${garageInfo.fbPageId}/picture?type=large`
+    : (garageInfo?.logoURL || '/snorlaxgarage.png');
   const kits = useStore((state) => (
     state._activePath === '/'
       ? (state.homeKits || [])
@@ -638,9 +641,15 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
                 ))}
                 {/* Header row stays on the image pane: brand logo, story title, and date. */}
                 <div className="absolute left-0 right-0 top-0 z-30 flex items-center gap-3 p-5 pr-16">
-                  <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full border-2 border-white/70 bg-white/20 shadow-lg backdrop-blur-md">
-                    <img src="/snorlaxgarage.png" alt="SnorlaxGarage" className="h-full w-full object-cover" />
-                  </div>
+                  <img
+                    src={brandLogoSrc}
+                    alt="Brand logo"
+                    className="h-10 w-10 shrink-0 rounded-full border border-white/50 object-cover"
+                    onError={(event) => {
+                      event.currentTarget.onerror = null;
+                      event.currentTarget.src = garageInfo?.logoURL || '/snorlaxgarage.png';
+                    }}
+                  />
                   <div className="min-w-0 flex-1">
                     <h3 className="line-clamp-2 text-base font-black italic uppercase leading-tight tracking-tight text-white drop-shadow-lg">
                       {activeStory.label || 'Garage Story'}
@@ -655,7 +664,7 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); setActiveStoryIndex(null); }}
-                  className="absolute right-4 top-4 z-40 rounded-full border border-white/50 bg-black/25 p-2 text-white shadow-lg backdrop-blur-md transition-all hover:scale-105 hover:bg-black/50 focus:outline-none focus:ring-2 focus:ring-white/80"
+                  className="absolute right-5 top-5 z-40 flex h-10 w-10 items-center justify-center rounded-full border border-white/50 bg-black/25 p-0 text-white shadow-lg backdrop-blur-md transition-all hover:scale-105 hover:bg-black/50 focus:outline-none focus:ring-2 focus:ring-white/80"
                   aria-label="Close story"
                 >
                   <X size={20} />
@@ -663,7 +672,7 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); setIsStoryPaused((paused) => !paused); }}
-                  className="absolute right-16 top-4 z-40 rounded-full border border-white/50 bg-black/25 p-2 text-white shadow-lg backdrop-blur-md transition-all hover:scale-105 hover:bg-black/50 focus:outline-none focus:ring-2 focus:ring-white/80"
+                  className="absolute right-[4.5rem] top-5 z-40 flex h-10 w-10 items-center justify-center rounded-full border border-white/50 bg-black/25 p-0 text-white shadow-lg backdrop-blur-md transition-all hover:scale-105 hover:bg-black/50 focus:outline-none focus:ring-2 focus:ring-white/80"
                   aria-label={isStoryPaused ? 'Resume stories' : 'Pause stories'}
                 >
                   {isStoryPaused ? <Play size={20} /> : <Pause size={20} />}
