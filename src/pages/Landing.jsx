@@ -7,6 +7,7 @@ import Highlights from '../components/menu/Highlights';
 import BundleHighlights from '../components/menu/BundleHighlights';
 import Stories from '../components/menu/Stories';
 import Kits from './Kits';
+import { APP_CONFIG } from '../appConfig';
 // eslint-disable-next-line no-unused-vars
 import { motion, useScroll, useTransform } from 'framer-motion';
 
@@ -16,7 +17,15 @@ export default function Home() {
   const location = useLocation();
   const containerRef = useRef(null);
   const isHome = location.pathname === '/';
-  const [isStorefrontWelcomeOpen, setIsStorefrontWelcomeOpen] = useState(() => isHome);
+  const storefrontWelcomeDismissedKey = `sg:storefront-welcome-dismissed:${APP_CONFIG.id}`;
+  const [isStorefrontWelcomeOpen, setIsStorefrontWelcomeOpen] = useState(() => {
+    if (!isHome || location.state?.suppressStorefrontWelcome === true) return false;
+    try {
+      return window.sessionStorage.getItem(storefrontWelcomeDismissedKey) !== 'true';
+    } catch {
+      return true;
+    }
+  });
   
   const paymentSettings = shippingSettings?.paymentSettings;
   const maintenanceInvalidTypes = paymentSettings?.maintenanceInvalidTypes || {};
@@ -42,6 +51,15 @@ export default function Home() {
     window.history.replaceState({}, document.title);
   }, [location]);
 
+  useEffect(() => () => {
+    if (!isHome) return;
+    try {
+      window.sessionStorage.setItem(storefrontWelcomeDismissedKey, 'true');
+    } catch {
+      // Session storage may be unavailable in privacy-restricted browsers.
+    }
+  }, [isHome, storefrontWelcomeDismissedKey]);
+
   useEffect(() => {
     if (!isStorefrontWelcomeOpen) return undefined;
 
@@ -54,6 +72,11 @@ export default function Home() {
 
   const handleCloseStorefrontWelcome = () => {
     setIsStorefrontWelcomeOpen(false);
+    try {
+      window.sessionStorage.setItem(storefrontWelcomeDismissedKey, 'true');
+    } catch {
+      // Session storage may be unavailable in privacy-restricted browsers.
+    }
     setToastMessage(user && !isAnonymousUser ? 'Welcome back!' : 'Welcome guest!');
   };
 
