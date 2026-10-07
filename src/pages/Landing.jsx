@@ -44,6 +44,17 @@ const rememberStorefrontWelcomeAccess = (lastSeenKey, legacyDismissedKey) => {
   }
 };
 
+const resetStorefrontWelcomeAccess = (lastSeenKey, legacyDismissedKey) => {
+  if (typeof window === 'undefined') return;
+
+  try {
+    window.localStorage.removeItem(lastSeenKey);
+    window.sessionStorage.removeItem(legacyDismissedKey);
+  } catch {
+    // Storage may be unavailable in privacy-restricted browsers.
+  }
+};
+
 export default function Home() {
   const { isDarkMode } = useTheme();
   const { shippingSettings, isLoading, user, isAnonymousUser, setToastMessage } = useStore();
@@ -59,6 +70,7 @@ export default function Home() {
     const lastSeenAt = readStorefrontWelcomeLastSeen(storefrontWelcomeLastSeenKey, storefrontWelcomeDismissedKey);
     return !lastSeenAt || Date.now() - lastSeenAt >= STOREFRONT_WELCOME_COOLDOWN_MS;
   });
+  const previousAuthRef = useRef({ user, isAnonymousUser });
   
   const paymentSettings = shippingSettings?.paymentSettings;
   const maintenanceInvalidTypes = paymentSettings?.maintenanceInvalidTypes || {};
@@ -108,6 +120,21 @@ export default function Home() {
 
     return () => window.cancelAnimationFrame(visibilityFrameId);
   }, [isHome, storefrontWelcomeDismissedKey, storefrontWelcomeLastSeenKey, suppressStorefrontWelcome]);
+
+  useEffect(() => {
+    const previousAuth = previousAuthRef.current;
+    const hasSignedOut = Boolean(previousAuth.user && !previousAuth.isAnonymousUser)
+      && (!user || isAnonymousUser);
+    previousAuthRef.current = { user, isAnonymousUser };
+
+    if (!hasSignedOut) return undefined;
+
+    resetStorefrontWelcomeAccess(storefrontWelcomeLastSeenKey, storefrontWelcomeDismissedKey);
+    if (!isHome || suppressStorefrontWelcome) return undefined;
+
+    const reopenFrameId = window.requestAnimationFrame(() => setIsStorefrontWelcomeOpen(true));
+    return () => window.cancelAnimationFrame(reopenFrameId);
+  }, [isAnonymousUser, isHome, storefrontWelcomeDismissedKey, storefrontWelcomeLastSeenKey, suppressStorefrontWelcome, user]);
 
   useEffect(() => {
     if (!isHome || suppressStorefrontWelcome) return;

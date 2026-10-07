@@ -41,6 +41,15 @@ const notificationStateStorageKey = (stateType, userId) => `snorlaxgarage:notifi
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const ONE_DAY_NOTIFICATION_KINDS = new Set(['low_stock', 'back_in_stock']);
 
+const resetStorefrontWelcomeAccessOnSignOut = () => {
+  try {
+    window.localStorage.removeItem(`sg:storefront-welcome-last-seen:${APP_CONFIG.id}`);
+    window.sessionStorage.removeItem(`sg:storefront-welcome-dismissed:${APP_CONFIG.id}`);
+  } catch {
+    // Storage may be unavailable in privacy-restricted browsers.
+  }
+};
+
 const isCompletedLegacyOrder = (order) => (
   isLegacyOrderRecord(order)
   && String(order?.status || '').trim().toLowerCase() === 'completed'
@@ -794,6 +803,7 @@ useEffect(() => {
   if (originalAdminUser) {
     stopImpersonating();
   } else {
+    resetStorefrontWelcomeAccessOnSignOut();
     await signOut(auth);
     navigate('/');
   }
