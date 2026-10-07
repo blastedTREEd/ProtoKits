@@ -11,20 +11,53 @@ import { APP_CONFIG } from '../appConfig';
 // eslint-disable-next-line no-unused-vars
 import { motion, useScroll, useTransform } from 'framer-motion';
 
+const STOREFRONT_WELCOME_COOLDOWN_MS = 5 * 60 * 60 * 1000;
+
+const readStorefrontWelcomeLastSeen = (lastSeenKey, legacyDismissedKey) => {
+  if (typeof window === 'undefined') return 0;
+
+  try {
+    const storedLastSeen = Number(window.localStorage.getItem(lastSeenKey));
+    if (Number.isFinite(storedLastSeen) && storedLastSeen > 0) return storedLastSeen;
+
+    // Migrate the previous session-only dismissal into the new five-hour cooldown.
+    if (window.sessionStorage.getItem(legacyDismissedKey) === 'true') {
+      const migratedAt = Date.now();
+      window.localStorage.setItem(lastSeenKey, String(migratedAt));
+      return migratedAt;
+    }
+  } catch {
+    // Storage may be unavailable in privacy-restricted browsers.
+  }
+
+  return 0;
+};
+
+const rememberStorefrontWelcomeAccess = (lastSeenKey, legacyDismissedKey) => {
+  if (typeof window === 'undefined') return;
+
+  try {
+    window.localStorage.setItem(lastSeenKey, String(Date.now()));
+    window.sessionStorage.removeItem(legacyDismissedKey);
+  } catch {
+    // Storage may be unavailable in privacy-restricted browsers.
+  }
+};
+
 export default function Home() {
   const { isDarkMode } = useTheme();
   const { shippingSettings, isLoading, user, isAnonymousUser, setToastMessage } = useStore();
   const location = useLocation();
   const containerRef = useRef(null);
   const isHome = location.pathname === '/';
+  const storefrontWelcomeLastSeenKey = `sg:storefront-welcome-last-seen:${APP_CONFIG.id}`;
   const storefrontWelcomeDismissedKey = `sg:storefront-welcome-dismissed:${APP_CONFIG.id}`;
+  const storefrontWelcomeMaintenanceKey = `sg:storefront-welcome-maintenance:${APP_CONFIG.id}`;
+  const suppressStorefrontWelcome = location.state?.suppressStorefrontWelcome === true;
   const [isStorefrontWelcomeOpen, setIsStorefrontWelcomeOpen] = useState(() => {
-    if (!isHome || location.state?.suppressStorefrontWelcome === true) return false;
-    try {
-      return window.sessionStorage.getItem(storefrontWelcomeDismissedKey) !== 'true';
-    } catch {
-      return true;
-    }
+    if (!isHome || suppressStorefrontWelcome) return false;
+    const lastSeenAt = readStorefrontWelcomeLastSeen(storefrontWelcomeLastSeenKey, storefrontWelcomeDismissedKey);
+    return !lastSeenAt || Date.now() - lastSeenAt >= STOREFRONT_WELCOME_COOLDOWN_MS;
   });
   
   const paymentSettings = shippingSettings?.paymentSettings;
@@ -53,12 +86,54 @@ export default function Home() {
 
   useEffect(() => () => {
     if (!isHome) return;
+    rememberStorefrontWelcomeAccess(storefrontWelcomeLastSeenKey, storefrontWelcomeDismissedKey);
+  }, [isHome, storefrontWelcomeLastSeenKey, storefrontWelcomeDismissedKey]);
+
+  useEffect(() => {
+    let visibilityFrameId = null;
+    visibilityFrameId = window.requestAnimationFrame(() => {
+      if (!isHome || suppressStorefrontWelcome) {
+        setIsStorefrontWelcomeOpen(false);
+        return;
+      }
+
+      const lastSeenAt = readStorefrontWelcomeLastSeen(
+        storefrontWelcomeLastSeenKey,
+        storefrontWelcomeDismissedKey
+      );
+      setIsStorefrontWelcomeOpen(
+        !lastSeenAt || Date.now() - lastSeenAt >= STOREFRONT_WELCOME_COOLDOWN_MS
+      );
+    });
+
+    return () => window.cancelAnimationFrame(visibilityFrameId);
+  }, [isHome, storefrontWelcomeDismissedKey, storefrontWelcomeLastSeenKey, suppressStorefrontWelcome]);
+
+  useEffect(() => {
+    if (!isHome || suppressStorefrontWelcome) return;
+
+    let openFrameId = null;
+    const scheduleWelcomeOpen = () => {
+      openFrameId = window.requestAnimationFrame(() => setIsStorefrontWelcomeOpen(true));
+    };
+
     try {
-      window.sessionStorage.setItem(storefrontWelcomeDismissedKey, 'true');
+      if (isUnderMaintenance) {
+        if (window.localStorage.getItem(storefrontWelcomeMaintenanceKey) !== 'true') {
+          window.localStorage.setItem(storefrontWelcomeMaintenanceKey, 'true');
+          scheduleWelcomeOpen();
+        }
+      } else {
+        window.localStorage.removeItem(storefrontWelcomeMaintenanceKey);
+      }
     } catch {
-      // Session storage may be unavailable in privacy-restricted browsers.
+      if (isUnderMaintenance) scheduleWelcomeOpen();
     }
-  }, [isHome, storefrontWelcomeDismissedKey]);
+
+    return () => {
+      if (openFrameId !== null) window.cancelAnimationFrame(openFrameId);
+    };
+  }, [isHome, isUnderMaintenance, storefrontWelcomeMaintenanceKey, suppressStorefrontWelcome]);
 
   useEffect(() => {
     if (!isStorefrontWelcomeOpen) return undefined;
@@ -72,11 +147,7 @@ export default function Home() {
 
   const handleCloseStorefrontWelcome = () => {
     setIsStorefrontWelcomeOpen(false);
-    try {
-      window.sessionStorage.setItem(storefrontWelcomeDismissedKey, 'true');
-    } catch {
-      // Session storage may be unavailable in privacy-restricted browsers.
-    }
+    rememberStorefrontWelcomeAccess(storefrontWelcomeLastSeenKey, storefrontWelcomeDismissedKey);
     setToastMessage(user && !isAnonymousUser ? 'Welcome back!' : 'Welcome guest!');
   };
 
