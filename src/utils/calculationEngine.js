@@ -250,6 +250,7 @@ export const computeProjectCosts = ({
   const supportRemovalTimeRate = parseFloat(laborRates.supportRemovalTimePerPlate);
   const supportRemovalPriceRate = parseFloat(laborRates.supportRemovalRatePerPlate ?? laborRates.supportRemovalRatePerModel);
   const supportRemovalHeatgunPower = parseFloat(elecRates.supportRemovalHeatgunPower);
+  const preparationPriceRate = parseFloat(laborRates.preparationRatePerPlate ?? laborRates.preparationRatePerFile);
 
   const currentRates = {
     ...(dbSettings || {}),
@@ -266,7 +267,7 @@ export const computeProjectCosts = ({
     mSolderRate: parseFloat(maintRates.mSolderRate) || 2,
     ironPower: parseFloat(elecRates.solderingIronPower) || 60,
     heatgunPower: Number.isFinite(supportRemovalHeatgunPower) ? supportRemovalHeatgunPower : 300,
-    prepFee: parseFloat(laborRates.preparationRatePerFile) || 10,
+    prepFee: Number.isFinite(preparationPriceRate) ? preparationPriceRate : 10,
     supportRemovalTimePerPlate: Number.isFinite(supportRemovalTimeRate) ? supportRemovalTimeRate : 10,
     supportFee: Number.isFinite(supportRemovalPriceRate) ? supportRemovalPriceRate : 5,
     printStartTime: parseFloat(laborRates.printStartTime) || 9
@@ -796,9 +797,9 @@ export const computeProjectCosts = ({
       ],
       labor: [
         {
-          title: 'File Preparation',
+          title: 'Plate Preparation',
           items: [
-            { label: 'Model Preparation', sub: `${validItems.length} file(s) × ₱${currentRates.prepFee}`, calc: `₱${formatCurrency(costPrepFlat)}` },
+            { label: 'Plate Preparation', sub: `${validItems.length} plate(s) × ₱${currentRates.prepFee}/plate`, calc: `₱${formatCurrency(costPrepFlat)}` },
             { label: 'Support Removal', sub: `${validItems.length} plate(s) × ₱${currentRates.supportFee}/plate`, calc: `₱${formatCurrency(costSupportFlat)}` }
           ]
         },

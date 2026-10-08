@@ -29,7 +29,7 @@ const RATE_SECTIONS = [
       { key: 'installationCost', label: 'Hardware Install', unit: '₱/pc', type: 'number' },
       { key: 'filamentHandlingCost', label: 'Filament Change', unit: '₱/event', type: 'number' },
       { key: 'monitoringRate', label: 'Monitoring', unit: '%', type: 'number' },
-      { key: 'preparationRatePerFile', label: 'Prep Per File', unit: 'min', type: 'number' },
+      { key: 'preparationRatePerPlate', label: 'Prep Per Plate', unit: '₱/plate', type: 'number' },
       { key: 'printStartTime', label: 'Print Start', unit: 'hr', type: 'number' },
       { key: 'supportRemovalTimePerPlate', label: 'Support Time / Plate', unit: 'min/plate', type: 'number', defaultValue: 10 },
       { key: 'supportRemovalRatePerPlate', label: 'Support Removal / Plate', unit: '₱/plate', type: 'number' }
