@@ -247,6 +247,10 @@ export const computeProjectCosts = ({
   const baseElecRate = parseFloat(elecRates.electricityRate) || 14.16;
   const finalElecRate = baseElecRate * (1 + ((parseFloat(elecRates.expectedIncrease) || 0) / 100));
 
+  const supportRemovalTimeRate = parseFloat(laborRates.supportRemovalTimePerPlate);
+  const supportRemovalPriceRate = parseFloat(laborRates.supportRemovalRatePerPlate ?? laborRates.supportRemovalRatePerModel);
+  const supportRemovalHeatgunPower = parseFloat(elecRates.supportRemovalHeatgunPower);
+
   const currentRates = {
     ...(dbSettings || {}),
     elecRate: finalElecRate,
@@ -261,8 +265,10 @@ export const computeProjectCosts = ({
     maintFixed: parseFloat(maintRates.estimationCost ?? maintRates.estimationFixedCost) || 0,
     mSolderRate: parseFloat(maintRates.mSolderRate) || 2,
     ironPower: parseFloat(elecRates.solderingIronPower) || 60,
+    heatgunPower: Number.isFinite(supportRemovalHeatgunPower) ? supportRemovalHeatgunPower : 300,
     prepFee: parseFloat(laborRates.preparationRatePerFile) || 10,
-    supportFee: parseFloat(laborRates.supportRemovalRatePerModel) || 5,
+    supportRemovalTimePerPlate: Number.isFinite(supportRemovalTimeRate) ? supportRemovalTimeRate : 10,
+    supportFee: Number.isFinite(supportRemovalPriceRate) ? supportRemovalPriceRate : 5,
     printStartTime: parseFloat(laborRates.printStartTime) || 9
   };
 
@@ -480,7 +486,7 @@ export const computeProjectCosts = ({
   };
 
   const backgroundPrepTime = validItems.length * 5; 
-  const backgroundSupportTime = validItems.length * 2;
+  const backgroundSupportTime = validItems.length * currentRates.supportRemovalTimePerPlate;
   const defaultState = getPrinterState(activePrinter || getJobPrinter(validItems[0]));
   injectTask(defaultState, 'batch-prep', 'Batch Preparation & Setup', backgroundPrepTime + backgroundSupportTime, 'Manual Work', 'manual', true);
 
@@ -708,7 +714,8 @@ export const computeProjectCosts = ({
   
   const kwhP = printerRuntimeRows.reduce((sum, row) => sum + ((row.wattage / 1000) * (row.runtimeMins / 60)), 0);
   const kwhI = (currentRates.ironPower / 1000) * (heatsetMins / 60);
-  const baseElecTotal = (kwhP + kwhI) * currentRates.electricityRate;
+  const kwhH = (currentRates.heatgunPower / 1000) * (backgroundSupportTime / 60);
+  const baseElecTotal = (kwhP + kwhI + kwhH) * currentRates.electricityRate;
   const elecFinal = baseElecTotal * markupMultiplier;
 
   const maintFinal = ((runtimeForElec / 60) * currentRates.maintRate) + ((heatsetMins / 60) * currentRates.mSolderRate) + currentRates.maintFixed;
@@ -753,7 +760,7 @@ export const computeProjectCosts = ({
     filament: formatCurrency(filamentFinal),
     labor: formatCurrency(laborFinal),
     electricity: formatCurrency(elecFinal),
-    electricityKwh: Number((kwhP + kwhI).toFixed(6)),
+    electricityKwh: Number((kwhP + kwhI + kwhH).toFixed(6)),
     electricityRate: Number(currentRates.elecRate),
     electricityMarkupMultiplier: Number(markupMultiplier),
     maintenance: formatCurrency(maintFinal),
@@ -792,7 +799,7 @@ export const computeProjectCosts = ({
           title: 'File Preparation',
           items: [
             { label: 'Model Preparation', sub: `${validItems.length} file(s) × ₱${currentRates.prepFee}`, calc: `₱${formatCurrency(costPrepFlat)}` },
-            { label: 'Support Removal', sub: `${validItems.length} model(s) × ₱${currentRates.supportFee}`, calc: `₱${formatCurrency(costSupportFlat)}` }
+            { label: 'Support Removal', sub: `${validItems.length} plate(s) × ₱${currentRates.supportFee}/plate`, calc: `₱${formatCurrency(costSupportFlat)}` }
           ]
         },
         {
@@ -855,7 +862,8 @@ export const computeProjectCosts = ({
                     };
                   })
             ),
-            { label: 'Soldering Iron', sub: `${currentRates.ironPower}W used`, calc: `₱${formatCurrency(kwhI * currentRates.elecRate)}` }
+            { label: 'Soldering Iron', sub: `${currentRates.ironPower}W used for heatsets`, calc: `₱${formatCurrency(kwhI * currentRates.elecRate)}` },
+            { label: 'Support Removal Heatgun', sub: `${validItems.length} plate(s) × ${currentRates.supportRemovalTimePerPlate} min at ${currentRates.heatgunPower}W`, calc: `₱${formatCurrency(kwhH * currentRates.elecRate)}` }
           ]
         },
         {

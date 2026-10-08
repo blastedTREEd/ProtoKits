@@ -31,7 +31,8 @@ const RATE_SECTIONS = [
       { key: 'monitoringRate', label: 'Monitoring', unit: '%', type: 'number' },
       { key: 'preparationRatePerFile', label: 'Prep Per File', unit: 'min', type: 'number' },
       { key: 'printStartTime', label: 'Print Start', unit: 'hr', type: 'number' },
-      { key: 'supportRemovalRatePerModel', label: 'Support Removal', unit: 'min', type: 'number' }
+      { key: 'supportRemovalTimePerPlate', label: 'Support Time / Plate', unit: 'min/plate', type: 'number', defaultValue: 10 },
+      { key: 'supportRemovalRatePerPlate', label: 'Support Removal / Plate', unit: '₱/plate', type: 'number' }
     ]
   },
   {
@@ -55,6 +56,7 @@ const RATE_SECTIONS = [
       { key: 'electricityRate', label: 'Electricity Rate', unit: '₱/kWh', type: 'number' },
       { key: 'expectedIncrease', label: 'Expected Increase', unit: '%', type: 'number' },
       { key: 'solderingIronPower', label: 'Iron Power', unit: 'W', type: 'number' },
+      { key: 'supportRemovalHeatgunPower', label: 'Support Heatgun', unit: 'W', type: 'number', defaultValue: 300 },
       { key: 'rateAsOf', label: 'Rate As Of', unit: '', type: 'text' }
     ]
   },
@@ -730,7 +732,7 @@ export default function ProjectCost({
                   <div className="grid grid-cols-2 gap-3 text-left">
                     {section.fields.map((field) => {
                         const sourceValue = storeRates?.[section.id]?.[field.key];
-                        const draftValue = sectionRates[field.key] ?? sourceValue ?? '';
+                        const draftValue = sectionRates[field.key] ?? sourceValue ?? field.defaultValue ?? '';
                         let trend = null;
                         if (field.type === 'number' && draftValue !== '' && sourceValue !== undefined && draftValue !== sourceValue) {
                           trend = Number(draftValue) > Number(sourceValue) ? 'up' : 'down';

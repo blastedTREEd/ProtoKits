@@ -22,7 +22,8 @@ const RATE_SECTIONS = [
       { key: 'filamentHandlingCost', label: 'Filament Change', unit: '₱/event', type: 'number' },
       { key: 'monitoringRate', label: 'Monitoring', unit: '%', type: 'number' },
       { key: 'preparationRatePerFile', label: 'Prep Fee', unit: '₱', type: 'number' },
-      { key: 'supportRemovalRatePerModel', label: 'Support Fee', unit: '₱', type: 'number' },
+      { key: 'supportRemovalTimePerPlate', label: 'Support Time / Plate', unit: 'min/plate', type: 'number', defaultValue: 10 },
+      { key: 'supportRemovalRatePerPlate', label: 'Support Removal / Plate', unit: '₱/plate', type: 'number' },
       { key: 'printStartTime', label: 'Print Start', unit: 'hr', type: 'number' },
       { key: 'useTiers', label: 'Use Labor Tiers', unit: 'Toggle', type: 'boolean' }
     ],
@@ -47,6 +48,7 @@ const RATE_SECTIONS = [
       { key: 'electricityRate', label: 'Electricity Rate', unit: '₱/kWh', type: 'number' },
       { key: 'expectedIncrease', label: 'Expected Increase', unit: '%', type: 'number' },
       { key: 'solderingIronPower', label: 'Iron Power', unit: 'W', type: 'number' },
+      { key: 'supportRemovalHeatgunPower', label: 'Support Heatgun', unit: 'W', type: 'number', defaultValue: 300 },
       { key: 'rateUpdateDay', label: 'Update Due Day', unit: 'day of month', type: 'number' },
       { key: 'rateAsOf', label: 'Last Updated', unit: '', type: 'text', readOnly: true }
     ]
@@ -257,7 +259,7 @@ export default function RatesManagerModal({ onClose }) {
                       if (field.parentKey) {
                         return sectionDraft?.[field.parentKey]?.[field.key] ?? currentSectionRates?.[field.parentKey]?.[field.key] ?? '';
                       }
-                      return sectionDraft[field.key] ?? currentSectionRates[field.key] ?? '';
+                      return sectionDraft[field.key] ?? currentSectionRates[field.key] ?? field.defaultValue ?? '';
                     };
                     const value = field.key === 'rateUpdateDay'
                       ? (sectionDraft[field.key] ?? currentSectionRates[field.key] ?? 22)
