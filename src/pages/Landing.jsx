@@ -186,20 +186,20 @@ export default function Home() {
 
   const storefrontWelcomeContent = (
     <section
-      className="relative min-h-[min(75vh,calc(100dvh-8rem))] flex items-center justify-center overflow-hidden w-full px-6 pt-20 pb-24"
+      className="relative flex min-h-[min(50vh,32rem)] w-full items-center justify-center overflow-hidden px-6 pb-10 pt-14"
     >
       <div className="absolute inset-0 overflow-hidden pointer-events-none select-none z-0">
         <div className="absolute left-0 top-1/2 w-full -translate-y-1/2">
           <motion.div style={{ x }} className="w-[135%]">
-            <h1 className="whitespace-nowrap font-black italic uppercase tracking-[-0.09em] leading-none scale-y-110 text-[clamp(15rem,38vw,30rem)] opacity-[0.1] -translate-x-[12%]">
+            <h1 className="whitespace-nowrap text-[clamp(9rem,30vw,24rem)] font-black italic uppercase leading-none tracking-[-0.09em] opacity-[0.1] [transform:translateX(-12%)_scaleY(1.1)]">
               SNORLAX
             </h1>
           </motion.div>
         </div>
       </div>
 
-      <div className="relative z-10 w-full max-w-5xl mx-auto flex flex-col items-center text-center">
-        <h1 className="w-full mt-8 font-black italic uppercase tracking-tighter leading-[0.88] text-5xl sm:text-6xl md:text-7xl lg:text-8xl">
+      <div className="relative z-10 flex w-full max-w-5xl flex-col items-center text-center">
+        <h1 className="mt-6 w-full font-black italic uppercase leading-[0.88] tracking-tighter text-4xl sm:text-5xl md:text-6xl lg:text-7xl">
           THE GARAGE IS
           <br />
           <span className={isOpeningOrOpen ? "text-garage-blue" : "text-red-500 text-4xl sm:text-5xl md:text-6xl lg:text-7xl"}>
@@ -207,7 +207,7 @@ export default function Home() {
           </span>
         </h1>
 
-        <p className="w-full mt-[clamp(1rem,2vw,2rem)] max-w-xl mx-auto px-2 text-sm md:text-base font-medium text-black-400 leading-[clamp(1.25rem,2.4vw,1.625rem)]">
+        <p className="mx-auto mt-[clamp(0.75rem,2vw,1.5rem)] w-full max-w-xl px-2 text-xs font-medium leading-[clamp(1.1rem,2.4vw,1.5rem)] text-black-400 sm:text-sm md:text-base">
           SEALED, BUILT, &amp; EVERYTHING BETWEEN.
           <br />
           Explore transparently tagged Gunpla options from a collector's personal backlog—tailored for every budget, condition, and build style.
@@ -241,7 +241,7 @@ export default function Home() {
             role="dialog"
             aria-modal="true"
             aria-label="Explore the storefront"
-            className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-7xl flex-col overflow-hidden rounded-[2rem] border border-black/10 bg-white shadow-2xl dark:border-white/10 dark:bg-[#0a0a0a]"
+            className="relative flex max-h-[calc(100dvh-1.5rem)] w-full max-w-6xl flex-col overflow-hidden rounded-[2rem] border border-black/10 bg-white shadow-2xl dark:border-white/10 dark:bg-[#0a0a0a] sm:max-h-[calc(100dvh-3rem)]"
           >
             <div className="flex-none overflow-visible">
               {storefrontWelcomeContent}
