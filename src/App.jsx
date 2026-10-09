@@ -232,23 +232,23 @@ const RouterContent = () => {
           key={currentFamilyTab >= 0 ? `family-tab-${currentFamilyTab}` : location.pathname}
           custom={familyPreviewDirection}
           variants={{
-            enter: (direction) => ({ x: `${direction * 100}%`, opacity: 0.86, scale: 0.985 }),
-            center: { x: 0, opacity: 1, scale: 1 },
-            exit: (direction) => ({ x: `${direction * -100}%`, opacity: 0.86, scale: 0.985 })
+            enter: (direction) => ({ left: `${direction * 100}%`, opacity: 0.86 }),
+            center: { left: '0%', opacity: 1 },
+            exit: (direction) => ({ left: `${direction * -100}%`, opacity: 0.86 })
           }}
           initial="enter"
           animate="center"
           exit="exit"
           transition={{ type: 'spring', stiffness: 280, damping: 32, mass: 0.9 }}
-          className="relative min-h-full w-full will-change-transform"
+          className="relative min-h-full w-full will-change-[left,opacity]"
         >
           <div className="relative min-h-full w-full overflow-x-hidden">
             {shouldRenderFamilyPreview && (
-              <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 z-0 w-full" style={{ transform: `translate3d(calc(${familyPreviewDirection * 100}% + ${familySwipeOffset}px), 0, 0)` }}>
+              <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 z-0 w-full" style={{ left: `calc(${familyPreviewDirection * 100}% + ${familySwipeOffset}px)` }}>
                 {renderFamilyPreview()}
               </div>
             )}
-            <div className="relative z-10 min-h-full w-full" style={{ transform: `translate3d(${familySwipeOffset}px, 0, 0)`, transition: isFamilySwipeDragging ? 'none' : 'transform 260ms cubic-bezier(0.22, 1, 0.36, 1)' }}>
+            <div className="relative z-10 min-h-full w-full" style={{ left: `${familySwipeOffset}px`, transition: isFamilySwipeDragging ? 'none' : 'left 260ms cubic-bezier(0.22, 1, 0.36, 1)' }}>
               <Suspense fallback={
                 <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-white/50 backdrop-blur-sm dark:bg-black/50">
                   <LoadingState {...loadingDetails} />
