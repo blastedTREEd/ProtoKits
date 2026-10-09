@@ -10,7 +10,7 @@ import {
   ONHAND_KIT_CONDITION,
   withStockConditionDefaults
 } from '../utils/stockConditions';
-import { normalizeFeederRecord, normalizePrinterRecord, normalizePrinterStatus, resolveProjectPrinterAssignments } from '../utils/printerCompatibility';
+import { normalizeFeederRecord, normalizeFilamentType, normalizePrinterRecord, normalizePrinterStatus, resolveProjectPrinterAssignments } from '../utils/printerCompatibility';
 import { computeProjectCosts } from '../utils/calculationEngine';
 import { getStockEta } from '../utils/stockDates';
 import { getPrintedProjectModelName } from '../utils/printedProjectName';
@@ -2248,7 +2248,7 @@ export const useStore = create(
         });
 
         const unsubFilaments = onSnapshot(collection(db, "filaments"), (snap) => {
-          set({ filamentInventory: docsToArray(snap) });
+          set({ filamentInventory: docsToArray(snap).map((filament) => ({ ...filament, type: normalizeFilamentType(filament.type) })) });
           schedulePersistedProjectsRecompute('filaments/snapshot');
         }, (err) => {
           console.error("SG LOG: Filaments subscription error:", err);

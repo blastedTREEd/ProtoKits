@@ -1,6 +1,5 @@
 export const COMMON_FILAMENT_TYPES = [
   'PLA',
-  'PLA+',
   'PETG',
   'ABS',
   'ASA',
@@ -11,7 +10,20 @@ export const COMMON_FILAMENT_TYPES = [
   'HIPS'
 ];
 
-export const normalizeFilamentType = (type) => String(type || '').trim().toUpperCase();
+export const normalizeFilamentType = (type) => {
+  const normalized = String(type || '').trim().toUpperCase();
+  return normalized === 'PLA+' ? 'PLA' : normalized;
+};
+
+const normalizePrintTimeAdjustments = (adjustments = {}) => Object.entries(adjustments || {}).reduce((result, [type, value]) => {
+  const rawType = String(type || '').trim().toUpperCase();
+  const normalizedType = normalizeFilamentType(type);
+  const numericValue = Number(value);
+  if (!normalizedType || !Number.isFinite(numericValue) || numericValue <= 0) return result;
+  if (normalizedType === 'PLA' && rawType === 'PLA+' && Number.isFinite(Number(result.PLA)) && Number(result.PLA) > 0) return result;
+  result[normalizedType] = Math.round(numericValue * 10) / 10;
+  return result;
+}, {});
 
 export const PRINTER_STATUSES = ['available', 'unavailable', 'maintenance'];
 
@@ -94,9 +106,7 @@ export const normalizePrinterRecord = (printer = {}) => {
     bedLevelMins: numberOrFallback(printer.bedLevelMins ?? printer.bedlevellingMins ?? printer.bedLevelingMins ?? printer.bootLevelMins, 0),
     bootLevelMins: numberOrFallback(printer.bootLevelMins ?? printer.bedLevelMins ?? printer.bedlevellingMins, 0),
     compatibleFilamentTypes: getPrinterCompatibleFilamentTypes(printer),
-    printTimeAdjustments: (printer.printTimeAdjustments && typeof printer.printTimeAdjustments === 'object')
-      ? printer.printTimeAdjustments
-      : {},
+    printTimeAdjustments: normalizePrintTimeAdjustments(printer.printTimeAdjustments),
     feederIds: Array.isArray(printer.feederIds)
       ? printer.feederIds.map((id) => String(id))
       : Array.isArray(printer.feeders)
@@ -155,8 +165,12 @@ export const getPrintTimeAdjustment = (printer, filamentType) => {
   const adjustments = printer.printTimeAdjustments;
   if (!adjustments || typeof adjustments !== 'object') return 0;
   const key = normalizeFilamentType(filamentType);
-  const value = Number(adjustments[key]);
-  return Number.isFinite(value) && value > 0 ? value : 0;
+  const candidates = key === 'PLA' ? ['PLA', 'PLA+'] : [key];
+  const configuredKey = candidates.find((candidate) => {
+    const value = Number(adjustments[candidate]);
+    return Number.isFinite(value) && value > 0;
+  });
+  return configuredKey ? Number(adjustments[configuredKey]) : 0;
 };
 
 /**

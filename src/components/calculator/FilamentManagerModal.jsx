@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { X, Plus, Trash2, Disc3, Coins, Weight, Edit3, Check, Undo2, Search, Eye, Clock, RefreshCw, Hash } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { deleteField } from 'firebase/firestore';
+import { normalizeFilamentType } from '../../utils/printerCompatibility';
 
 export default function FilamentManagerModal({ onClose }) {
   const filamentInventory = useStore((state) => state.filamentInventory);
@@ -66,7 +67,7 @@ export default function FilamentManagerModal({ onClose }) {
                       }} 
                       className="w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-[var(--color-text-main)] font-bold outline-none text-[11px] focus:border-blue-500 uppercase" 
                     />
-                    <select value={editFormData.type} onChange={e => setEditFormData({...editFormData, type: e.target.value})} className="w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-[var(--color-text-main)] font-bold outline-none text-[11px] focus:border-blue-500"><option>PLA</option><option>PLA+</option><option>PETG</option><option>ABS</option><option>ASA</option><option>TPU</option></select>
+                    <select value={editFormData.type} onChange={e => setEditFormData({...editFormData, type: normalizeFilamentType(e.target.value)})} className="w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-[var(--color-text-main)] font-bold outline-none text-[11px] focus:border-blue-500"><option>PLA</option><option>PETG</option><option>ABS</option><option>ASA</option><option>TPU</option></select>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <input 
@@ -165,7 +166,7 @@ export default function FilamentManagerModal({ onClose }) {
         materialKey: customId,
         name: (addFormData.name.trim() || 'UNNAMED COLOR').toUpperCase(),
         brand: (addFormData.brand.trim() || 'UNKNOWN BRAND').toUpperCase(),
-        type: addFormData.type.toUpperCase(),
+        type: normalizeFilamentType(addFormData.type),
         color: addFormData.color,
         price: parseFloat(addFormData.price) || 0,
         weight: 1000,
@@ -198,7 +199,7 @@ export default function FilamentManagerModal({ onClose }) {
         materialKey: newId,
         name: editFormData.name.trim().toUpperCase(),
         brand: editFormData.brand.trim().toUpperCase(),
-        type: editFormData.type.toUpperCase(),
+        type: normalizeFilamentType(editFormData.type),
         color: editFormData.color,
         price: parseFloat(editFormData.price) || 0,
         remaining,
@@ -240,7 +241,7 @@ export default function FilamentManagerModal({ onClose }) {
       remaining: f.remaining ?? 0,
       loadTime: f.loadTime ?? 5,
       purgeTime: f.purgeTime ?? 2,
-      type: f.type ?? 'PLA'
+      type: normalizeFilamentType(f.type ?? 'PLA')
     });
   };
 
@@ -316,7 +317,7 @@ export default function FilamentManagerModal({ onClose }) {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <select value={addFormData.type} onChange={e => setAddFormData({...addFormData, type: e.target.value})} className="bg-[var(--color-bg)] border border-[var(--color-border)] rounded-2xl px-4 py-3 text-[var(--color-text-main)] font-bold outline-none text-[12px] appearance-none focus:border-blue-500">
-                  <option>PLA</option><option>PLA+</option><option>PETG</option><option>ABS</option><option>ASA</option><option>TPU</option>
+                  <option>PLA</option><option>PETG</option><option>ABS</option><option>ASA</option><option>TPU</option>
                 </select>
                 <input 
                   value={addFormData.name} 

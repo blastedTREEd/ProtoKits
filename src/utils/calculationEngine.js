@@ -1,4 +1,4 @@
-import { getPrinterFeeders, calculateItemAdjustedPrintTime } from './printerCompatibility';
+import { getPrinterFeeders, calculateItemAdjustedPrintTime, normalizeFilamentType } from './printerCompatibility';
 
 export const DEFAULT_SPOOL_WEIGHT = 1000;
 
@@ -50,6 +50,7 @@ export const getItemMaterial = (item) => {
   if (!nested) return null;
   return {
     ...nested,
+    type: normalizeFilamentType(nested.type),
     id: nested.id ?? item?.material?.materialId ?? item?.materialId ?? 'unknown',
     remaining: parseFloat(nested.remaining || 0),
     price: parseFloat(nested.price || 0),
@@ -144,6 +145,7 @@ export const computeProjectCosts = ({
         if (!merged) return null;
         return {
           ...merged,
+          type: normalizeFilamentType(merged.type),
           id: merged.id ?? entry?.materialId,
           materialId: entry?.materialId ?? merged.id,
           shareWeight: Number(entry?.shareWeight || 0),
