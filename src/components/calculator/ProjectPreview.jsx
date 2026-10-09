@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import MaterialCard from './MaterialCard';
 import { useStore } from '../../store/useStore';
-import { getPrinterCompatibleFilamentTypes, getPrinterFeeders, isFilamentCompatibleWithPrinter, isPrinterAvailableForCostEstimation, normalizePrinterStatus } from '../../utils/printerCompatibility';
+import { calculateItemAdjustedPrintTime, getPrinterCompatibleFilamentTypes, getPrinterFeeders, isFilamentCompatibleWithPrinter, isPrinterAvailableForCostEstimation, normalizePrinterStatus } from '../../utils/printerCompatibility';
 import { filamentLengthMetersToWeightGrams, filamentWeightGramsToLengthMeters, formatFilamentLengthMeters } from '../../utils/filamentMetrics';
 
 export default function ProjectPreview({ 
@@ -79,6 +79,44 @@ export default function ProjectPreview({
   const currentMaterialId = activeMaterialSlotsData[activeMaterialSlot]?.materialId || activePlate?.materialId;
   const activePlatePrinterId = activePlate?.printerId;
   const getLengthDraftKey = (plateId, slotIdx) => `${plateId}:${slotIdx}`;
+
+  const adjustedPrintPreview = useMemo(() => {
+    const rawTime = (Number(activePlate?.days) || 0) * 1440
+      + (Number(activePlate?.hours) || 0) * 60
+      + (Number(activePlate?.mins) || 0);
+    const materials = activeMaterialSlotsData
+      .map((slot) => (allFilaments || []).find((filament) => String(filament.id) === String(slot.materialId)))
+      .filter(Boolean);
+
+    if (rawTime <= 0 || !selectedPrinter || materials.length === 0) {
+      return { rawTime, adjustedTime: rawTime, effectiveAdjustmentPercent: 0, adjustments: [] };
+    }
+
+    const materialWeights = activeMaterialSlotsData.reduce((weights, slot) => {
+      if (slot?.materialId && Number(slot.weight) > 0) {
+        weights[String(slot.materialId)] = Number(slot.weight);
+      }
+      return weights;
+    }, {});
+
+    return {
+      rawTime,
+      ...calculateItemAdjustedPrintTime(selectedPrinter, {
+        normalizedMaterials: materials,
+        materialWeights,
+        normalizedWeight: Number(activePlate?.weight) || 0
+      }, rawTime)
+    };
+  }, [activeMaterialSlotsData, activePlate, allFilaments, selectedPrinter]);
+
+  const formatPreviewMinutes = (minutes) => {
+    const total = Math.max(0, Math.round(Number(minutes) || 0));
+    const hours = Math.floor(total / 60);
+    const mins = total % 60;
+    if (hours === 0) return `${mins}m`;
+    if (mins === 0) return `${hours}h`;
+    return `${hours}h ${mins}m`;
+  };
 
   const toggleMeasurementMode = () => {
     if (measurementMode === 'weight') {
@@ -749,7 +787,7 @@ export default function ProjectPreview({
         <div className="space-y-6 animate-in fade-in zoom-in duration-300 w-full max-w-2xl mx-auto px-3">
           <div className="flex flex-col items-center text-center">
             <label className="text-[15px] font-bold uppercase mb-2 flex items-center justify-center gap-2 text-[var(--color-primary)]">
-              <ClockCheck size={14} strokeWidth={3} /> Print Time
+              <ClockCheck size={14} strokeWidth={3} /> Slicer Print Time
             </label>
             <div className={`bg-transparent rounded-[2.5rem] px-6 py-4 flex items-center gap-1 w-full text-black dark:text-white ${containerBorderStyle}`}>
               {[{ field: 'days', sub: 'DD' }, { field: 'hours', sub: 'HH' }, { field: 'mins', sub: 'MM' }, { field: 'secs', sub: 'SS' }].map((item, idx, arr) => (
@@ -762,6 +800,14 @@ export default function ProjectPreview({
                 </React.Fragment>
               ))}
             </div>
+            {adjustedPrintPreview.effectiveAdjustmentPercent > 0 && adjustedPrintPreview.adjustedTime > adjustedPrintPreview.rawTime && (
+              <div className="mt-2 text-center text-[12px] font-bold uppercase tracking-wide text-[var(--color-primary)]">
+                Adjusted estimate: {formatPreviewMinutes(adjustedPrintPreview.adjustedTime)}
+                <span className="ml-1 opacity-60">
+                  (+{adjustedPrintPreview.effectiveAdjustmentPercent}% {adjustedPrintPreview.adjustments.map((adjustment) => adjustment.type).filter(Boolean).join(' + ')})
+                </span>
+              </div>
+            )}
           </div>
         </div>
       )}
