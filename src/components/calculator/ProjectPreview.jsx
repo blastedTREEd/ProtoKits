@@ -17,7 +17,7 @@ export default function ProjectPreview({
   setPreviewData,
   onBack
 }) {
-  const { printers, feeders } = useStore();
+  const { printers, feeders, isAdmin, isAdminView } = useStore();
   const containerBorderStyle = "border-[1.5px] border-gray-400/40 shadow-sm";
   const MAX_PLATES = 8;
 
@@ -29,6 +29,7 @@ export default function ProjectPreview({
   // --- 1. INITIALIZATION & SYNC ---
   // --- 2. MEMOIZED DATA & LOGIC ---
   const plates = useMemo(() => previewData || [], [previewData]);
+  const isReprint = activePlate?.isReprint === true;
   const [activePlateId, setActivePlateId] = useState(null);
   const [isSelectingMaterial, setIsSelectingMaterial] = useState(false);
   const [isSelectingPrinter, setIsSelectingPrinter] = useState(false);
@@ -302,6 +303,14 @@ export default function ProjectPreview({
     }));
   }, [activeMaterialSlot, setPreviewData]);
 
+  const toggleReprint = useCallback(() => {
+    setPreviewData((previous) => (previous || []).map((plate) => (
+      plate.id === effectiveActiveId
+        ? { ...plate, isReprint: !isReprint }
+        : plate
+    )));
+  }, [effectiveActiveId, isReprint, setPreviewData]);
+
   const updateMaterialSlotWeight = (slotIdx, value) => {
     const clean = value.replace(/[^0-9.]/g, '');
     if ((clean.match(/\./g) || []).length > 1) return;
@@ -501,7 +510,7 @@ export default function ProjectPreview({
       }, {});
 
       return {
-        id: p.id, no: p.no, included: isPlateIncluded(p),
+        id: p.id, no: p.no, included: isPlateIncluded(p), isReprint: p.isReprint === true,
         sliced: { weight: Number(p.weight), time, breakdown: { days, hours, mins, secs: Number(p.secs || 0) } },
         printerId: p.printerId,
         useCfs: usesFeeder,
@@ -516,7 +525,8 @@ export default function ProjectPreview({
           weight: Number(p.weight),
           time,
           materialIds: weightedSlots.map(slot => slot.materialId),
-          materialWeights
+          materialWeights,
+          isReprint: p.isReprint === true
         }],
         material: {
           materialId: primaryMaterialId,
@@ -800,12 +810,26 @@ export default function ProjectPreview({
                 </React.Fragment>
               ))}
             </div>
-            {adjustedPrintPreview.effectiveAdjustmentPercent > 0 && adjustedPrintPreview.adjustedTime > adjustedPrintPreview.rawTime && (
-              <div className="mt-2 text-center text-[12px] font-bold uppercase tracking-wide text-[var(--color-primary)]">
-                Adjusted estimate: {formatPreviewMinutes(adjustedPrintPreview.adjustedTime)}
-                <span className="ml-1 opacity-60">
-                  (+{adjustedPrintPreview.effectiveAdjustmentPercent}% {adjustedPrintPreview.adjustments.map((adjustment) => adjustment.type).filter(Boolean).join(' + ')})
-                </span>
+            {isAdmin && isAdminView && (
+              <div className="mt-2 flex w-full items-center justify-between gap-3 text-[12px] font-bold uppercase tracking-wide">
+                <div className="min-w-0 flex-1 text-left text-[var(--color-primary)]">
+                  {adjustedPrintPreview.effectiveAdjustmentPercent > 0 && adjustedPrintPreview.adjustedTime > adjustedPrintPreview.rawTime && (
+                    <>
+                      Adjusted estimate: {formatPreviewMinutes(adjustedPrintPreview.adjustedTime)}
+                      <span className="ml-1 opacity-60">
+                        (+{adjustedPrintPreview.effectiveAdjustmentPercent}% {adjustedPrintPreview.adjustments.map((adjustment) => adjustment.type).filter(Boolean).join(' + ')})
+                      </span>
+                    </>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={toggleReprint}
+                  aria-pressed={isReprint}
+                  className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-black tracking-[0.12em] transition-colors ${isReprint ? 'border-amber-500 bg-amber-500 text-white' : 'border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary)] hover:text-white'}`}
+                >
+                  {isReprint ? 'REPRINTED' : 'REPRINT'}
+                </button>
               </div>
             )}
           </div>

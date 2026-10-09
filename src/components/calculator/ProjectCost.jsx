@@ -73,8 +73,7 @@ const RATE_SECTIONS = [
     id: 'print-cost',
     title: 'Print',
     fields: [
-      { key: 'markupRate', label: 'Markup', unit: '%', type: 'number' },
-      { key: 'reprintRate', label: 'Reprint Rate', unit: '%', type: 'number' }
+      { key: 'markupRate', label: 'Markup', unit: '%', type: 'number' }
     ]
   }
 ];

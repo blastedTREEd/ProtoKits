@@ -112,8 +112,15 @@ export const computeProjectCosts = ({
   const includedSourceItems = sourceItems.filter((item) => item?.included !== false);
   const includedItemIds = new Set(includedSourceItems.map((item) => String(item?.id)).filter(Boolean));
   const includedAssignmentKeys = new Set();
+  const reprintAssignmentKeys = new Set();
   sourceItems.forEach((item, index) => {
     if (item?.included === false) return;
+    const itemIsReprint = item?.isReprint === true;
+    if (itemIsReprint) {
+      [index, item?.id].forEach((key) => {
+        if (key !== undefined && key !== null) reprintAssignmentKeys.add(String(key));
+      });
+    }
     [index, item?.id].forEach((key) => {
       if (key !== undefined && key !== null) includedAssignmentKeys.add(String(key));
     });
@@ -123,6 +130,11 @@ export const computeProjectCosts = ({
         [job?.id, job?.parentId, ...(Array.isArray(job?.parentIds) ? job.parentIds.filter((key) => includedItemIds.has(String(key))) : [])].forEach((key) => {
           if (key !== undefined && key !== null) includedAssignmentKeys.add(String(key));
         });
+        if (itemIsReprint || job?.isReprint === true) {
+          [job?.id, job?.parentId].forEach((key) => {
+            if (key !== undefined && key !== null) reprintAssignmentKeys.add(String(key));
+          });
+        }
       });
   });
 
@@ -186,6 +198,7 @@ export const computeProjectCosts = ({
         normalizedTime: adjustedTime,
         effectiveAdjustmentPercent,
         printTimeAdjustmentsApplied: adjustments,
+        isReprint: item?.isReprint === true,
         printer,
         printerId: item.printerId || printer?.id
       }];
@@ -216,6 +229,7 @@ export const computeProjectCosts = ({
         normalizedTime: adjustedTime,
         effectiveAdjustmentPercent,
         printTimeAdjustmentsApplied: adjustments,
+        isReprint: item?.isReprint === true || job?.isReprint === true,
         swapMins: Number(job.swapMins || 0),
         sliced: {
           ...(item.sliced || {}),
@@ -298,16 +312,22 @@ export const computeProjectCosts = ({
     const spoolWeight = parseFloat(mat.weight || DEFAULT_SPOOL_WEIGHT);
     const pricePerGram = spoolWeight > 0 ? (parseFloat(mat.price) || 0) / spoolWeight : 0;
     const totalWeight = group.reduce((sum, row) => sum + row.weight, 0);
+    const reprintWeight = group.filter((row) => row.item?.isReprint === true).reduce((sum, row) => sum + row.weight, 0);
+    const standardWeight = Math.max(0, totalWeight - reprintWeight);
     const isUpfront = isInventoryMode ? false : String(mat.status || '').toLowerCase() === 'upfront';
     const shortfall = isInventoryMode ? 0 : (isUpfront ? totalWeight : Math.max(0, totalWeight - (parseFloat(mat.remaining) || 0)));
     const spoolsNeeded = shortfall > 0 ? Math.ceil(shortfall / spoolWeight) : 0;
     const excessWeight = Math.max(0, (spoolsNeeded * spoolWeight) - shortfall);
     const excessCharge = isInventoryMode ? 0 : (excessWeight * pricePerGram * filamentClientShare);
     const usageCost = totalWeight * pricePerGram;
+    const reprintUsageCost = reprintWeight * pricePerGram;
+    const standardUsageCost = standardWeight * pricePerGram;
     return {
       id, material: mat, name: getMaterialLabel(mat), spoolWeight, totalWeightUsed: totalWeight,
       pricePerGram, spoolsNeeded, excessWeight, excessCharge, usageCost,
-      totalCost: usageCost + excessCharge, finalCost: (usageCost * markupMultiplier) + excessCharge
+      reprintUsageCost, standardUsageCost,
+      totalCost: usageCost + excessCharge,
+      finalCost: (standardUsageCost * markupMultiplier) + reprintUsageCost + excessCharge
     };
   });
 
@@ -317,7 +337,9 @@ export const computeProjectCosts = ({
 
   activeExtras.forEach((extra) => {
     const entries = Object.entries(extra.assignments || {}).filter(([key, q]) => (
-      includedAssignmentKeys.has(String(key)) && Number(q) > 0
+      includedAssignmentKeys.has(String(key))
+      && !reprintAssignmentKeys.has(String(key))
+      && Number(q) > 0
     ));
     const totalQty = entries.reduce((s, [, q]) => s + Number(q), 0);
     if (totalQty <= 0) return;
@@ -450,6 +472,7 @@ export const computeProjectCosts = ({
         setupMins: 0,
         installMins: 0,
         printMins: 0,
+        reprintMins: 0,
         filament: fil,
         plates: []
       };
@@ -488,8 +511,11 @@ export const computeProjectCosts = ({
     state.currentTime += rounded;
   };
 
-  const backgroundPrepTime = validItems.length * 5; 
-  const backgroundSupportTime = validItems.length * currentRates.supportRemovalTimePerPlate;
+  const chargeableItems = validItems.filter((item) => item?.isReprint !== true);
+  const standardPrintTime = chargeableItems.reduce((s, i) => s + i.normalizedTime, 0);
+  const standardSwapMins = chargeableItems.reduce((s, i) => s + getCfsSwapMins(i), 0);
+  const backgroundPrepTime = chargeableItems.length * 5; 
+  const backgroundSupportTime = chargeableItems.length * currentRates.supportRemovalTimePerPlate;
   const defaultState = getPrinterState(activePrinter || getJobPrinter(validItems[0]));
   injectTask(defaultState, 'batch-prep', 'Batch Preparation & Setup', backgroundPrepTime + backgroundSupportTime, 'Manual Work', 'manual', true);
 
@@ -511,7 +537,7 @@ export const computeProjectCosts = ({
       const loadTime = palette.reduce((sum, mat) => sum + (parseFloat(mat.loadTime) || 0), 0);
       const purgeTime = palette.reduce((sum, mat) => sum + (parseFloat(mat.purgeTime) || 0), 0);
       const paletteLabel = palette.map(getMaterialLabel).join(' + ') || 'CFS Palette';
-      filamentHandlingEvents += 2;
+      if (cfsJobs.some((item) => item?.isReprint !== true)) filamentHandlingEvents += 2;
       injectTask(state, `load-cfs-${state.key}`, `Load CFS: ${paletteLabel}`, loadTime, paletteLabel);
       cfsJobs.sort((a, b) => (b.normalizedTime - a.normalizedTime) || (a.index - b.index)).forEach((item) => {
         const start = advanceTime(state.currentTime);
@@ -534,7 +560,8 @@ export const computeProjectCosts = ({
         b.totalMins += workload; 
         b.setupMins += (mSetTime + init); 
         b.installMins += mPlcTime; 
-        b.printMins += printMonitoringMins;
+        if (item?.isReprint === true) b.reprintMins += printMonitoringMins;
+        else b.printMins += printMonitoringMins;
         const plateId = `${String(item.id ?? item.index)}-${dNum}-${b.plates.length}`;
         b.plates.push({ 
           id: plateId, 
@@ -566,7 +593,7 @@ export const computeProjectCosts = ({
 
     grouped.forEach((group, gIdx) => {
       const filLabel = getMaterialLabel(group[0].normalizedMaterial);
-      filamentHandlingEvents += 2;
+      if (group.some((item) => item?.isReprint !== true)) filamentHandlingEvents += 2;
       injectTask(state, `load-${state.key}-${gIdx}`, `Load Filament: ${filLabel}`, group[0].normalizedMaterial.loadTime, filLabel);
       group.forEach((item) => {
         const start = advanceTime(state.currentTime);
@@ -584,7 +611,9 @@ export const computeProjectCosts = ({
         const mSetTime = pExtra.magnets > 0 ? (parseFloat(extraRates.magnetSetupRate) || 0) : 0;
         const workload = Math.round(item.normalizedTime + mPlcTime + mSetTime + init);
         const b = getDayBucket(dNum, filLabel, state.printer);
-        b.totalMins += workload; b.setupMins += (mSetTime + init); b.installMins += mPlcTime; b.printMins += item.normalizedTime;
+        b.totalMins += workload; b.setupMins += (mSetTime + init); b.installMins += mPlcTime;
+        if (item?.isReprint === true) b.reprintMins += item.normalizedTime;
+        else b.printMins += item.normalizedTime;
         b.plates.push({ id: itemKey, itemId: item.id, parentId: item.parentId, printTimeAdjustmentsApplied: item.printTimeAdjustmentsApplied, name: item.itemName, time: workload, scheduledMins: workload, printMins: item.normalizedTime, setupMins: mSetTime + init, installMins: mPlcTime, postPrintHeatsetMins: (pExtra.heatsets > 0 ? (parseFloat(extraRates.heatsetSetupRate) || 0) : 0) + (pExtra.heatsets * (parseFloat(extraRates.heatsetPlacementRate) || 0)), filament: filLabel, printerName: getPrinterLabel(state.printer), magnets: pExtra.magnets, heatsets: pExtra.heatsets, startDay: dNum, endDay: Math.floor((state.currentTime + workload - 0.1) / MINUTES_PER_DAY) + 1 });
         state.currentTime += workload;
       });
@@ -608,6 +637,8 @@ export const computeProjectCosts = ({
     const printerItems = validItems.filter((item) => getPrinterKey(getJobPrinter(item)) === state.key);
     const printMins = printerItems.reduce((sum, item) => sum + item.normalizedTime, 0);
     const swapMins = printerItems.reduce((sum, item) => sum + getCfsSwapMins(item), 0);
+    const reprintPrintMins = printerItems.filter((item) => item?.isReprint === true).reduce((sum, item) => sum + item.normalizedTime, 0);
+    const reprintSwapMins = printerItems.filter((item) => item?.isReprint === true).reduce((sum, item) => sum + getCfsSwapMins(item), 0);
     const startupMins = [...state.initializedDays].length * (getBootupTime(state.printer) + getBedLevelTime(state.printer));
     const hasCfsRuntime = printerItems.some((item) => item.usesCfs === true);
     const baseWattage = parseFloat(state.printer?.wattage || 0);
@@ -627,12 +658,14 @@ export const computeProjectCosts = ({
       wattage: printerWattage,
       runtimeMins: printMins + swapMins + startupMins + state.overnightIdleMins + (handlingMins / Math.max(1, Object.keys(printerStates).length)),
       printTimeOnly: printMins + swapMins,
+      reprintPrintMins,
+      reprintSwapMins,
       appliedAdjustments: printerAdjustments
     };
   });
   
-  const costPrepFlat = validItems.length * currentRates.prepFee;
-  const costSupportFlat = validItems.length * currentRates.supportFee;
+  const costPrepFlat = chargeableItems.length * currentRates.prepFee;
+  const costSupportFlat = chargeableItems.length * currentRates.supportFee;
   const costHardwareLabor = totalHardwareQty * currentRates.installationCost;
   const costFilamentHandling = filamentHandlingEvents * currentRates.filamentHandlingCost;
   
@@ -709,17 +742,21 @@ export const computeProjectCosts = ({
     });
   });
   
-  const runtimeForElec = totalPrintTime + totalSwapMins + totalStartupTime + totalHardwareMins + handlingMins;
+  const runtimeForElec = standardPrintTime + standardSwapMins + totalStartupTime + totalHardwareMins + handlingMins;
   
   const baseLaborTotal = costPrepFlat + costSupportFlat + costMonitoringLabor + costHardwareLabor + costFilamentHandling;
   const markupableLabor = baseLaborTotal;
   const laborFinal = markupableLabor * markupMultiplier;
   
   const kwhP = printerRuntimeRows.reduce((sum, row) => sum + ((row.wattage / 1000) * (row.runtimeMins / 60)), 0);
+  const reprintKwhP = printerRuntimeRows.reduce((sum, row) => sum + ((row.wattage / 1000) * ((row.reprintPrintMins + row.reprintSwapMins) / 60)), 0);
+  const markupableElectricityKwh = Math.max(0, kwhP - reprintKwhP);
   const kwhI = (currentRates.ironPower / 1000) * (heatsetMins / 60);
   const kwhH = (currentRates.heatgunPower / 1000) * (backgroundSupportTime / 60);
   const baseElecTotal = (kwhP + kwhI + kwhH) * currentRates.electricityRate;
-  const elecFinal = baseElecTotal * markupMultiplier;
+  const markupableElectricityBase = (markupableElectricityKwh + kwhI + kwhH) * currentRates.electricityRate;
+  const reprintElectricityBase = reprintKwhP * currentRates.electricityRate;
+  const elecFinal = (markupableElectricityBase * markupMultiplier) + reprintElectricityBase;
 
   const maintFinal = ((runtimeForElec / 60) * currentRates.maintRate) + ((heatsetMins / 60) * currentRates.mSolderRate) + currentRates.maintFixed;
   
@@ -731,9 +768,10 @@ export const computeProjectCosts = ({
   const basePrice = filamentFinal + laborFinal + elecFinal + extrasFinal + maintFinal;
   const grandTotal = basePrice;
 
-  const profitFilament = materialBaseSum * (markupMultiplier - 1);
+  const standardMaterialBaseSum = filamentSummary.reduce((s, f) => s + f.standardUsageCost, 0);
+  const profitFilament = standardMaterialBaseSum * (markupMultiplier - 1);
   const profitLabor = markupableLabor * (markupMultiplier - 1);
-  const profitElectricity = baseElecTotal * (markupMultiplier - 1);
+  const profitElectricity = markupableElectricityBase * (markupMultiplier - 1);
   const profitExtras = extrasBaseSum * (markupMultiplier - 1);
   const totalProjectProfit = profitFilament + profitLabor + profitElectricity + profitExtras;
   const totalTakeHome = laborFinal + profitFilament + profitElectricity + (profitExtras + extrasExcessSum) + filamentExcessSum;
@@ -801,8 +839,8 @@ export const computeProjectCosts = ({
         {
           title: 'Plate Preparation',
           items: [
-            { label: 'Plate Preparation', sub: `${validItems.length} plate(s) × ₱${currentRates.prepFee}/plate`, calc: `₱${formatCurrency(costPrepFlat)}` },
-            { label: 'Support Removal', sub: `${validItems.length} plate(s) × ₱${currentRates.supportFee}/plate`, calc: `₱${formatCurrency(costSupportFlat)}` }
+            { label: 'Plate Preparation', sub: `${chargeableItems.length} plate(s) × ₱${currentRates.prepFee}/plate`, calc: `₱${formatCurrency(costPrepFlat)}` },
+            { label: 'Support Removal', sub: `${chargeableItems.length} plate(s) × ₱${currentRates.supportFee}/plate`, calc: `₱${formatCurrency(costSupportFlat)}` }
           ]
         },
         {

@@ -1512,7 +1512,7 @@ export default function ProjectPrepare({
                       }];
 
                     return {
-                      id: m.id, no: m.no, included: isModelIncluded(m),
+                      id: m.id, no: m.no, included: isModelIncluded(m), isReprint: m.isReprint === true,
                       quantity,
                       config: { 
                         walls: m.walls !== '' ? Number(m.walls) : 2, 
