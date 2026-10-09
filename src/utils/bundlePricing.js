@@ -94,6 +94,45 @@ export function getClearancePrice(costPrice = 0, sellPrice = 0, discountOverride
   return Math.min(sell, getDiscountFloor(cost));
 }
 
+// LIQUI-BUNDLE uses a cost-protected rounded price without presenting itself
+// as a discount promotion. Never raise a kit above its current sell price.
+export function getLiquiBundlePrice(costPrice = 0, sellPrice = 0) {
+  const sell = Math.max(0, Number(sellPrice) || 0);
+  const cost = Math.max(0, Number(costPrice) || 0);
+  return cost > 0 ? Math.min(sell, getDiscountFloor(cost)) : sell;
+}
+
+export function getLiquiBundleRequiredOtherStock(deal = {}, kitId = '') {
+  const perKitCounts = deal?.liquiBundleRequiredOtherStockCounts
+    || deal?.requiredOtherStockCounts
+    || {};
+  const normalizedKitId = String(kitId || '');
+  const configured = perKitCounts?.[normalizedKitId] ?? perKitCounts?.[kitId];
+  if (configured === '' || configured === null || configured === undefined) return 2;
+  return Number.isFinite(Number(configured))
+    ? Math.max(0, Math.floor(Number(configured)))
+    : 2;
+}
+
+export function isLiquiBundleRequirementMet(deal = {}, selectedKitIds = [], currentKitId = '') {
+  const currentId = String(currentKitId || '');
+  if (!currentId) return false;
+
+  const otherSelectedStockCount = (selectedKitIds || [])
+    .map(id => String(id))
+    .filter(id => id && id !== currentId)
+    .length;
+
+  return otherSelectedStockCount >= getLiquiBundleRequiredOtherStock(deal, currentId);
+}
+
+export function areLiquiBundleRequirementsMet(deal = {}, selectedKitIds = []) {
+  const selectedIds = (selectedKitIds || []).map(id => String(id)).filter(Boolean);
+  return selectedIds.length > 0 && selectedIds.every(kitId => (
+    isLiquiBundleRequirementMet(deal, selectedIds, kitId)
+  ));
+}
+
 // Resolve the original per-source offer amount. Prefer the per-source setting
 // so an aggregate legacy total cannot be mistaken for this kit's offer.
 export function getFlexiOfferedDiscount(deal = {}, sourceKitId = '', fallback = 0) {
@@ -494,6 +533,45 @@ export function getClearanceBundlePricing(rows = [], clearanceKitIds = [], disco
     standardDiscountTotal: 0,
     unusedClearanceDiscount: 0,
     discountAmount: Math.max(0, totalSell - bundlePrice),
+    projectedProfit: bundlePrice - totalCost
+  };
+}
+
+// LIQUI-BUNDLE pricing is intentionally separate from promotion pricing. It
+// rounds each participating on-hand kit to the cost-protected PHP 50/100
+// price and exposes no discount/tag metadata to customer-facing components.
+export function getLiquiBundlePricing(rows = []) {
+  const pricedRows = (rows || []).map((row, index) => {
+    const kitId = row.kitId ?? row.id;
+    const sellPrice = Math.max(0, Number(row.sellPrice ?? row.sell ?? row.refPrice ?? 0) || 0);
+    const costPrice = Math.max(0, Number(row.costPrice ?? row.cost ?? 0) || 0);
+    const finalPrice = Math.max(0, Math.round(getLiquiBundlePrice(costPrice, sellPrice)));
+
+    return {
+      ...row,
+      kitId,
+      sellPrice,
+      costPrice,
+      rawPrice: finalPrice,
+      finalPrice,
+      liquiBundlePrice: finalPrice,
+      discount: 0,
+      _liquiBundleIndex: index
+    };
+  });
+
+  const totalSell = pricedRows.reduce((sum, row) => sum + row.sellPrice, 0);
+  const totalCost = pricedRows.reduce((sum, row) => sum + row.costPrice, 0);
+  const bundlePrice = pricedRows.reduce((sum, row) => sum + row.finalPrice, 0);
+
+  return {
+    rows: pricedRows,
+    totalSell,
+    totalCost,
+    bundlePrice,
+    discountAmount: 0,
+    clearanceDiscountTotal: 0,
+    standardDiscountTotal: 0,
     projectedProfit: bundlePrice - totalCost
   };
 }

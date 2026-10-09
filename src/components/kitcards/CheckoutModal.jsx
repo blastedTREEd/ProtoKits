@@ -22,13 +22,15 @@ import { getIntegerFeeShare, getStockStandaloneSellPrice, isBundleOrClearanceIte
 import {
   getBundleDealPricing,
   getClearanceBundlePricing,
+  getLiquiBundlePricing,
+  getLiquiBundleRequiredOtherStock,
   getClearanceKitIds,
   getClearanceRequiredOtherStock,
   getFlexiBundlePricing,
   getFlexiOfferedDiscount,
   isClearanceRequirementMet
 } from '../../utils/bundlePricing';
-import { isFlexiBundleDeal, isPerKitClearanceDeal, isWildSaleDeal, getActiveClearanceKitIds } from '../../utils/dealTypes';
+import { isFlexiBundleDeal, isPerKitClearanceDeal, isLiquiBundleDeal, isWildSaleDeal, getActiveClearanceKitIds } from '../../utils/dealTypes';
 import { getStockEta } from '../../utils/stockDates';
 import { getPrintedProjectModelName } from '../../utils/printedProjectName';
 import {
@@ -245,6 +247,9 @@ const getCheckoutItemBasePrice = (item, kit, fees = {}) => {
   const offerPrice = toCheckoutNumber(item.offerPrice);
   if (offerPrice > 0) return offerPrice;
 
+  const liquiBundlePrice = toCheckoutNumber(item.liquiBundlePrice);
+  if (liquiBundlePrice > 0) return liquiBundlePrice;
+
   const storedPrice = toCheckoutNumber(item.price);
   if (isBundleOrClearanceItem(item) && storedPrice > 0) return storedPrice;
 
@@ -278,12 +283,12 @@ const parseDealDate = (value, endOfDay = false) => {
 };
 
 const isDealActiveForCheckout = (deal, now = Date.now()) => {
-  if (!deal || !['bundle', 'bundle_only', 'bundle_discount', 'clearance', 'wild_sale', 'flexi_bundle'].includes(deal.type)) return false;
+  if (!deal || !['bundle', 'bundle_only', 'bundle_discount', 'clearance', 'wild_sale', 'flexi_bundle', 'liqui_bundle'].includes(deal.type)) return false;
   if (deal.isActive === false) return false;
 
   // FLEXI-BUNDLE is a permanent eligibility list. Bundle deals still honor
   // their configured validity window.
-  if (!isFlexiBundleDeal(deal) && !isPerKitClearanceDeal(deal)) {
+  if (!isFlexiBundleDeal(deal) && !isPerKitClearanceDeal(deal) && !isLiquiBundleDeal(deal)) {
     const validFrom = parseDealDate(deal.validFrom);
     const validUntil = parseDealDate(deal.validUntil, true);
     if (validFrom && validFrom.getTime() > now) return false;
@@ -433,6 +438,65 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
   });
 
   if (!selectedDealItems.length || !Array.isArray(deals) || !deals.length) return preparedItems;
+
+  const activeLiquiBundle = activeDeals.find(isLiquiBundleDeal);
+  if (activeLiquiBundle) {
+    const liquiRows = selectedDealItems
+      .map(item => {
+        const kitId = getCheckoutKitId(item);
+        const kit = findCheckoutKit(kits, item);
+        const stock = kit?.stocks?.[getCheckoutStockKey(item)];
+        return { item, kit, kitId, stock };
+      })
+      .filter(row => row.kitId && row.kit && stockMatchesCheckoutDealSource(row.stock || {}, row.item, 'onhand'));
+    const participantIds = activeLiquiBundle.allOnhand === true
+      ? null
+      : new Set(normalizeDealKitIds(activeLiquiBundle.kitIds));
+    const participatingRows = liquiRows.filter(row => !participantIds || participantIds.has(row.kitId));
+    const selectedLiquiKitIds = participatingRows.flatMap(row => Array.from(
+      { length: Math.max(1, Number(row.item.quantity) || 1) },
+      () => row.kitId
+    ));
+    const requirementsMet = participatingRows.length > 0 && selectedLiquiKitIds.every(kitId => (
+      selectedLiquiKitIds.filter(otherKitId => otherKitId !== kitId).length
+        >= getLiquiBundleRequiredOtherStock(activeLiquiBundle, kitId)
+    ));
+
+    if (requirementsMet) {
+      const liquiPricing = getLiquiBundlePricing(participatingRows.map(row => ({
+        ...row,
+        refPrice: Number(row.stock?.sellPrice || row.item.sellPrice || row.kit?.sellPrice || 0),
+        sellPrice: Number(row.stock?.sellPrice || row.item.sellPrice || row.kit?.sellPrice || 0),
+        costPrice: Number(row.stock?.costPrice || row.item.costPrice || 0)
+      })));
+      const liquiRowsByKitId = new globalThis.Map(
+        liquiPricing.rows.map(row => [String(row.kitId), row])
+      );
+
+      return preparedItems.map(item => {
+        const priced = liquiRowsByKitId.get(getCheckoutKitId(item));
+        if (!priced || isProjectCheckoutItem(item) || item.offerPrice) return item;
+
+        const handling = Number(item.appliedHandlingFee || 0);
+        const installment = Number(item.appliedInstallmentFee || 0);
+        const transfer = Number(item.appliedTransferFee || 0);
+        return {
+          ...item,
+          name: String(item.name || priced.kit?.name || '').replace(/\s*\((?:Bundle|Clearance) Item\)\s*$/i, ''),
+          liquiBundlePrice: priced.finalPrice,
+          sellPrice: priced.finalPrice,
+          price: priced.finalPrice + handling + installment + transfer,
+          displayPrice: priced.finalPrice,
+          isBundleItem: false,
+          isClearanceBundle: false,
+          clearanceKitIds: [],
+          bundleId: null,
+          bundleName: null,
+          appliedBundlePrice: null
+        };
+      });
+    }
+  }
 
   const itemByKitId = new globalThis.Map();
   selectedDealItems.forEach(item => {

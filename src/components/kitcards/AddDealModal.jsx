@@ -2,8 +2,8 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { X, Plus, Trash2, Gift, Lock, Ban, Search, ChevronRight, ChevronLeft, Loader2, Edit3, Calendar, Clock3, RefreshCw, CheckSquare, Square, Image as ImageIcon } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
-import { getClearanceBundlePricing, getFlexiBundlePreviewPricing, getDiscountFloor, getClearanceRequiredOtherStock, getBundleDealPricing, getBundleDiscountCapacity, getHighestCostStock } from '../../utils/bundlePricing';
-import { FLEXI_BUNDLE_DEAL_TYPE, CLEARANCE_DEAL_TYPE, isFlexiBundleDeal, isPerKitClearanceDeal } from '../../utils/dealTypes';
+import { getClearanceBundlePricing, getFlexiBundlePreviewPricing, getLiquiBundlePricing, getDiscountFloor, getClearanceRequiredOtherStock, getBundleDealPricing, getBundleDiscountCapacity, getHighestCostStock } from '../../utils/bundlePricing';
+import { FLEXI_BUNDLE_DEAL_TYPE, CLEARANCE_DEAL_TYPE, LIQUI_BUNDLE_DEAL_TYPE, isFlexiBundleDeal, isPerKitClearanceDeal, isLiquiBundleDeal } from '../../utils/dealTypes';
 
 function get12HourTimeParts(date) {
   const hours = date.getHours();
@@ -117,6 +117,13 @@ function getHighestOnhandStock(kit) {
 function isBundlePurchasableStock(stock, source = 'onhand') {
   if (!stock || stock.order?.orderId || !stockMatchesSource(stock, source)) return false;
   return !stock.isReserved;
+}
+
+function getAvailableOnhandKitIds(kitCatalog = []) {
+  return (kitCatalog || [])
+    .filter(kit => Object.values(kit?.stocks || {}).some(stock => isBundlePurchasableStock(stock, 'onhand')))
+    .map(kit => kit.id)
+    .filter(Boolean);
 }
 
 function isMutualDealSelectableStock(stock, isAdminShelfStock = false) {
@@ -589,6 +596,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
   const [clearanceOriginalOverrides, setClearanceOriginalOverrides] = useState({});
   const [clearanceCurrentDiscounts, setClearanceCurrentDiscounts] = useState({});
   const [clearanceRequiredOtherStocks, setClearanceRequiredOtherStocks] = useState({});
+  const [liquiBundleRequiredOtherStocks, setLiquiBundleRequiredOtherStocks] = useState({});
   const [clearanceDurationInputs, setClearanceDurationInputs] = useState({});
   const [clearanceKitSchedules, setClearanceKitSchedules] = useState({});
   const [mutuallyExclusivePairRows, setMutuallyExclusivePairRows] = useState([]);
@@ -637,6 +645,11 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     return mutualDeals.find(deal => deal.isActive !== false) || mutualDeals[0] || null;
   }, [deals]);
 
+  const liquiBundleMasterDeal = useMemo(() => {
+    const liquiDeals = (deals || []).filter(isLiquiBundleDeal);
+    return liquiDeals.find(deal => deal.isActive !== false) || liquiDeals[0] || null;
+  }, [deals]);
+
   const getClearanceRequirementMap = (deal, kitIds) => Object.fromEntries(
     (kitIds || []).map((kitId) => [
       kitId,
@@ -667,7 +680,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       if (isPerKitClearanceDeal(dealToEdit)) mappedType = CLEARANCE_DEAL_TYPE;
       
       setDealType(mappedType);
-      setDealName(mappedType === FLEXI_BUNDLE_DEAL_TYPE || mappedType === CLEARANCE_DEAL_TYPE
+      setDealName(mappedType === FLEXI_BUNDLE_DEAL_TYPE || mappedType === CLEARANCE_DEAL_TYPE || mappedType === LIQUI_BUNDLE_DEAL_TYPE
         ? ''
         : mappedType === 'mutually_exclusive'
           ? 'BANDAI VS BOOTLEG'
@@ -703,11 +716,16 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       if (mappedType === 'mutually_exclusive') {
         kids = getMutuallyExclusiveKitIds(dealToEdit);
       }
+      if (mappedType === LIQUI_BUNDLE_DEAL_TYPE) {
+        kids = getAvailableOnhandKitIds(kits);
+      }
       setSelectedKitIds(kids);
       setMutuallyExclusivePairRows(mappedType === 'mutually_exclusive' ? getMutuallyExclusivePairRows(dealToEdit, kits) : []);
       setPreviewKitIds(mappedType === 'mutually_exclusive'
         ? []
-        : (dealToEdit.previewKitIds || kids).filter(id => kids.includes(id)));
+        : mappedType === LIQUI_BUNDLE_DEAL_TYPE
+          ? kids
+          : (dealToEdit.previewKitIds || kids).filter(id => kids.includes(id)));
       setClearanceKitIds(mappedType === FLEXI_BUNDLE_DEAL_TYPE || mappedType === CLEARANCE_DEAL_TYPE ? kids : []);
       const originalClearanceOverrides = mappedType === FLEXI_BUNDLE_DEAL_TYPE || mappedType === CLEARANCE_DEAL_TYPE
         ? Object.fromEntries(kids
@@ -724,6 +742,14 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       setClearanceCurrentDiscounts(currentClearanceDiscounts);
       setClearanceRequiredOtherStocks(mappedType === FLEXI_BUNDLE_DEAL_TYPE || mappedType === CLEARANCE_DEAL_TYPE
         ? getClearanceRequirementMap(dealToEdit, kids)
+        : {});
+      setLiquiBundleRequiredOtherStocks(mappedType === LIQUI_BUNDLE_DEAL_TYPE
+        ? Object.fromEntries(kids.map(id => [
+          id,
+          String(dealToEdit.liquiBundleRequiredOtherStockCounts?.[id]
+            ?? dealToEdit.requiredOtherStockCounts?.[id]
+            ?? 2)
+        ]))
         : {});
       setClearanceKitSchedules(mappedType === CLEARANCE_DEAL_TYPE
         ? Object.fromEntries(kids.map(id => [id, normalizeWildSaleSchedule(dealToEdit.clearanceKitSchedules?.[id] || {})]))
@@ -750,6 +776,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       setClearanceCurrentDiscounts({});
       setClearanceDiscounts({});
       setClearanceRequiredOtherStocks({});
+      setLiquiBundleRequiredOtherStocks({});
       setClearanceDurationInputs({});
       setClearanceKitSchedules({});
       setSelectedDealIds([]);
@@ -823,6 +850,19 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
   }, [selectedKitIds]);
 
   const financialSummary = useMemo(() => {
+    if (dealType === LIQUI_BUNDLE_DEAL_TYPE) {
+      const rows = selectedKitsData.map(kit => {
+        const stock = getHighestOnhandStock(kit);
+        return {
+          kit,
+          stock,
+          kitId: kit.id,
+          sellPrice: getBundleStandardSellPrice(stock, kit),
+          costPrice: Number(stock.costPrice || 0)
+        };
+      });
+      return getLiquiBundlePricing(rows);
+    }
     if (dealType === FLEXI_BUNDLE_DEAL_TYPE || dealType === CLEARANCE_DEAL_TYPE) {
       const rows = selectedKitsData.map(kit => {
         const stock = getHighestOnhandStock(kit);
@@ -923,8 +963,10 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
 
   const isClearanceStrategy = dealType === FLEXI_BUNDLE_DEAL_TYPE || dealType === CLEARANCE_DEAL_TYPE;
   const isFlexiStrategy = dealType === FLEXI_BUNDLE_DEAL_TYPE;
+  const isLiquiBundleStrategy = dealType === LIQUI_BUNDLE_DEAL_TYPE;
 
   const toggleKitSelection = (id) => {
+    if (isLiquiBundleStrategy) return;
     if (dealType === FLEXI_BUNDLE_DEAL_TYPE || dealType === CLEARANCE_DEAL_TYPE) {
       setSelectedKitIds(prev => {
         const next = prev.includes(id) ? prev.filter(kitId => kitId !== id) : [...prev, id];
@@ -1012,7 +1054,9 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     if (isPerKitClearanceDeal(deal)) mappedType = CLEARANCE_DEAL_TYPE;
     
     setDealType(mappedType);
-    setDealName(mappedType === 'mutually_exclusive'
+    setDealName(mappedType === LIQUI_BUNDLE_DEAL_TYPE
+      ? ''
+      : mappedType === 'mutually_exclusive'
       ? 'BANDAI VS BOOTLEG'
       : mappedType === 'bundle_only'
         ? getBundleNameBase(deal.name || '')
@@ -1046,11 +1090,16 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     if (mappedType === 'mutually_exclusive') {
       kids = getMutuallyExclusiveKitIds(deal);
     }
+    if (mappedType === LIQUI_BUNDLE_DEAL_TYPE) {
+      kids = getAvailableOnhandKitIds(kitCatalog);
+    }
     setSelectedKitIds(kids);
     setMutuallyExclusivePairRows(mappedType === 'mutually_exclusive' ? getMutuallyExclusivePairRows(deal, kitCatalog) : []);
     setPreviewKitIds(mappedType === 'mutually_exclusive'
       ? []
-      : (deal.previewKitIds || kids).filter(id => kids.includes(id)));
+      : mappedType === LIQUI_BUNDLE_DEAL_TYPE
+        ? kids
+        : (deal.previewKitIds || kids).filter(id => kids.includes(id)));
     setClearanceKitIds(isFlexiBundleDeal(deal) || mappedType === CLEARANCE_DEAL_TYPE ? kids : []);
     const originalClearanceOverrides = (isFlexiBundleDeal(deal) || mappedType === CLEARANCE_DEAL_TYPE)
       ? Object.fromEntries(kids
@@ -1067,6 +1116,14 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     setClearanceCurrentDiscounts(currentClearanceDiscounts);
     setClearanceRequiredOtherStocks(isFlexiBundleDeal(deal) || mappedType === CLEARANCE_DEAL_TYPE
       ? getClearanceRequirementMap(deal, kids)
+      : {});
+    setLiquiBundleRequiredOtherStocks(mappedType === LIQUI_BUNDLE_DEAL_TYPE
+      ? Object.fromEntries(kids.map(id => [
+        id,
+        String(deal.liquiBundleRequiredOtherStockCounts?.[id]
+          ?? deal.requiredOtherStockCounts?.[id]
+          ?? 2)
+      ]))
       : {});
     setClearanceKitSchedules(mappedType === CLEARANCE_DEAL_TYPE
       ? Object.fromEntries(kids.map(id => [id, normalizeWildSaleSchedule(deal.clearanceKitSchedules?.[id] || {})]))
@@ -1128,6 +1185,45 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     setDraggedPreviewKitId(null);
   };
 
+  const handleSelectLiquiBundleStrategy = async () => {
+    await Promise.all([loadAllKits(), loadAllDeals()]);
+
+    const latestKits = useStore.getState().kits || kits || [];
+    const latestDeals = useStore.getState().deals || deals || [];
+    const latestLiquiMaster = latestDeals
+      .filter(isLiquiBundleDeal)
+      .find(deal => deal.isActive !== false)
+      || latestDeals.find(isLiquiBundleDeal)
+      || null;
+
+    if (latestLiquiMaster) {
+      handleEditSavedDeal(latestLiquiMaster, latestKits);
+      return;
+    }
+
+    const availableKitIds = getAvailableOnhandKitIds(latestKits);
+    setDealType(LIQUI_BUNDLE_DEAL_TYPE);
+    setDealName('');
+    setSelectedKitIds(availableKitIds);
+    setPreviewKitIds(availableKitIds);
+    setMutuallyExclusivePairRows([]);
+    setClearanceKitIds([]);
+    setClearanceOriginalOverrides({});
+    setClearanceCurrentDiscounts({});
+    setClearanceDiscounts({});
+    setClearanceRequiredOtherStocks({});
+    setClearanceKitSchedules({});
+    setLiquiBundleRequiredOtherStocks(Object.fromEntries(
+      availableKitIds.map(kitId => [kitId, '2'])
+    ));
+    setActiveEditId(null);
+    setValidFrom('');
+    setValidityDays(String(DEFAULT_BUNDLE_VALIDITY_DAYS));
+    setReactivationDelay(String(DEFAULT_REACTIVATION_DELAY));
+    setReactivationDelayUnit('hours');
+    setDraggedPreviewKitId(null);
+  };
+
   const handleSelectMutuallyExclusiveStrategy = async () => {
     setIsLoadingMutualKits(true);
     try {
@@ -1184,9 +1280,13 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
 
   const handleSave = async () => {
     const isClearanceStrategy = dealType === FLEXI_BUNDLE_DEAL_TYPE || dealType === CLEARANCE_DEAL_TYPE;
-    if (!isClearanceStrategy && dealType !== 'mutually_exclusive' && !dealName.trim()) return alert("Please enter a deal name");
+    const isLiquiBundleStrategy = dealType === LIQUI_BUNDLE_DEAL_TYPE;
+    if (!isClearanceStrategy && !isLiquiBundleStrategy && dealType !== 'mutually_exclusive' && !dealName.trim()) return alert("Please enter a deal name");
     if (isClearanceStrategy && selectedKitIds.length === 0) {
       return alert("Add at least 1 kit to the clearance eligible list");
+    }
+    if (isLiquiBundleStrategy && selectedKitIds.length === 0) {
+      return alert("LIQUI-BUNDLE needs at least 1 available on-hand kit");
     }
     if (dealType === 'mutually_exclusive') {
       if (mutuallyExclusivePairRows.length === 0 || mutuallyExclusivePairRows.some(row => (
@@ -1196,7 +1296,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       ))) {
         return alert("Add two distinct stocks to every mutually exclusive pair before saving");
       }
-    } else if (!isClearanceStrategy && selectedKitIds.length < 2) {
+    } else if (!isClearanceStrategy && !isLiquiBundleStrategy && selectedKitIds.length < 2) {
       return alert("Pick at least 2 kits for this deal");
     }
 
@@ -1234,6 +1334,8 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
         ? flexiBundleMasterDeal?.id
         : dealType === CLEARANCE_DEAL_TYPE
           ? perKitClearanceMasterDeal?.id
+        : dealType === LIQUI_BUNDLE_DEAL_TYPE
+          ? liquiBundleMasterDeal?.id
         : dealType === 'mutually_exclusive'
           ? mutuallyExclusiveMasterDeal?.id
           : null);
@@ -1249,10 +1351,13 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     let dealData = {
       id: dealId,
       type: dealType,
+      ...(dealType === LIQUI_BUNDLE_DEAL_TYPE ? { appScope: 'liquikits' } : {}),
       name: dealType === FLEXI_BUNDLE_DEAL_TYPE
         ? 'FLEXI-BUNDLE'
         : dealType === CLEARANCE_DEAL_TYPE
         ? 'WILD DEAL'
+        : dealType === LIQUI_BUNDLE_DEAL_TYPE
+        ? 'LIQUI-BUNDLE'
         : dealType === 'mutually_exclusive'
           ? 'BANDAI VS BOOTLEG'
           : getBundleDealName(dealName, deals, activeEditId, dealToEdit),
@@ -1294,6 +1399,16 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
         : selectedKitIds.slice(0, 1);
       // Keep the old field for older clients that do not understand the map.
       dealData.requiredOtherStockCount = requiredOtherStockCounts[selectedKitIds[0]] ?? 1;
+    } else if (dealType === LIQUI_BUNDLE_DEAL_TYPE) {
+      const requiredOtherStockCounts = Object.fromEntries(selectedKitIds.map((kitId) => [
+        kitId,
+        Math.max(0, Math.floor(Number(liquiBundleRequiredOtherStocks[kitId] ?? 2) || 0))
+      ]));
+      dealData.liquiBundleRequiredOtherStockCounts = requiredOtherStockCounts;
+      // Keep a generic alias for older consumers that already read the
+      // per-kit requirement map.
+      dealData.requiredOtherStockCounts = requiredOtherStockCounts;
+      dealData.requiredOtherStockCount = requiredOtherStockCounts[selectedKitIds[0]] ?? 2;
     } else if (dealType === CLEARANCE_DEAL_TYPE) {
       dealData.requiredOtherStockCounts = {};
       dealData.requiredOtherStockCount = 0;
@@ -1381,6 +1496,28 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
       dealData.stockSource = 'onhand';
     }
 
+    if (dealType === LIQUI_BUNDLE_DEAL_TYPE) {
+      dealData.bundlePrice = financialSummary.bundlePrice;
+      dealData.totalCost = financialSummary.totalCost;
+      dealData.totalSell = financialSummary.totalSell;
+      dealData.discountAmount = 0;
+      dealData.clearanceDiscountTotal = 0;
+      dealData.standardDiscountTotal = 0;
+      dealData.kitDiscounts = Object.fromEntries(financialSummary.rows.map(row => [
+        row.kitId,
+        {
+          discount: 0,
+          finalPrice: row.finalPrice,
+          sellPrice: row.sellPrice,
+          costPrice: row.costPrice
+        }
+      ]));
+      dealData.validFrom = '';
+      dealData.validUntil = '';
+      dealData.stockSource = 'onhand';
+      dealData.allOnhand = true;
+    }
+
     if (dealType === 'mutually_exclusive') {
       dealData.validFrom = '';
       dealData.validUntil = '';
@@ -1419,6 +1556,17 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
     try {
       setIsSaving(true);
       await addDeal(dealData);
+
+      if (dealType === LIQUI_BUNDLE_DEAL_TYPE) {
+        const promotionalTypes = new Set(['bundle', 'bundle_only', 'bundle_discount']);
+        const promotionalDeals = (deals || []).filter(deal => (
+          deal.id !== dealData.id
+          && deal.appScope === 'liquikits'
+          && deal.isActive !== false
+          && (promotionalTypes.has(deal.type) || isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal))
+        ));
+        await Promise.all(promotionalDeals.map(deal => updateDeal(deal.id, { isActive: false })));
+      }
 
       if (dealType === 'mutually_exclusive') {
         const selectedKitIdSet = new Set(selectedKitIds.map(String));
@@ -1786,23 +1934,26 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                    <button type="button" aria-pressed={dealType === 'mutually_exclusive'} onClick={handleSelectMutuallyExclusiveStrategy} disabled={isLoadingMutualKits} className={`py-3 rounded-2xl border flex flex-col items-center gap-1 transition-all ${dealType === 'mutually_exclusive' ? 'bg-red-600 border-red-600 text-white shadow-lg' : 'bg-black/5 border-[var(--color-border)] opacity-60'} ${isLoadingMutualKits ? 'cursor-wait opacity-70' : ''}`}>
                       {isLoadingMutualKits ? <Loader2 size={16} className="animate-spin" /> : <Ban size={16} />} <span className="text-[11px] font-black uppercase">Mutually Exclusive</span>
                    </button>
+                    <button type="button" aria-pressed={isLiquiBundleStrategy} onClick={handleSelectLiquiBundleStrategy} className={`py-3 rounded-2xl border flex flex-col items-center gap-1 transition-all ${isLiquiBundleStrategy ? 'bg-blue-600 border-blue-600 text-white shadow-lg' : 'bg-black/5 border-[var(--color-border)] opacity-60'}`}>
+                       <Gift size={16} /> <span className="text-[11px] font-black uppercase">Liqui-Bundle</span>
+                    </button>
                 </div>
              </div>
 
              <div className="space-y-4">
-                {!isClearanceStrategy && dealType !== 'mutually_exclusive' && (
+                {!isClearanceStrategy && !isLiquiBundleStrategy && dealType !== 'mutually_exclusive' && (
                   <div className="space-y-1 text-left">
                      <label className="text-[12px] font-black uppercase tracking-widest opacity-40 ml-2">Deal Name</label>
                      <input value={dealName} onChange={e => setDealName(e.target.value)} placeholder="E.G. PROMO PACK" className="w-full bg-black/5 border border-[var(--color-border)] rounded-2xl px-4 py-3 text-xs font-bold outline-none focus:border-blue-500 uppercase text-[var(--color-text-main)]" />
                   </div>
                 )}
 
-                <div className="space-y-1 text-left relative">
+                 <div className={`${isLiquiBundleStrategy ? 'hidden' : 'space-y-1 text-left relative'}`}>
                    <label className="text-[12px] font-black uppercase tracking-widest opacity-40 ml-2">Search & Add Kits</label>
                    <div className="relative">
                       <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 opacity-30" />
                       <input value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Type kit name..." className="w-full bg-black/5 border border-[var(--color-border)] rounded-2xl pl-10 pr-4 py-3 text-xs font-bold outline-none focus:border-blue-500 text-[var(--color-text-main)]" />
-                   </div>
+                  </div>
 
                    {/* Dropdown Suggestions */}
                    {kitSearchResults.length > 0 && (
@@ -1875,13 +2026,18 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                        })}
                      </div>
                    )}
-                </div>
+                 </div>
+                 {isLiquiBundleStrategy && (
+                   <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-4 text-left text-[11px] font-bold leading-relaxed text-blue-600">
+                     All currently available on-hand kits participate automatically. Each kit has an editable requirement, defaulting to 2 other kits. LIQUI-BUNDLE rounds the cost-protected price to the nearest ₱50/₱100 and does not show promotion tags.
+                   </div>
+                 )}
 
-                {(dealType === 'bundle_only' || isClearanceStrategy || dealType === 'mutually_exclusive') && (
+                  {(dealType === 'bundle_only' || isClearanceStrategy || isLiquiBundleStrategy || dealType === 'mutually_exclusive') && (
                   <div className="flex flex-col gap-4 animate-in zoom-in duration-300">
                     {selectedKitsData.length > 0 && (
                       <div className="space-y-4 text-left">
-                         <div className={`${isClearanceStrategy || dealType === 'mutually_exclusive' ? 'hidden' : 'grid grid-cols-2 gap-4'}`}>
+                          <div className={`${isClearanceStrategy || isLiquiBundleStrategy || dealType === 'mutually_exclusive' ? 'hidden' : 'grid grid-cols-2 gap-4'}`}>
                           {/* Card Preview Column */}
                           <div className="space-y-1">
                             <div className="flex items-center justify-between gap-3 px-1">
@@ -1917,6 +2073,10 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                               <p className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-4 text-[12px] font-bold leading-relaxed text-red-600 dark:text-red-300">
                                 Select exactly two kits. Matching stock units cannot be sold together; the opposing stock is synchronized when an order reserves a stock unit.
                               </p>
+                            ) : isLiquiBundleStrategy ? (
+                              <p className="rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-4 text-[12px] font-bold leading-relaxed text-blue-600">
+                                Every available on-hand kit participates automatically. Requirements below default to 2 other kits and can be changed per kit.
+                              </p>
                             ) : (
                               <p className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-4 text-[12px] font-bold leading-relaxed text-amber-600">
                                 Select the kits to clear. Their prices use the cost ceiling unless an item discount override is entered below.
@@ -1940,7 +2100,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                          <div className={`${dealType === 'mutually_exclusive' ? 'hidden' : 'min-w-0 space-y-2'}`}>
                           <div className="flex items-center justify-between gap-3 px-2">
                             <label className="text-[12px] font-black uppercase tracking-widest opacity-40">Inclusions ({selectedKitsData.length})</label>
-                            <span className="text-[12px] font-black uppercase tracking-widest opacity-30">{isClearanceStrategy ? 'Eligible kits / X to remove' : dealType === 'mutually_exclusive' ? 'Exactly 2 kits / X to remove' : 'Drag to reorder / X to remove'}</span>
+                            <span className="text-[12px] font-black uppercase tracking-widest opacity-30">{isLiquiBundleStrategy ? 'All available on-hand kits' : isClearanceStrategy ? 'Eligible kits / X to remove' : dealType === 'mutually_exclusive' ? 'Exactly 2 kits / X to remove' : 'Drag to reorder / X to remove'}</span>
                           </div>
                           {getOrderedKits(kits, previewKitIds).map((kit, index) => {
                             const stock = dealType === 'bundle_only'
@@ -1966,7 +2126,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                             return (
                             <div
                               key={kit.id}
-                              draggable
+                              draggable={!isLiquiBundleStrategy}
                               onDragStart={() => setDraggedPreviewKitId(kit.id)}
                               onDragOver={(event) => event.preventDefault()}
                               onDrop={() => movePreviewKit(draggedPreviewKitId, kit.id)}
@@ -1982,7 +2142,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                   </span>
                                 </div>
                               </div>
-                              <button
+                              {!isLiquiBundleStrategy && <button
                                 type="button"
                                 onClick={(event) => {
                                   event.stopPropagation();
@@ -1994,7 +2154,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                 aria-label={`Remove ${kit.name} from inclusions`}
                               >
                                 <X size={13} />
-                              </button>
+                              </button>}
                               <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-end gap-2 border-t border-black/5 pt-2 dark:border-white/10">
                               <div className="flex min-w-0 flex-col gap-0.5 text-left leading-tight">
                                 <span className="block text-[12px] font-black uppercase text-emerald-500">SELL ₱{Number(stock.sellPrice || kit.sellPrice || 0).toLocaleString()}</span>
@@ -2004,7 +2164,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                   <span className="block text-[12px] font-black uppercase text-blue-500/70">DISC ₱{individualBundleDiscount.toLocaleString()}</span>
                                 )}
                               </div>
-                              {(dealType === FLEXI_BUNDLE_DEAL_TYPE || dealType === CLEARANCE_DEAL_TYPE) && (
+                              {(dealType === FLEXI_BUNDLE_DEAL_TYPE || dealType === CLEARANCE_DEAL_TYPE || isLiquiBundleStrategy) && (
                                 <div className="flex shrink-0 items-end gap-1.5">
                                   {dealType === FLEXI_BUNDLE_DEAL_TYPE && (
                                     <label className="flex w-16 flex-col gap-1 text-[9px] font-black uppercase tracking-wider text-amber-600">
@@ -2024,7 +2184,25 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                       />
                                     </label>
                                   )}
-                                  <label className="flex w-24 flex-col gap-1 text-[9px] font-black uppercase tracking-wider text-blue-500">
+                                  {isLiquiBundleStrategy && (
+                                    <label className="flex w-20 flex-col gap-1 text-[9px] font-black uppercase tracking-wider text-blue-600">
+                                      Other kits
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        max="99"
+                                        step="1"
+                                        value={liquiBundleRequiredOtherStocks[kit.id] ?? '2'}
+                                        onChange={(event) => {
+                                          const value = event.target.value.replace(/\D/g, '').slice(0, 2);
+                                          setLiquiBundleRequiredOtherStocks(prev => ({ ...prev, [kit.id]: value }));
+                                        }}
+                                        title="Number of other participating kits required for this LIQUI-BUNDLE kit"
+                                        className="h-10 w-full appearance-none rounded-lg border border-blue-500/30 bg-blue-500/10 px-2 py-2 text-[12px] font-black text-blue-600 outline-none focus:border-blue-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                      />
+                                    </label>
+                                  )}
+                                  {(dealType === FLEXI_BUNDLE_DEAL_TYPE || dealType === CLEARANCE_DEAL_TYPE) && <label className="flex w-24 flex-col gap-1 text-[9px] font-black uppercase tracking-wider text-blue-500">
                                     Discount override
                                     <input
                                       type="number"
@@ -2039,7 +2217,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                                       title="Type a discount amount to override the current discount"
                                       className="h-10 w-full appearance-none rounded-lg border border-[var(--color-border)] bg-black/5 px-2 py-2 text-[12px] font-black italic uppercase tracking-wider text-blue-500 outline-none placeholder:text-[10px] placeholder:font-black placeholder:italic placeholder:text-blue-500 focus:border-blue-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                                     />
-                                  </label>
+                                  </label>}
                                   {dealType === CLEARANCE_DEAL_TYPE && (
                                     <label className="flex w-20 flex-col gap-1 text-[9px] font-black uppercase tracking-wider text-red-500">
                                       Duration (MIN)
@@ -2112,6 +2290,11 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                          </div>
                          {dealType === 'mutually_exclusive' && (
                            renderMutuallyExclusivePairs()
+                         )}
+                         {isLiquiBundleStrategy && (
+                           <p className="rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-4 text-[11px] font-bold leading-relaxed text-blue-600">
+                             Requirements are configurable per kit and default to 2 other participating stock units. The list is refreshed from available on-hand stock when this strategy is opened.
+                           </p>
                          )}
                        </div>
                     )}
@@ -2301,11 +2484,12 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
                     const isMutualDeal = deal.type === 'mutually_exclusive' || deal.type === 'requirement' || deal.type === 'exclusion';
                     const isFlexiDeal = isFlexiBundleDeal(deal);
                     const isPerKitClearance = isPerKitClearanceDeal(deal);
+                    const isLiquiDeal = isLiquiBundleDeal(deal);
                     const isClearanceLike = isFlexiDeal || isPerKitClearance;
-                    const strategyLabel = isClearanceLike ? (isFlexiDeal ? 'FLEXI-BUNDLE' : 'WILD DEAL') : (deal.type === 'bundle_discount' || deal.type === 'bundle_only') ? 'Bundle Deal' :
+                    const strategyLabel = isLiquiDeal ? 'LIQUI-BUNDLE' : isClearanceLike ? (isFlexiDeal ? 'FLEXI-BUNDLE' : 'WILD DEAL') : (deal.type === 'bundle_discount' || deal.type === 'bundle_only') ? 'Bundle Deal' :
                                           isMutualDeal ? 'Bandai vs Bootleg' : 'Legacy Bundle';
                     
-                    const badgeClass = isClearanceLike ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' : (deal.type === 'bundle_discount' || deal.type === 'bundle_only') ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' :
+                    const badgeClass = isLiquiDeal ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20' : isClearanceLike ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' : (deal.type === 'bundle_discount' || deal.type === 'bundle_only') ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' :
                                        isMutualDeal ? 'bg-red-500/10 text-red-500 border border-red-500/20' : 'bg-amber-500/10 text-amber-500 border border-amber-500/20';
 
                     const dealEligibleKitIds = isClearanceLike

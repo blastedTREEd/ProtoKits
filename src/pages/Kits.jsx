@@ -4,6 +4,7 @@ import { Package, Gift, Plus, Trash2, Box, ClockFading, Pencil, Search, X, Walle
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
+import useNavbarHeight from '../hooks/useNavbarHeight';
 import ProductCard from '../components/kitcards/ProductCard';
 import KitSkeleton from '../components/kitcards/KitSkeleton';
 import AddKitCard from '../components/kitcards/AddKitCard';
@@ -18,7 +19,7 @@ import { getBundleDealPricing, getClearanceBundlePricing, getFlexiBundlePreviewP
 import { isOfferCheckoutActive } from '../utils/offerUtils';
 import { getDealGrabLabel } from '../utils/dealSavings';
 import { getStockEta } from '../utils/stockDates';
-import { isFlexiBundleDeal, isPerKitClearanceDeal, isWildSaleDeal, getActiveClearanceKitIds, getClearanceDisplayLabel } from '../utils/dealTypes';
+import { isFlexiBundleDeal, isPerKitClearanceDeal, isLiquiBundleDeal, isWildSaleDeal, getActiveClearanceKitIds, getClearanceDisplayLabel } from '../utils/dealTypes';
 import UniversalImage from '../components/common/UniversalImage';
 import { getBundleDisplayTotals } from '../utils/bundleDisplayPricing';
 import { APP_CONFIG } from '../appConfig';
@@ -264,6 +265,7 @@ function getRouteKitStatus(kit, isAdmin, isAdminView, shelf = []) {
 }
 
 export default function Kits({ isActive = true, embedded = false }) {
+  const navbarHeight = useNavbarHeight();
   const isAdmin = useStore((state) => state.isAdmin);
   const isAdminView = useStore((state) => state.isAdminView);
   const shelf = useStore((state) => state.shelf);
@@ -1046,6 +1048,12 @@ export default function Kits({ isActive = true, embedded = false }) {
 
   // --- Grupo-grupo ang kits ayon sa status para sa section dividers ---
   const activeClearanceDeals = useMemo(() => {
+    const hasActiveLiquiBundle = (deals || []).some((deal) => (
+      isLiquiBundleDeal(deal)
+      && deal.isActive !== false
+      && (!deal.appScope || deal.appScope === 'liquikits')
+    ));
+    if (hasActiveLiquiBundle) return [];
     const clearanceDeals = (deals || []).filter((deal) => (
       (isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal)) && deal.isActive !== false
     ));
@@ -1116,10 +1124,25 @@ export default function Kits({ isActive = true, embedded = false }) {
 
   const filteredDeals = useMemo(() => {
     if (!deals || !Array.isArray(deals)) return [];
+    const hasActiveLiquiBundle = deals.some((deal) => (
+      isLiquiBundleDeal(deal)
+      && deal.isActive !== false
+      && (!deal.appScope || deal.appScope === 'liquikits')
+    ));
     // Mutually exclusive deals have no deal card — hide from kits grid
     // Clearance is rendered as its participating kit cards in the Deals
     // section, not as a standalone multi-kit deal card.
-    const visible = deals.filter(d => d?.type !== 'mutually_exclusive' && !isFlexiBundleDeal(d) && !isPerKitClearanceDeal(d));
+    const visible = deals.filter(d => {
+      if (isLiquiBundleDeal(d)) return false;
+      if (hasActiveLiquiBundle && (
+        d?.type === 'bundle'
+        || d?.type === 'bundle_only'
+        || d?.type === 'bundle_discount'
+        || isFlexiBundleDeal(d)
+        || isPerKitClearanceDeal(d)
+      )) return false;
+      return d?.type !== 'mutually_exclusive' && !isFlexiBundleDeal(d) && !isPerKitClearanceDeal(d);
+    });
     // Auto-hide unfulfillable deals: every kit must have at least one available stock
     const fulfillable = visible.filter(d => {
       if (d?.type !== 'bundle_discount' && d?.type !== 'bundle_only') return true;
@@ -1466,7 +1489,9 @@ export default function Kits({ isActive = true, embedded = false }) {
   ];
   const activeSortOption = sortOptions.find(option => option.active) || sortOptions[0];
 
-  const sectionHeaderPosition = 'top-[116px] sm:top-[120px] md:top-[120px]';
+  const sectionHeaderStyle = {
+    top: `${navbarHeight + (isContentHeaderHidden ? 0 : 60)}px`
+  };
   const contentHeaderMotion = 'transition-transform duration-400 ease-in-out motion-reduce:transition-none will-change-transform';
   const sectionHeaderMotion = 'transition-[top] duration-400 ease-in-out motion-reduce:transition-none will-change-[top]';
 
@@ -1584,7 +1609,8 @@ export default function Kits({ isActive = true, embedded = false }) {
             if (event.target.closest('button, input')) return;
             focusKitsSection();
           }}
-          className={`sticky top-[56px] sm:top-[60px] z-[100] h-[60px] overflow-visible bg-neutral-50 dark:bg-[#0a0a0a] backdrop-blur-md border-b border-black/5 dark:border-white/5 ${contentHeaderMotion} ${isContentHeaderHidden ? '-translate-y-full md:translate-y-0' : 'translate-y-0'}`}
+          style={{ top: `${navbarHeight}px` }}
+          className={`sticky z-[100] h-[60px] overflow-visible bg-neutral-50 dark:bg-[#0a0a0a] backdrop-blur-md border-b border-black/5 dark:border-white/5 ${contentHeaderMotion} ${isContentHeaderHidden ? '-translate-y-full md:translate-y-0' : 'translate-y-0'}`}
         >
           <div className="h-full w-full px-4 md:px-8 flex items-center gap-4">
             <div className="flex min-w-0 flex-1 items-center gap-4">
@@ -1695,7 +1721,7 @@ export default function Kits({ isActive = true, embedded = false }) {
             <div className="grid grid-cols-2 sm:grid-cols-4 sm:portrait:grid-cols-3 md:grid-cols-4 md:portrait:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-3 items-start justify-items-center">
               {/* --- Section Divider: Deals --- */}
               {(filteredDeals.length > 0 || activeOfferKits.length > 0 || kitGroups.clearance.length > 0) && (
-                <div data-sticky-section="true" data-deals-section="true" className={`col-span-full first:mt-4 my-2 sticky z-[90] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50 px-4 py-2 backdrop-blur-md dark:bg-[#0a0a0a] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderMotion} ${sectionHeaderPosition}`}>
+                <div data-sticky-section="true" data-deals-section="true" style={sectionHeaderStyle} className={`col-span-full first:mt-4 my-2 sticky z-[90] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50 px-4 py-2 backdrop-blur-md dark:bg-[#0a0a0a] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderMotion}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[13px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Deals</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
@@ -1859,7 +1885,7 @@ export default function Kits({ isActive = true, embedded = false }) {
 
               {/* --- Section Divider: Available Kits --- */}
               {kitGroups.available.length > 0 && (
-                <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[90] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50 px-4 py-2 backdrop-blur-md dark:bg-[#0a0a0a] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderMotion} ${sectionHeaderPosition}`}>
+                <div data-sticky-section style={sectionHeaderStyle} className={`col-span-full first:mt-4 my-2 sticky z-[90] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50 px-4 py-2 backdrop-blur-md dark:bg-[#0a0a0a] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderMotion}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[13px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Available Kits</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
@@ -1897,7 +1923,7 @@ export default function Kits({ isActive = true, embedded = false }) {
 
               {/* --- Section Divider: Collection --- */}
               {kitGroups.collection.length > 0 && (
-                <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[90] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50 px-4 py-2 backdrop-blur-md dark:bg-[#0a0a0a] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderMotion} ${sectionHeaderPosition}`}>
+                <div data-sticky-section style={sectionHeaderStyle} className={`col-span-full first:mt-4 my-2 sticky z-[90] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50 px-4 py-2 backdrop-blur-md dark:bg-[#0a0a0a] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderMotion}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[13px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Collection</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
@@ -1935,7 +1961,7 @@ export default function Kits({ isActive = true, embedded = false }) {
 
               {/* --- Section Divider: Out of Stock --- */}
               {kitGroups.outOfStock.length > 0 && (
-                <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[90] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50 px-4 py-2 backdrop-blur-md dark:bg-[#0a0a0a] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderMotion} ${sectionHeaderPosition}`}>
+                <div data-sticky-section style={sectionHeaderStyle} className={`col-span-full first:mt-4 my-2 sticky z-[90] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50 px-4 py-2 backdrop-blur-md dark:bg-[#0a0a0a] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderMotion}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[13px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Out of Stock</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />

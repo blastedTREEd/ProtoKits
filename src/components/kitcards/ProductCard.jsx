@@ -25,7 +25,7 @@ import { getBundleDisplayTotals } from '../../utils/bundleDisplayPricing';
 import { getDealDiscountAmount, getDealGrabLabel, getDealSaveUpToLabel } from '../../utils/dealSavings';
 import { getStockEta } from '../../utils/stockDates';
 import { getNextAvailableDate, toDateKey } from '../../utils/availabilitySchedule';
-import { isFlexiBundleDeal, isPerKitClearanceDeal, isWildSaleDeal, isClearanceKitActive, getActiveClearanceKitIds, getClearanceDisplayLabel } from '../../utils/dealTypes';
+import { isFlexiBundleDeal, isPerKitClearanceDeal, isLiquiBundleDeal, isWildSaleDeal, isClearanceKitActive, getActiveClearanceKitIds, getClearanceDisplayLabel } from '../../utils/dealTypes';
 import { getValidatedOrderStockSet, filterActiveKitStocks } from '../../utils/stockOrderUtils';
 import { APP_CONFIG } from '../../appConfig';
 import UniversalImage from '../common/UniversalImage';
@@ -866,7 +866,20 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
 
   const bundleOnlyDeals = useMemo(() => {
     if (!kitId || !Array.isArray(deals)) return [];
+    const hasActiveLiquiBundle = deals.some((deal) => (
+      isLiquiBundleDeal(deal)
+      && deal.isActive !== false
+      && (!deal.appScope || deal.appScope === 'liquikits')
+    ));
     return deals.filter(deal => {
+      if (isLiquiBundleDeal(deal)) return false;
+      if (hasActiveLiquiBundle && (
+        deal?.type === 'bundle'
+        || deal?.type === 'bundle_only'
+        || deal?.type === 'bundle_discount'
+        || isFlexiBundleDeal(deal)
+        || isPerKitClearanceDeal(deal)
+      )) return false;
       const isClearanceDeal = isFlexiBundleDeal(deal) || isPerKitClearanceDeal(deal);
       const isBundleDeal = deal?.type === 'bundle_only' || deal?.type === 'bundle_discount' || isClearanceDeal;
       const dealKitIds = isClearanceDeal && deal.clearanceKitIds?.length

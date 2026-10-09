@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef, Suspense, lazy } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import PageTemplate from './PageTemplate';
+import useNavbarHeight from '../hooks/useNavbarHeight';
 const PrintsCalculator = lazy(() => import('../components/calculator/PrintsCalculator'));
 import ProjectCard from '../components/calculator/ProjectCard';
 import PrintedProjectCard from '../components/calculator/PrintedProjectCard';
@@ -121,6 +122,7 @@ function ProjectEstimationCard({ onClick, shadow }) {
 }
 
 export default function Prints() {
+  const navbarHeight = useNavbarHeight();
   const { isDarkMode } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
@@ -214,9 +216,9 @@ export default function Prints() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const sectionHeaderPosition = isContentHeaderHidden
-    ? 'top-[56px] sm:top-[60px] md:top-[120px]'
-    : 'top-[116px] sm:top-[120px] md:top-[120px]';
+  const sectionHeaderStyle = {
+    top: `${navbarHeight + (isContentHeaderHidden ? 0 : 60)}px`
+  };
   const contentHeaderMotion = 'transition-transform duration-400 ease-in-out motion-reduce:transition-none will-change-transform';
   const sectionHeaderMotion = 'transition-[top] duration-400 ease-in-out motion-reduce:transition-none will-change-[top]';
 
@@ -617,7 +619,7 @@ export default function Prints() {
       <div className="min-h-screen w-full bg-neutral-50 dark:bg-[#0a0a0a] transition-colors duration-500 pb-20 font-sans">
         
         {/* Header Search (All Viewports) */}
-        <div className={`sticky top-[56px] sm:top-[60px] z-[100] h-[60px] overflow-visible bg-neutral-50 dark:bg-[#0a0a0a] backdrop-blur-md border-b border-black/5 dark:border-white/5 ${contentHeaderMotion} ${isContentHeaderHidden ? '-translate-y-full md:translate-y-0' : 'translate-y-0'}`}>
+        <div style={{ top: `${navbarHeight}px` }} className={`sticky z-[100] h-[60px] overflow-visible bg-neutral-50 dark:bg-[#0a0a0a] backdrop-blur-md border-b border-black/5 dark:border-white/5 ${contentHeaderMotion} ${isContentHeaderHidden ? '-translate-y-full md:translate-y-0' : 'translate-y-0'}`}>
           <div className="h-full w-full px-4 md:px-8 flex items-center gap-4">
             
             <div className="flex min-w-0 flex-1 items-center gap-4">
@@ -729,7 +731,7 @@ export default function Prints() {
             <div className="grid grid-cols-2 sm:grid-cols-4 sm:portrait:grid-cols-3 md:grid-cols-4 md:portrait:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-3 items-stretch">
               {/* --- Section Divider: Vault (Personal Projects) --- */}
               {(sortedFilteredVault.length > 0 || !(isAdmin && isAdminView)) && (
-                <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[90] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50 px-4 py-2 backdrop-blur-md dark:bg-[#0a0a0a] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderMotion} ${sectionHeaderPosition}`}>
+                <div data-sticky-section style={sectionHeaderStyle} className={`col-span-full first:mt-4 my-2 sticky z-[90] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50 px-4 py-2 backdrop-blur-md dark:bg-[#0a0a0a] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderMotion}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[13px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Your Projects</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
@@ -759,7 +761,7 @@ export default function Prints() {
 
               {/* --- Section Divider: Garage Projects --- */}
               {((isAdmin && isAdminView) || garageProjects.length > 0) && (
-                <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[90] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50 px-4 py-2 backdrop-blur-md dark:bg-[#0a0a0a] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderMotion} ${sectionHeaderPosition}`}>
+                <div data-sticky-section style={sectionHeaderStyle} className={`col-span-full first:mt-4 my-2 sticky z-[90] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50 px-4 py-2 backdrop-blur-md dark:bg-[#0a0a0a] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderMotion}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[13px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Garage Projects</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
@@ -790,7 +792,7 @@ export default function Prints() {
 
               {/* --- Section Divider: Printed Projects --- */}
               {sortedPrintedProjects.length > 0 && (
-                <div data-sticky-section className={`col-span-full first:mt-4 my-2 sticky z-[90] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50 px-4 py-2 backdrop-blur-md dark:bg-[#0a0a0a] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderMotion} ${sectionHeaderPosition}`}>
+                <div data-sticky-section style={sectionHeaderStyle} className={`col-span-full first:mt-4 my-2 sticky z-[90] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50 px-4 py-2 backdrop-blur-md dark:bg-[#0a0a0a] md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${sectionHeaderMotion}`}>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                   <span className="text-[13px] font-black uppercase tracking-[0.2em] bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-transparent select-none">Printed Projects</span>
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />

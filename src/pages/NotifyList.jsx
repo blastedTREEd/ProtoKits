@@ -3,6 +3,7 @@ import { Bell, CheckCircle2, Clock3, Pencil, Save, Trash2, XCircle } from 'lucid
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
+import useNavbarHeight from '../hooks/useNavbarHeight';
 import ListItemSkeleton from '../components/common/ListItemSkeleton';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
 import UniversalImage from '../components/common/UniversalImage';
@@ -72,6 +73,7 @@ function hasPubliclyAvailableStock(kit) {
 }
 
 export default function NotifyList() {
+  const navbarHeight = useNavbarHeight();
   const { isDarkMode } = useTheme();
   const {
     user, userOffers, isAdmin, isAdminView, notifyList,
@@ -279,7 +281,7 @@ export default function NotifyList() {
   return (
     <PageTemplate isDarkMode={isDarkMode}>
       <div className="min-h-screen flex flex-col bg-neutral-50 dark:bg-[#0a0a0a] transition-colors duration-500">
-        <div className="sticky top-[50px] z-[90] h-[60px] w-full bg-neutral-50 dark:bg-[#0a0a0a] border-b border-black/5 dark:border-white/5">
+        <div style={{ top: `${navbarHeight}px` }} className="sticky z-[90] h-[60px] w-full bg-neutral-50 dark:bg-[#0a0a0a] border-b border-black/5 dark:border-white/5">
           <div className="max-w-7xl mx-auto px-4 md:px-8 h-full flex items-center justify-between">
             <div className="flex items-center gap-4">
               {myNotifyList.length > 0 && (
@@ -356,7 +358,8 @@ export default function NotifyList() {
                   return (
                     <div
                       key={row.key}
-                      className="first:mt-4 sticky top-[110px] z-[80] -mx-4 flex items-center gap-3 bg-neutral-50/90 px-4 py-2 backdrop-blur-md dark:bg-[#0a0a0a]/90"
+                      style={{ top: `${navbarHeight + 60}px` }}
+                      className="first:mt-4 sticky z-[80] -mx-4 flex items-center gap-3 bg-neutral-50/90 px-4 py-2 backdrop-blur-md dark:bg-[#0a0a0a]/90"
                     >
                       <div className={`h-px flex-1 bg-gradient-to-r from-transparent ${colors.line} to-transparent`} />
                       <span className={`select-none bg-gradient-to-r ${colors.text} bg-clip-text text-[13px] font-black uppercase tracking-[0.2em] text-transparent`}>

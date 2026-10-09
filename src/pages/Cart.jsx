@@ -4,6 +4,7 @@ import { Trash2, ShoppingBag, ShelvingUnit, ShoppingCart, PackagePlus, Plus, Min
 import { useStore } from '../store/useStore';
 import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
+import useNavbarHeight from '../hooks/useNavbarHeight';
 import ListItemSkeleton from '../components/common/ListItemSkeleton';
 import { getCheckoutPaymentFees } from '../utils/paymentSettings';
 import { isOfferCheckoutActive, valueToMillis } from '../utils/offerUtils';
@@ -11,6 +12,8 @@ import { getIntegerFeeShare, getStockStandaloneSellPrice, isBundleOrClearanceIte
 import {
   getBundleDealPricing,
   getClearanceBundlePricing,
+  getLiquiBundlePricing,
+  getLiquiBundleRequiredOtherStock,
   getClearanceKitIds,
   getClearanceRequiredOtherStock,
   getFlexiBundlePricing,
@@ -20,7 +23,7 @@ import {
 import { getUnavailableDateSet, getUnavailableWeekdaySet, toDateKey } from '../utils/availabilitySchedule';
 import { getStockEta } from '../utils/stockDates';
 import { getPrintedProjectModelName } from '../utils/printedProjectName';
-import { isFlexiBundleDeal, isPerKitClearanceDeal, isWildSaleDeal, getActiveClearanceKitIds } from '../utils/dealTypes';
+import { isFlexiBundleDeal, isPerKitClearanceDeal, isLiquiBundleDeal, isWildSaleDeal, getActiveClearanceKitIds } from '../utils/dealTypes';
 import UniversalImage from '../components/common/UniversalImage';
 import {
   getPrinterFeeders,
@@ -308,6 +311,7 @@ const BASKET_SELECTION_STORAGE_KEY = 'snorlaxgarage:basket-selection-restore';
 const BASKET_SCROLL_TARGET_STORAGE_KEY = 'snorlaxgarage:basket-scroll-target';
 
 export default function Cart() {
+  const navbarHeight = useNavbarHeight();
   const { isDarkMode } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
@@ -991,6 +995,55 @@ export default function Cart() {
       : { prices: new Map(), sourceBasketId: '', discountTotal: 0, isFlexi: false };
   }, [activeBasket, activeSelection, deals, kits, offerNow]);
 
+  const selectedLiquiBundlePricing = useMemo(() => {
+    const selectedBasketIds = new Set(activeSelection.map(String));
+    const selectedItems = activeBasket.filter((item) => (
+      selectedBasketIds.has(String(item.basketId))
+      && item.type !== 'project'
+    ));
+    const activeLiquiBundle = (deals || []).find((deal) => (
+      isLiquiBundleDeal(deal) && deal.isActive !== false
+    ));
+    if (!activeLiquiBundle || selectedItems.length === 0) {
+      return { prices: new Map(), applied: false };
+    }
+
+    const participantSet = activeLiquiBundle.allOnhand === true
+      ? null
+      : new Set((activeLiquiBundle.kitIds || []).map(String));
+    const selectedRows = selectedItems.map(item => {
+      const kit = kits.find(candidate => String(candidate.id) === String(item.id));
+      const stock = kit?.stocks?.[item.stockKey];
+      return { item, kit, stock, kitId: String(item.id) };
+    }).filter(row => (
+      row.kit
+      && isOnHandStock(row.stock || row.item)
+      && (!participantSet || participantSet.has(row.kitId))
+    ));
+    if (selectedRows.length === 0) return { prices: new Map(), applied: false };
+
+    const selectedKitIds = selectedRows.flatMap(row => Array.from(
+      { length: Math.max(1, Number(row.item.quantity) || 1) },
+      () => row.kitId
+    ));
+    const requirementsMet = selectedKitIds.every(kitId => (
+      selectedKitIds.filter(otherKitId => otherKitId !== kitId).length
+        >= getLiquiBundleRequiredOtherStock(activeLiquiBundle, kitId)
+    ));
+    if (!requirementsMet) return { prices: new Map(), applied: false };
+
+    const pricing = getLiquiBundlePricing(selectedRows.map(row => ({
+      ...row,
+      refPrice: Number(row.stock?.sellPrice || row.item.sellPrice || row.kit?.sellPrice || row.item.price || 0),
+      sellPrice: Number(row.stock?.sellPrice || row.item.sellPrice || row.kit?.sellPrice || row.item.price || 0),
+      costPrice: Number(row.stock?.costPrice || row.item.costPrice || 0)
+    })));
+    return {
+      prices: new Map(pricing.rows.map(row => [row.item.basketId, row.finalPrice])),
+      applied: true
+    };
+  }, [activeBasket, activeSelection, deals, kits]);
+
   // Tag selected on-hand rows as soon as a selected row is a member of an
   // active clearance deal. Pricing still waits for the normal distribution
   // rules above, but the tag should not disappear just because there is only
@@ -1289,6 +1342,14 @@ export default function Cart() {
         .map((basketId) => selectedClearancePricing.prices.get(basketId))
         .find((price) => Number.isFinite(price))
       : selectedClearancePricing.prices.get(item.basketId);
+    const selectedLiquiPrice = Array.isArray(item.basketIds)
+      ? item.basketIds
+        .map((basketId) => selectedLiquiBundlePricing.prices.get(basketId))
+        .find((price) => Number.isFinite(price))
+      : selectedLiquiBundlePricing.prices.get(item.basketId);
+    if (Number.isFinite(selectedLiquiPrice) && selectedLiquiBundlePricing.applied) {
+      return selectedLiquiPrice + totalFees;
+    }
     const isCompleteBundleSelection = Number.isFinite(selectedBundlePrice)
       || (isBasketBundleFullySelected(item) && activeBundleDealIds.has(String(item.bundleId)));
     if (isCompleteBundleSelection) {
@@ -1307,7 +1368,7 @@ export default function Cart() {
     if (offerPrice > 0 && isSelected) return offerPrice;
 
     return standaloneBasePrice;
-  }, [activeBundleDealIds, activeSelection, getBasketStandaloneFeeShare, getBasketStandalonePrice, installmentFee, isBundleDealWinner, isBasketBundleFullySelected, selectedBundlePriceByBasketId, selectedClearancePricing]);
+  }, [activeBundleDealIds, activeSelection, getBasketStandaloneFeeShare, getBasketStandalonePrice, installmentFee, isBundleDealWinner, isBasketBundleFullySelected, selectedBundlePriceByBasketId, selectedClearancePricing, selectedLiquiBundlePricing]);
 
   const getBasketPriceComparison = useCallback((item) => {
     const standalonePrice = getBasketStandalonePrice(item);
@@ -1316,16 +1377,22 @@ export default function Cart() {
       : activeSelection.includes(item.basketId);
     const discountedPrice = getBasketDiscountedPrice(item);
     const displayPrice = discountedPrice;
+    const hasLiquiBundlePrice = Array.isArray(item.basketIds)
+      ? item.basketIds.some((basketId) => selectedLiquiBundlePricing.prices.has(basketId))
+      : selectedLiquiBundlePricing.prices.has(item.basketId);
 
     return {
       discountedPrice,
       standalonePrice,
       displayPrice,
-      amount: Math.max(0, standalonePrice - discountedPrice),
+      amount: hasLiquiBundlePrice && selectedLiquiBundlePricing.applied
+        ? 0
+        : Math.max(0, standalonePrice - discountedPrice),
       isSelected,
-      isDiscounted: standalonePrice > discountedPrice
+      isDiscounted: !(hasLiquiBundlePrice && selectedLiquiBundlePricing.applied)
+        && standalonePrice > discountedPrice
     };
-  }, [activeSelection, getBasketDiscountedPrice, getBasketStandalonePrice]);
+  }, [activeSelection, getBasketDiscountedPrice, getBasketStandalonePrice, selectedLiquiBundlePricing]);
 
   const selectedPromotionDiscountTotal = useMemo(() => {
     // Only advertise savings from customer-facing promotion pricing.
@@ -1890,7 +1957,7 @@ export default function Cart() {
   return (
     <PageTemplate isDarkMode={isDarkMode}>
       <div className="min-h-screen flex flex-col bg-neutral-50 dark:bg-[#0a0a0a] transition-colors duration-500">
-        <div data-basket-sticky-header className="sticky top-[50px] z-[90] h-[60px] w-full bg-neutral-50 dark:bg-[#0a0a0a] border-b border-black/5 dark:border-white/5">
+        <div data-basket-sticky-header style={{ top: `${navbarHeight}px` }} className="sticky z-[90] h-[60px] w-full bg-neutral-50 dark:bg-[#0a0a0a] border-b border-black/5 dark:border-white/5">
           <div className="max-w-7xl mx-auto px-4 md:px-8 h-full flex items-center justify-between">
             <div className="flex items-center gap-4">
                 {activeBasket.length > 0 && (
@@ -1941,7 +2008,8 @@ export default function Cart() {
                     <div
                       key={row.key}
                       data-basket-sticky-separator={index === 0 ? true : undefined}
-                      className={`sticky top-[110px] z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-2 backdrop-blur-md dark:bg-[#0a0a0a]/90 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${index === 0 ? 'mt-4' : ''}`}
+                      style={{ top: `${navbarHeight + 60}px` }}
+                      className={`sticky z-[80] -mx-4 flex w-[calc(100%+2rem)] items-center gap-3 bg-neutral-50/90 px-4 py-2 backdrop-blur-md dark:bg-[#0a0a0a]/90 md:-mx-8 md:w-[calc(100%+4rem)] md:px-8 ${index === 0 ? 'mt-4' : ''}`}
                     >
                       <div className="h-px flex-1 bg-gradient-to-r from-transparent via-[#0866FF] via-[#00CFFF] to-transparent" />
                       <span className="select-none bg-gradient-to-r from-[#0866FF] to-[#00CFFF] bg-clip-text text-[13px] font-black uppercase tracking-[0.2em] text-transparent">

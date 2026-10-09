@@ -1,5 +1,6 @@
 export const FLEXI_BUNDLE_DEAL_TYPE = 'flexi_bundle';
 export const WILD_SALE_DEAL_TYPE = 'wild_sale';
+export const LIQUI_BUNDLE_DEAL_TYPE = 'liqui_bundle';
 // Keep this export for existing callers. New records use WILD_SALE_DEAL_TYPE;
 // old records with type "clearance" remain readable through isWildSaleDeal.
 export const CLEARANCE_DEAL_TYPE = WILD_SALE_DEAL_TYPE;
@@ -23,6 +24,10 @@ export const isFlexiBundleDeal = (deal = {}) => (
 export const isWildSaleDeal = (deal = {}) => (
   deal?.type === WILD_SALE_DEAL_TYPE
   || (deal?.type === LEGACY_CLEARANCE_DEAL_TYPE && hasPerKitSchedules(deal))
+);
+
+export const isLiquiBundleDeal = (deal = {}) => (
+  deal?.type === LIQUI_BUNDLE_DEAL_TYPE
 );
 
 // Compatibility alias while the rest of the pricing/display code is migrated
