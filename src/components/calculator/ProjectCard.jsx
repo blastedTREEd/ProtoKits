@@ -980,7 +980,7 @@ const GarageProjectSummary = ({
             {details.map((item, index) => (
               <div key={`${item?.itemName || 'item'}-${index}`} className={`${isDarkMode ? 'bg-white/5' : 'bg-black/5'} rounded-2xl border border-[var(--color-border)] px-5 py-5 flex flex-col items-stretch gap-3`}>
                 <div className="flex w-full min-w-0 items-center gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-blue-600/10 flex items-center justify-center text-blue-600 shrink-0">
+                  <div className={`w-12 h-12 rounded-xl bg-blue-600/10 flex items-center justify-center shrink-0 ${item?.included === false ? 'text-gray-500' : 'text-blue-600'}`}>
                     {String(project?.method?.name || methodLabel || '').toUpperCase() === 'STL'
                       ? <Box size={18} strokeWidth={3} />
                       : <Layers size={18} strokeWidth={3} />}
@@ -1056,7 +1056,7 @@ const GarageProjectSummary = ({
                     {getStlDimensionsLabel(item)}
                   </div>
                 ) : (
-                  <div className="flex items-center gap-1.5 text-right text-[14px] font-black italic text-blue-600">
+                  <div className={`flex items-center gap-1.5 text-right text-[14px] font-black italic ${item?.included === false ? 'text-white' : 'text-blue-600'}`}>
                     <Clock size={18} strokeWidth={3} />
                     {getProjectDetailsTimeLabel(item)}
                   </div>
@@ -2621,7 +2621,7 @@ export default function ProjectCard({
                         {details.map((item, idx) => (
                           <div key={idx} className="bg-black/5 dark:bg-white/5 p-5 rounded-2xl border border-[var(--color-border)] flex flex-col items-stretch gap-3 group hover:border-blue-500/30 transition-colors">
                             <div className="flex w-full min-w-0 items-center gap-4">
-                              <div className="w-12 h-12 rounded-xl bg-blue-600/10 flex items-center justify-center text-blue-600 group-hover:scale-110 transition-transform">
+                              <div className={`w-12 h-12 rounded-xl bg-blue-600/10 flex items-center justify-center group-hover:scale-110 transition-transform ${item?.included === false ? 'text-gray-500' : 'text-blue-600'}`}>
                                 {String(project?.method?.name || methodLabel || '').toUpperCase() === 'STL'
                                   ? <Box size={18} strokeWidth={3} />
                                   : <Layers size={18} strokeWidth={3} />}
@@ -2666,7 +2666,7 @@ export default function ProjectCard({
                                   {getStlDimensionsLabel(item)}
                                 </div>
                               ) : (
-                                <div className="flex items-center gap-1.5 text-[16px] font-black italic text-blue-600">
+                                <div className={`flex items-center gap-1.5 text-[16px] font-black italic ${item?.included === false ? 'text-white' : 'text-blue-600'}`}>
                                   <Clock size={18} strokeWidth={3} />
                                   {Math.floor((item.normalizedTime || item.sliced?.time || 0) / 60)}h {(item.normalizedTime || item.sliced?.time || 0) % 60}m
                                 </div>

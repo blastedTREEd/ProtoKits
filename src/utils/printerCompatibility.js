@@ -74,7 +74,7 @@ const normalizeBuildCapacity = (value) => {
 export const getPrinterCompatibleFilamentTypes = (printer) => {
   const configured = printer?.compatibleFilamentTypes ?? printer?.filamentTypes ?? [];
   return Array.isArray(configured)
-    ? configured.map(normalizeFilamentType).filter(Boolean)
+    ? [...new Set(configured.map(normalizeFilamentType).filter(Boolean))]
     : [];
 };
 

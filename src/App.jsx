@@ -242,7 +242,7 @@ const RouterContent = () => {
           transition={{ type: 'spring', stiffness: 280, damping: 32, mass: 0.9 }}
           className="relative min-h-full w-full will-change-[left,opacity]"
         >
-          <div className="relative min-h-full w-full overflow-x-hidden">
+          <div className="relative min-h-full w-full overflow-x-clip">
             {shouldRenderFamilyPreview && (
               <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 z-0 w-full" style={{ left: `calc(${familyPreviewDirection * 100}% + ${familySwipeOffset}px)` }}>
                 {renderFamilyPreview()}
