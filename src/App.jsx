@@ -6,6 +6,7 @@ import { ThemeProvider } from './context/ThemeContext';
 import Navbar from './components/menu/Navbar';
 import Footer from './components/menu/Footer';
 import ScrollManager from './components/menu/ScrollManager';
+import TabSwipeNavigator from './components/menu/TabSwipeNavigator';
 import LoadingState from './components/common/LoadingState';
 import Toast from './components/common/Toast';
 import { useStore } from './store/useStore';
@@ -31,6 +32,13 @@ const Deletion = lazy(() => import('./pages/Deletion'));
 const ShippingPolicy = lazy(() => import('./pages/ShippingPolicy'));
 const PaymentAndRefundPolicy = lazy(() => import('./pages/PaymentAndRefundPolicy'));
 const NotFound = lazy(() => import('./pages/NotFound'));
+
+const getFamilyTabIndex = (pathname) => {
+  if (pathname === '/') return 0;
+  if (pathname === '/cart' || pathname === '/basket') return 1;
+  if (pathname === '/notify-list') return 2;
+  return -1;
+};
 
 const AppHome = () => {
   if (isPortfolioApp) return <PortfolioHome />;
@@ -153,7 +161,28 @@ const RouterContent = () => {
   const checkPageReady = useStore((state) => state.checkPageReady);
   const isAdminView = useStore((state) => state.isAdminView);
   const isKitsPath = false;
+  const currentFamilyTab = getFamilyTabIndex(location.pathname);
+  const [familySwipeOffset, setFamilySwipeOffset] = useState(0);
+  const [isFamilySwipeDragging, setIsFamilySwipeDragging] = useState(false);
   const [hasVisitedKits, setHasVisitedKits] = useState(() => isKitsPath);
+
+  useEffect(() => {
+    const handleFamilySwipe = (event) => {
+      const detail = event.detail || {};
+      if (detail.type === 'start') {
+        setIsFamilySwipeDragging(true);
+        setFamilySwipeOffset(0);
+      } else if (detail.type === 'move') {
+        setFamilySwipeOffset(Number(detail.offset) || 0);
+      } else if (detail.type === 'end') {
+        setIsFamilySwipeDragging(false);
+        setFamilySwipeOffset(0);
+      }
+    };
+
+    window.addEventListener('family:tab-swipe', handleFamilySwipe);
+    return () => window.removeEventListener('family:tab-swipe', handleFamilySwipe);
+  }, []);
 
   // Keep the Kits tree mounted after its first visit. Switching away then
   // only toggles visibility, avoiding a large card-tree teardown when many
@@ -175,6 +204,19 @@ const RouterContent = () => {
     isAdminView
   });
 
+  const familyPreviewDirection = familySwipeOffset < 0 ? 1 : -1;
+  const familyPreviewTab = currentFamilyTab + familyPreviewDirection;
+  const shouldRenderFamilyPreview = isFamilySwipeDragging
+    && Math.abs(familySwipeOffset) > 4
+    && familyPreviewTab >= 0
+    && familyPreviewTab <= 2;
+  const renderFamilyPreview = () => {
+    if (!shouldRenderFamilyPreview) return null;
+    if (familyPreviewTab === 0) return <AppHome />;
+    if (familyPreviewTab === 1) return <Cart />;
+    return <NotifyList />;
+  };
+
   const AdminRouteWrapper = ({ children }) => {
     const { isAdmin } = useStore();
     if (!isAdmin) {
@@ -185,11 +227,33 @@ const RouterContent = () => {
 
   return (
     <>
-      <Suspense fallback={
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-white/50 backdrop-blur-sm dark:bg-black/50">
-          <LoadingState {...loadingDetails} />
-        </div>
-      }>
+      <AnimatePresence initial={false} custom={familyPreviewDirection} mode="popLayout">
+        <Motion.div
+          key={currentFamilyTab >= 0 ? `family-tab-${currentFamilyTab}` : location.pathname}
+          custom={familyPreviewDirection}
+          variants={{
+            enter: (direction) => ({ x: `${direction * 100}%`, opacity: 0.86, scale: 0.985 }),
+            center: { x: 0, opacity: 1, scale: 1 },
+            exit: (direction) => ({ x: `${direction * -100}%`, opacity: 0.86, scale: 0.985 })
+          }}
+          initial="enter"
+          animate="center"
+          exit="exit"
+          transition={{ type: 'spring', stiffness: 280, damping: 32, mass: 0.9 }}
+          className="relative min-h-full w-full will-change-transform"
+        >
+          <div className="relative min-h-full w-full overflow-x-hidden">
+            {shouldRenderFamilyPreview && (
+              <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 z-0 w-full" style={{ transform: `translate3d(calc(${familyPreviewDirection * 100}% + ${familySwipeOffset}px), 0, 0)` }}>
+                {renderFamilyPreview()}
+              </div>
+            )}
+            <div className="relative z-10 min-h-full w-full" style={{ transform: `translate3d(${familySwipeOffset}px, 0, 0)`, transition: isFamilySwipeDragging ? 'none' : 'transform 260ms cubic-bezier(0.22, 1, 0.36, 1)' }}>
+              <Suspense fallback={
+                <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-white/50 backdrop-blur-sm dark:bg-black/50">
+                  <LoadingState {...loadingDetails} />
+                </div>
+              }>
           {hasVisitedKits && (
             <div className={isKitsPath ? 'contents' : 'hidden'} aria-hidden={!isKitsPath}>
               <Kits isActive={isKitsPath} />
@@ -236,7 +300,11 @@ const RouterContent = () => {
             <Route path="*" element={<NotFound />} />
           </Routes>
           </AppRouteGate>
-        </Suspense>
+              </Suspense>
+            </div>
+          </div>
+        </Motion.div>
+      </AnimatePresence>
     </>
   );
 };
@@ -407,6 +475,7 @@ export default function App() {
     <ThemeProvider>
         <BrowserRouter>
           <ScrollManager />
+          <TabSwipeNavigator />
           <InitialLoadOverlay />
           <SyncOverlay />
 
