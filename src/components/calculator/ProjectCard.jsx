@@ -980,7 +980,13 @@ const GarageProjectSummary = ({
             {details.map((item, index) => (
               <div key={`${item?.itemName || 'item'}-${index}`} className={`${isDarkMode ? 'bg-white/5' : 'bg-black/5'} rounded-2xl border border-[var(--color-border)] px-5 py-5 flex flex-col items-stretch gap-3`}>
                 <div className="flex w-full min-w-0 items-center gap-4">
-                  <div className={`w-12 h-12 rounded-xl bg-blue-600/10 flex items-center justify-center shrink-0 ${item?.included === false ? 'text-gray-500' : 'text-blue-600'}`}>
+                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${
+                    item?.included === false
+                      ? 'bg-gray-500/10 text-gray-500 dark:text-gray-500 opacity-60'
+                      : item?.isReprint === true
+                        ? 'bg-amber-500/20 text-amber-500 dark:text-amber-400 border border-amber-500/30'
+                        : 'bg-blue-600/20 text-blue-600 dark:text-blue-400'
+                  }`}>
                     {String(project?.method?.name || methodLabel || '').toUpperCase() === 'STL'
                       ? <Box size={18} strokeWidth={3} />
                       : <Layers size={18} strokeWidth={3} />}
@@ -1114,7 +1120,7 @@ export default function ProjectCard({
   const isVault = type === 'vault';
   const isSTL = project?.method?.name?.toUpperCase() === 'STL';
   const is3MF = project?.method?.name?.toUpperCase() === '3MF';
-  const details = useMemo(() => project.projectDetails || [], [project.projectDetails]);
+  const details = useMemo(() => (project.projectDetails || []).filter(item => item?.included !== false), [project.projectDetails]);
 
   // Keep track of prev project values to sync local state during render
   const [prevProject, setPrevProject] = useState(project);
@@ -2621,7 +2627,13 @@ export default function ProjectCard({
                         {details.map((item, idx) => (
                           <div key={idx} className="bg-black/5 dark:bg-white/5 p-5 rounded-2xl border border-[var(--color-border)] flex flex-col items-stretch gap-3 group hover:border-blue-500/30 transition-colors">
                             <div className="flex w-full min-w-0 items-center gap-4">
-                              <div className={`w-12 h-12 rounded-xl bg-blue-600/10 flex items-center justify-center group-hover:scale-110 transition-transform ${item?.included === false ? 'text-gray-500' : 'text-blue-600'}`}>
+                              <div className={`w-12 h-12 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform ${
+                                item?.included === false
+                                  ? 'bg-gray-500/10 text-gray-500 dark:text-gray-500 opacity-60'
+                                  : item?.isReprint === true
+                                    ? 'bg-amber-500/20 text-amber-500 dark:text-amber-400 border border-amber-500/30'
+                                    : 'bg-blue-600/20 text-blue-600 dark:text-blue-400'
+                              }`}>
                                 {String(project?.method?.name || methodLabel || '').toUpperCase() === 'STL'
                                   ? <Box size={18} strokeWidth={3} />
                                   : <Layers size={18} strokeWidth={3} />}

@@ -29,7 +29,6 @@ export default function ProjectPreview({
   // --- 1. INITIALIZATION & SYNC ---
   // --- 2. MEMOIZED DATA & LOGIC ---
   const plates = useMemo(() => previewData || [], [previewData]);
-  const isReprint = activePlate?.isReprint === true;
   const [activePlateId, setActivePlateId] = useState(null);
   const [isSelectingMaterial, setIsSelectingMaterial] = useState(false);
   const [isSelectingPrinter, setIsSelectingPrinter] = useState(false);
@@ -44,6 +43,7 @@ export default function ProjectPreview({
     plates.find(p => p.id === effectiveActiveId) || plates[0] || {},
     [plates, effectiveActiveId]
   );
+  const isReprint = activePlate?.isReprint === true;
   
   // Maintenance printers can still be used for estimation. Unavailable
   // printers are not active selections, but remain visible in the picker.
@@ -677,7 +677,9 @@ export default function ProjectPreview({
                   className={`relative flex-shrink-0 rounded-[12rem] border-2 transition-all duration-300 flex flex-col items-center justify-center snap-center
                     ${isActive ? 'w-[58px] h-[58px] scale-110 z-10' : 'w-[50px] h-[50px]'}
                     ${isIncluded
-                      ? 'bg-blue-500/10 border-blue-500/60 text-blue-600 dark:text-blue-400'
+                      ? (plate.isReprint === true
+                          ? (isActive ? 'bg-amber-500 border-amber-500 text-white font-bold shadow-lg shadow-amber-500/30' : 'bg-amber-500/20 border-amber-500/80 text-amber-500 dark:text-amber-400 font-bold')
+                          : 'bg-blue-500/10 border-blue-500/60 text-blue-600 dark:text-blue-400')
                       : 'bg-gray-500/10 border-gray-400/50 text-gray-500 dark:text-gray-400 opacity-60'}`}
                 >
                   <div className="flex flex-col items-center leading-none">
