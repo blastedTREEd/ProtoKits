@@ -1120,7 +1120,13 @@ export default function ProjectCard({
   const isVault = type === 'vault';
   const isSTL = project?.method?.name?.toUpperCase() === 'STL';
   const is3MF = project?.method?.name?.toUpperCase() === '3MF';
-  const details = useMemo(() => (project.projectDetails || []).filter(item => item?.included !== false), [project.projectDetails]);
+  const details = useMemo(() => {
+    const rawDetails = project.projectDetails || [];
+    if (isAdmin && isAdminView) {
+      return rawDetails;
+    }
+    return rawDetails.filter(item => item?.included !== false && item?.isReprint !== true);
+  }, [project.projectDetails, isAdmin, isAdminView]);
 
   // Keep track of prev project values to sync local state during render
   const [prevProject, setPrevProject] = useState(project);
