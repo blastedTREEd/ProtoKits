@@ -605,7 +605,7 @@ export default function SupplierBalancesModal({ isOpen, onClose }) {
     : 'bg-white border-black/10 text-neutral-900';
 
   return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/70 p-0 md:p-4 md:portrait:p-0 backdrop-blur-sm text-left">
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/70 p-0 md:p-4 md:portrait:p-0 backdrop-blur-sm text-left">
       <div className={`relative flex h-full md:h-[85dvh] md:portrait:h-full w-full max-w-4xl md:portrait:max-w-none flex-col overflow-hidden rounded-none md:rounded-[2rem] md:portrait:rounded-none border-0 md:border md:portrait:border-0 shadow-2xl ${panelClass}`}>
         {/* Mobile sticky close button (same pattern as ProductCard and AddDealModal) */}
         <div className="sticky top-0 z-[220] w-full h-0 overflow-visible md:hidden shrink-0">

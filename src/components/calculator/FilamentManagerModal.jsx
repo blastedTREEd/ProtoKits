@@ -257,7 +257,7 @@ export default function FilamentManagerModal({ onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-0 md:p-4 bg-black/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center p-0 md:p-4 bg-black/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
       <div className="bg-[var(--color-surface)] border-0 md:border border-[var(--color-border)] w-full h-full md:h-auto md:max-h-[90vh] md:max-w-2xl rounded-none md:rounded-[2.5rem] flex flex-col shadow-2xl overflow-hidden text-[var(--color-text-main)]">
         {/* Mobile sticky close button (same pattern as ProductCard and AddDealModal) */}
         <div className="sticky top-0 z-[220] w-full h-0 overflow-visible md:hidden shrink-0">

@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { X, ChevronLeft, ChevronRight, MapPin, Pause, Play } from 'lucide-react';
 import { motion as Motion, AnimatePresence } from 'framer-motion';
@@ -521,8 +522,8 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
 
       {/* ====== STORY PREVIEW MODAL ====== */}
       <AnimatePresence>
-        {activeStory && (
-          <div className="fixed inset-0 z-[500] flex items-center justify-center">
+        {activeStory && createPortal(
+          <div className="fixed inset-0 z-[10000] flex items-center justify-center">
             {/* Backdrop */}
             <Motion.div 
               initial={{ opacity: 0 }}

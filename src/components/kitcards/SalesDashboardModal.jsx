@@ -212,7 +212,7 @@ export default function SalesDashboardModal({ isOpen, onClose }) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/60 p-0 backdrop-blur-md animate-in fade-in duration-300 md:p-4">
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 p-0 backdrop-blur-md animate-in fade-in duration-300 md:p-4">
       <div className="relative flex h-full w-full flex-col overflow-hidden border-0 bg-white p-6 text-neutral-900 shadow-2xl dark:bg-[#0a0a0a] dark:text-white md:h-[90vh] md:max-w-5xl md:rounded-[2.5rem] md:border md:border-black/5 md:p-8 dark:md:border-white/10">
         <div className="sticky top-0 z-[220] h-0 w-full overflow-visible md:hidden">
           <div className="absolute right-4 top-4 flex items-center justify-end">

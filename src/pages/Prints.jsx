@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import React, { useState, useMemo, useEffect, useRef, Suspense, lazy } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import PageTemplate from './PageTemplate';
@@ -835,22 +836,23 @@ export default function Prints() {
         </main>
         
         <Suspense fallback={null}>
-        {viewMode === 'estimating' && (
-           <div className="fixed inset-0 z-[200] flex items-stretch justify-center lg:items-center lg:p-4 backdrop-blur-sm bg-black/40 animate-in fade-in duration-200">
-               <div className={`relative w-full h-full lg:h-[90dvh] lg:max-w-2xl rounded-none lg:rounded-[2rem] border-0 lg:border shadow-2xl overflow-hidden bg-[var(--color-surface)] border-[var(--color-border)] ${shadow}`}>
-                  <div className="h-full overflow-y-auto">
-                      <PrintsCalculator 
-                        onExit={() => {setViewMode('idle'); setModifyingProject(null); window.dispatchEvent(new Event('showNavbar'));} }
-                        initialData={modifyingProject}
-                        fallbackTitle={modifyingProject ? vaultProjectTitles.get(modifyingProject.vaultId) : undefined}
-                        isEditMode={!!modifyingProject}
-                        onConfirmEdit={handleEstimateUpdate}
-                      />
-                  </div>
-               </div>
-            </div>
-        )}
-        {viewMode === 'printed-project' && (
+        {viewMode === 'estimating' && createPortal(
+            <div className="fixed inset-0 z-[10000] flex items-stretch justify-center lg:items-center lg:p-4 backdrop-blur-sm bg-black/40 animate-in fade-in duration-200">
+                <div className={`relative w-full h-full lg:h-[90dvh] lg:max-w-2xl rounded-none lg:rounded-[2rem] border-0 lg:border shadow-2xl overflow-hidden bg-[var(--color-surface)] border-[var(--color-border)] ${shadow}`}>
+                   <div className="h-full overflow-y-auto">
+                       <PrintsCalculator 
+                         onExit={() => {setViewMode('idle'); setModifyingProject(null); window.dispatchEvent(new Event('showNavbar'));} }
+                         initialData={modifyingProject}
+                         fallbackTitle={modifyingProject ? vaultProjectTitles.get(modifyingProject.vaultId) : undefined}
+                         isEditMode={!!modifyingProject}
+                         onConfirmEdit={handleEstimateUpdate}
+                       />
+                   </div>
+                </div>
+             </div>,
+             document.body
+         )}
+        {viewMode === 'printed-project' && createPortal(
           <PrintedProjectModal
             isOpen
             initialProject={editingPrintedProject}
@@ -858,16 +860,17 @@ export default function Prints() {
             estimations={blueprints}
             filamentInventory={filamentInventory}
             onSave={handleSavePrintedProject}
-          />
+          />,
+          document.body
         )}
         </Suspense>
       </div>
 
       {/* MODALS */}
       <Suspense fallback={null}>
-        {showFilamentModal && <FilamentManagerModal onClose={() => setShowFilamentModal(false)} />}
-      {showPrinterModal && <PrinterManagerModal onClose={() => setShowPrinterModal(false)} />}
-      {showRatesModal && <RatesManagerModal onClose={() => setShowRatesModal(false)} />}
+        {showFilamentModal && createPortal(<FilamentManagerModal onClose={() => setShowFilamentModal(false)} />, document.body)}
+      {showPrinterModal && createPortal(<PrinterManagerModal onClose={() => setShowPrinterModal(false)} />, document.body)}
+      {showRatesModal && createPortal(<RatesManagerModal onClose={() => setShowRatesModal(false)} />, document.body)}
       </Suspense>
     </PageTemplate>
   );

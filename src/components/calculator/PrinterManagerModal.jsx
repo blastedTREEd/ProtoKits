@@ -725,7 +725,7 @@ export default function PrinterManagerModal({ onClose }) {
   );
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 p-0 backdrop-blur-sm animate-in fade-in duration-300 md:p-4">
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 p-0 backdrop-blur-sm animate-in fade-in duration-300 md:p-4">
       <div className="flex h-full w-full flex-col overflow-hidden border-0 border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-main)] shadow-2xl md:h-auto md:max-h-[90vh] md:max-w-2xl md:rounded-[2.5rem] md:border">
         <div className="sticky top-0 z-[220] h-0 w-full overflow-visible md:hidden">
           <button onClick={onClose} className="absolute right-4 top-4 rounded-full border border-white/10 bg-black/20 p-2 text-white shadow-lg backdrop-blur-md">

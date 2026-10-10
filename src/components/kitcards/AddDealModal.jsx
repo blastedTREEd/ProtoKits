@@ -1870,7 +1870,7 @@ export default function AddDealModal({ isOpen, onClose, dealToEdit = null }) {
   const allSelected = visibleDeals.length > 0 && selectedDealIds.length === visibleDeals.length;
 
   return (
-    <div className="fixed inset-0 z-[500] flex items-start justify-center bg-black/60 p-0 font-sans text-neutral-900 dark:text-white lg:items-center lg:p-4" role="dialog" aria-modal="true" aria-label="Deal entry">
+    <div className="fixed inset-0 z-[10000] flex items-start justify-center bg-black/60 p-0 font-sans text-neutral-900 dark:text-white lg:items-center lg:p-4" role="dialog" aria-modal="true" aria-label="Deal entry">
       <div className={`relative flex h-full min-h-0 w-full flex-col overflow-hidden text-left shadow-2xl backdrop-blur-xl lg:h-auto lg:max-h-[95vh] lg:max-w-5xl lg:rounded-[2.5rem] lg:border lg:p-5 ${isDarkMode ? 'border-white/10 bg-[#0a0a0a]/90 text-white' : 'border-black/5 bg-white/90 text-neutral-900'}`}>
         
         {/* Mobile sticky close button (same pattern as ProductCard) */}

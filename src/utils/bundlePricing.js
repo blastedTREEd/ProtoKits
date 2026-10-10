@@ -102,35 +102,77 @@ export function getLiquiBundlePrice(costPrice = 0, sellPrice = 0) {
   return cost > 0 ? Math.min(sell, getDiscountFloor(cost)) : sell;
 }
 
+export function getLiquiKitSet(deal = {}, kitId = '') {
+  const normalizedId = String(kitId || '');
+  if (!normalizedId) return 'A';
+  if (deal?.setB && (deal.setB[normalizedId] || deal.setB[kitId])) return 'B';
+  const setC = deal?.setC || [];
+  const setCSet = new Set(Array.isArray(setC) ? setC.map(String) : Object.keys(setC).map(String));
+  if (setCSet.has(normalizedId)) return 'C';
+  return 'A';
+}
+
+export function getLiquiKitRequiredCredits(deal = {}, kitId = '') {
+  const normalizedId = String(kitId || '');
+  const pool = getLiquiKitSet(deal, normalizedId);
+  if (pool !== 'A') return 1;
+  const configured = deal?.setA?.[normalizedId]?.requiredCredits
+    ?? deal?.setA?.[kitId]?.requiredCredits
+    ?? deal?.liquiBundleRequiredOtherStockCounts?.[normalizedId]
+    ?? deal?.requiredOtherStockCounts?.[normalizedId]
+    ?? 2;
+  return Math.max(1, Math.floor(Number(configured) || 2));
+}
+
+export function getLiquiKitContributionCredits(deal = {}, kitId = '') {
+  const normalizedId = String(kitId || '');
+  const pool = getLiquiKitSet(deal, normalizedId);
+  if (pool === 'A') return 0;
+  if (pool === 'C') return 1;
+  const configured = deal?.setB?.[normalizedId]?.contributionCredits
+    ?? deal?.setB?.[kitId]?.contributionCredits
+    ?? 2;
+  return Math.max(1, Math.floor(Number(configured) || 2));
+}
+
+export function evaluateLiquiBundleSelection(cartItems = [], deal = {}) {
+  let requiredCredits = 0;
+  let availableCredits = 0;
+
+  (cartItems || []).forEach(item => {
+    const kitId = String(item.kitId || item.id || '');
+    const quantity = Math.max(1, Number(item.quantity) || 1);
+    const pool = getLiquiKitSet(deal, kitId);
+    if (pool === 'A') {
+      requiredCredits += getLiquiKitRequiredCredits(deal, kitId) * quantity;
+    } else if (pool === 'B') {
+      availableCredits += getLiquiKitContributionCredits(deal, kitId) * quantity;
+    } else if (pool === 'C') {
+      availableCredits += 1 * quantity;
+    }
+  });
+
+  return {
+    requiredCredits,
+    availableCredits,
+    isSatisfied: availableCredits >= requiredCredits
+  };
+}
+
 export function getLiquiBundleRequiredOtherStock(deal = {}, kitId = '') {
-  const perKitCounts = deal?.liquiBundleRequiredOtherStockCounts
-    || deal?.requiredOtherStockCounts
-    || {};
-  const normalizedKitId = String(kitId || '');
-  const configured = perKitCounts?.[normalizedKitId] ?? perKitCounts?.[kitId];
-  if (configured === '' || configured === null || configured === undefined) return 2;
-  return Number.isFinite(Number(configured))
-    ? Math.max(0, Math.floor(Number(configured)))
-    : 2;
+  return getLiquiKitRequiredCredits(deal, kitId);
 }
 
 export function isLiquiBundleRequirementMet(deal = {}, selectedKitIds = [], currentKitId = '') {
-  const currentId = String(currentKitId || '');
-  if (!currentId) return false;
-
-  const otherSelectedStockCount = (selectedKitIds || [])
-    .map(id => String(id))
-    .filter(id => id && id !== currentId)
-    .length;
-
-  return otherSelectedStockCount >= getLiquiBundleRequiredOtherStock(deal, currentId);
+  const items = (selectedKitIds || []).map(id => ({ kitId: id, quantity: 1 }));
+  const evalResult = evaluateLiquiBundleSelection(items, deal);
+  return evalResult.isSatisfied;
 }
 
 export function areLiquiBundleRequirementsMet(deal = {}, selectedKitIds = []) {
-  const selectedIds = (selectedKitIds || []).map(id => String(id)).filter(Boolean);
-  return selectedIds.length > 0 && selectedIds.every(kitId => (
-    isLiquiBundleRequirementMet(deal, selectedIds, kitId)
-  ));
+  const items = (selectedKitIds || []).map(id => ({ kitId: id, quantity: 1 }));
+  const evalResult = evaluateLiquiBundleSelection(items, deal);
+  return evalResult.isSatisfied;
 }
 
 // Resolve the original per-source offer amount. Prefer the per-source setting

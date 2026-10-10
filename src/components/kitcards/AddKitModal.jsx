@@ -739,7 +739,7 @@ export function CustomDateTimePicker({
       className={`${
         renderInline
           ? `absolute top-full mt-2 z-[120] w-[320px] ${align === 'right' ? 'right-0' : 'left-0'}`
-          : 'fixed z-[700] w-[320px]'
+          : 'fixed z-[10000] w-[320px]'
       } rounded-[1.5rem] border p-4 shadow-2xl ${popoverClass}`}
     >
       <div className="mb-4 flex items-center justify-between">
@@ -2519,7 +2519,7 @@ export default function AddKitModal({ isOpen, onClose, onSave, editingKit = null
   } uppercase`;
 
   return (
-    <div className="fixed inset-0 z-[500] flex items-start justify-center bg-black/60 p-0 font-sans text-neutral-900 dark:text-white lg:items-center lg:p-4" role="dialog" aria-modal="true" aria-label="Add kit inventory">
+    <div className="fixed inset-0 z-[10000] flex items-start justify-center bg-black/60 p-0 font-sans text-neutral-900 dark:text-white lg:items-center lg:p-4" role="dialog" aria-modal="true" aria-label="Add kit inventory">
         <div data-add-kit-modal-root className={`relative flex h-full min-h-0 w-full flex-col overflow-hidden text-left shadow-2xl backdrop-blur-xl lg:h-auto lg:max-h-[95vh] lg:max-w-5xl lg:rounded-[2.5rem] lg:border lg:p-5 ${modalPanelClass}`}>
             {/* Mobile sticky close button (same pattern as ProductCard and AddDealModal) */}
             <div className="sticky top-0 z-[220] w-full h-0 overflow-visible lg:hidden">

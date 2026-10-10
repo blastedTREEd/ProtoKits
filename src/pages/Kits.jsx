@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import React, { useState, useMemo, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Package, Gift, Plus, Trash2, Box, ClockFading, Pencil, Search, X, Wallet, AlertCircle, TrendingUp, Zap, Sparkles, ArrowBigDownDash, ArrowBigUpDash, ArrowBigRightDash, ArrowBigLeftDash, ChevronDown, MoreHorizontal, Image as ImageIcon, Settings } from 'lucide-react';
@@ -2049,13 +2050,15 @@ export default function Kits({ isActive = true, embedded = false }) {
           </main>
 
           <Suspense fallback={null}>
-            {isAddKitModalOpen && (
-              <AddKitModal isOpen={isAddKitModalOpen} onClose={() => { setIsAddKitModalOpen(false); setKitToEdit(null); }} onSave={handleSaveNewKit} editingKit={kitToEdit} />
+            {isAddKitModalOpen && createPortal(
+              <AddKitModal isOpen={isAddKitModalOpen} onClose={() => { setIsAddKitModalOpen(false); setKitToEdit(null); }} onSave={handleSaveNewKit} editingKit={kitToEdit} />,
+              document.body
             )}
-            {isAddDealModalOpen && (
-              <AddDealModal isOpen={isAddDealModalOpen} onClose={handleCloseDealModal} dealToEdit={dealToEdit} />
+            {isAddDealModalOpen && createPortal(
+              <AddDealModal isOpen={isAddDealModalOpen} onClose={handleCloseDealModal} dealToEdit={dealToEdit} />,
+              document.body
             )}
-            {Boolean(selectedDeal) && (
+            {Boolean(selectedDeal) && createPortal(
               <DealDetailsModal
                 isOpen={Boolean(selectedDeal)}
                 onClose={() => setSelectedDeal(null)}
@@ -2070,21 +2073,25 @@ export default function Kits({ isActive = true, embedded = false }) {
                   setDealToEdit(deal);
                   setIsAddDealModalOpen(true);
                 }}
-              />
+              />,
+              document.body
             )}
-            {isSupplierBalancesModalOpen && (
-              <SupplierBalancesModal isOpen={isSupplierBalancesModalOpen} onClose={handleCloseSupplierBalances} />
+            {isSupplierBalancesModalOpen && createPortal(
+              <SupplierBalancesModal isOpen={isSupplierBalancesModalOpen} onClose={handleCloseSupplierBalances} />,
+              document.body
             )}
-            {isSalesDashboardModalOpen && (
-              <SalesDashboardModal isOpen={isSalesDashboardModalOpen} onClose={handleCloseSalesDashboard} />
+            {isSalesDashboardModalOpen && createPortal(
+              <SalesDashboardModal isOpen={isSalesDashboardModalOpen} onClose={handleCloseSalesDashboard} />,
+              document.body
             )}
-            {isKitDataQualityModalOpen && (
+            {isKitDataQualityModalOpen && createPortal(
               <KitDataQualityModal
                 isOpen={isKitDataQualityModalOpen}
                 onClose={handleCloseKitDataQuality}
                 kits={storeKits}
                 onSave={handleSaveNewKit}
-              />
+              />,
+              document.body
             )}
           </Suspense>
       </div>

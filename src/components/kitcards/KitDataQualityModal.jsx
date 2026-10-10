@@ -202,7 +202,7 @@ export default function KitDataQualityModal({ isOpen, onClose, kits = [], onSave
   const missingBadgeClass = isDarkMode ? 'border-amber-400/30 bg-amber-400/10 text-amber-300' : 'border-amber-500/30 bg-amber-500/10 text-amber-700';
 
   return (
-    <div className="fixed inset-0 z-[700] flex items-center justify-center bg-black/60 p-4 font-sans text-neutral-900 dark:text-white" role="dialog" aria-modal="true" aria-label="Fix missing kit data">
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 p-4 font-sans text-neutral-900 dark:text-white" role="dialog" aria-modal="true" aria-label="Fix missing kit data">
       <div className={`relative flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-[2rem] border shadow-2xl backdrop-blur-xl ${isDarkMode ? 'border-white/10 bg-[#0a0a0a]/95' : 'border-black/5 bg-white/95'}`}>
         <div className="flex shrink-0 items-center justify-between gap-4 border-b border-black/5 px-5 py-4 dark:border-white/10 md:px-6">
           <div className="min-w-0">

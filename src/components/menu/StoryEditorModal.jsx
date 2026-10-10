@@ -1399,7 +1399,7 @@ const renderEditorFormButtons = () => (
   return (
     <AnimatePresence>
       {isOpen && (
-<div className="pointer-events-none fixed inset-0 z-[500] flex items-start justify-center bg-black/20 backdrop-blur-[1px] dark:bg-black/50 lg:items-center lg:p-4" role="dialog" aria-modal="true" aria-label="Story editor">
+<div className="pointer-events-none fixed inset-0 z-[10000] flex items-start justify-center bg-black/20 backdrop-blur-[1px] dark:bg-black/50 lg:items-center lg:p-4" role="dialog" aria-modal="true" aria-label="Story editor">
   <Motion.div 
     initial={{ x: 40, opacity: 0 }} 
     animate={{ x: 0, opacity: 1 }} 

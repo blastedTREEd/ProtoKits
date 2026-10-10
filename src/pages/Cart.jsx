@@ -18,7 +18,10 @@ import {
   getClearanceRequiredOtherStock,
   getFlexiBundlePricing,
   getFlexiOfferedDiscount,
-  isClearanceRequirementMet
+  isClearanceRequirementMet,
+  evaluateLiquiBundleSelection,
+  getLiquiKitSet,
+  getLiquiBundlePrice
 } from '../utils/bundlePricing';
 import { getUnavailableDateSet, getUnavailableWeekdaySet, toDateKey } from '../utils/availabilitySchedule';
 import { getStockEta } from '../utils/stockDates';
@@ -1022,25 +1025,36 @@ export default function Cart() {
     ));
     if (selectedRows.length === 0) return { prices: new Map(), applied: false };
 
-    const selectedKitIds = selectedRows.flatMap(row => Array.from(
-      { length: Math.max(1, Number(row.item.quantity) || 1) },
-      () => row.kitId
-    ));
-    const requirementsMet = selectedKitIds.every(kitId => (
-      selectedKitIds.filter(otherKitId => otherKitId !== kitId).length
-        >= getLiquiBundleRequiredOtherStock(activeLiquiBundle, kitId)
-    ));
-    if (!requirementsMet) return { prices: new Map(), applied: false };
+    const evalItems = selectedRows.map(row => ({
+      kitId: row.kitId,
+      quantity: Math.max(1, Number(row.item.quantity) || 1)
+    }));
+    const evalResult = evaluateLiquiBundleSelection(evalItems, activeLiquiBundle);
 
-    const pricing = getLiquiBundlePricing(selectedRows.map(row => ({
-      ...row,
-      refPrice: Number(row.stock?.sellPrice || row.item.sellPrice || row.kit?.sellPrice || row.item.price || 0),
-      sellPrice: Number(row.stock?.sellPrice || row.item.sellPrice || row.kit?.sellPrice || row.item.price || 0),
-      costPrice: Number(row.stock?.costPrice || row.item.costPrice || 0)
-    })));
+    const pricesMap = new Map();
+    selectedRows.forEach(row => {
+      const pool = getLiquiKitSet(activeLiquiBundle, row.kitId);
+      const sellPrice = Number(row.stock?.sellPrice || row.item.sellPrice || row.kit?.sellPrice || row.item.price || 0);
+      const costPrice = Number(row.stock?.costPrice || row.item.costPrice || 0);
+      const liquiPrice = getLiquiBundlePrice(costPrice, sellPrice);
+
+      if (pool === 'A') {
+        if (evalResult.isSatisfied) {
+          pricesMap.set(row.item.basketId, liquiPrice);
+        } else {
+          pricesMap.set(row.item.basketId, sellPrice);
+        }
+      } else {
+        pricesMap.set(row.item.basketId, liquiPrice);
+      }
+    });
+
     return {
-      prices: new Map(pricing.rows.map(row => [row.item.basketId, row.finalPrice])),
-      applied: true
+      prices: pricesMap,
+      applied: true,
+      isSatisfied: evalResult.isSatisfied,
+      requiredCredits: evalResult.requiredCredits,
+      availableCredits: evalResult.availableCredits
     };
   }, [activeBasket, activeSelection, deals, kits]);
 

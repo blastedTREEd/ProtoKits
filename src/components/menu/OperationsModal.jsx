@@ -169,7 +169,7 @@ export default function OperationsModal({ isOpen, onClose, initialTab = 'shippin
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[400] flex items-end justify-center overflow-hidden p-0 lg:items-center lg:p-4">
+        <div className="fixed inset-0 z-[10000] flex items-end justify-center overflow-hidden p-0 lg:items-center lg:p-4">
           <Motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
