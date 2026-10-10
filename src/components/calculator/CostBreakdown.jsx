@@ -3,7 +3,8 @@ import {
   Coins, User, Zap, PlusCircle, Box,
   ChevronUp, Info, TrendingUp, Wallet,
   Disc3,
-  Wrench
+  Wrench,
+  RotateCcw
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { computeProjectCosts } from '../../utils/calculationEngine';
@@ -83,6 +84,8 @@ export default function CostBreakdown({
   useEffect(() => { if (calculations && onCalculate) onCalculate(calculations); }, [calculations, onCalculate]);
   if (!calculations) return null;
 
+  const hasReprintLoss = Number(calculations.reprintLoss?.totalLossNum || 0) > 0;
+
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 space-y-4">
       <div className="max-w-2xl mx-auto divide-y divide-[var(--color-border)] bg-[var(--color-surface)] rounded-[2.5rem] px-4 shadow-sm border border-[var(--color-border)]">
@@ -109,20 +112,43 @@ export default function CostBreakdown({
           </div>
         </div>
 
-        <div className="max-w-2xl mx-auto mx-2 p-6 rounded-[2rem] bg-blue-600 text-white flex items-center justify-between shadow-xl shadow-blue-600/20 relative overflow-hidden">
+        <div className="max-w-2xl mx-auto mx-2 p-6 rounded-[2rem] bg-blue-600 text-white flex flex-col gap-4 shadow-xl shadow-blue-600/20 relative overflow-hidden">
           <Wallet size={80} className="absolute -right-4 -bottom-4 opacity-10 -rotate-12" />
-          <div className="flex items-center gap-3 relative z-10">
-            <div className="p-2.5 bg-white/20 rounded-xl backdrop-blur-md">
-              <Wallet size={20} />
+          <div className="flex items-center justify-between relative z-10">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-white/20 rounded-xl backdrop-blur-md">
+                <Wallet size={20} />
+              </div>
+              <div>
+                <span className="text-[13px] font-black uppercase opacity-60 block tracking-widest italic">Take Home</span>
+                <span className="text-[14px] font-black uppercase tracking-tight">Pocket-Ready Income</span>
+              </div>
             </div>
-            <div>
-              <span className="text-[13px] font-black uppercase opacity-60 block tracking-widest italic">Take Home</span>
-              <span className="text-[14px] font-black uppercase tracking-tight">Pocket-Ready Income</span>
+            <div className="text-right">
+              <span className="text-[24px] font-black italic tracking-tighter">₱{calculations.totalTakeHome}</span>
             </div>
           </div>
-          <div className="text-right relative z-10">
-            <span className="text-[24px] font-black italic tracking-tighter">₱{calculations.totalTakeHome}</span>
-          </div>
+
+          {hasReprintLoss && (
+            <div className="relative z-10 pt-3 border-t border-white/20 text-white/90 text-[12px] space-y-1.5 font-bold uppercase tracking-tight">
+              <div className="flex justify-between items-center text-amber-200">
+                <span className="flex items-center gap-1.5"><RotateCcw size={13} strokeWidth={3} /> Base Take Home</span>
+                <span>₱{calculations.reprintLoss.baseTakeHome}</span>
+              </div>
+              <div className="flex justify-between items-center text-rose-200/90 pl-3">
+                <span>- Reprint Filament Cost</span>
+                <span>-₱{calculations.reprintLoss.materialLoss}</span>
+              </div>
+              <div className="flex justify-between items-center text-rose-200/90 pl-3">
+                <span>- Reprint Electricity Cost</span>
+                <span>-₱{calculations.reprintLoss.electricityLoss}</span>
+              </div>
+              <div className="flex justify-between items-center text-amber-200 pt-1 border-t border-white/10 font-black">
+                <span>Net Pocket-Ready Income (After Reprint Loss)</span>
+                <span>₱{calculations.totalTakeHome}</span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

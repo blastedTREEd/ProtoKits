@@ -327,7 +327,7 @@ export const computeProjectCosts = ({
       pricePerGram, spoolsNeeded, excessWeight, excessCharge, usageCost,
       reprintUsageCost, standardUsageCost,
       totalCost: usageCost + excessCharge,
-      finalCost: (standardUsageCost * markupMultiplier) + reprintUsageCost + excessCharge
+      finalCost: (standardUsageCost * markupMultiplier) + excessCharge
     };
   });
 
@@ -756,7 +756,7 @@ export const computeProjectCosts = ({
   const baseElecTotal = (kwhP + kwhI + kwhH) * currentRates.electricityRate;
   const markupableElectricityBase = (markupableElectricityKwh + kwhI + kwhH) * currentRates.electricityRate;
   const reprintElectricityBase = reprintKwhP * currentRates.electricityRate;
-  const elecFinal = (markupableElectricityBase * markupMultiplier) + reprintElectricityBase;
+  const elecFinal = markupableElectricityBase * markupMultiplier;
 
   const maintFinal = ((runtimeForElec / 60) * currentRates.maintRate) + ((heatsetMins / 60) * currentRates.mSolderRate) + currentRates.maintFixed;
   
@@ -773,8 +773,18 @@ export const computeProjectCosts = ({
   const profitLabor = markupableLabor * (markupMultiplier - 1);
   const profitElectricity = markupableElectricityBase * (markupMultiplier - 1);
   const profitExtras = extrasBaseSum * (markupMultiplier - 1);
-  const totalProjectProfit = profitFilament + profitLabor + profitElectricity + profitExtras;
-  const totalTakeHome = laborFinal + profitFilament + profitElectricity + (profitExtras + extrasExcessSum) + filamentExcessSum;
+
+  const reprintMaterialCost = filamentSummary.reduce((s, f) => s + f.reprintUsageCost, 0);
+  const reprintElectricityCost = reprintElectricityBase;
+  const totalReprintLoss = reprintMaterialCost + reprintElectricityCost;
+
+  const standardProjectProfit = profitFilament + profitLabor + profitElectricity + profitExtras;
+  const totalProjectProfit = Math.max(-totalReprintLoss, standardProjectProfit - totalReprintLoss);
+
+  const baseTakeHome = laborFinal + profitFilament + profitElectricity + (profitExtras + extrasExcessSum) + filamentExcessSum;
+  const netTakeHome = baseTakeHome - totalReprintLoss;
+  const totalTakeHome = netTakeHome;
+
   // Capital is the actual operating cost basis, before customer-facing
   // markup and leftover-material/extra charges. Persisting this numeric value
   // lets order accounting stay accurate even after rates or inventory change.
@@ -791,7 +801,7 @@ export const computeProjectCosts = ({
     total: Math.ceil(grandTotal).toLocaleString(),
     basePrice: Math.ceil(basePrice).toLocaleString(),
     dp: (Math.ceil((
-      filamentSummary.reduce((s, f) => s + f.totalCost, 0) + 
+            filamentSummary.reduce((s, f) => s + f.totalCost, 0) + 
       extrasRawSum + 
       elecFinal + 
       (baseLaborTotal * 0.1) + 
@@ -810,6 +820,16 @@ export const computeProjectCosts = ({
     capitalBreakdown,
     totalProfit: formatCurrency(totalProjectProfit),
     totalTakeHome: formatCurrency(totalTakeHome),
+    reprintLoss: {
+      materialLoss: formatCurrency(reprintMaterialCost),
+      electricityLoss: formatCurrency(reprintElectricityCost),
+      totalLoss: formatCurrency(totalReprintLoss),
+      rawMaterialLossNum: reprintMaterialCost,
+      electricityLossNum: reprintElectricityCost,
+      totalLossNum: totalReprintLoss,
+      baseTakeHome: formatCurrency(baseTakeHome),
+      netTakeHome: formatCurrency(netTakeHome)
+    },
     details: {
       filament: [
         {

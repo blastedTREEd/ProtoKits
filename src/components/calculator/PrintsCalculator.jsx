@@ -265,13 +265,16 @@ export default function PrintsCalculator({
   navigateToStep(nextStep);
   };
 
-  const handleFinalConfirm = (finalPayload) => {
+  const handleFinalConfirm = async (finalPayload) => {
     if (onConfirmEdit) {
       const payload = finalPayload?.projectDetails || finalPayload?.totals
         ? finalPayload
         : { ...calculatorData, totals: finalPayload };
-      onConfirmEdit(payload);
+      await onConfirmEdit(payload);
     }
+    onExit();
+
+
   };
 
   const handleToggleExtra = useCallback((extra) => {

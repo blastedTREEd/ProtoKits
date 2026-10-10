@@ -501,7 +501,7 @@ export default function Prints() {
     setViewMode('printed-project');
   };
 
-  const handleEstimateUpdate = (payload) => {
+  const handleEstimateUpdate = async (payload) => {
     const projectKey = modifyingProject?.vaultId || modifyingProject?.id;
     const update = modifyingProject?.vaultId
       ? updateProjectInVault(modifyingProject.vaultId, payload)
@@ -509,19 +509,21 @@ export default function Prints() {
         ? updateBlueprint(modifyingProject.id, payload)
         : Promise.reject(new Error('Missing project id.'));
 
-    update
-      .then(() => {
-        setViewMode('idle');
-        setModifyingProject(null);
-        if (projectKey) {
-          setReopenProjectRequest({
-            key: projectKey,
-            token: Date.now()
-          });
-        }
-        window.dispatchEvent(new Event('showNavbar'));
-      })
-      .catch((error) => alert(error?.message || 'Unable to update estimate.'));
+    try {
+      await update;
+      setViewMode('idle');
+      setModifyingProject(null);
+      if (projectKey) {
+        setReopenProjectRequest({
+          key: projectKey,
+          token: Date.now()
+        });
+      }
+      window.dispatchEvent(new Event('showNavbar'));
+    } catch (error) {
+      alert(error?.message || 'Unable to update estimate.');
+      throw error;
+    }
   };
 
   const handleBasketAction = async (e, project) => {

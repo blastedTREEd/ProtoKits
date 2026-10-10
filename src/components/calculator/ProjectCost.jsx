@@ -376,7 +376,8 @@ export default function ProjectCost({
       };
 
       if (onFinalConfirm && (isEditMode || isInventoryMode)) {
-        onFinalConfirm(projectPayload);
+        await onFinalConfirm(projectPayload);
+        onReset();
       } else if (isAdmin && isAdminView) {
         // PUBLISH AS BLUEPRINT
         await publishBlueprint(projectPayload);
