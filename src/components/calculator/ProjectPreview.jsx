@@ -20,6 +20,7 @@ export default function ProjectPreview({
   const { printers, feeders, isAdmin, isAdminView } = useStore();
   const containerBorderStyle = "border-[1.5px] border-gray-400/40 shadow-sm";
   const MAX_PLATES = 8;
+  const isPlateLimitExempt = isAdmin === true;
 
   const inputRefs = {
     weightBySlot: useRef({}),
@@ -29,6 +30,10 @@ export default function ProjectPreview({
   // --- 1. INITIALIZATION & SYNC ---
   // --- 2. MEMOIZED DATA & LOGIC ---
   const plates = useMemo(() => previewData || [], [previewData]);
+  const visiblePlates = useMemo(() => {
+    if (isAdmin && isAdminView) return plates;
+    return (plates || []).filter((plate) => plate?.isReprint !== true);
+  }, [plates, isAdmin, isAdminView]);
   const [activePlateId, setActivePlateId] = useState(null);
   const [isSelectingMaterial, setIsSelectingMaterial] = useState(false);
   const [isSelectingPrinter, setIsSelectingPrinter] = useState(false);
@@ -37,7 +42,9 @@ export default function ProjectPreview({
   const [measurementMode, setMeasurementMode] = useState('weight');
   const [lengthInputs, setLengthInputs] = useState({});
 
-  const effectiveActiveId = activePlateId || (plates.length > 0 ? plates[0].id : null);
+  const effectiveActiveId = (visiblePlates.some(p => p.id === activePlateId) ? activePlateId : null)
+    || (visiblePlates.length > 0 ? visiblePlates[0].id : null)
+    || (plates.length > 0 ? plates[0].id : null);
   
   const activePlate = useMemo(() => 
     plates.find(p => p.id === effectiveActiveId) || plates[0] || {},
@@ -547,11 +554,14 @@ export default function ProjectPreview({
     if (plates.length <= 1) return;
     const updated = plates.filter(p => p.id !== id).map((p, idx) => ({ ...p, no: idx + 1 }));
     setPreviewData(updated);
-    if (effectiveActiveId === id) setActivePlateId(updated[0].id);
+    if (effectiveActiveId === id) {
+      const remainingVisible = (isAdmin && isAdminView) ? updated : updated.filter(p => p.isReprint !== true);
+      setActivePlateId(remainingVisible[0]?.id || null);
+    }
   };
 
   const addBlankPlate = () => {
-    if (plates.length >= MAX_PLATES) return;
+    if (!isPlateLimitExempt && plates.length >= MAX_PLATES) return;
     const newId = Date.now();
     const materialId = activePlate.materialId || (allFilaments || [])[0]?.id;
     setPreviewData(prev => [...(prev || []), {
@@ -573,7 +583,7 @@ export default function ProjectPreview({
   };
 
   const duplicateActivePlate = () => {
-    if (plates.length >= MAX_PLATES || !activePlate?.id) return;
+    if ((!isPlateLimitExempt && plates.length >= MAX_PLATES) || !activePlate?.id) return;
     const newId = Date.now();
     setPreviewData(prev => {
       const source = (prev || []).find(p => p.id === effectiveActiveId) || activePlate;
@@ -625,14 +635,14 @@ export default function ProjectPreview({
       <div className="project-preview-plates w-full max-w-2xl mx-auto px-3 space-y-0 text-center">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-[15px] font-bold uppercase flex items-center gap-2 text-[var(--color-primary)]">
-            <Layers size={14} strokeWidth={3} /> Build Plates {plates.length > 0 && <span className="opacity-40">({plates.length}/{MAX_PLATES})</span>}
+            <Layers size={14} strokeWidth={3} /> Build Plates {visiblePlates.length > 0 && <span className="opacity-40">({visiblePlates.length}{isPlateLimitExempt ? '' : `/${MAX_PLATES}`})</span>}
           </h2>
           <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
               onClick={addBlankPlate}
-              disabled={plates.length >= MAX_PLATES}
-              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${plates.length >= MAX_PLATES ? 'opacity-50 cursor-not-allowed bg-gray-400/10 text-gray-400' : 'bg-blue-500/15 text-blue-600 hover:bg-blue-500/25 active:scale-90'}`}
+              disabled={!isPlateLimitExempt && plates.length >= MAX_PLATES}
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${(!isPlateLimitExempt && plates.length >= MAX_PLATES) ? 'opacity-50 cursor-not-allowed bg-gray-400/10 text-gray-400' : 'bg-blue-500/15 text-blue-600 hover:bg-blue-500/25 active:scale-90'}`}
               title="Add build plate"
             >
               <Plus size={16} strokeWidth={4} />
@@ -640,8 +650,8 @@ export default function ProjectPreview({
             <button
               type="button"
               onClick={duplicateActivePlate}
-              disabled={plates.length >= MAX_PLATES || !activePlate?.id}
-              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${(plates.length >= MAX_PLATES || !activePlate?.id) ? 'opacity-50 cursor-not-allowed bg-gray-400/10 text-gray-400' : 'bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 active:scale-90'}`}
+              disabled={(!isPlateLimitExempt && plates.length >= MAX_PLATES) || !activePlate?.id}
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${((!isPlateLimitExempt && plates.length >= MAX_PLATES) || !activePlate?.id) ? 'opacity-50 cursor-not-allowed bg-gray-400/10 text-gray-400' : 'bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 active:scale-90'}`}
               title="Duplicate build plate"
             >
               <Copy size={16} strokeWidth={3} />
@@ -649,8 +659,8 @@ export default function ProjectPreview({
             <button
               type="button"
               onClick={() => deletePlate(effectiveActiveId)}
-              disabled={plates.length <= 1}
-              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${plates.length <= 1 ? 'opacity-50 cursor-not-allowed bg-red-500/5 text-red-400' : 'bg-red-500/10 hover:bg-red-500/20 text-red-600 active:scale-90'}`}
+              disabled={visiblePlates.length <= 1}
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${visiblePlates.length <= 1 ? 'opacity-50 cursor-not-allowed bg-red-500/5 text-red-400' : 'bg-red-500/10 hover:bg-red-500/20 text-red-600 active:scale-90'}`}
               title="Delete build plate"
             >
               <Trash2 size={16} strokeWidth={3} />
@@ -659,7 +669,7 @@ export default function ProjectPreview({
         </div>
         <div className="relative w-full h-[90px] flex items-center">
           <div className="flex items-center gap-3 overflow-x-auto no-scrollbar py-4 px-1 w-full h-full snap-x">
-            {plates.map((plate) => {
+            {visiblePlates.map((plate) => {
               const isIncluded = isPlateIncluded(plate);
               const isActive = effectiveActiveId === plate.id;
               return (

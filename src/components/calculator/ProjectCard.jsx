@@ -1125,7 +1125,7 @@ export default function ProjectCard({
     if (isAdmin && isAdminView) {
       return rawDetails;
     }
-    return rawDetails.filter(item => item?.included !== false && item?.isReprint !== true);
+    return rawDetails.filter(item => item?.isReprint !== true);
   }, [project.projectDetails, isAdmin, isAdminView]);
 
   // Keep track of prev project values to sync local state during render
@@ -1629,8 +1629,12 @@ export default function ProjectCard({
     if (originalConfigurationFulfilled) return null;
     if (!projectCostPrinterSelection.isCompatible || !projectCostPrinterSelection.printer) return null;
 
-    const nextDetails = details.map((detail, index) => {
-      const nextPrinter = projectCostPrinterSelection.detailSelections?.[index]?.printer;
+    const fullProjectDetails = project.projectDetails || [];
+    const nextDetails = fullProjectDetails.map((detail, index) => {
+      const matchingSelection = projectCostPrinterSelection.detailSelections?.find((sel, selIdx) => (
+        String(sel?.detail?.id || selIdx) === String(detail?.id || index)
+      )) || projectCostPrinterSelection.detailSelections?.[index];
+      const nextPrinter = matchingSelection?.printer;
       if (!nextPrinter) return detail;
 
       const printerName = getProjectPrinterLabel(nextPrinter);
@@ -1787,7 +1791,7 @@ export default function ProjectCard({
     };
 
     const persist = isBlueprint && !isPrintedProject && project?.id
-      ? updateBlueprint(project.id, patch)
+      ? (isAdmin && isAdminView ? updateBlueprint(project.id, patch) : Promise.resolve())
       : isVault && project?.vaultId
         ? updateProjectInVault(project.vaultId, patch)
         : Promise.resolve();

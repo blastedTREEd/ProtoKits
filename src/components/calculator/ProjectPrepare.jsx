@@ -21,6 +21,7 @@ export default function ProjectPrepare({
 }) {
   const MAX_MODELS = 8;
   const isAdmin = useStore((state) => state.isAdmin);
+  const isAdminView = useStore((state) => state.isAdminView);
   const { printers, feeders, rates: storeRates } = useStore();
   const DEFAULT_LAYER_HEIGHT_MM = 0.2;
   const DEFAULT_PURGE_WEIGHT_PER_SWAP = 0.05;
@@ -991,7 +992,7 @@ export default function ProjectPrepare({
             aria-hidden="true"
           />
         )}
-        {group.modelData.map((model) => {
+        {group.modelData.filter(model => (isAdmin && isAdminView) || model?.isReprint !== true).map((model) => {
           const isActive = activeModelId === model.id;
           const isIncluded = isModelIncluded(model);
           const modelQty = Math.max(1, parseInt(model.quantity, 10) || 1);
