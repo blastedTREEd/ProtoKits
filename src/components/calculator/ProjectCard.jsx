@@ -1714,12 +1714,13 @@ export default function ProjectCard({
       project: automaticRepriceData.id || automaticRepriceData.vaultId || '',
       printer: automaticRepriceData.printerId || '',
       originalPrinter: automaticRepriceData.originalPrinterId || '',
+      rates: storeRates || {},
       details: (automaticRepriceData.projectDetails || []).map((detail) => ({
         printerId: detail.printerId || '',
         jobs: (detail.productionJobs || []).map((job) => job.printerId || '')
       }))
     });
-  }, [automaticRepriceData]);
+  }, [automaticRepriceData, storeRates]);
 
   useEffect(() => {
     if (!automaticRepriceKey) {

@@ -162,6 +162,7 @@ export default function RatesManagerModal({ onClose }) {
         delete remainingDrafts[parentId];
       }
       setDraftRates(remainingDrafts);
+      onClose?.();
     } catch (error) {
       setDraftRates(remainingDrafts);
       console.error('FIREBASE SAVE ERROR for all rate sections:', error);
