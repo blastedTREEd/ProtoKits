@@ -9,6 +9,7 @@ import { useStore } from '../../store/useStore';
 // import { useTheme } from '../../context/ThemeContext';
 import CostBreakdown from './CostBreakdown';
 import ProductionPlan from './ProductionPlan';
+import RatesToast from './RatesToast';
 
 const RATE_SECTIONS = [
   {
@@ -191,6 +192,7 @@ export default function ProjectCost({
     try {
       await Promise.all(saves);
       setDraftRates({});
+      setActiveTab('cost');
     } catch (error) {
       console.error('Failed to save project rates:', error);
       alert(error?.message || 'Failed to save rates. Check admin permissions.');
@@ -532,6 +534,7 @@ export default function ProjectCost({
 
   return (
     <div className="w-full min-h-[calc(100dvh-210px)] lg:min-h-[calc(90dvh-210px)] flex flex-col gap-4 pb-[160px] sm:pb-32 md:pb-32 lg:pb-32 px-4 overflow-x-hidden">
+      <RatesToast />
       <style>{`
         input::-webkit-outer-spin-button,
         input::-webkit-inner-spin-button {

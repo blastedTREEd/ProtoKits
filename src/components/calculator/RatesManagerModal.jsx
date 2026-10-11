@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, SlidersHorizontal } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
+import RatesToast from './RatesToast';
 
 const RATE_SECTIONS = [
   {
@@ -192,6 +193,7 @@ export default function RatesManagerModal({ onClose }) {
 
   return (
     <div className="fixed inset-0 z-[10000] flex items-center justify-center p-0 md:p-4 bg-black/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
+      <RatesToast />
       <div className="bg-[var(--color-surface)] border-0 md:border border-[var(--color-border)] w-full h-full md:h-auto md:max-h-[85vh] md:max-w-2xl rounded-none md:rounded-[2.5rem] flex flex-col shadow-2xl overflow-hidden text-[var(--color-text-main)]">
         <div className="p-6 border-b border-[var(--color-border)] flex items-center justify-between">
           <div className="flex items-center gap-3 text-left">

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useStore } from '../../store/useStore'; 
+import RatesToast from './RatesToast'; 
 import CaseSelection from './CaseSelection'; 
 import PrinterSelection from './PrinterSelection';
 import FilamentSelection from './FilamentSelection'; 
@@ -353,6 +354,7 @@ export default function PrintsCalculator({
 
   return (
     <div className="w-full min-h-full prints-calculator-container animate-in fade-in zoom-in-95 duration-500 px-3 sm:px-5 pb-0 text-[var(--color-text-main)]">
+      <RatesToast />
       <style>{`
         .prints-calculator-container :where(input, .print-dimension-type) {
           font-weight: 900;

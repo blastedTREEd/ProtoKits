@@ -1243,6 +1243,15 @@ export const useStore = create(
     (set, get) => ({
       garageInfo: null,
       rates: {},
+      ratesToastMessage: null,
+      showRatesToast: (msg = "3D PRINTING RATES UPDATED!") => {
+        set({ ratesToastMessage: msg });
+        setTimeout(() => {
+          if (get().ratesToastMessage === msg) {
+            set({ ratesToastMessage: null });
+          }
+        }, 4000);
+      },
       // Small public catalog slice used by the landing page. The full kits
       // collection is loaded only when a catalog-dependent route is opened.
       homeKits: [],
@@ -4228,6 +4237,7 @@ export const useStore = create(
           await setDoc(doc(db, 'rates', rateId), cleanPatch, { merge: true });
 
           schedulePersistedProjectsRecompute(`rates/${rateId}`);
+          get().showRatesToast?.("3D PRINTING RATES UPDATED!");
         } catch (error) {
           set({ rates: previousRates });
           throw error;
