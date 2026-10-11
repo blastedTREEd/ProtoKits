@@ -129,7 +129,7 @@ export default function RatesManagerModal({ onClose }) {
         .map((section) => section.parentSection || section.id)
         .filter((parentId) => Object.keys(draftRates[parentId] || {}).length > 0)
     )];
-    if (!parentIds.length) return;
+    if (!parentIds.length) { onClose?.(); return; }
 
     setSavingSection('all');
     const remainingDrafts = { ...draftRates };
@@ -143,6 +143,7 @@ export default function RatesManagerModal({ onClose }) {
           const numericElectricityRate = Number(rawElectricityRate);
           if (!rawElectricityRate || !Number.isFinite(numericElectricityRate) || numericElectricityRate < 0) {
             alert('Enter a valid non-negative electricity rate.');
+            setSavingSection(null);
             return;
           }
           savePatch.electricityRate = numericElectricityRate;

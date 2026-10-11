@@ -4214,17 +4214,18 @@ export const useStore = create(
               return { ...patch, rateAsOf: localDate };
             })()
           : patch;
+        const cleanPatch = removeUndefinedValues(normalizedPatch || {});
         const previousRates = get().rates || {};
         const nextRates = {
           ...previousRates,
           [rateId]: {
             ...(previousRates[rateId] || {}),
-            ...normalizedPatch
+            ...cleanPatch
           }
         };
         set({ rates: nextRates });
         try {
-          await setDoc(doc(db, 'rates', rateId), normalizedPatch, { merge: true });
+          await setDoc(doc(db, 'rates', rateId), cleanPatch, { merge: true });
 
           schedulePersistedProjectsRecompute(`rates/${rateId}`);
         } catch (error) {
