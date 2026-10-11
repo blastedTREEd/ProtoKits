@@ -822,6 +822,7 @@ export const computeProjectCosts = ({
     capitalBreakdown,
     totalProfit: formatCurrency(totalProjectProfit),
     totalTakeHome: formatCurrency(totalTakeHome),
+    rawElectricityCost: formatCurrency(baseElecTotal),
     reprintLoss: {
       materialLoss: formatCurrency(reprintMaterialCost),
       electricityLoss: formatCurrency(reprintElectricityCost),

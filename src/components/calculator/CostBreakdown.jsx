@@ -149,6 +149,13 @@ export default function CostBreakdown({
               </div>
             </div>
           )}
+
+          <div className="relative z-10 pt-3 border-t border-white/20 text-white/60 text-[11px] font-bold uppercase tracking-tight">
+            <div className="flex justify-between items-center">
+              <span className="flex items-center gap-1.5"><Zap size={12} strokeWidth={3} /> Total Electricity Bill (Raw)</span>
+              <span>₱{calculations.rawElectricityCost}</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
