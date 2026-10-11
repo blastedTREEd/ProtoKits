@@ -398,15 +398,15 @@ export default function ProjectCost({
   const checklist = useMemo(() => {
     const allExtras = data?.extras || [];
     const sourceDetails = Array.isArray(data?.projectDetails) ? data.projectDetails : [];
-    const includedDetailIds = new Set(sourceDetails.filter((detail) => detail?.included !== false).map((detail) => String(detail?.id)).filter(Boolean));
+    const includedDetailIds = new Set(sourceDetails.filter((detail) => detail?.included !== false && detail?.isReprint !== true).map((detail) => String(detail?.id)).filter(Boolean));
     const includedAssignmentKeys = new Set();
     sourceDetails.forEach((detail, detailIndex) => {
-      if (detail?.included === false) return;
+      if (detail?.included === false || detail?.isReprint === true) return;
       [detailIndex, detail?.id].forEach((key) => {
         if (key !== undefined && key !== null) includedAssignmentKeys.add(String(key));
       });
       (Array.isArray(detail?.productionJobs) ? detail.productionJobs : [])
-        .filter((job) => job?.included !== false)
+        .filter((job) => job?.included !== false && job?.isReprint !== true)
         .forEach((job) => {
           [job?.id, job?.parentId, ...(Array.isArray(job?.parentIds) ? job.parentIds.filter((key) => includedDetailIds.has(String(key))) : [])].forEach((key) => {
             if (key !== undefined && key !== null) includedAssignmentKeys.add(String(key));
@@ -442,9 +442,9 @@ export default function ProjectCost({
     // printers per plate/model are represented separately.
     const printerGroups = new Map();
     sourceDetails.forEach((detail, detailIndex) => {
-      if (detail?.included === false) return;
+      if (detail?.included === false || detail?.isReprint === true) return;
       const jobs = Array.isArray(detail?.productionJobs) && detail.productionJobs.length > 0
-        ? detail.productionJobs.filter((job) => job?.included !== false)
+        ? detail.productionJobs.filter((job) => job?.included !== false && job?.isReprint !== true)
         : [detail];
 
       jobs.forEach((job, jobIndex) => {

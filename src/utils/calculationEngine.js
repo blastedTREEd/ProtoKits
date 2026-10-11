@@ -324,6 +324,7 @@ export const computeProjectCosts = ({
     const standardUsageCost = standardWeight * pricePerGram;
     return {
       id, material: mat, name: getMaterialLabel(mat), spoolWeight, totalWeightUsed: totalWeight,
+      standardWeightUsed: standardWeight,
       pricePerGram, spoolsNeeded, excessWeight, excessCharge, usageCost,
       reprintUsageCost, standardUsageCost,
       totalCost: usageCost + excessCharge,
@@ -579,6 +580,7 @@ export const computeProjectCosts = ({
           printerName: getPrinterLabel(state.printer), 
           magnets: pExtra.magnets, 
           heatsets: pExtra.heatsets, 
+          isReprint: item?.isReprint === true,
           startDay: dNum, 
           endDay: Math.floor((state.currentTime + workload - 0.1) / MINUTES_PER_DAY) + 1 
         });
@@ -614,7 +616,7 @@ export const computeProjectCosts = ({
         b.totalMins += workload; b.setupMins += (mSetTime + init); b.installMins += mPlcTime;
         if (item?.isReprint === true) b.reprintMins += item.normalizedTime;
         else b.printMins += item.normalizedTime;
-        b.plates.push({ id: itemKey, itemId: item.id, parentId: item.parentId, printTimeAdjustmentsApplied: item.printTimeAdjustmentsApplied, name: item.itemName, time: workload, scheduledMins: workload, printMins: item.normalizedTime, setupMins: mSetTime + init, installMins: mPlcTime, postPrintHeatsetMins: (pExtra.heatsets > 0 ? (parseFloat(extraRates.heatsetSetupRate) || 0) : 0) + (pExtra.heatsets * (parseFloat(extraRates.heatsetPlacementRate) || 0)), filament: filLabel, printerName: getPrinterLabel(state.printer), magnets: pExtra.magnets, heatsets: pExtra.heatsets, startDay: dNum, endDay: Math.floor((state.currentTime + workload - 0.1) / MINUTES_PER_DAY) + 1 });
+        b.plates.push({ id: itemKey, itemId: item.id, parentId: item.parentId, printTimeAdjustmentsApplied: item.printTimeAdjustmentsApplied, name: item.itemName, time: workload, scheduledMins: workload, printMins: item.normalizedTime, setupMins: mSetTime + init, installMins: mPlcTime, postPrintHeatsetMins: (pExtra.heatsets > 0 ? (parseFloat(extraRates.heatsetSetupRate) || 0) : 0) + (pExtra.heatsets * (parseFloat(extraRates.heatsetPlacementRate) || 0)), filament: filLabel, printerName: getPrinterLabel(state.printer), magnets: pExtra.magnets, heatsets: pExtra.heatsets, isReprint: item?.isReprint === true, startDay: dNum, endDay: Math.floor((state.currentTime + workload - 0.1) / MINUTES_PER_DAY) + 1 });
         state.currentTime += workload;
       });
       injectTask(state, `purge-${state.key}-${gIdx}`, `Purge & Cleanup: ${filLabel}`, group[0].normalizedMaterial.purgeTime, filLabel);
@@ -836,9 +838,9 @@ export const computeProjectCosts = ({
           title: 'Usage Details',
           items: filamentSummary.map(f => ({
             label: f.name,
-            sub: `${formatWeight(f.totalWeightUsed)} used • ₱${formatCurrency(f.pricePerGram)}/g`,
-            calc: `₱${formatCurrency(f.usageCost)}`,
-            weight: Number(f.totalWeightUsed.toFixed(2)),
+            sub: `${formatWeight(f.standardWeightUsed)} used • ₱${formatCurrency(f.pricePerGram)}/g`,
+            calc: `₱${formatCurrency(f.standardUsageCost)}`,
+            weight: Number(f.standardWeightUsed.toFixed(2)),
             material: {
               brand: f.material?.brand || '',
               type: f.material?.type || '',

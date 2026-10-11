@@ -14,7 +14,28 @@ export default function ProductionPlan({ schedule = [], projectCase = 'STL' }) {
   const is3MF = String(projectCase).toUpperCase() === '3MF';
   const itemLabel = is3MF ? 'Build Plate' : 'Model';
 
-  if (!schedule.length) {
+  const filteredSchedule = (schedule || []).map((day) => {
+    const validPlates = (day.plates || []).filter((plate) => plate?.isReprint !== true);
+    if (!validPlates.length) return null;
+
+    const standardWorkMins = validPlates.reduce((sum, p) => sum + Number(p.scheduledMins || p.time || 0), 0);
+    const loadPercent = Math.round((standardWorkMins / Math.max(1, Number(day.limitMins || (24 * 60)))) * 100);
+    const latestContinuationDay = Math.max(
+      day.day,
+      ...validPlates.map((plate) => plate.endDay || day.day)
+    );
+    const dayLabel = latestContinuationDay > day.day ? `Day ${day.day}-${latestContinuationDay}` : `Day ${day.day}`;
+
+    return {
+      ...day,
+      plates: validPlates,
+      loadPercent,
+      dayLabel,
+      standardWorkMins
+    };
+  }).filter(Boolean);
+
+  if (!filteredSchedule.length) {
     return (
       <div className="max-w-2xl mx-auto flex flex-col items-center justify-center py-20 opacity-30 italic">
         <AlertCircle size={40} className="mb-2" />
@@ -27,20 +48,14 @@ export default function ProductionPlan({ schedule = [], projectCase = 'STL' }) {
 
   return (
     <div className="space-y-5 px-2 pb-20">
-      {schedule.map((day) => {
-        const loadPercent = Math.round((Number(day.totalMins || 0) / Math.max(1, Number(day.limitMins || (24 * 60)))) * 100);
-        const latestContinuationDay = Math.max(
-          day.day,
-          ...(day.plates || []).map((plate) => plate.endDay || day.day)
-        );
-        const dayLabel = latestContinuationDay > day.day ? `Day ${day.day}-${latestContinuationDay}` : `Day ${day.day}`;
+      {filteredSchedule.map((day) => {
         return (
           <div key={`${day.day}-${day.printerKey || day.printerName || 'printer'}`} className=" max-w-2xl mx-auto p-6 rounded-[2rem] border border-black/5 bg-white dark:bg-zinc-900/40 space-y-4 shadow-sm">
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-2">
                 <div className="flex items-center gap-2 text-[var(--color-primary)]">
                   <Calendar size={18} />
-                  <h3 className="text-[14px] font-black uppercase tracking-tight">{dayLabel}</h3>
+                  <h3 className="text-[14px] font-black uppercase tracking-tight">{day.dayLabel}</h3>
                 </div>
                 <div className="flex items-center gap-2 text-zinc-500 dark:text-zinc-400">
                   <Disc3 size={13} />
@@ -51,7 +66,7 @@ export default function ProductionPlan({ schedule = [], projectCase = 'STL' }) {
               </div>
 
               <div className="text-right">
-                <div className="text-[22px] font-black italic text-[var(--color-primary)] leading-none">{loadPercent}%</div>
+                <div className="text-[22px] font-black italic text-[var(--color-primary)] leading-none">{day.loadPercent}%</div>
                 <div className="text-[13px] font-black uppercase opacity-40 tracking-widest">Load</div>
               </div>
             </div>
