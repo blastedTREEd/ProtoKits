@@ -26,9 +26,9 @@ export const isWildSaleDeal = (deal = {}) => (
   || (deal?.type === LEGACY_CLEARANCE_DEAL_TYPE && hasPerKitSchedules(deal))
 );
 
-export const isLiquiBundleDeal = (deal = {}) => (
-  deal?.type === LIQUI_BUNDLE_DEAL_TYPE
-);
+// Hardcoded disabled in LegacyKits backup repository:
+// Liqui-bundle is forced false even if enabled in Firebase.
+export const isLiquiBundleDeal = (_deal = {}) => false;
 
 // Compatibility alias while the rest of the pricing/display code is migrated
 // away from the old Clearance terminology.

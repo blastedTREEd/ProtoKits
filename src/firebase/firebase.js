@@ -23,7 +23,7 @@ export let appCheck = null;
 // Initialize App Check (browser-only)
 if (typeof window !== "undefined") {
   if (import.meta.env.DEV) {
-    // Enable debug provider in local development
+    // Enable debug provider in local development with pre-registered token
   # App Check debug token removed from history
   }
 
