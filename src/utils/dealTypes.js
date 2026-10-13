@@ -1,6 +1,23 @@
+import { APP_CONFIG } from '../appConfig';
+
 export const FLEXI_BUNDLE_DEAL_TYPE = 'flexi_bundle';
 export const WILD_SALE_DEAL_TYPE = 'wild_sale';
 export const LIQUI_BUNDLE_DEAL_TYPE = 'liqui_bundle';
+const LEGACY_DEAL_APP_IDS = new Set(['snorlaxgarage', 'protokits']);
+
+// Deals share one Firestore collection, but each storefront must only render
+// the promotion family it owns. ProtoKits is part of the legacy deal family.
+export const isDealAvailableToApp = (deal = {}, appId = APP_CONFIG.id) => {
+  const normalizedAppId = String(appId || '').trim().toLowerCase();
+  if (normalizedAppId === 'garagecore') return true;
+  if (deal?.appScope === 'liquikits' || deal?.type === LIQUI_BUNDLE_DEAL_TYPE) {
+    return normalizedAppId === 'liquikits';
+  }
+  if (deal?.appScope === 'legacykits') {
+    return LEGACY_DEAL_APP_IDS.has(normalizedAppId);
+  }
+  return LEGACY_DEAL_APP_IDS.has(normalizedAppId);
+};
 // Keep this export for existing callers. New records use WILD_SALE_DEAL_TYPE;
 // old records with type "clearance" remain readable through isWildSaleDeal.
 export const CLEARANCE_DEAL_TYPE = WILD_SALE_DEAL_TYPE;
@@ -28,7 +45,7 @@ export const isWildSaleDeal = (deal = {}) => (
 
 // Hardcoded disabled in LegacyKits backup repository:
 // Liqui-bundle is forced false even if enabled in Firebase.
-export const isLiquiBundleDeal = (_deal = {}) => false;
+export const isLiquiBundleDeal = () => false;
 
 // Compatibility alias while the rest of the pricing/display code is migrated
 // away from the old Clearance terminology.

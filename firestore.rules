@@ -28,6 +28,20 @@ service cloud.firestore {
       return signedIn() && resource.data.uid == request.auth.uid;
     }
 
+    function isValidAppVisibility() {
+      return request.resource.data.keys().hasOnly(['visibility', 'updatedAt'])
+        && request.resource.data.visibility is map
+        && request.resource.data.visibility.keys().hasOnly([
+          'snorlaxgarage', 'liquikits', 'protokits', 'komiprints', 'garagecore'
+        ])
+        && (!('snorlaxgarage' in request.resource.data.visibility) || request.resource.data.visibility.snorlaxgarage is bool)
+        && (!('liquikits' in request.resource.data.visibility) || request.resource.data.visibility.liquikits is bool)
+        && (!('protokits' in request.resource.data.visibility) || request.resource.data.visibility.protokits is bool)
+        && (!('komiprints' in request.resource.data.visibility) || request.resource.data.visibility.komiprints is bool)
+        && (!('garagecore' in request.resource.data.visibility) || request.resource.data.visibility.garagecore is bool)
+        && (!('updatedAt' in request.resource.data) || request.resource.data.updatedAt is timestamp);
+    }
+
     function validUserProfileCreate(userId) {
       return request.resource.data.uid == userId
         && (!('role' in request.resource.data)
@@ -77,6 +91,12 @@ service cloud.firestore {
     match /settings/checkout {
       allow read: if true;
       allow write: if isAdmin();
+    }
+
+    match /settings/apps {
+      allow read: if true;
+      allow create, update: if isAdmin() && isValidAppVisibility();
+      allow delete: if isAdmin();
     }
 
     match /methods/{id} {

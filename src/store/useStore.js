@@ -15,7 +15,7 @@ import { computeProjectCosts } from '../utils/calculationEngine';
 import { getStockEta } from '../utils/stockDates';
 import { getPrintedProjectModelName } from '../utils/printedProjectName';
 import { compactOrderPayload, getPayloadByteSize } from '../utils/orderPayload';
-import { isFlexiBundleDeal, isPerKitClearanceDeal } from '../utils/dealTypes';
+import { isDealAvailableToApp, isFlexiBundleDeal, isPerKitClearanceDeal } from '../utils/dealTypes';
 import { APP_CONFIG, getGuestBasketStorageKey, isAdminSurfaceApp, isLegacyApp, isOperationsApp } from '../appConfig';
 
 const FINALIZED_ORDER_SHIPPING_DELETE_FIELDS = [
@@ -1825,7 +1825,7 @@ export const useStore = create(
         // 6. Deals (if not already prioritized)
         if (needsDealsListener && !ds.deals && !listenerKeys.deals) {
           const unsubDeals = onSnapshot(collection(db, "deals"), { includeMetadataChanges: true }, (snap) => {
-            const deals = docsToArray(snap);
+            const deals = docsToArray(snap).filter((deal) => isDealAvailableToApp(deal));
             set({ deals });
             updateSnapshotDatasetStatus(get, 'deals', snap);
             get().syncAllDeals();
@@ -2066,7 +2066,7 @@ export const useStore = create(
         get().setDatasetStatus('deals', 'loading');
         try {
           const snap = await getDocs(collection(db, 'deals'));
-          const allDeals = docsToArray(snap);
+          const allDeals = docsToArray(snap).filter((deal) => isDealAvailableToApp(deal));
           set({ deals: allDeals });
           get().markLoaded('deals', { status: allDeals.length > 0 ? 'ready' : 'empty' });
           get().syncAllDeals();
