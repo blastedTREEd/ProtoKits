@@ -26,20 +26,24 @@ export let appCheck = null;
 
 // Initialize App Check (browser-only)
 if (typeof window !== "undefined") {
+  const debugToken = import.meta.env.VITE_APPCHECK_DEBUG_TOKEN;
+  const isLocalDevelopment = Boolean(
+    import.meta.env.DEV && window.location.hostname === 'localhost'
+  );
+
   if (import.meta.env.DEV) {
     // Enable debug provider in local development with pre-registered token
-    const debugToken = import.meta.env.VITE_APPCHECK_DEBUG_TOKEN;
     if (debugToken) self.FIREBASE_APPCHECK_DEBUG_TOKEN = debugToken;
   }
 
   const siteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
 
-  if (siteKey) {
+  if (siteKey && (!isLocalDevelopment || debugToken)) {
     appCheck = initializeAppCheck(app, {
       provider: new ReCaptchaV3Provider(siteKey),
       isTokenAutoRefreshEnabled: true,
     });
-  } else {
+  } else if (!isLocalDevelopment) {
     console.warn('Firebase App Check is not initialized because VITE_RECAPTCHA_SITE_KEY is missing.');
   }
 }
