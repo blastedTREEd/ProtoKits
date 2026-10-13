@@ -28,3 +28,8 @@ snorlaxgarage-firebase-adminsdk-fbsvc-76325bd22c.json
 
 .vercel
 .env*
+!.env.example
+*.pem
+*.key
+credentials/
+secrets/

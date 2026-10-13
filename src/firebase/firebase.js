@@ -6,13 +6,17 @@ import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "REDACTED_API_KEY",
-  authDomain: "snorlaxgarage.firebaseapp.com",
-  projectId: "snorlaxgarage",
-  storageBucket: "snorlaxgarage.firebasestorage.app",
-  messagingSenderId: "429861406122",
-  appId: "1:429861406122:web:7cb9803acf0f35f34f57d3"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
+
+if (!firebaseConfig.apiKey) {
+  throw new Error('Missing VITE_FIREBASE_API_KEY. Configure the app environment before starting Firebase.');
+}
 
 // Initialize Firebase
 export const app = initializeApp(firebaseConfig);
@@ -24,7 +28,8 @@ export let appCheck = null;
 if (typeof window !== "undefined") {
   if (import.meta.env.DEV) {
     // Enable debug provider in local development with pre-registered token
-  # App Check debug token removed from history
+    const debugToken = import.meta.env.VITE_APPCHECK_DEBUG_TOKEN;
+    if (debugToken) self.FIREBASE_APPCHECK_DEBUG_TOKEN = debugToken;
   }
 
   const siteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
