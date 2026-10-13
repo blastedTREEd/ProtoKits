@@ -9,6 +9,7 @@ import ScrollManager from './components/menu/ScrollManager';
 import TabSwipeNavigator from './components/menu/TabSwipeNavigator';
 import LoadingState from './components/common/LoadingState';
 import Toast from './components/common/Toast';
+import AppLockdownWall from './components/common/AppLockdownWall';
 import { useStore } from './store/useStore';
 import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { RefreshCw, X } from 'lucide-react';
@@ -478,6 +479,7 @@ export default function App() {
           <TabSwipeNavigator />
           <InitialLoadOverlay />
           <SyncOverlay />
+          <AppLockdownWall />
 
           <Layout>
              <Toast />

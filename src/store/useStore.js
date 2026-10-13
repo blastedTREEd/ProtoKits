@@ -1279,6 +1279,7 @@ export const useStore = create(
       // public catalog.
       adminShelfSourceKits: [],
       shippingSettings: null, // New state
+      appLockdown: {},
       loadedData: {},
       _loadedDatasets: createInitialDatasetState(false),
       _datasetStatus: createInitialDatasetState('loading'),
@@ -1958,11 +1959,15 @@ export const useStore = create(
               : state.shelf
           }));
         });
+        const unsubApps = onSnapshot(doc(db, "settings", "apps"), (snap) => {
+          set({ appLockdown: snap.exists() ? (snap.data()?.lockdown || {}) : {} });
+        }, () => set({ appLockdown: {} }));
 
         return () => {
           unsubAuth();
           unsubInfo();
           unsubCheckout();
+          unsubApps();
           
           const prioUnsubs = get()._prioUnsubs || [];
           prioUnsubs.forEach(unsub => unsub && unsub());
