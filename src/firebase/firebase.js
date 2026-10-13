@@ -6,7 +6,7 @@ import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  apiKey: import.meta.env.VITE_FIREBASE_BROWSER_API_KEY || import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
@@ -15,7 +15,7 @@ const firebaseConfig = {
 };
 
 if (!firebaseConfig.apiKey) {
-  throw new Error('Missing VITE_FIREBASE_API_KEY. Configure the app environment before starting Firebase.');
+  throw new Error('Missing VITE_FIREBASE_BROWSER_API_KEY. Configure the app environment before starting Firebase.');
 }
 
 // Initialize Firebase
