@@ -1,6 +1,7 @@
 const APP_IDS = Object.freeze([
   'snorlaxgarage',
   'liquikits',
+  'protokits',
   'komiprints',
   'garagecore',
   'daivevargas'
@@ -26,6 +27,17 @@ const APP_CONFIGS = Object.freeze({
     market: 'kits',
     basketScope: 'liquikits',
     orderDomain: 'liquikits',
+    homePath: '/',
+    nav: ['orders'],
+    allowedMarkets: ['kits']
+  },
+  protokits: {
+    id: 'protokits',
+    label: 'ProtoKits',
+    brandLines: ['PROTO', 'KITS'],
+    market: 'kits',
+    basketScope: 'protokits',
+    orderDomain: 'protokits',
     homePath: '/',
     nav: ['orders'],
     allowedMarkets: ['kits']

@@ -5,6 +5,7 @@ import process from 'node:process'
 const APP_MODES = {
   snorlaxgarage: 'snorlaxgarage',
   liquikits: 'liquikits',
+  protokits: 'protokits',
   komiprints: 'komiprints',
   garagecore: 'garagecore',
   daivevargas: 'daivevargas'
