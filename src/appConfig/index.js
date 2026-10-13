@@ -150,3 +150,7 @@ export const isPortfolioApp = APP_ID === 'daivevargas';
 
 export const isLocalhost = typeof window !== 'undefined'
   && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+// Development-only admin surface for local UI testing. This is deliberately
+// tied to Vite's DEV flag and localhost so it cannot activate in production.
+export const isLocalAdminBypass = Boolean(import.meta.env.DEV && isLocalhost);

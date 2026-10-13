@@ -16,7 +16,7 @@ import { getStockEta } from '../utils/stockDates';
 import { getPrintedProjectModelName } from '../utils/printedProjectName';
 import { compactOrderPayload, getPayloadByteSize } from '../utils/orderPayload';
 import { isDealAvailableToApp, isFlexiBundleDeal, isPerKitClearanceDeal } from '../utils/dealTypes';
-import { APP_CONFIG, getGuestBasketStorageKey, isAdminSurfaceApp, isLegacyApp, isOperationsApp } from '../appConfig';
+import { APP_CONFIG, getGuestBasketStorageKey, isAdminSurfaceApp, isLegacyApp, isLocalAdminBypass, isOperationsApp } from '../appConfig';
 
 const FINALIZED_ORDER_SHIPPING_DELETE_FIELDS = [
   'buyerName',
@@ -1292,11 +1292,11 @@ export const useStore = create(
       isLoading: true,
       initialLoadCacheStatus: 'unknown',
       initialLoadComplete: false,
-      isAdmin: false,
+      isAdmin: isLocalAdminBypass,
       isBanned: false,
       isAnonymousUser: false,
       isProfileIncomplete: false,
-      isAdminView: isOperationsApp,
+      isAdminView: isOperationsApp || (isAdminSurfaceApp && isLocalAdminBypass),
       user: null,
       basket: [],
       guestBasket: [],
@@ -2231,70 +2231,27 @@ export const useStore = create(
           };
         }
 
-        const unsubMethods = onSnapshot(collection(db, "methods"), (snap) => {
-          const methods = snap.docs.map((d) => ({
-            id: d.id,
-            ...d.data(),
-            requirements: getRequirementValues(d.data().requirements || {})
-          }));
-          set({
-            methods: methods.length > 0 ? sortPrintMethods(methods) : sortPrintMethods(DEFAULT_PRINT_METHODS)
-          });
-        }, (err) => {
-          console.error("SG LOG: Methods subscription error:", err);
-          if ((get().methods || []).length === 0) {
-            set({ methods: sortPrintMethods(DEFAULT_PRINT_METHODS) });
-          }
-        });
-
-        const unsubPrinters = onSnapshot(collection(db, "printers"), (snap) => {
-          set({ printers: docsToArray(snap).map(normalizePrinterRecord) });
-          schedulePersistedProjectsRecompute('printers/snapshot');
-        }, (err) => {
-          console.error("SG LOG: Printers subscription error:", err);
-        });
-
-        const unsubFeeders = onSnapshot(collection(db, "feeders"), (snap) => {
-          set({ feeders: docsToArray(snap).map(normalizeFeederRecord) });
-          schedulePersistedProjectsRecompute('feeders/snapshot');
-        }, (err) => {
-          console.error("SG LOG: Feeders subscription error:", err);
-        });
-
-        const unsubFilaments = onSnapshot(collection(db, "filaments"), (snap) => {
-          set({ filamentInventory: docsToArray(snap).map((filament) => ({ ...filament, type: normalizeFilamentType(filament.type) })) });
-          schedulePersistedProjectsRecompute('filaments/snapshot');
-        }, (err) => {
-          console.error("SG LOG: Filaments subscription error:", err);
-        });
-
-        const unsubRates = onSnapshot(collection(db, "rates"), (snap) => {
-          const rates = {};
-          snap.forEach((d) => { rates[d.id] = d.data(); });
-          set({ rates });
-          schedulePersistedProjectsRecompute('rates/snapshot');
-        }, (err) => {
-          console.error("SG LOG: Rates subscription error:", err);
-        });
-
-        const unsubExtras = onSnapshot(collection(db, "extras"), (snap) => {
-          set({ extras: docsToArray(snap) });
-        }, (err) => {
-          console.error("SG LOG: Extras subscription error:", err);
-        });
-
         printResourcesRefCount = 1;
         set((state) => ({
           loadedData: { ...state.loadedData, printResources: true },
-          unsubPrintResources: () => {
-            unsubMethods();
-            unsubPrinters();
-            unsubFeeders();
-            unsubFilaments();
-            unsubRates();
-            unsubExtras();
-          }
+          unsubPrintResources: () => {}
         }));
+
+        const loadResource = (name, onData, label) => getDocs(collection(db, name))
+          .then(onData)
+          .catch((err) => console.error(`SG LOG: ${label} load error:`, err));
+
+        void Promise.all([
+          loadResource('methods', (snap) => {
+            const methods = snap.docs.map((d) => ({ id: d.id, ...d.data(), requirements: getRequirementValues(d.data().requirements || {}) }));
+            set({ methods: methods.length > 0 ? sortPrintMethods(methods) : sortPrintMethods(DEFAULT_PRINT_METHODS) });
+          }, 'Methods'),
+          loadResource('printers', (snap) => { set({ printers: docsToArray(snap).map(normalizePrinterRecord) }); schedulePersistedProjectsRecompute('printers/load'); }, 'Printers'),
+          loadResource('feeders', (snap) => { set({ feeders: docsToArray(snap).map(normalizeFeederRecord) }); schedulePersistedProjectsRecompute('feeders/load'); }, 'Feeders'),
+          loadResource('filaments', (snap) => { set({ filamentInventory: docsToArray(snap).map((filament) => ({ ...filament, type: normalizeFilamentType(filament.type) })) }); schedulePersistedProjectsRecompute('filaments/load'); }, 'Filaments'),
+          loadResource('rates', (snap) => { const rates = {}; snap.forEach((d) => { rates[d.id] = d.data(); }); set({ rates }); schedulePersistedProjectsRecompute('rates/load'); }, 'Rates'),
+          loadResource('extras', (snap) => set({ extras: docsToArray(snap) }), 'Extras')
+        ]);
 
         let released = false;
         return () => {
@@ -3552,7 +3509,7 @@ export const useStore = create(
           const guestProjectVault = JSON.parse(localStorage.getItem('sg_guest_project_vault') || '[]');
           const guestBasket = JSON.parse(localStorage.getItem(getGuestBasketStorageKey()) || '[]');
           const guestKits = sortKitsByAvailability(getVisibleKitCatalog(get().adminShelfSourceKits || [], false));
-          set({ user: null, isAnonymousUser: false, isAdmin: false, isAdminView: isOperationsApp, kits: guestKits, usersList: [], orders: [], notifyList: [], projectVault: guestProjectVault, guestBasket, shelf: [], adminShelfSourceKits: [], userOffers: [], userOffersLoaded: true, unsubUser: null, unsubAdmin: null, unsubBasket: null, unsubProjectVault: null, unsubOffers: null, syncStatus: 'Restoring local basket', isSyncing: false, authRetry: null });
+          set({ user: null, isAnonymousUser: false, isAdmin: isLocalAdminBypass, isAdminView: isOperationsApp || (isAdminSurfaceApp && isLocalAdminBypass), kits: guestKits, usersList: [], orders: [], notifyList: [], projectVault: guestProjectVault, guestBasket, shelf: [], adminShelfSourceKits: [], userOffers: [], userOffersLoaded: true, unsubUser: null, unsubAdmin: null, unsubBasket: null, unsubProjectVault: null, unsubOffers: null, syncStatus: 'Restoring local basket', isSyncing: false, authRetry: null });
           
           get().markLoaded('userProfile');
           get().markLoaded('basket');
@@ -3576,7 +3533,7 @@ export const useStore = create(
         const adminSnap = adminResult.status === 'fulfilled' ? adminResult.value : null;
         const initialDocSnap = userResult.status === 'fulfilled' ? userResult.value : null;
         const vaultSnap = vaultResult.status === 'fulfilled' ? vaultResult.value : null;
-        const isActuallyAdmin = Boolean(adminSnap?.exists());
+        const isActuallyAdmin = Boolean(adminSnap?.exists()) || isLocalAdminBypass;
         const hasCachedAccountData = [adminSnap, initialDocSnap, vaultSnap].some((snapshot) => (
           snapshot?.metadata?.fromCache && snapshot.exists()
         ));
@@ -3731,10 +3688,9 @@ export const useStore = create(
           }, { merge: true }).catch((error) => console.error("SG LOG: Initial profile creation failed:", error));
         }
 
-        if (isActuallyAdmin && typeof sessionStorage !== 'undefined' && !sessionStorage.getItem('sg:availability-migration-started')) {
-          sessionStorage.setItem('sg:availability-migration-started', 'true');
-          setTimeout(() => { void get().migrateKitsAvailabilityField(); }, 1500);
-        }
+        // Availability migration is explicit now. Running it automatically
+        // after every admin login caused a full collection read and a write to
+        // every kit, even when no value had changed.
 
         const unsubUser = onSnapshot(userRef, async (docSnap) => {
             if (!isCurrentAuthSync()) return;
@@ -5585,15 +5541,19 @@ export const useStore = create(
           snap.forEach(docSnap => {
             const data = docSnap.data();
             const hasAvailable = Object.values(data.stocks || {}).some(s => !s.order?.orderId && !s.isReserved);
-            batch.update(docSnap.ref, { hasAvailableStock: hasAvailable });
-            count++;
+            if (data.hasAvailableStock !== hasAvailable) {
+              batch.update(docSnap.ref, { hasAvailableStock: hasAvailable });
+              count++;
+            }
           });
           if (count > 0) {
             await batch.commit();
             console.log(`SG LOG: Successfully migrated ${count} kits availability field.`);
           }
+          return { updatedCount: count, scannedCount: snap.size };
         } catch (err) {
           console.error("SG LOG: Error migrating kits availability field:", err);
+          return { updatedCount: 0, scannedCount: 0, error: err };
         }
       },
 
