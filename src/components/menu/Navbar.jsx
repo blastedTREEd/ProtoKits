@@ -15,8 +15,8 @@ import { FaFacebook } from 'react-icons/fa';
 import { useTheme } from '../../context/ThemeContext';
 import { useStore } from '../../store/useStore';
 import { preloadRoute } from '../../routePreloads';
-import { signOut, signInWithPopup } from 'firebase/auth'; 
-import { getReadableAuthErrorMessage } from '../../utils/authUtils';
+import { signOut } from 'firebase/auth';
+import { getReadableAuthErrorMessage, signInWithPopupFlow } from '../../utils/authUtils';
 import { auth, fbProvider, googleProvider } from '../../firebase/firebase';
 import { APP_CONFIG, isLegacyApp, isPortfolioApp } from '../../appConfig';
 import NotificationModal from './NotificationModal';
@@ -768,7 +768,7 @@ useEffect(() => {
     const authAttemptId = useStore.getState().beginAuthAttempt(() => handleLogin());
     try {
       setAuthError(null);
-      await signInWithPopup(auth, fbProvider);
+      await signInWithPopupFlow(auth, fbProvider);
       if (!useStore.getState().isAuthAttemptActive(authAttemptId)) return;
       useStore.getState().setAuthAttemptStatus(authAttemptId, 'Syncing Profile');
       setIsProfileOpen(false);
@@ -783,7 +783,7 @@ useEffect(() => {
     const authAttemptId = useStore.getState().beginAuthAttempt(() => handleGoogleLogin());
     try {
       setAuthError(null);
-      await signInWithPopup(auth, googleProvider);
+      await signInWithPopupFlow(auth, googleProvider);
       if (!useStore.getState().isAuthAttemptActive(authAttemptId)) return;
       useStore.getState().setAuthAttemptStatus(authAttemptId, 'Syncing Profile');
       setIsProfileOpen(false);

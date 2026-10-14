@@ -7,7 +7,7 @@ import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { useStore } from '../../store/useStore';
 import { useTheme } from '../../context/ThemeContext';
 import { auth, fbProvider, googleProvider } from '../../firebase/firebase';
-import { signInWithPopup } from 'firebase/auth';
+import { getReadableAuthErrorMessage, signInWithPopupFlow } from '../../utils/authUtils';
 import {
   lookupPhilippineAddressByZipCode,
   lookupPhilippineZipCodeByCityAndProvince
@@ -316,11 +316,11 @@ export default function AccountSettingsModal({ isOpen, onClose }) {
     const authAttemptId = useStore.getState().beginAuthAttempt(() => handleLogin());
     try { 
       setAuthError(null); 
-      await signInWithPopup(auth, fbProvider);
+      await signInWithPopupFlow(auth, fbProvider);
       if (!useStore.getState().isAuthAttemptActive(authAttemptId)) return;
       useStore.getState().setAuthAttemptStatus(authAttemptId, 'Syncing Profile');
     } catch (err) { 
-      setAuthError(err.message); 
+      setAuthError(getReadableAuthErrorMessage(err));
       useStore.getState().failAuthAttempt(authAttemptId, err);
     }
   };
@@ -329,11 +329,11 @@ export default function AccountSettingsModal({ isOpen, onClose }) {
     const authAttemptId = useStore.getState().beginAuthAttempt(() => handleGoogleLogin());
     try { 
       setAuthError(null); 
-      await signInWithPopup(auth, googleProvider);
+      await signInWithPopupFlow(auth, googleProvider);
       if (!useStore.getState().isAuthAttemptActive(authAttemptId)) return;
       useStore.getState().setAuthAttemptStatus(authAttemptId, 'Syncing Profile');
     } catch (err) { 
-      setAuthError(err.message); 
+      setAuthError(getReadableAuthErrorMessage(err));
       useStore.getState().failAuthAttempt(authAttemptId, err);
     }
   };

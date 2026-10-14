@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { signInWithPopup, signOut } from 'firebase/auth';
+import { signOut } from 'firebase/auth';
 import { FcGoogle } from 'react-icons/fc';
 import { auth, googleProvider } from '../../firebase/firebase';
 import { APP_CONFIG } from '../../appConfig';
 import { useStore } from '../../store/useStore';
-import { getReadableAuthErrorMessage } from '../../utils/authUtils';
+import { getReadableAuthErrorMessage, signInWithPopupFlow } from '../../utils/authUtils';
 
 export default function AppLockdownWall() {
   const { appLockdown, isAdmin, user, isAnonymousUser, isSyncing, syncStatus, beginAuthAttempt, setAuthAttemptStatus, failAuthAttempt } = useStore();
@@ -27,7 +27,7 @@ export default function AppLockdownWall() {
     setAuthError('');
     try {
       if (auth.currentUser) await signOut(auth);
-      await signInWithPopup(auth, googleProvider);
+      await signInWithPopupFlow(auth, googleProvider);
       setAuthAttemptStatus(authAttemptId, 'Syncing Profile');
     } catch (error) {
       setAuthError(getReadableAuthErrorMessage(error));
