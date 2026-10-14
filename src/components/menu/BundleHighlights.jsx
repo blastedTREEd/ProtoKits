@@ -391,7 +391,7 @@ export default function BundleHighlights() {
 
   const handleDealAction = (deal) => {
     setSelectedDeal(null);
-    navigate('/kits', { state: { openDealId: deal.id } });
+    navigate('/', { state: { openDealId: deal.id } });
   };
 
   const renderDealCard = (deal, visibilityClass = '') => {
@@ -655,7 +655,7 @@ export default function BundleHighlights() {
           <ProductCard
             kit={previewKit}
             homeZapAction={handleHomeKitZap}
-            onEdit={() => navigate('/kits')}
+            onEdit={() => navigate('/')}
             homePreview
           />
         )}

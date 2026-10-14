@@ -610,7 +610,7 @@ useEffect(() => {
       return;
     }
     if (notification.notificationKind === 'wild_sale') {
-      navigate('/kits', { state: { focusDealsSection: true, focusWildSaleDealId: notification.dealId } });
+      navigate('/', { state: { focusDealsSection: true, focusWildSaleDealId: notification.dealId } });
       return;
     }
     if (notification.kitId) {

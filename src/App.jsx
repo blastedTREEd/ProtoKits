@@ -83,10 +83,13 @@ const getInitialLoadDatasetKeys = (pathname) => {
   if (isPortfolioApp) return [];
 
   const isHome = pathname === '/' || pathname === '';
-  const isStorefrontHome = !isPortfolioApp && isHome;
-  const isKitsPath = pathname.startsWith('/kits');
-  const isStandaloneKitsPath = isKitsPath && APP_CONFIG.id !== 'liquikits';
-  const isPrintsPath = pathname === '/prints' || pathname.startsWith('/prints/');
+  const isMergedHomeApp = APP_CONFIG.id === 'liquikits' || APP_CONFIG.id === 'protokits';
+  const isStorefrontHome = !isPortfolioApp && (isHome || (isMergedHomeApp && pathname.startsWith('/kits/')));
+  const isKitsPath = !isMergedHomeApp && pathname.startsWith('/kits');
+  const isStandaloneKitsPath = isKitsPath;
+  const isPrintsPath = APP_CONFIG.market === 'prints'
+    && (pathname === '/prints' || pathname.startsWith('/prints/'));
+  const canUseKits = APP_CONFIG.market === 'all' || APP_CONFIG.market === 'kits' || APP_CONFIG.market === 'admin';
   const isOrdersPath = pathname === '/orders' || pathname.startsWith('/orders/');
   const isCartPath = pathname === '/cart' || pathname === '/basket' || pathname === '/shelf';
 
@@ -97,8 +100,10 @@ const getInitialLoadDatasetKeys = (pathname) => {
       ...(APP_CONFIG.market === 'all' || APP_CONFIG.market === 'prints' || APP_CONFIG.market === 'admin' ? ['homeBlueprints', 'printedProjects'] : []),
       ...(APP_CONFIG.market === 'all' || APP_CONFIG.market === 'kits' || APP_CONFIG.market === 'admin' ? ['homeKits'] : [])
     ] : []),
-    ...(isStandaloneKitsPath || isCartPath || (isStorefrontHome && APP_CONFIG.market === 'kits' && APP_CONFIG.id !== 'liquikits') ? ['kits'] : []),
-    ...((isKitsPath || (isStorefrontHome && APP_CONFIG.id !== 'liquikits')) ? ['deals'] : []),
+    ...(isStandaloneKitsPath || isCartPath ? ['kits'] : []),
+    // Deals hydrate in the background for merged home routes; they must not
+    // block the homepage or a deep-linked product modal from mounting.
+    ...((isStorefrontHome || isKitsPath) && canUseKits && !isMergedHomeApp ? ['deals'] : []),
     ...(isOrdersPath ? ['orders'] : []),
     ...(isCartPath ? ['basket'] : []),
     ...(isPrintsPath || pathname === '/blueprints' || isCartPath ? ['prints'] : [])
@@ -263,11 +268,11 @@ const RouterContent = () => {
           <AppRouteGate>
           <Routes>
             <Route path="/" element={<AppHome />} />
-            <Route path="/kits" element={<Landing />} />
+            <Route path="/kits" element={<Navigate to="/" replace />} />
             <Route path="/kits/:kitId" element={<Landing />} />
-            <Route path="/prints" element={<Prints />} />
-            <Route path="/prints/:projectId" element={<Prints />} />
-            <Route path="/blueprints" element={<Blueprints />} />
+            <Route path="/prints" element={<Navigate to="/" replace />} />
+            <Route path="/prints/:projectId" element={<Navigate to="/" replace />} />
+            <Route path="/blueprints" element={<Navigate to="/" replace />} />
             <Route path="/about-us" element={<AboutUs />} />
             <Route path="/orders" element={<Orders />} />
             <Route path="/orders/:orderId" element={<Orders />} />

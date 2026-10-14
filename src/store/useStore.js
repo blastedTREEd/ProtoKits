@@ -16,7 +16,7 @@ import { getStockEta } from '../utils/stockDates';
 import { getPrintedProjectModelName } from '../utils/printedProjectName';
 import { compactOrderPayload, getPayloadByteSize } from '../utils/orderPayload';
 import { isDealAvailableToApp, isFlexiBundleDeal, isPerKitClearanceDeal } from '../utils/dealTypes';
-import { APP_CONFIG, getGuestBasketStorageKey, isAdminSurfaceApp, isLegacyApp, isLocalAdminBypass, isOperationsApp } from '../appConfig';
+import { APP_CONFIG, getGuestBasketStorageKey, isAdminSurfaceApp, isLegacyApp, isOperationsApp } from '../appConfig';
 
 const FINALIZED_ORDER_SHIPPING_DELETE_FIELDS = [
   'buyerName',
@@ -1292,11 +1292,11 @@ export const useStore = create(
       isLoading: true,
       initialLoadCacheStatus: 'unknown',
       initialLoadComplete: false,
-      isAdmin: isLocalAdminBypass,
+      isAdmin: false,
       isBanned: false,
       isAnonymousUser: false,
       isProfileIncomplete: false,
-      isAdminView: isOperationsApp || (isAdminSurfaceApp && isLocalAdminBypass),
+      isAdminView: false,
       user: null,
       basket: [],
       guestBasket: [],
@@ -1419,7 +1419,7 @@ export const useStore = create(
       },
       setAdminView: (isEnabled) => {
         console.log("SG LOG: setAdminView called with:", isEnabled, "Current:", get().isAdminView);
-        const nextView = isOperationsApp ? true : (isAdminSurfaceApp ? isEnabled : false);
+        const nextView = isOperationsApp ? Boolean(get().isAdmin) : (isAdminSurfaceApp ? isEnabled : false);
         if (get().isAdminView === nextView) return;
         set({ isAdminView: nextView });
         queueMicrotask(() => {
@@ -1450,10 +1450,12 @@ export const useStore = create(
         const canUseKits = APP_CONFIG.market === 'all' || APP_CONFIG.market === 'kits' || APP_CONFIG.market === 'admin';
         const canUsePrints = APP_CONFIG.market === 'all' || APP_CONFIG.market === 'prints' || APP_CONFIG.market === 'admin';
         const isPortfolio = APP_CONFIG.market === 'portfolio';
-        const isStorefrontHome = !isPortfolio && (pathname === '/' || pathname === '');
-        const isStandaloneKitsRoute = canUseKits
-          && pathname.startsWith('/kits')
-          && APP_CONFIG.id !== 'liquikits';
+        const isMergedHomeApp = APP_CONFIG.id === 'liquikits' || APP_CONFIG.id === 'protokits';
+        const isKitsPath = pathname === '/kits' || pathname.startsWith('/kits/');
+        const isStorefrontHome = !isPortfolio && (
+          pathname === '/' || pathname === '' || (isMergedHomeApp && pathname.startsWith('/kits/'))
+        );
+        const isStandaloneKitsRoute = canUseKits && isKitsPath && !isMergedHomeApp;
         return {
           stories: isStorefrontHome,
           // Landing highlights use bounded public slices plus sellable printed
@@ -1467,7 +1469,9 @@ export const useStore = create(
           printedProjects: canUsePrints && (isStorefrontHome || pathname === '/prints' || pathname.startsWith('/prints/')),
           // Deals are optional for the merged LiquiKits homepage. They can
           // hydrate below the fold without blocking the first catalog paint.
-          deals: canUseKits && ((isStorefrontHome && APP_CONFIG.id !== 'liquikits') || pathname.startsWith('/kits')),
+          // Keep deals live for the merged storefront without making them a
+          // route-level prerequisite for the homepage or /kits/:id modal.
+          deals: canUseKits && (isStorefrontHome || isStandaloneKitsRoute) && !isMergedHomeApp,
           orders: !isPortfolio && (pathname === '/orders' || pathname.startsWith('/orders/')),
           basket: !isPortfolio && (pathname === '/cart' || pathname === '/basket' || pathname === '/shelf'),
           prints: canUsePrints && (pathname === '/prints' || pathname.startsWith('/prints/') || pathname === '/blueprints' || pathname === '/cart' || pathname === '/basket' || pathname === '/shelf')
@@ -1547,8 +1551,11 @@ export const useStore = create(
 
         const ds = get()._loadedDatasets;
         const req = get()._getPageRequirements(get()._activePath);
-        const needsDealsListener = req.deals
-          || (APP_CONFIG.id === 'liquikits' && get()._activePath === '/');
+        const isMergedHomeRoute = (
+          (APP_CONFIG.id === 'liquikits' || APP_CONFIG.id === 'protokits')
+          && (get()._activePath === '/' || get()._activePath?.startsWith('/kits/'))
+        );
+        const needsDealsListener = req.deals || isMergedHomeRoute;
         const listenerKeys = get()._datasetListenerKeys || {};
         const unsubs = [];
         const markListener = (key, isActive = true) => {
@@ -1749,8 +1756,18 @@ export const useStore = create(
           && !get()._loadedDatasets.kits
           && !get()._datasetListenerKeys?.kits
         ) {
-          const kitsQuery = query(collection(db, 'kits'), orderBy('lastUpdated', 'desc'));
+          // Keep the full catalog query un-ordered. Ordering here can exclude
+          // legacy documents that do not have lastUpdated and also makes the
+          // listener look like a new ordering event on every metadata update.
+          // The catalog applies its stable client-side order once per document
+          // change instead.
+          const kitsQuery = collection(db, 'kits');
           const unsub = onSnapshot(kitsQuery, { includeMetadataChanges: true }, (snap) => {
+            const hasDocumentChanges = snap.docChanges().length > 0;
+            if (!hasDocumentChanges && get()._loadedDatasets.kits) {
+              updateSnapshotDatasetStatus(get, 'kits', snap);
+              return;
+            }
             const sourceKits = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             const allKits = getVisibleKitCatalog(sourceKits, get().isAdmin && get().isAdminView);
             const sortedKits = sortKitsByAvailability(allKits);
@@ -1884,7 +1901,8 @@ export const useStore = create(
           const timeoutId = setTimeout(() => {
             // A cached session keeps the existing resilient timeout behavior.
             // A cold session must stay gated until its listener really settles.
-            if (!get()._loadedDatasets[key] && get().initialLoadCacheStatus === 'cached') {
+            const publicDataset = ['stories', 'homeKits', 'homeBlueprints', 'printedProjects', 'deals'].includes(key);
+            if (!get()._loadedDatasets[key] && (get().initialLoadCacheStatus === 'cached' || publicDataset)) {
               console.warn(`SG LOG: ${key} listener is slow; rendering page while Firestore reconnects.`);
               get().markLoaded(key, { status: 'timeout' });
             }
@@ -2041,22 +2059,34 @@ export const useStore = create(
 
         get().setDatasetStatus('kits', 'loading');
         try {
-          const snap = await getDocs(query(collection(db, 'kits'), orderBy('lastUpdated', 'desc')));
+          const snap = await getDocs(collection(db, 'kits'));
+          const isMergedHomePath = get()._activePath === '/'
+            || get()._activePath?.startsWith('/kits/');
+          const isMergedHomeCatalog = isMergedHomePath
+            && (APP_CONFIG.id === 'liquikits' || APP_CONFIG.id === 'protokits');
+          const homeKits = isMergedHomeCatalog ? (get().homeKits || []) : [];
           const allKits = sortKitsByAvailability(getVisibleKitCatalog(
             snap.docs.map(kitDoc => ({ id: kitDoc.id, ...kitDoc.data() })),
             get().isAdmin && get().isAdminView
           ));
+          if (isMergedHomeCatalog && allKits.length === 0 && homeKits.length > 0) {
+            console.warn('SG LOG: Full home catalog read was empty; preserving the bounded home catalog.');
+            get().setDatasetStatus('kits', 'ready');
+            return homeKits;
+          }
           if (get().unsubKits) get().unsubKits();
-          const isMergedHomeCatalog = get()._activePath === '/' && APP_CONFIG.id === 'liquikits';
+          const mergedHomeCatalog = isMergedHomeCatalog
+            ? mergeKitsStable(homeKits, allKits)
+            : allKits;
           set((state) => ({
-            kits: allKits,
+            kits: mergedHomeCatalog,
             unsubKits: null,
             _datasetListenerKeys: { ...state._datasetListenerKeys, kits: false, kitsMode: null },
             _loadedDatasets: { ...state._loadedDatasets, kits: isMergedHomeCatalog },
             _datasetStatus: { ...state._datasetStatus, kits: isMergedHomeCatalog ? 'ready' : 'loading' }
           }));
           get().startBackgroundListeners();
-          return allKits;
+          return mergedHomeCatalog;
         } catch (error) {
           get().markLoaded('kits', { status: 'error' });
           throw error;
@@ -3509,7 +3539,7 @@ export const useStore = create(
           const guestProjectVault = JSON.parse(localStorage.getItem('sg_guest_project_vault') || '[]');
           const guestBasket = JSON.parse(localStorage.getItem(getGuestBasketStorageKey()) || '[]');
           const guestKits = sortKitsByAvailability(getVisibleKitCatalog(get().adminShelfSourceKits || [], false));
-          set({ user: null, isAnonymousUser: false, isAdmin: isLocalAdminBypass, isAdminView: isOperationsApp || (isAdminSurfaceApp && isLocalAdminBypass), kits: guestKits, usersList: [], orders: [], notifyList: [], projectVault: guestProjectVault, guestBasket, shelf: [], adminShelfSourceKits: [], userOffers: [], userOffersLoaded: true, unsubUser: null, unsubAdmin: null, unsubBasket: null, unsubProjectVault: null, unsubOffers: null, syncStatus: 'Restoring local basket', isSyncing: false, authRetry: null });
+          set({ user: null, isAnonymousUser: false, isAdmin: false, isAdminView: false, kits: guestKits, usersList: [], orders: [], notifyList: [], projectVault: guestProjectVault, guestBasket, shelf: [], adminShelfSourceKits: [], userOffers: [], userOffersLoaded: true, unsubUser: null, unsubAdmin: null, unsubBasket: null, unsubProjectVault: null, unsubOffers: null, syncStatus: 'Restoring local basket', isSyncing: false, authRetry: null });
           
           get().markLoaded('userProfile');
           get().markLoaded('basket');
@@ -3533,7 +3563,7 @@ export const useStore = create(
         const adminSnap = adminResult.status === 'fulfilled' ? adminResult.value : null;
         const initialDocSnap = userResult.status === 'fulfilled' ? userResult.value : null;
         const vaultSnap = vaultResult.status === 'fulfilled' ? vaultResult.value : null;
-        const isActuallyAdmin = Boolean(adminSnap?.exists()) || isLocalAdminBypass;
+        const isActuallyAdmin = Boolean(adminSnap?.exists());
         const hasCachedAccountData = [adminSnap, initialDocSnap, vaultSnap].some((snapshot) => (
           snapshot?.metadata?.fromCache && snapshot.exists()
         ));
@@ -3640,7 +3670,7 @@ export const useStore = create(
           },
           isAnonymousUser,
           isAdmin: isActuallyAdmin,
-          isAdminView: isOperationsApp ? true : (isAdminSurfaceApp ? get().isAdminView : false),
+          isAdminView: isOperationsApp ? isActuallyAdmin : (isAdminSurfaceApp ? get().isAdminView : false),
           isBanned: initialUser.userDetails?.status === 'banned',
           isProfileIncomplete: !isAnonymousUser && !initialUser.userDetails?.welcomeSeen,
           syncStatus: 'Ready',
@@ -3709,7 +3739,7 @@ export const useStore = create(
                 }, 
               isAnonymousUser,
               isAdmin: isActuallyAdmin,
-              isAdminView: isOperationsApp ? true : (isAdminSurfaceApp ? get().isAdminView : false),
+              isAdminView: isOperationsApp ? isActuallyAdmin : (isAdminSurfaceApp ? get().isAdminView : false),
               isBanned: data.userDetails?.status === 'banned',
               isProfileIncomplete: !isAnonymousUser && !data.userDetails?.welcomeSeen
               });
@@ -3727,7 +3757,7 @@ export const useStore = create(
               };
               void setDoc(userRef, initial, { merge: true })
                 .catch((error) => console.error("SG LOG: Initial profile creation failed:", error));
-              set({ user: { ...initial, createdAt: new Date().toISOString() }, isAdmin: isActuallyAdmin, isAdminView: isOperationsApp ? true : (isAdminSurfaceApp ? get().isAdminView : false) });
+              set({ user: { ...initial, createdAt: new Date().toISOString() }, isAdmin: isActuallyAdmin, isAdminView: isOperationsApp ? isActuallyAdmin : (isAdminSurfaceApp ? get().isAdminView : false) });
             }
         }, (error) => console.error("SG LOG: User profile subscription error:", error));
 
@@ -6142,12 +6172,12 @@ export const useStore = create(
       merge: (persistedState, currentState) => ({
         ...currentState,
         ...persistedState,
-        // Product storefronts never inherit the legacy admin toggle from a
-        // previous session. Garagecore is intentionally always operations-
-        // oriented, but its write actions still check isAdmin separately.
-        isAdminView: isOperationsApp
-          ? true
-          : (isAdminSurfaceApp ? persistedState?.isAdminView === true : false)
+        // Never restore privileged state from browser persistence. A real
+        // Firebase session and a fresh admin-role lookup are the only sources
+        // of admin access.
+        isAdminView: false,
+        isAdmin: false,
+        user: currentState.user
       }),
       partialize: (state) => ({
         garageInfo: state.garageInfo,

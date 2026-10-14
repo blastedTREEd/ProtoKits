@@ -274,6 +274,12 @@ function getAvailabilityGroupLabel(stock) {
   return `ETA ${etaMonth}`.toUpperCase();
 }
 
+function isPreOrderAvailabilityGroup(group) {
+  return !group?.isOnHand
+    && Array.isArray(group?.items)
+    && group.items.some(isPreOrderStock);
+}
+
 function getAvailabilityGroupKey(prefix, stock) {
   const stockType = isOnHandStock(stock) ? 'onhand' : 'preorder';
   const etaKey = (getStockEta(stock) || 'TBA').toString().trim().toLowerCase().replace(/\s+/g, '-');
@@ -522,9 +528,9 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
 
   const handleDealCheckout = (deal, targetKitId) => {
     if (typeof onDealCheckout === 'function') {
-      setIsProfileOpen(false);
-      setSelectedStock(null);
-      setSelectedGroupLabel(null);
+      // The Kits page now presents checkout as an overlay. Keep this product
+      // card mounted so closing checkout returns the user to the same modal
+      // and selection state they were viewing.
       onDealCheckout(deal, targetKitId || kitId);
       return;
     }
@@ -657,7 +663,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   }, [isAdmin, now]);
 
   const productPath = kitId ? `/kits/${encodeURIComponent(kitId)}` : '/kits';
-  const isMergedHomeRoute = APP_CONFIG.id === 'liquikits';
+  const isMergedHomeRoute = APP_CONFIG.id === 'liquikits' || APP_CONFIG.id === 'protokits';
   const isRouteSelectedProduct = !!kitId && routeKitId === kitId;
   const isLocalHomeModal = homePreview || location.pathname === '/';
   const usesLocalModal = isLocalHomeModal || isMergedHomeRoute;
@@ -1944,6 +1950,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
     const isClearanceDealGroup = isBundleDealGroup && group.isClearanceDeal;
     const isFullyReserved = !isCollectionGroup && availableCountInGroup === 0;
     const isAvailabilityGroup = !isCollectionGroup && !isBundleDealGroup;
+    const usesAvailabilityChip = isAvailabilityGroup || isPreOrderAvailabilityGroup(group);
     const hasFreeShipping = isAvailabilityGroup && group.items.some(item => {
       const isEligible = item.isFreeShippingEligible;
       const hasCourier = item.freeShippingMethod && item.freeShippingMethod !== 'All';
@@ -1973,7 +1980,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
           ${isFullyReserved && !isSelected ? 'opacity-50' : ''}
         `}
       >
-        {isAvailabilityGroup ? (
+        {usesAvailabilityChip ? (
           <>
             <span className="flex items-center gap-2 text-[15px] font-bold uppercase tracking-[0.05em]">
               <span className="text-[15px] leading-none font-bold">

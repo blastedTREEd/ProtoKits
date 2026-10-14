@@ -7,6 +7,7 @@ import { useTheme } from '../context/ThemeContext';
 import PageTemplate from './PageTemplate';
 import useNavbarHeight from '../hooks/useNavbarHeight';
 import ProductCard from '../components/kitcards/ProductCard';
+import CheckoutModal from '../components/kitcards/CheckoutModal';
 import KitSkeleton from '../components/kitcards/KitSkeleton';
 import AddKitCard from '../components/kitcards/AddKitCard';
 const AddKitModal = lazy(() => import('../components/kitcards/AddKitModal'));
@@ -265,18 +266,32 @@ function getRouteKitStatus(kit, isAdmin, isAdminView, shelf = []) {
   };
 }
 
+const EMPTY_KITS = [];
+
+const mergeHomeCatalogKits = (homeKits = EMPTY_KITS, catalogKits = EMPTY_KITS) => {
+  const kitsById = new Map();
+  [...homeKits, ...catalogKits].forEach((kit) => {
+    if (kit?.id) kitsById.set(String(kit.id), kit);
+  });
+  return [...kitsById.values()];
+};
+
 export default function Kits({ isActive = true, embedded = false }) {
   const navbarHeight = useNavbarHeight();
   const isAdmin = useStore((state) => state.isAdmin);
   const isAdminView = useStore((state) => state.isAdminView);
   const shelf = useStore((state) => state.shelf);
-  const isMergedHomeCatalog = APP_CONFIG.id === 'liquikits';
-  const storeKits = useStore((state) => {
-    if (isMergedHomeCatalog && state._activePath === '/' && !state._loadedDatasets?.kits) {
-      return state.homeKits || [];
+  const isMergedHomeCatalog = APP_CONFIG.id === 'liquikits' || APP_CONFIG.id === 'protokits';
+  const homeKits = useStore((state) => state.homeKits ?? EMPTY_KITS);
+  const catalogKits = useStore((state) => state.kits ?? EMPTY_KITS);
+  const activePath = useStore((state) => state._activePath);
+  const storeKits = useMemo(() => {
+    const isMergedHomePath = activePath === '/' || activePath?.startsWith('/kits/');
+    if (isMergedHomeCatalog && isMergedHomePath) {
+      return mergeHomeCatalogKits(homeKits, catalogKits);
     }
-    return state.kits || [];
-  });
+    return catalogKits;
+  }, [activePath, catalogKits, homeKits, isMergedHomeCatalog]);
   const isFullCatalogLoaded = useStore((state) => Boolean(state._loadedDatasets?.kits));
   const loadAllKits = useStore((state) => state.loadAllKits);
   const loadKitById = useStore((state) => state.loadKitById);
@@ -331,6 +346,11 @@ export default function Kits({ isActive = true, embedded = false }) {
   const fullCatalogLoadRef = useRef(false);
   const location = useLocation();
   const navigate = useNavigate();
+  const [checkoutItems, setCheckoutItems] = useState([]);
+  const [isCheckoutGuestPreview, setIsCheckoutGuestPreview] = useState(true);
+  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const [isCheckoutClosing, setIsCheckoutClosing] = useState(false);
+  const checkoutCloseTimerRef = useRef(null);
   // Kits is kept mounted outside the matching <Route> for faster tab
   // switching, so useParams() cannot read /kits/:kitId here. Read the
   // selected kit from the pathname instead.
@@ -348,14 +368,28 @@ export default function Kits({ isActive = true, embedded = false }) {
     }
   }, [location.pathname]);
 
+  useEffect(() => () => {
+    if (checkoutCloseTimerRef.current) window.clearTimeout(checkoutCloseTimerRef.current);
+  }, []);
+
   const openCheckoutPage = (items, isGuestPreview = !user || isAnonymousUser) => {
-    navigate('/checkout', {
-      state: {
-        items,
-        isGuestPreview,
-        returnToKitsSection: isMergedHomeCatalog
-      }
-    });
+    if (checkoutCloseTimerRef.current) window.clearTimeout(checkoutCloseTimerRef.current);
+    setCheckoutItems(items);
+    setIsCheckoutGuestPreview(isGuestPreview);
+    setIsCheckoutClosing(false);
+    setIsCheckoutOpen(true);
+  };
+
+  const closeCheckoutModal = () => {
+    if (checkoutCloseTimerRef.current) window.clearTimeout(checkoutCloseTimerRef.current);
+    setIsCheckoutClosing(true);
+    checkoutCloseTimerRef.current = window.setTimeout(() => {
+      setIsCheckoutOpen(false);
+      setIsCheckoutClosing(false);
+      setCheckoutItems([]);
+      setIsCheckoutGuestPreview(true);
+      checkoutCloseTimerRef.current = null;
+    }, 340);
   };
 
   useEffect(() => {
@@ -439,11 +473,13 @@ export default function Kits({ isActive = true, embedded = false }) {
   const kitsStatus = useStore((state) => state._datasetStatus?.kits || 'loading');
   const homeKitsStatus = useStore((state) => state._datasetStatus?.homeKits || 'loading');
   const dealsStatus = useStore((state) => state._datasetStatus?.deals || 'loading');
-  const isMergedHomeRoute = embedded && isMergedHomeCatalog && location.pathname === '/';
+  const isMergedHomeRoute = embedded
+    && isMergedHomeCatalog
+    && (location.pathname === '/' || location.pathname.startsWith('/kits/'));
   const catalogStatus = isMergedHomeRoute && !isFullCatalogLoaded ? homeKitsStatus : kitsStatus;
   const isKitsDataLoading = isMergedHomeRoute
     ? catalogStatus === 'loading' && storeKits.length === 0
-    : catalogStatus === 'loading' || dealsStatus === 'loading';
+    : catalogStatus === 'loading';
   const [isContentHeaderHidden, setIsContentHeaderHidden] = useState(false);
   const contentHeaderRef = useRef(null);
   const contentHeaderScrollRef = useRef({ previousY: window.scrollY, frame: 0, hidden: false, direction: 0, distance: 0 });
@@ -1717,7 +1753,6 @@ export default function Kits({ isActive = true, embedded = false }) {
               )}
             </div>
           </div>
-
           <main className="min-w-350 mx-auto px-4 md:px-8">
             <div className="grid grid-cols-2 sm:grid-cols-4 sm:portrait:grid-cols-3 md:grid-cols-4 md:portrait:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-3 items-start justify-items-center">
               {/* --- Section Divider: Deals --- */}
@@ -2090,6 +2125,16 @@ export default function Kits({ isActive = true, embedded = false }) {
                 onClose={handleCloseKitDataQuality}
                 kits={storeKits}
                 onSave={handleSaveNewKit}
+              />,
+              document.body
+            )}
+            {isCheckoutOpen && createPortal(
+              <CheckoutModal
+                isOpen
+                isClosing={isCheckoutClosing}
+                items={checkoutItems}
+                isGuestPreview={isCheckoutGuestPreview}
+                onClose={closeCheckoutModal}
               />,
               document.body
             )}

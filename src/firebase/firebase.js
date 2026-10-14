@@ -28,17 +28,35 @@ export let appCheck = null;
 if (typeof window !== "undefined") {
   const debugToken = import.meta.env.VITE_APPCHECK_DEBUG_TOKEN;
   const isLocalDevelopment = Boolean(
-    import.meta.env.DEV && window.location.hostname === 'localhost'
+    import.meta.env.DEV
+      && ['localhost', '127.0.0.1'].includes(window.location.hostname)
   );
+  const enableLocalAppCheck = import.meta.env.VITE_ENABLE_APPCHECK_LOCAL === 'true';
+  const debugTokenIsRegistered = import.meta.env.VITE_APPCHECK_DEBUG_TOKEN_REGISTERED === 'true';
+  const shouldUseLocalAppCheck = isLocalDevelopment
+    && enableLocalAppCheck
+    && debugTokenIsRegistered
+    && Boolean(debugToken);
 
-  if (import.meta.env.DEV) {
-    // Enable debug provider in local development with pre-registered token
-    if (debugToken) self.FIREBASE_APPCHECK_DEBUG_TOKEN = debugToken;
+  // Never send an unregistered/stale debug token. Local App Check is an
+  // explicit opt-in because a rejected debug exchange can prevent public
+  // Firestore listeners from rendering their catalog.
+  if (shouldUseLocalAppCheck) {
+    globalThis.FIREBASE_APPCHECK_DEBUG_TOKEN = debugToken;
+  } else if (isLocalDevelopment && 'FIREBASE_APPCHECK_DEBUG_TOKEN' in globalThis) {
+    try {
+      delete globalThis.FIREBASE_APPCHECK_DEBUG_TOKEN;
+    } catch {
+      // Ignore a non-configurable value left by a hot-reload session.
+    }
   }
 
   const siteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
 
-  if (siteKey && (!isLocalDevelopment || debugToken)) {
+  // Keep local App Check opt-in. A stale or unregistered debug token makes
+  // Firebase reject otherwise-public Firestore listeners before the catalog
+  // can render. Production deployments still initialize App Check normally.
+  if (siteKey && (!isLocalDevelopment || shouldUseLocalAppCheck)) {
     appCheck = initializeAppCheck(app, {
       provider: new ReCaptchaV3Provider(siteKey),
       isTokenAutoRefreshEnabled: true,

@@ -126,13 +126,17 @@ export const isPathAllowedForApp = (pathname) => {
     return true;
   }
   if (pathname === '/shelf') return APP_ID === 'snorlaxgarage' || APP_ID === 'garagecore';
-  if (pathname.startsWith('/kits')) {
-    // LiquiKits keeps the merged homepage mounted for shareable product links.
-    // This is a modal URL, not access to the retired standalone Kits page.
-    if (APP_ID === 'liquikits') return true;
-    return isMarketEnabled('kits');
+  if (pathname === '/kits') {
+    // The focused kit apps use the merged home catalog. Keep the old
+    // standalone page retired while preserving product deep links below.
+    return APP_ID !== 'protokits' && APP_ID !== 'liquikits' && isMarketEnabled('kits');
   }
-  if (pathname.startsWith('/prints') || pathname.startsWith('/blueprints')) return isMarketEnabled('prints');
+  if (pathname.startsWith('/kits/')) {
+    return APP_ID === 'protokits' || APP_ID === 'liquikits' || isMarketEnabled('kits');
+  }
+  if (pathname.startsWith('/prints') || pathname.startsWith('/blueprints')) {
+    return APP_ID !== 'protokits' && APP_ID !== 'liquikits' && isMarketEnabled('prints');
+  }
   if (pathname.startsWith('/orders') || pathname.startsWith('/cart') || pathname.startsWith('/basket')
     || pathname.startsWith('/checkout') || pathname.startsWith('/notify-list')) {
     return APP_ID !== 'daivevargas';
@@ -150,7 +154,3 @@ export const isPortfolioApp = APP_ID === 'daivevargas';
 
 export const isLocalhost = typeof window !== 'undefined'
   && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-
-// Development-only admin surface for local UI testing. This is deliberately
-// tied to Vite's DEV flag and localhost so it cannot activate in production.
-export const isLocalAdminBypass = Boolean(import.meta.env.DEV && isLocalhost);

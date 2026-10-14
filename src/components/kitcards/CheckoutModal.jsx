@@ -22,15 +22,13 @@ import { getIntegerFeeShare, getStockStandaloneSellPrice, isBundleOrClearanceIte
 import {
   getBundleDealPricing,
   getClearanceBundlePricing,
-  getLiquiBundlePricing,
-  getLiquiBundleRequiredOtherStock,
   getClearanceKitIds,
   getClearanceRequiredOtherStock,
   getFlexiBundlePricing,
   getFlexiOfferedDiscount,
   isClearanceRequirementMet
 } from '../../utils/bundlePricing';
-import { isFlexiBundleDeal, isPerKitClearanceDeal, isLiquiBundleDeal, isWildSaleDeal, getActiveClearanceKitIds } from '../../utils/dealTypes';
+import { isFlexiBundleDeal, isPerKitClearanceDeal, isWildSaleDeal, getActiveClearanceKitIds } from '../../utils/dealTypes';
 import { getStockEta } from '../../utils/stockDates';
 import { getPrintedProjectModelName } from '../../utils/printedProjectName';
 import {
@@ -247,9 +245,6 @@ const getCheckoutItemBasePrice = (item, kit, fees = {}) => {
   const offerPrice = toCheckoutNumber(item.offerPrice);
   if (offerPrice > 0) return offerPrice;
 
-  const liquiBundlePrice = toCheckoutNumber(item.liquiBundlePrice);
-  if (liquiBundlePrice > 0) return liquiBundlePrice;
-
   const storedPrice = toCheckoutNumber(item.price);
   if (isBundleOrClearanceItem(item) && storedPrice > 0) return storedPrice;
 
@@ -283,12 +278,12 @@ const parseDealDate = (value, endOfDay = false) => {
 };
 
 const isDealActiveForCheckout = (deal, now = Date.now()) => {
-  if (!deal || !['bundle', 'bundle_only', 'bundle_discount', 'clearance', 'wild_sale', 'flexi_bundle', 'liqui_bundle'].includes(deal.type)) return false;
+  if (!deal || !['bundle', 'bundle_only', 'bundle_discount', 'clearance', 'wild_sale', 'flexi_bundle'].includes(deal.type)) return false;
   if (deal.isActive === false) return false;
 
   // FLEXI-BUNDLE is a permanent eligibility list. Bundle deals still honor
   // their configured validity window.
-  if (!isFlexiBundleDeal(deal) && !isPerKitClearanceDeal(deal) && !isLiquiBundleDeal(deal)) {
+  if (!isFlexiBundleDeal(deal) && !isPerKitClearanceDeal(deal)) {
     const validFrom = parseDealDate(deal.validFrom);
     const validUntil = parseDealDate(deal.validUntil, true);
     if (validFrom && validFrom.getTime() > now) return false;
@@ -438,65 +433,6 @@ const applyActiveBasketDeal = (normalizedItems = [], deals = [], kits = [], fees
   });
 
   if (!selectedDealItems.length || !Array.isArray(deals) || !deals.length) return preparedItems;
-
-  const activeLiquiBundle = activeDeals.find(isLiquiBundleDeal);
-  if (activeLiquiBundle) {
-    const liquiRows = selectedDealItems
-      .map(item => {
-        const kitId = getCheckoutKitId(item);
-        const kit = findCheckoutKit(kits, item);
-        const stock = kit?.stocks?.[getCheckoutStockKey(item)];
-        return { item, kit, kitId, stock };
-      })
-      .filter(row => row.kitId && row.kit && stockMatchesCheckoutDealSource(row.stock || {}, row.item, 'onhand'));
-    const participantIds = activeLiquiBundle.allOnhand === true
-      ? null
-      : new Set(normalizeDealKitIds(activeLiquiBundle.kitIds));
-    const participatingRows = liquiRows.filter(row => !participantIds || participantIds.has(row.kitId));
-    const selectedLiquiKitIds = participatingRows.flatMap(row => Array.from(
-      { length: Math.max(1, Number(row.item.quantity) || 1) },
-      () => row.kitId
-    ));
-    const requirementsMet = participatingRows.length > 0 && selectedLiquiKitIds.every(kitId => (
-      selectedLiquiKitIds.filter(otherKitId => otherKitId !== kitId).length
-        >= getLiquiBundleRequiredOtherStock(activeLiquiBundle, kitId)
-    ));
-
-    if (requirementsMet) {
-      const liquiPricing = getLiquiBundlePricing(participatingRows.map(row => ({
-        ...row,
-        refPrice: Number(row.stock?.sellPrice || row.item.sellPrice || row.kit?.sellPrice || 0),
-        sellPrice: Number(row.stock?.sellPrice || row.item.sellPrice || row.kit?.sellPrice || 0),
-        costPrice: Number(row.stock?.costPrice || row.item.costPrice || 0)
-      })));
-      const liquiRowsByKitId = new globalThis.Map(
-        liquiPricing.rows.map(row => [String(row.kitId), row])
-      );
-
-      return preparedItems.map(item => {
-        const priced = liquiRowsByKitId.get(getCheckoutKitId(item));
-        if (!priced || isProjectCheckoutItem(item) || item.offerPrice) return item;
-
-        const handling = Number(item.appliedHandlingFee || 0);
-        const installment = Number(item.appliedInstallmentFee || 0);
-        const transfer = Number(item.appliedTransferFee || 0);
-        return {
-          ...item,
-          name: String(item.name || priced.kit?.name || '').replace(/\s*\((?:Bundle|Clearance) Item\)\s*$/i, ''),
-          liquiBundlePrice: priced.finalPrice,
-          sellPrice: priced.finalPrice,
-          price: priced.finalPrice + handling + installment + transfer,
-          displayPrice: priced.finalPrice,
-          isBundleItem: false,
-          isClearanceBundle: false,
-          clearanceKitIds: [],
-          bundleId: null,
-          bundleName: null,
-          appliedBundlePrice: null
-        };
-      });
-    }
-  }
 
   const itemByKitId = new globalThis.Map();
   selectedDealItems.forEach(item => {
@@ -1419,7 +1355,7 @@ const compressImage = (base64Str, maxWidth = 1024, maxHeight = 1024, quality = 0
 };
 
 
-export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPreview = false, variant = 'modal' }) {
+export default function CheckoutModal({ isOpen, onClose, items = [], isGuestPreview = false, variant = 'modal', isClosing = false }) {
   const navigate = useNavigate();
   const isPage = variant === 'page';
   const { isDarkMode } = useTheme();
@@ -4388,7 +4324,12 @@ const handleFinalizeOrder = async () => {
   };
 
   return (
-    <div className={isPage ? "min-h-dvh w-full font-sans text-neutral-900 dark:text-white lg:min-h-[calc(100dvh-60px)]" : "fixed inset-0 z-[500] flex items-start md:items-center justify-center md:p-4 bg-black/60 font-sans text-neutral-900 dark:text-white"}>
+    <motion.div
+      initial={isPage ? false : { y: '100%', opacity: 0 }}
+      animate={isPage ? undefined : { y: isClosing ? '100%' : 0, opacity: isClosing ? 0 : 1 }}
+      transition={isPage ? undefined : { type: 'tween', duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+      className={isPage ? "min-h-dvh w-full font-sans text-neutral-900 dark:text-white lg:min-h-[calc(100dvh-60px)]" : "fixed inset-0 z-[10050] flex items-start md:items-center justify-center md:p-4 bg-black/60 font-sans text-neutral-900 dark:text-white"}
+    >
       <div className={isPage ? "relative min-h-dvh w-full px-4 pb-6 custom-scrollbar lg:min-h-[calc(100dvh-60px)] lg:px-10 lg:py-6" : "bg-white/90 dark:bg-[#0a0a0a]/90 backdrop-blur-xl w-full h-full md:h-auto md:max-w-5xl rounded-none md:rounded-[2.5rem] border border-black/5 dark:border-white/10 p-5 md:p-6 shadow-2xl relative overflow-y-auto md:max-h-[95vh] custom-scrollbar"}>
         {isPage ? (
           <>
@@ -5578,7 +5519,7 @@ const handleFinalizeOrder = async () => {
           zIndexClass="z-[700]"
         />
       </div>
-    </div>
+    </motion.div>
   );
 }
 

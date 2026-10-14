@@ -722,7 +722,8 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
                 <ChevronRight size={20} strokeWidth={2.5} />
               </button>
             </div>
-          </div>
+          </div>,
+          document.body
         )}
       </AnimatePresence>
     </>
