@@ -2,7 +2,7 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, FacebookAuthProvider, GoogleAuthProvider, setPersistence, browserLocalPersistence } from "firebase/auth";
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
-import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
+import { initializeAppCheck, ReCaptchaV3Provider, getToken } from "firebase/app-check";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
@@ -60,6 +60,13 @@ if (typeof window !== "undefined") {
     appCheck = initializeAppCheck(app, {
       provider: new ReCaptchaV3Provider(siteKey),
       isTokenAutoRefreshEnabled: true,
+    });
+    // Request verification explicitly so a provider/domain failure is reported
+    // with its App Check cause instead of only generic Firestore denials.
+    void getToken(appCheck).then(() => {
+      console.info('SG LOG: App Check verification ready.');
+    }).catch((error) => {
+      console.error('SG LOG: App Check verification failed:', error.code, error.message);
     });
   } else if (!isLocalDevelopment) {
     console.warn('Firebase App Check is not initialized because VITE_RECAPTCHA_SITE_KEY is missing.');

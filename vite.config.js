@@ -13,9 +13,12 @@ const APP_MODES = {
 const DEFAULT_APP_ID = 'liquikits';
 
 // https://vite.dev/config/
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const appId = env.VITE_APP_ID || APP_MODES[mode] || DEFAULT_APP_ID;
+  if (command === 'build' && appId === 'protokits' && !env.VITE_RECAPTCHA_SITE_KEY?.trim()) {
+    throw new Error('ProtoKits production builds require VITE_RECAPTCHA_SITE_KEY for Firebase App Check. Configure the public site key before deploying.');
+  }
 
   return {
   plugins: [

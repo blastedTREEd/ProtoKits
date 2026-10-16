@@ -194,6 +194,8 @@ export default function Highlights() {
     }
   };
 
+  if (visibleStories.length === 0) return null;
+
   return (
     <section
       ref={sectionRef}

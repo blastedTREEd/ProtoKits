@@ -220,9 +220,6 @@ export default function Home() {
     <PageTemplate isDarkMode={isDarkMode}>
       <div ref={containerRef} className={`flex flex-col min-h-screen transition-colors duration-300 ${isDarkMode ? 'bg-[#0a0a0a] text-white' : 'bg-white text-neutral-900'}`}>
         
-      {/* SECTION 1: STOREFRONT WELCOME */}
-      {!isHome && storefrontWelcomeContent}
-
       {/* SECTION 2: GARAGE HIGHLIGHTS */}
       <BundleHighlights />
 

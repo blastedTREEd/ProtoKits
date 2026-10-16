@@ -473,6 +473,7 @@ export default function Kits({ isActive = true, embedded = false }) {
   const kitsStatus = useStore((state) => state._datasetStatus?.kits || 'loading');
   const homeKitsStatus = useStore((state) => state._datasetStatus?.homeKits || 'loading');
   const dealsStatus = useStore((state) => state._datasetStatus?.deals || 'loading');
+  const hasCatalogLoadError = kitsStatus === 'error' || homeKitsStatus === 'error' || dealsStatus === 'error';
   const isMergedHomeRoute = embedded
     && isMergedHomeCatalog
     && (location.pathname === '/' || location.pathname.startsWith('/kits/'));
@@ -1754,6 +1755,12 @@ export default function Kits({ isActive = true, embedded = false }) {
             </div>
           </div>
           <main className="min-w-350 mx-auto px-4 md:px-8">
+            {hasCatalogLoadError && (
+              <div role="alert" className="my-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+                <p className="text-sm">We couldn't load the complete catalog. Kits and deals may be missing.</p>
+                <button type="button" onClick={() => window.location.reload()} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white">Retry</button>
+              </div>
+            )}
             <div className="grid grid-cols-2 sm:grid-cols-4 sm:portrait:grid-cols-3 md:grid-cols-4 md:portrait:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-3 items-start justify-items-center">
               {/* --- Section Divider: Deals --- */}
               {(filteredDeals.length > 0 || activeOfferKits.length > 0 || kitGroups.clearance.length > 0) && (

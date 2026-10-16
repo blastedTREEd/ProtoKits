@@ -136,7 +136,7 @@ export default function BundleHighlights() {
   const deals = useStore((state) => state.deals);
   const activePath = useStore((state) => state._activePath);
   const kits = useStore((state) => (
-    activePath === '/'
+    activePath === '/' && APP_CONFIG.id !== 'protokits'
       ? (state.homeKits || [])
       : (state.kits || [])
   ));
@@ -231,7 +231,10 @@ export default function BundleHighlights() {
         return getActiveClearanceKitIds(deal, getClearanceKitIds(deal), now).length > 0;
       })
       .sort((a, b) => (
-          (getDealEndDate(a.validUntil)?.getTime() || Number.MAX_SAFE_INTEGER) -
+          // Match ProductCard: an active Wild Deal must not be hidden by the
+          // first Flexi-Bundle entry when both include the same kit.
+          Number(isPerKitClearanceDeal(b)) - Number(isPerKitClearanceDeal(a))
+          || (getDealEndDate(a.validUntil)?.getTime() || Number.MAX_SAFE_INTEGER) -
           (getDealEndDate(b.validUntil)?.getTime() || Number.MAX_SAFE_INTEGER)
       ))
       .forEach((deal) => {
@@ -367,13 +370,12 @@ export default function BundleHighlights() {
   const bundleDataLoading = displayCards.length === 0 && requiredBundleDatasets.some((key) => (
     (_datasetStatus?.[key] || 'loading') === 'loading'
   ));
-  const bundleDataReady = !bundleDataLoading;
   // Keep this section's skeleton visible until every source it uses has
   // settled. This prevents partial cards from being replaced by a different
   // layout while the remaining Firebase snapshots are still arriving.
   const isLoadingBundles = bundleDataLoading;
 
-  if (bundleDataReady && displayCards.length === 0) return null;
+  if (displayCards.length === 0) return null;
 
   const getFeedVisibility = (index) => {
     return index >= 0 ? '' : 'hidden';

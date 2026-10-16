@@ -1456,6 +1456,10 @@ export const useStore = create(
           pathname === '/' || pathname === '' || (isMergedHomeApp && pathname.startsWith('/kits/'))
         );
         const isStandaloneKitsRoute = canUseKits && isKitsPath && !isMergedHomeApp;
+        // ProtoKits owns the legacy deal family. Bundle eligibility needs every
+        // participating kit, and Wild Deal schedules must see live stock updates.
+        // A bounded home slice can incorrectly make those deals unfulfillable.
+        const needsLegacyDealCatalog = APP_CONFIG.id === 'protokits' && isStorefrontHome;
         return {
           stories: isStorefrontHome,
           // Landing highlights use bounded public slices plus sellable printed
@@ -1465,13 +1469,13 @@ export const useStore = create(
           // LiquiKits renders its catalog inside the merged homepage. Keep
           // the first paint on the bounded home slice and hydrate the full
           // catalog only when the user searches or reaches the catalog.
-          kits: canUseKits && (isStandaloneKitsRoute || pathname === '/cart' || pathname === '/basket' || pathname === '/shelf'),
+          kits: canUseKits && (needsLegacyDealCatalog || isStandaloneKitsRoute || pathname === '/cart' || pathname === '/basket' || pathname === '/shelf'),
           printedProjects: canUsePrints && (isStorefrontHome || pathname === '/prints' || pathname.startsWith('/prints/')),
           // Deals are optional for the merged LiquiKits homepage. They can
           // hydrate below the fold without blocking the first catalog paint.
           // Keep deals live for the merged storefront without making them a
           // route-level prerequisite for the homepage or /kits/:id modal.
-          deals: canUseKits && (isStorefrontHome || isStandaloneKitsRoute) && !isMergedHomeApp,
+          deals: needsLegacyDealCatalog || (canUseKits && (isStorefrontHome || isStandaloneKitsRoute) && !isMergedHomeApp),
           orders: !isPortfolio && (pathname === '/orders' || pathname.startsWith('/orders/')),
           basket: !isPortfolio && (pathname === '/cart' || pathname === '/basket' || pathname === '/shelf'),
           prints: canUsePrints && (pathname === '/prints' || pathname.startsWith('/prints/') || pathname === '/blueprints' || pathname === '/cart' || pathname === '/basket' || pathname === '/shelf')
@@ -1631,7 +1635,7 @@ export const useStore = create(
           const currentPath = get()._activePath;
           // /kits already has the complete live kits listener. Hydrating the
           // same deal kit IDs again would double-read those documents.
-          if (currentPath !== '/' || !Array.isArray(availableDeals)) return;
+          if (currentPath !== '/' || req.kits || !Array.isArray(availableDeals)) return;
 
           const dealKitIds = [...new Set(
             availableDeals

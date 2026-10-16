@@ -452,7 +452,7 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
 
   return (
     <>
-      {SHOW_STORIES_STRIP && <div 
+      {SHOW_STORIES_STRIP && highlightItems.length > 0 && <div 
         ref={containerRef}
         role="region"
         aria-label="Garage highlights"
