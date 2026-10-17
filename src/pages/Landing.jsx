@@ -8,6 +8,10 @@ import BundleHighlights from '../components/menu/BundleHighlights';
 import Stories from '../components/menu/Stories';
 import Kits from './Kits';
 import { APP_CONFIG } from '../appConfig';
+import { signOut } from 'firebase/auth';
+import { auth, googleProvider } from '../firebase/firebase';
+import { FcGoogle } from 'react-icons/fc';
+import { getReadableAuthErrorMessage, signInWithPopupFlow } from '../utils/authUtils';
 // eslint-disable-next-line no-unused-vars
 import { motion, useScroll, useTransform } from 'framer-motion';
 
@@ -57,7 +61,10 @@ const resetStorefrontWelcomeAccess = (lastSeenKey, legacyDismissedKey) => {
 
 export default function Home() {
   const { isDarkMode } = useTheme();
-  const { shippingSettings, isLoading, user, isAnonymousUser, setToastMessage } = useStore();
+  const {
+    shippingSettings, isLoading, user, isAnonymousUser, setToastMessage,
+    appLockdown, isAdmin, beginAuthAttempt, setAuthAttemptStatus, failAuthAttempt
+  } = useStore();
   const location = useLocation();
   const containerRef = useRef(null);
   const isHome = location.pathname === '/';
@@ -71,6 +78,9 @@ export default function Home() {
     return !lastSeenAt || Date.now() - lastSeenAt >= STOREFRONT_WELCOME_COOLDOWN_MS;
   });
   const previousAuthRef = useRef({ user, isAnonymousUser });
+  const isLockedForVisitor = appLockdown?.[APP_CONFIG.id] === true && !isAdmin;
+  const [isSigningIn, setIsSigningIn] = useState(false);
+  const [authError, setAuthError] = useState('');
   
   const paymentSettings = shippingSettings?.paymentSettings;
   const maintenanceInvalidTypes = paymentSettings?.maintenanceInvalidTypes || {};
@@ -178,6 +188,35 @@ export default function Home() {
     setToastMessage(user && !isAnonymousUser ? 'Welcome back!' : 'Welcome guest!');
   };
 
+  const handleGoogleSignIn = async () => {
+    if (isSigningIn) return;
+    const authAttemptId = beginAuthAttempt(() => handleGoogleSignIn());
+    setIsSigningIn(true);
+    setAuthError('');
+    try {
+      if (auth.currentUser) await signOut(auth);
+      await signInWithPopupFlow(auth, googleProvider);
+      setAuthAttemptStatus(authAttemptId, 'Syncing Profile');
+    } catch (error) {
+      setAuthError(getReadableAuthErrorMessage(error));
+      failAuthAttempt(authAttemptId, error);
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isHome && isLockedForVisitor) setIsStorefrontWelcomeOpen(true);
+  }, [isHome, isLockedForVisitor]);
+
+  useEffect(() => {
+    if (isHome && isStorefrontWelcomeOpen && appLockdown?.[APP_CONFIG.id] === true && isAdmin) {
+      setIsStorefrontWelcomeOpen(false);
+      rememberStorefrontWelcomeAccess(storefrontWelcomeLastSeenKey, storefrontWelcomeDismissedKey);
+      setToastMessage('Welcome back!');
+    }
+  }, [appLockdown, isAdmin, isHome, isStorefrontWelcomeOpen, setToastMessage, storefrontWelcomeDismissedKey, storefrontWelcomeLastSeenKey]);
+
   const storefrontContent = (
     <section aria-label="Storefront">
       <Kits embedded />
@@ -244,13 +283,29 @@ export default function Home() {
               {storefrontWelcomeContent}
             </div>
             <div className="flex shrink-0 justify-center p-4 sm:p-5">
-              <button
-                type="button"
-                onClick={handleCloseStorefrontWelcome}
-                className="inline-flex min-w-48 items-center justify-center rounded-full bg-blue-600 px-8 py-3 text-xs font-black uppercase tracking-[0.18em] text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-[#0a0a0a]"
-              >
-                Explore Now
-              </button>
+              {isLockedForVisitor ? (
+                <div className="flex flex-col items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleGoogleSignIn}
+                    disabled={isSigningIn}
+                    className="inline-flex min-w-56 items-center justify-center gap-3 rounded-full bg-blue-600 px-8 py-3 text-xs font-black uppercase tracking-[0.18em] text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-500 disabled:cursor-wait disabled:opacity-60"
+                  >
+                    <FcGoogle size={18} />
+                    {isSigningIn ? 'Checking access...' : 'Sign in with Google'}
+                  </button>
+                  {authError && <p className="max-w-md text-xs font-bold text-red-500">{authError}</p>}
+                  {user && !isAnonymousUser && !isAdmin && !isSigningIn && <p className="text-xs font-bold text-amber-600">This Google account is not an administrator.</p>}
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleCloseStorefrontWelcome}
+                  className="inline-flex min-w-48 items-center justify-center rounded-full bg-blue-600 px-8 py-3 text-xs font-black uppercase tracking-[0.18em] text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-[#0a0a0a]"
+                >
+                  Explore Now
+                </button>
+              )}
             </div>
           </div>
         </div>

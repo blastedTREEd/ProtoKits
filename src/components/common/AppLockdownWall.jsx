@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { signOut } from 'firebase/auth';
 import { FcGoogle } from 'react-icons/fc';
 import { auth, googleProvider } from '../../firebase/firebase';
@@ -7,6 +8,7 @@ import { useStore } from '../../store/useStore';
 import { getReadableAuthErrorMessage, signInWithPopupFlow } from '../../utils/authUtils';
 
 export default function AppLockdownWall() {
+  const location = useLocation();
   const { appLockdown, isAdmin, user, isAnonymousUser, isSyncing, syncStatus, beginAuthAttempt, setAuthAttemptStatus, failAuthAttempt } = useStore();
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [authError, setAuthError] = useState('');
@@ -18,7 +20,9 @@ export default function AppLockdownWall() {
     return undefined;
   }, [isAdmin, isAnonymousUser, isLocked, isSyncing, syncStatus, user]);
 
-  if (!isLocked || isAdmin) return null;
+  // The landing welcome hero owns the lockdown sign-in action. Keep this wall
+  // for direct visits to internal routes, where there is no hero CTA.
+  if (!isLocked || isAdmin || location.pathname === '/') return null;
 
   const handleGoogleSignIn = async () => {
     if (isSigningIn) return;
