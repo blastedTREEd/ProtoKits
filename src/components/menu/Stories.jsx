@@ -1,5 +1,5 @@
 import { createPortal } from 'react-dom';
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { X, ChevronLeft, ChevronRight, MapPin, Pause, Play } from 'lucide-react';
 import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
@@ -88,6 +88,7 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
 
   // Preview modal state
   const [activeStoryIndex, setActiveStoryIndex] = useState(null);
+  const [activeStoryFallback, setActiveStoryFallback] = useState(null);
   const [isStoryPaused, setIsStoryPaused] = useState(false);
   const [syncingStoryCount, setSyncingStoryCount] = useState(() => (
     getStoryCardCount(window.innerWidth)
@@ -123,17 +124,6 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Close story preview when profile modal opens on mobile
-  useEffect(() => {
-    const handleProfileOpen = () => setActiveStoryIndex(null);
-    window.addEventListener('profileFullscreenOpen', handleProfileOpen);
-    window.addEventListener('notificationFullscreenOpen', handleProfileOpen);
-    return () => {
-      window.removeEventListener('profileFullscreenOpen', handleProfileOpen);
-      window.removeEventListener('notificationFullscreenOpen', handleProfileOpen);
-    };
-  }, []);
-
   // Filter out draft stories for non-admin viewers
   const activeStories = React.useMemo(() => {
     const incomingStories = (stories || []).filter((story) => (
@@ -149,6 +139,26 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
     activeStoryOrderRef.current = orderedStories.map((story) => story.id);
     return orderedStories;
   }, [stories]);
+  const activeStoriesRef = useRef(activeStories);
+  useLayoutEffect(() => {
+    activeStoriesRef.current = activeStories;
+  }, [activeStories]);
+
+  const closeStory = useCallback(() => {
+    setActiveStoryIndex(null);
+    setActiveStoryFallback(null);
+  }, []);
+
+  // Close story preview when profile modal opens on mobile
+  useEffect(() => {
+    const handleProfileOpen = closeStory;
+    window.addEventListener('profileFullscreenOpen', handleProfileOpen);
+    window.addEventListener('notificationFullscreenOpen', handleProfileOpen);
+    return () => {
+      window.removeEventListener('profileFullscreenOpen', handleProfileOpen);
+      window.removeEventListener('notificationFullscreenOpen', handleProfileOpen);
+    };
+  }, [closeStory]);
 
   const getTimestamp = useCallback((value) => {
     if (!value) return 0;
@@ -340,23 +350,37 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
   // Open a story directly when a highlight tile is selected in the homepage grid.
   useEffect(() => {
     const handleHighlightOpen = (event) => {
-      const storyId = event.detail?.storyId;
-      const storyIndex = activeStories.findIndex((story) => story.id === storyId);
-      if (storyIndex !== -1) setActiveStoryIndex(storyIndex);
+      const { storyId, story: requestedStory } = event.detail || {};
+      const targetId = storyId ?? requestedStory?.id;
+      const storyIndex = activeStoriesRef.current.findIndex((story) => (
+        String(story.id) === String(targetId)
+      ));
+
+      if (storyIndex !== -1) {
+        setActiveStoryFallback(null);
+        setActiveStoryIndex(storyIndex);
+      } else if (requestedStory && !requestedStory.isDraft) {
+        // If the two published-story lists differ during a store refresh,
+        // still open the exact card the visitor selected.
+        setActiveStoryFallback(requestedStory);
+        setActiveStoryIndex(null);
+      }
     };
 
     window.addEventListener('openStoryHighlight', handleHighlightOpen);
     return () => window.removeEventListener('openStoryHighlight', handleHighlightOpen);
-  }, [activeStories]);
+  }, []);
 
   // Preview navigation handlers — operate on active stories (real published data only)
   const handlePrev = useCallback(() => {
     if (activeStories.length === 0) return;
+    setActiveStoryFallback(null);
     setActiveStoryIndex((prev) => (prev <= 0 ? activeStories.length - 1 : prev - 1));
   }, [activeStories]);
 
   const handleNext = useCallback(() => {
     if (activeStories.length === 0) return;
+    setActiveStoryFallback(null);
     setActiveStoryIndex((prev) => (prev >= activeStories.length - 1 ? 0 : prev + 1));
   }, [activeStories]);
 
@@ -395,13 +419,14 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
   useEffect(() => {
     const handleKey = (e) => {
       if (activeStoryIndex === null) return;
-      if (e.key === 'Escape') setActiveStoryIndex(null);
+      if (activeStoryIndex === null && !activeStoryFallback) return;
+      if (e.key === 'Escape') closeStory();
       if (e.key === 'ArrowRight') handleNext();
       if (e.key === 'ArrowLeft') handlePrev();
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [activeStoryIndex, handleNext, handlePrev]);
+  }, [activeStoryFallback, activeStoryIndex, closeStory, handleNext, handlePrev]);
 
   // 1. DYNAMIC DATA LOGIC:
   // Kung may laman na ang stories (from DB), yun ang gamitin.
@@ -436,7 +461,10 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
     if (!item || item.type === 'loading') return;
     if (item.type === 'story') {
       const realIndex = activeStories.findIndex((story) => story.id === item.targetId);
-      if (realIndex !== -1) setActiveStoryIndex(realIndex);
+      if (realIndex !== -1) {
+        setActiveStoryFallback(null);
+        setActiveStoryIndex(realIndex);
+      }
       return;
     }
     if (item.type === 'kit' && item.targetId) {
@@ -448,7 +476,8 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
     }
   };
 
-  const activeStory = (activeStoryIndex !== null && activeStories.length > 0) ? activeStories[activeStoryIndex] : null;
+  const activeStory = activeStoryFallback
+    || ((activeStoryIndex !== null && activeStories.length > 0) ? activeStories[activeStoryIndex] : null);
 
   return (
     <>
@@ -521,16 +550,17 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
       </div>}
 
       {/* ====== STORY PREVIEW MODAL ====== */}
-      <AnimatePresence>
-        {activeStory && createPortal(
-          <div className="fixed inset-0 z-[10000] flex items-center justify-center">
+      {createPortal(
+        <AnimatePresence>
+          {activeStory && (
+          <div key={String(activeStory.id)} className="fixed inset-0 z-[10000] flex items-center justify-center">
             {/* Backdrop */}
             <Motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className="absolute inset-0 bg-neutral-900/35 backdrop-blur-xl dark:bg-black/80"
-              onClick={() => setActiveStoryIndex(null)}
+              onClick={closeStory}
             />
 
             {/* Story Content */}
@@ -664,7 +694,7 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
                 {/* Sticky close control stays pinned to the story card's upper-right corner. */}
                 <button
                   type="button"
-                  onClick={(e) => { e.stopPropagation(); setActiveStoryIndex(null); }}
+                  onClick={(e) => { e.stopPropagation(); closeStory(); }}
                   className="absolute right-5 top-5 z-40 flex h-10 w-10 items-center justify-center rounded-full border border-white/50 bg-black/25 p-0 text-white shadow-lg backdrop-blur-md transition-all hover:scale-105 hover:bg-black/50 focus:outline-none focus:ring-2 focus:ring-white/80"
                   aria-label="Close story"
                 >
@@ -684,7 +714,7 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
                 {activeStories.map((_, idx) => (
                   <button 
                     key={idx}
-                    onClick={(e) => { e.stopPropagation(); setActiveStoryIndex(idx); }}
+                    onClick={(e) => { e.stopPropagation(); setActiveStoryFallback(null); setActiveStoryIndex(idx); }}
                     className={`h-1 flex-1 rounded-full transition-all duration-300 cursor-pointer hover:h-1.5 ${idx === activeStoryIndex ? 'bg-white md:bg-garage-blue' : 'bg-white/20 hover:bg-white/40 md:bg-neutral-200 md:hover:bg-neutral-300 md:dark:bg-white/20 md:dark:hover:bg-white/40'}`}
                   />
                 ))}
@@ -722,10 +752,11 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
                 <ChevronRight size={20} strokeWidth={2.5} />
               </button>
             </div>
-          </div>,
-          document.body
-        )}
-      </AnimatePresence>
+          </div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
     </>
   );
 }
