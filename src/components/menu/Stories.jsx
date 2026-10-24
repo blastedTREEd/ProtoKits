@@ -676,6 +676,13 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
                     src={brandLogoSrc}
                     alt="Brand logo"
                     className="h-10 w-10 shrink-0 rounded-full border border-white/50 object-cover"
+                    onLoad={(event) => {
+                      const image = event.currentTarget;
+                      if (image.currentSrc.includes('graph.facebook.com') && image.naturalWidth !== image.naturalHeight) {
+                        image.onerror = null;
+                        image.src = '/facebook-page-fallback.png';
+                      }
+                    }}
                     onError={(event) => {
                       event.currentTarget.onerror = null;
                       event.currentTarget.src = '/facebook-page-fallback.png';

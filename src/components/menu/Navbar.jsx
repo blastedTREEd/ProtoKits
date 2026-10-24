@@ -971,6 +971,7 @@ return (
                   <img
                     src={displayImg}
                     alt="Logo"
+                    onLoad={(event) => { const image = event.currentTarget; if (image.currentSrc.includes('graph.facebook.com') && image.naturalWidth !== image.naturalHeight) setImgError(true); }}
                     onError={() => setImgError(true)}
                     className={`w-full h-full ${isFallbackLogo ? 'object-contain' : 'object-cover'} transition-all duration-500`}
                   />
@@ -1004,6 +1005,7 @@ return (
                   <img
                     src={displayImg}
                     alt="Logo"
+                    onLoad={(event) => { const image = event.currentTarget; if (image.currentSrc.includes('graph.facebook.com') && image.naturalWidth !== image.naturalHeight) setImgError(true); }}
                     onError={() => setImgError(true)}
                     className={`w-full h-full ${isFallbackLogo ? 'object-contain' : 'object-cover'} transition-all duration-500`}
                   />
