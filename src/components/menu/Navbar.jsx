@@ -877,7 +877,7 @@ const specs = {
 
 const isFallbackLogo = !garageInfo?.fbPageId || imgError;
 const displayImg = isFallbackLogo
-  ? (imgError ? '/snorlaxgarage.png' : (garageInfo?.logoURL || '/snorlaxgarage.png'))
+  ? (imgError ? '/facebook-page-fallback.png' : (garageInfo?.logoURL || '/facebook-page-fallback.png'))
   : `https://graph.facebook.com/${garageInfo.fbPageId}/picture?type=large`;
 
 const getPageTitle = () => {

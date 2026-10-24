@@ -7,7 +7,7 @@ import { Home } from 'lucide-react';
 export default function NotFound() {
   const { isDarkMode } = useTheme();
   const garageInfo = useStore((s) => s.garageInfo);
-  const logoURL = garageInfo?.logoURL || "https://graph.facebook.com/SnorlaxGarage/picture?type=large";
+  const logoURL = garageInfo?.logoURL || '/facebook-page-fallback.png';
 
   return (
     <div className={`min-h-screen flex flex-col items-center justify-center px-6 ${isDarkMode ? 'bg-[#0a0a0a] text-white' : 'bg-white text-neutral-900'}`}>
@@ -21,7 +21,7 @@ export default function NotFound() {
                 src={logoURL}
                 alt="SnorlaxGarage Logo"
                 className="w-full h-full object-cover"
-                onError={(e) => { e.target.style.display = 'none'; }}
+                onError={(e) => { e.currentTarget.src = '/facebook-page-fallback.png'; }}
               />
             </div>
           </div>

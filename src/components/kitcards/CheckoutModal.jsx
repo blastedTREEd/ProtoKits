@@ -3499,7 +3499,7 @@ const handleFinalizeOrder = async () => {
     if (checkoutStep !== 2) return '';
     if (checkoutData.paymentMethod === 'Cash' && !isOrderInvalidForMaintenance) return '';
     if (isOrderInvalidForMaintenance) {
-      return garageInfo?.logoURL || "https://graph.facebook.com/SnorlaxGarage/picture?type=large";
+      return garageInfo?.logoURL || '/facebook-page-fallback.png';
     }
     return getPaymentMethodConfig(storeAdmin?.paymentSettings?.methods, checkoutData.paymentMethod).qr || '';
   }, [checkoutStep, checkoutData.paymentMethod, garageInfo?.logoURL, isOrderInvalidForMaintenance, storeAdmin?.paymentSettings?.methods]);

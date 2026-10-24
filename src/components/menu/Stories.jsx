@@ -69,7 +69,7 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
   const { stories, isAdmin, isAdminView, setStoriesHeight, garageInfo } = useStore();
   const brandLogoSrc = garageInfo?.fbPageId
     ? `https://graph.facebook.com/${garageInfo.fbPageId}/picture?type=large`
-    : (garageInfo?.logoURL || '/snorlaxgarage.png');
+    : (garageInfo?.logoURL || '/facebook-page-fallback.png');
   const kits = useStore((state) => (
     state._activePath === '/'
       ? (state.homeKits || [])
@@ -678,7 +678,7 @@ export default function Stories({ isCompact, hideImmediately = false, hideAnimat
                     className="h-10 w-10 shrink-0 rounded-full border border-white/50 object-cover"
                     onError={(event) => {
                       event.currentTarget.onerror = null;
-                      event.currentTarget.src = garageInfo?.logoURL || '/snorlaxgarage.png';
+                      event.currentTarget.src = '/facebook-page-fallback.png';
                     }}
                   />
                   <div className="min-w-0 flex-1">

@@ -2768,7 +2768,7 @@ export default function Orders() {
   const showPaymentQr = Boolean(selectedOrder && selectedTotals.balance > 0 && (isSelectedResOrPartial ? true : (!isAdminMode && !selectedOrder.receipt)));
   // isMaintenanceOrder is stored on the order itself — stays true even after maintenance is lifted
   const isOrderFromMaintenance = Boolean(selectedOrder?.isMaintenanceOrder);
-  const brandLogoUrl = garageInfo?.logoURL || "https://graph.facebook.com/SnorlaxGarage/picture?type=large";
+  const brandLogoUrl = garageInfo?.logoURL || '/facebook-page-fallback.png';
   const selectedMethodQr = getMethodQr(selectedOrder?.paymentMethod);
   const qrImageSrc = isOrderFromMaintenance ? brandLogoUrl : selectedMethodQr;
   const showQrContainer = showPaymentQr && (selectedOrder?.paymentMethod !== 'Cash' || isOrderFromMaintenance) && qrImageSrc;
