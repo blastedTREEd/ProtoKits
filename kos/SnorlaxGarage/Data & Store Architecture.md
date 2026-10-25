@@ -1,5 +1,17 @@
 # 🗄️ Data & Store Architecture
 
+### Firebase subscription and cache review (2026-10-25)
+
+Reviewed the app's Firestore initialization and live subscription ownership for read cost, cache reuse, and cleanup.
+
+- `src/firebase/firebase.js` configures a 40 MiB persistent IndexedDB cache and `persistentMultipleTabManager()`. The cache is already enabled across reloads and tabs; no second application-level cache is needed for Firestore documents.
+- Public catalog/home listeners use bounded landing-page queries where applicable, while full catalog and print data are opened for the routes/features that need them. Shared admin/order/notification subscriptions use reference counts and unsubscribe when the last consumer leaves.
+- User profile, basket, project vault, and offers use user-scoped documents or queries. The general users/admins collection listeners are used by admin workflows; they are intentionally broad today and should be paginated or replaced with an admin summary/read model if those collections grow materially.
+- Listener callbacks are the live source for Zustand state. Prefer reusing those snapshots over issuing another `getDocs` for the same dataset, and preserve unsubscribe cleanup when adding a route or modal.
+- No cache-size or persistence change was indicated by this review. Monitor Firestore usage in Firebase Console and revisit the broad admin reads as account and order counts grow.
+
+The sibling `loan-app` workspace is not a Firebase app and has no Firestore listeners to tune.
+
 Snorlax Garage organizes its application state and real-time synchronization pipelines through a centralized Zustand store integrated with Firebase Firestore.
 
 ---
