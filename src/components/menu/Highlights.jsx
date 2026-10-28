@@ -141,8 +141,10 @@ export default function Highlights() {
     setSelectedStoryIds(new Set());
   };
 
-  const handleOpenHighlight = (storyId) => {
-    window.dispatchEvent(new CustomEvent('openStoryHighlight', { detail: { storyId } }));
+  const handleOpenHighlight = (story) => {
+    window.dispatchEvent(new CustomEvent('openStoryHighlight', {
+      detail: { storyId: story.id, story }
+    }));
   };
 
   const handleEditHighlight = (event, story) => {
@@ -296,7 +298,7 @@ export default function Highlights() {
                           } else if (isDraftView) {
                             handleEditHighlight(event, story);
                           } else {
-                            handleOpenHighlight(story.id);
+                            handleOpenHighlight(story);
                           }
                         }}
                         className="absolute inset-0 z-10 h-full w-full text-left"

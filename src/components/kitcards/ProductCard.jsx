@@ -1216,7 +1216,7 @@ export default function ProductCard({ kit: cardKit, onBuyNowClick, onDealCheckou
   }, [isModalOpen]);
 
   useEffect(() => {
-    if (!homePreview) return undefined;
+    if (!homePreview || !isModalOpen) return undefined;
 
     window.dispatchEvent(new CustomEvent('highlightModalStateChange', {
       detail: { open: isModalOpen }

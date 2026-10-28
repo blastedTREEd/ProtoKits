@@ -633,6 +633,7 @@ export default function BundleHighlights() {
   const renderFillerCard = (card, visibilityClass) => {
     const isProject = card.type === 'project';
     const item = isProject ? card.project : card.kit;
+    const cardKey = isProject ? card.id : `kit:${item?.id}`;
     const previewKit = item;
     const isPrintedProject = isProject && card.projectType === 'printed';
     const itemName = isPrintedProject
@@ -642,7 +643,7 @@ export default function BundleHighlights() {
         : (item?.name || 'Untitled Kit');
 
     return (
-      <div key={card.id} className={`${visibilityClass} carousel-row-card relative shrink-0 rounded-[1.5rem]`}>
+      <div key={cardKey} className={`${visibilityClass} carousel-row-card relative shrink-0 rounded-[1.5rem]`}>
         {isProject ? (
           <ProjectCard
             project={item}
@@ -719,7 +720,7 @@ export default function BundleHighlights() {
         {!isLoadingBundles && displayCards.length === 0 && (
           <div className="flex min-h-64 flex-col items-center justify-center rounded-3xl border border-dashed border-black/10 bg-white/70 px-6 text-center dark:border-white/10 dark:bg-white/[0.03]">
             <ImageIcon className="mb-4 text-garage-blue" size={26} />
-            <p className="text-sm font-black uppercase tracking-[0.18em] text-neutral-900 dark:text-white">Bundle deals are loading in</p>
+            <p className="text-sm font-black uppercase tracking-[0.18em] text-neutral-900 dark:text-white">No highlights available right now</p>
           </div>
         )}
       </div>
